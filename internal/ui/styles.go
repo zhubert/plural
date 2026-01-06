@@ -156,3 +156,64 @@ var (
 		Foreground(ColorWarning).
 		Bold(true)
 )
+
+// Markdown rendering styles
+var (
+	// Headers
+	MarkdownH1Style = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#A78BFA")). // Light purple
+		MarginTop(1)
+
+	MarkdownH2Style = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#818CF8")). // Indigo
+		MarginTop(1)
+
+	MarkdownH3Style = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#60A5FA")) // Blue
+
+	MarkdownH4Style = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorTextMuted)
+
+	// Inline styles
+	MarkdownBoldStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorText)
+
+	MarkdownItalicStyle = lipgloss.NewStyle().
+		Italic(true).
+		Foreground(ColorText)
+
+	MarkdownInlineCodeStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#F472B6")). // Pink
+		Background(lipgloss.Color("#1E1E2E"))  // Dark background
+
+	// Code block
+	MarkdownCodeBlockStyle = lipgloss.NewStyle().
+		Background(lipgloss.Color("#1E1E2E")) // Dark background
+
+	// List
+	MarkdownListBulletStyle = lipgloss.NewStyle().
+		Foreground(ColorSecondary)
+
+	// Blockquote
+	MarkdownBlockquoteStyle = lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Italic(true).
+		BorderLeft(true).
+		BorderStyle(lipgloss.ThickBorder()).
+		BorderForeground(ColorMuted).
+		PaddingLeft(1)
+
+	// Horizontal rule
+	MarkdownHRStyle = lipgloss.NewStyle().
+		Foreground(ColorBorder)
+
+	// Link
+	MarkdownLinkStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#60A5FA")). // Blue
+		Underline(true)
+)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/rand"
+	"regexp"
 	"strings"
 	"time"
 
@@ -17,6 +18,15 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/logger"
+)
+
+// Compiled regex patterns for markdown parsing
+var (
+	boldPattern       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	italicPattern     = regexp.MustCompile(`(?:^|[^*])\*([^*]+)\*(?:[^*]|$)`)
+	underscoreItalic  = regexp.MustCompile(`_([^_]+)_`)
+	inlineCodePattern = regexp.MustCompile("`([^`]+)`")
+	linkPattern       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 )
 
 // StopwatchTickMsg is sent to update the stopwatch display
@@ -371,6 +381,109 @@ func highlightCode(code, language string) string {
 	return buf.String()
 }
 
+// renderInlineMarkdown applies inline formatting (bold, italic, code, links) to a line
+func renderInlineMarkdown(line string) string {
+	// Process inline code first (to avoid formatting inside code)
+	// We need to protect code spans from other formatting
+	type codeSpan struct {
+		placeholder string
+		original    string
+		rendered    string
+	}
+	var codeSpans []codeSpan
+	codeIdx := 0
+
+	// Extract and replace inline code with placeholders
+	line = inlineCodePattern.ReplaceAllStringFunc(line, func(match string) string {
+		code := inlineCodePattern.FindStringSubmatch(match)[1]
+		placeholder := fmt.Sprintf("\x00CODE%d\x00", codeIdx)
+		codeSpans = append(codeSpans, codeSpan{
+			placeholder: placeholder,
+			original:    match,
+			rendered:    MarkdownInlineCodeStyle.Render(code),
+		})
+		codeIdx++
+		return placeholder
+	})
+
+	// Process bold (**text**)
+	line = boldPattern.ReplaceAllStringFunc(line, func(match string) string {
+		text := boldPattern.FindStringSubmatch(match)[1]
+		return MarkdownBoldStyle.Render(text)
+	})
+
+	// Process italic with underscores (_text_)
+	line = underscoreItalic.ReplaceAllStringFunc(line, func(match string) string {
+		text := underscoreItalic.FindStringSubmatch(match)[1]
+		return MarkdownItalicStyle.Render(text)
+	})
+
+	// Process links [text](url)
+	line = linkPattern.ReplaceAllStringFunc(line, func(match string) string {
+		parts := linkPattern.FindStringSubmatch(match)
+		text := parts[1]
+		url := parts[2]
+		return MarkdownLinkStyle.Render(text) + " (" + MarkdownLinkStyle.Render(url) + ")"
+	})
+
+	// Restore code spans
+	for _, cs := range codeSpans {
+		line = strings.Replace(line, cs.placeholder, cs.rendered, 1)
+	}
+
+	return line
+}
+
+// renderMarkdownLine renders a single line with markdown formatting
+func renderMarkdownLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+
+	// Headers
+	if strings.HasPrefix(trimmed, "#### ") {
+		return MarkdownH4Style.Render(strings.TrimPrefix(trimmed, "#### "))
+	}
+	if strings.HasPrefix(trimmed, "### ") {
+		return MarkdownH3Style.Render(strings.TrimPrefix(trimmed, "### "))
+	}
+	if strings.HasPrefix(trimmed, "## ") {
+		return MarkdownH2Style.Render(strings.TrimPrefix(trimmed, "## "))
+	}
+	if strings.HasPrefix(trimmed, "# ") {
+		return MarkdownH1Style.Render(strings.TrimPrefix(trimmed, "# "))
+	}
+
+	// Horizontal rule
+	if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+		return MarkdownHRStyle.Render("────────────────────────────────")
+	}
+
+	// Blockquote
+	if strings.HasPrefix(trimmed, "> ") {
+		content := strings.TrimPrefix(trimmed, "> ")
+		return MarkdownBlockquoteStyle.Render(renderInlineMarkdown(content))
+	}
+
+	// Unordered list items
+	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
+		content := trimmed[2:]
+		bullet := MarkdownListBulletStyle.Render("•")
+		return "  " + bullet + " " + renderInlineMarkdown(content)
+	}
+
+	// Numbered list items
+	for i := 1; i <= 99; i++ {
+		prefix := fmt.Sprintf("%d. ", i)
+		if strings.HasPrefix(trimmed, prefix) {
+			content := strings.TrimPrefix(trimmed, prefix)
+			number := MarkdownListBulletStyle.Render(fmt.Sprintf("%d.", i))
+			return "  " + number + " " + renderInlineMarkdown(content)
+		}
+	}
+
+	// Regular line with inline formatting
+	return renderInlineMarkdown(line)
+}
+
 // renderMarkdown renders markdown content with syntax-highlighted code blocks
 func renderMarkdown(content string, width int) string {
 	if width <= 0 {
@@ -396,7 +509,12 @@ func renderMarkdown(content string, width int) string {
 				// Ending a code block - render with syntax highlighting
 				inCodeBlock = false
 				highlighted := highlightCode(codeBlockContent.String(), codeBlockLang)
+				// Add a newline before and after code blocks for spacing
+				if result.Len() > 0 {
+					result.WriteString("\n")
+				}
 				result.WriteString(highlighted)
+				result.WriteString("\n")
 				codeBlockLang = ""
 			}
 			continue
@@ -408,7 +526,8 @@ func renderMarkdown(content string, width int) string {
 			}
 			codeBlockContent.WriteString(line)
 		} else {
-			result.WriteString(line)
+			// Render markdown line
+			result.WriteString(renderMarkdownLine(line))
 			result.WriteString("\n")
 		}
 	}
