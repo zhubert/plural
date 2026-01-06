@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -10,6 +11,10 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/logger"
 )
@@ -335,6 +340,88 @@ func formatElapsed(d time.Duration) string {
 	return fmt.Sprintf("%d:%02d", mins, secs)
 }
 
+// highlightCode applies syntax highlighting to code using chroma
+func highlightCode(code, language string) string {
+	lexer := lexers.Get(language)
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	style := styles.Get("monokai")
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	formatter := formatters.Get("terminal256")
+	if formatter == nil {
+		formatter = formatters.Fallback
+	}
+
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return code
+	}
+
+	var buf bytes.Buffer
+	if err := formatter.Format(&buf, style, iterator); err != nil {
+		return code
+	}
+
+	return buf.String()
+}
+
+// renderMarkdown renders markdown content with syntax-highlighted code blocks
+func renderMarkdown(content string, width int) string {
+	if width <= 0 {
+		width = DefaultWrapWidth
+	}
+
+	var result strings.Builder
+	lines := strings.Split(content, "\n")
+	inCodeBlock := false
+	codeBlockLang := ""
+	var codeBlockContent strings.Builder
+
+	for _, line := range lines {
+		// Check for code block start/end
+		if strings.HasPrefix(line, "```") {
+			if !inCodeBlock {
+				// Starting a code block
+				inCodeBlock = true
+				codeBlockLang = strings.TrimPrefix(line, "```")
+				codeBlockLang = strings.TrimSpace(codeBlockLang)
+				codeBlockContent.Reset()
+			} else {
+				// Ending a code block - render with syntax highlighting
+				inCodeBlock = false
+				highlighted := highlightCode(codeBlockContent.String(), codeBlockLang)
+				result.WriteString(highlighted)
+				codeBlockLang = ""
+			}
+			continue
+		}
+
+		if inCodeBlock {
+			if codeBlockContent.Len() > 0 {
+				codeBlockContent.WriteString("\n")
+			}
+			codeBlockContent.WriteString(line)
+		} else {
+			result.WriteString(line)
+			result.WriteString("\n")
+		}
+	}
+
+	// If we ended while still in a code block, output whatever we have
+	if inCodeBlock {
+		highlighted := highlightCode(codeBlockContent.String(), codeBlockLang)
+		result.WriteString(highlighted)
+	}
+
+	return strings.TrimRight(result.String(), "\n")
+}
+
 func (c *Chat) updateContent() {
 	var sb strings.Builder
 
@@ -343,9 +430,6 @@ func (c *Chat) updateContent() {
 	if wrapWidth <= 0 {
 		wrapWidth = DefaultWrapWidth
 	}
-
-	// Style for wrapping message content
-	wrapStyle := ChatMessageStyle.Width(wrapWidth)
 
 	if !c.hasSession {
 		sb.WriteString(c.renderNoSessionMessage())
@@ -372,7 +456,8 @@ func (c *Chat) updateContent() {
 
 			sb.WriteString(roleStyle.Render(roleName + ":"))
 			sb.WriteString("\n")
-			sb.WriteString(wrapStyle.Render(strings.TrimSpace(msg.Content)))
+			// Render markdown content
+			sb.WriteString(renderMarkdown(strings.TrimSpace(msg.Content), wrapWidth))
 		}
 
 		// Show streaming content or waiting indicator with stopwatch
@@ -382,7 +467,8 @@ func (c *Chat) updateContent() {
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(wrapStyle.Render(strings.TrimSpace(c.streaming)))
+			// Render markdown for streaming content
+			sb.WriteString(renderMarkdown(strings.TrimSpace(c.streaming), wrapWidth))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
