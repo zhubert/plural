@@ -81,8 +81,8 @@ func (c *Chat) SetSize(width, height int) {
 	c.viewport.SetWidth(innerWidth)
 	c.viewport.SetHeight(viewportHeight)
 
-	// Input width accounts for its own border
-	inputInnerWidth := ctx.InnerWidth(width)
+	// Input width accounts for its own border AND padding
+	inputInnerWidth := ctx.InnerWidth(width) - InputPaddingWidth
 	c.input.SetWidth(inputInnerWidth)
 
 	ctx.Log("Chat.SetSize: outer=%dx%d, chatPanel=%d, input=%d", width, height, chatPanelHeight, InputTotalHeight)

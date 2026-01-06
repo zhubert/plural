@@ -21,6 +21,9 @@ const (
 	// TextareaBorderHeight is the border size around the textarea
 	TextareaBorderHeight = 2
 
+	// InputPaddingWidth is the horizontal padding inside the input area (Padding(0, 1) = 1 left + 1 right)
+	InputPaddingWidth = 2
+
 	// InputTotalHeight is the total height of the input area (textarea + borders)
 	InputTotalHeight = TextareaHeight + TextareaBorderHeight
 
