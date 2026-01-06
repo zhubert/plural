@@ -65,9 +65,6 @@ tail -f /tmp/plural-mcp-*.log
 - **internal/config** - Persists repos, sessions, allowed tools, and conversation history
   - `config.go` - Configuration management with validation
   - `config_test.go` - Comprehensive test suite
-- **internal/errors** - Structured error types for better error handling
-  - `errors.go` - Error types with Op, Kind, and context
-  - `errors_test.go` - Test suite
 - **internal/git** - Git operations for merge/PR workflow and change tracking
   - `git.go` - Git operations: HasRemoteOrigin, GetWorktreeStatus, CommitAll, GenerateCommitMessage, MergeToMain, CreatePR
   - `git_test.go` - Test suite
@@ -120,12 +117,10 @@ The app uses an explicit state machine (`AppState`) to manage async operations:
 ```
 StateIdle            - Ready for user input
 StateStreamingClaude - Receiving Claude response
-StateStreamingMerge  - Receiving merge/PR output
 ```
 
 State transitions are logged to `/tmp/plural-debug.log` for debugging. Helper methods:
 - `IsIdle()` - Check if ready for input
-- `IsStreaming()` - Check if any streaming operation is active
 - `CanSendMessage()` - Check if user can send a new message (per-session: checks `sessionWaitStart`)
 - `setState(newState)` - Transition to new state with logging
 
@@ -186,13 +181,6 @@ Layout constants are centralized in `internal/ui/constants.go`:
 - `TextareaHeight`: 3 lines for input
 - `MaxSessionMessageLines`: 100 lines kept in history (in config package)
 - `PermissionTimeout`: 5 minutes for permission responses
-
-### Error Handling
-
-Structured errors are defined in `internal/errors/errors.go`:
-- Error types include Op (operation), Kind (category), and context
-- Kinds: NotFound, Invalid, Permission, IO, Network, Config, Git, Claude, Timeout
-- Helper functions for common errors (SessionNotFound, ConfigLoadFailed, etc.)
 
 ### CLI Prerequisites
 

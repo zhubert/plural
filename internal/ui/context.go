@@ -70,16 +70,6 @@ func (v *ViewContext) UpdateTerminalSize(width, height int) {
 	v.Log("  ChatWidth: %d", v.ChatWidth)
 }
 
-// BorderSizeValue returns the space taken by borders (1 on each side = 2 total per axis)
-func (v *ViewContext) BorderSizeValue() int {
-	return BorderSize
-}
-
-// PanelPadding returns the padding inside panels
-func (v *ViewContext) PanelPadding() int {
-	return 0 // Current styles have no padding, just borders
-}
-
 // InnerWidth returns the usable width inside a panel with borders
 func (v *ViewContext) InnerWidth(panelWidth int) int {
 	return panelWidth - BorderSize

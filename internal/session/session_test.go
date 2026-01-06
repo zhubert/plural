@@ -57,7 +57,7 @@ func createTestRepo(t *testing.T) string {
 
 // cleanupWorktrees removes worktrees created during testing
 func cleanupWorktrees(repoPath string) {
-	worktreeDir := GetWorktreeDir(repoPath)
+	worktreeDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
 	os.RemoveAll(worktreeDir)
 
 	// Also prune the worktree references from git
@@ -197,26 +197,6 @@ func TestValidateRepo_NonexistentPath(t *testing.T) {
 	err := ValidateRepo("/nonexistent/path/to/repo")
 	if err == nil {
 		t.Error("ValidateRepo should fail for nonexistent path")
-	}
-}
-
-func TestGetWorktreeDir(t *testing.T) {
-	tests := []struct {
-		repoPath string
-		expected string
-	}{
-		{"/home/user/projects/myrepo", "/home/user/projects/.plural-worktrees"},
-		{"/var/repos/test", "/var/repos/.plural-worktrees"},
-		{"/Users/dev/Code/project", "/Users/dev/Code/.plural-worktrees"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.repoPath, func(t *testing.T) {
-			result := GetWorktreeDir(tt.repoPath)
-			if result != tt.expected {
-				t.Errorf("GetWorktreeDir(%q) = %q, want %q", tt.repoPath, result, tt.expected)
-			}
-		})
 	}
 }
 
@@ -369,7 +349,7 @@ func TestWorktreePath_Location(t *testing.T) {
 	}
 
 	// Worktree should be in .plural-worktrees directory
-	expectedDir := GetWorktreeDir(repoPath)
+	expectedDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
 	if !strings.HasPrefix(session.WorkTree, expectedDir) {
 		t.Errorf("WorkTree %q should be in %q", session.WorkTree, expectedDir)
 	}

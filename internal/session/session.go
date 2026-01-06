@@ -82,12 +82,6 @@ func ValidateRepo(path string) error {
 	return nil
 }
 
-// GetWorktreeDir returns the worktrees directory path for a repo
-func GetWorktreeDir(repoPath string) string {
-	repoParent := filepath.Dir(repoPath)
-	return filepath.Join(repoParent, ".plural-worktrees")
-}
-
 // GetGitRoot returns the git root directory for a path, or empty string if not a git repo
 func GetGitRoot(path string) string {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")

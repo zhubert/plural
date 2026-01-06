@@ -258,19 +258,6 @@ func (s *Server) isToolAllowed(tool string) bool {
 	return false
 }
 
-// AddAllowedTool adds a tool to the allowed list (called when user selects "Always")
-func (s *Server) AddAllowedTool(tool string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, t := range s.allowedTools {
-		if t == tool {
-			return
-		}
-	}
-	s.allowedTools = append(s.allowedTools, tool)
-}
-
 func (s *Server) sendPermissionResult(id interface{}, allowed bool, args map[string]interface{}, message string) {
 	var result PermissionResult
 	if allowed {

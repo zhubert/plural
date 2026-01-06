@@ -31,10 +31,8 @@ const (
 type AppState int
 
 const (
-	StateIdle               AppState = iota // Ready for user input
-	StateStreamingClaude                    // Receiving Claude response
-	StateStreamingMerge                     // Receiving merge/PR output
-	StateAwaitingPermission                 // Waiting for user permission decision (Claude paused)
+	StateIdle            AppState = iota // Ready for user input
+	StateStreamingClaude                 // Receiving Claude response
 )
 
 // String returns a human-readable name for the state
@@ -44,10 +42,6 @@ func (s AppState) String() string {
 		return "Idle"
 	case StateStreamingClaude:
 		return "StreamingClaude"
-	case StateStreamingMerge:
-		return "StreamingMerge"
-	case StateAwaitingPermission:
-		return "AwaitingPermission"
 	default:
 		return "Unknown"
 	}
@@ -140,11 +134,6 @@ func New(cfg *config.Config) *Model {
 // IsIdle returns true if the app is ready for user input
 func (m *Model) IsIdle() bool {
 	return m.state == StateIdle
-}
-
-// IsStreaming returns true if the app is streaming any response
-func (m *Model) IsStreaming() bool {
-	return m.state == StateStreamingClaude || m.state == StateStreamingMerge
 }
 
 // CanSendMessage returns true if the user can send a new message
@@ -545,6 +534,18 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					runner.Stop()
 					delete(m.claudeRunners, sess.ID)
 				}
+				// Cancel any in-progress merge operation
+				if cancel, exists := m.sessionMergeCancels[sess.ID]; exists {
+					cancel()
+					delete(m.sessionMergeCancels, sess.ID)
+					delete(m.sessionMergeChans, sess.ID)
+				}
+				// Clean up per-session state maps
+				delete(m.pendingPermissions, sess.ID)
+				delete(m.sessionWaitStart, sess.ID)
+				delete(m.sessionInputs, sess.ID)
+				delete(m.sessionStreaming, sess.ID)
+				m.sidebar.SetPendingPermission(sess.ID, false)
 				if m.activeSession != nil && m.activeSession.ID == sess.ID {
 					m.activeSession = nil
 					m.claudeRunner = nil
@@ -847,24 +848,6 @@ func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
 		}
 		return MergeResultMsg{SessionID: sessionID, Result: result}
 	}
-}
-
-func (m *Model) saveSessionMessages() {
-	if m.activeSession == nil || m.claudeRunner == nil {
-		return
-	}
-
-	msgs := m.claudeRunner.GetMessages()
-	var configMsgs []config.Message
-	for _, msg := range msgs {
-		configMsgs = append(configMsgs, config.Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
-	}
-
-	// Save last N lines of conversation
-	config.SaveSessionMessages(m.activeSession.ID, configMsgs, config.MaxSessionMessageLines)
 }
 
 // saveRunnerMessages saves messages for a specific runner/session

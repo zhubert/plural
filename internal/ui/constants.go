@@ -59,7 +59,4 @@ const (
 
 	// ModalInputWidth is the width of modal text inputs
 	ModalInputWidth = 50
-
-	// PermissionDescriptionWidth is the width for permission description text
-	PermissionDescriptionWidth = 56
 )

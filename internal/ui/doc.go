@@ -42,7 +42,6 @@
 //   - ModalAddRepo: Add a new repository
 //   - ModalNewSession: Create a new session
 //   - ModalConfirmDelete: Confirm session deletion
-//   - ModalPermission: Permission prompts from Claude
 //   - ModalMerge: Merge/PR options
 //
 // # Focus System

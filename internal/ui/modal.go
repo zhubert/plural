@@ -14,18 +14,7 @@ const (
 	ModalAddRepo
 	ModalNewSession
 	ModalConfirmDelete
-	ModalPermission
 	ModalMerge
-)
-
-// PermissionDecision represents the user's permission choice
-type PermissionDecision int
-
-const (
-	PermissionPending PermissionDecision = iota
-	PermissionAllow
-	PermissionDeny
-	PermissionAlways
 )
 
 // Modal represents a popup dialog
@@ -39,11 +28,6 @@ type Modal struct {
 	height      int
 	repoOptions []string // For session creation, list of repos
 	repoIndex   int      // Selected repo index
-
-	// Permission modal fields
-	permissionTool        string             // Tool requesting permission (e.g., "Edit", "Bash")
-	permissionDescription string             // Human-readable description
-	permissionDecision    PermissionDecision // User's decision
 
 	// Merge modal fields
 	mergeOptions   []string // Available merge options
@@ -101,10 +85,6 @@ func (m *Modal) Show(t ModalType) {
 	case ModalConfirmDelete:
 		m.title = "Delete Session?"
 		m.help = "Press Enter to confirm, Esc to cancel"
-	case ModalPermission:
-		m.title = "Permission Required"
-		m.help = "y = Allow, n = Deny, a = Always Allow"
-		m.permissionDecision = PermissionPending
 	case ModalMerge:
 		m.title = "Merge/PR"
 		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
@@ -151,23 +131,6 @@ func (m *Modal) GetSelectedRepo() string {
 	return m.repoOptions[m.repoIndex]
 }
 
-// SetPermission configures the modal for a permission prompt
-func (m *Modal) SetPermission(tool, description string) {
-	m.permissionTool = tool
-	m.permissionDescription = description
-	m.permissionDecision = PermissionPending
-}
-
-// GetPermissionDecision returns the user's permission decision
-func (m *Modal) GetPermissionDecision() PermissionDecision {
-	return m.permissionDecision
-}
-
-// GetPermissionTool returns the tool name for the current permission request
-func (m *Modal) GetPermissionTool() string {
-	return m.permissionTool
-}
-
 // SetMergeOptions sets the available merge options based on remote availability
 func (m *Modal) SetMergeOptions(hasRemote bool, changesSummary string) {
 	m.hasRemote = hasRemote
@@ -209,15 +172,6 @@ func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 				if m.repoIndex < len(m.repoOptions)-1 {
 					m.repoIndex++
 				}
-			}
-		case ModalPermission:
-			switch msg.String() {
-			case "y", "Y":
-				m.permissionDecision = PermissionAllow
-			case "n", "N":
-				m.permissionDecision = PermissionDeny
-			case "a", "A":
-				m.permissionDecision = PermissionAlways
 			}
 		case ModalMerge:
 			switch msg.String() {
@@ -274,8 +228,6 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 		content = m.renderNewSession()
 	case ModalConfirmDelete:
 		content = m.renderConfirmDelete()
-	case ModalPermission:
-		content = m.renderPermission()
 	case ModalMerge:
 		content = m.renderMerge()
 	}
@@ -394,35 +346,6 @@ func (m *Modal) renderConfirmDelete() string {
 	help := ModalHelpStyle.Render("Enter to confirm, Esc to cancel")
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, message, help)
-}
-
-func (m *Modal) renderPermission() string {
-	title := ModalTitleStyle.Render(m.title)
-
-	// Tool name in bold
-	toolStyle := lipgloss.NewStyle().
-		Foreground(ColorPrimary).
-		Bold(true)
-
-	toolLine := toolStyle.Render(m.permissionTool)
-
-	// Description
-	descStyle := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Width(PermissionDescriptionWidth)
-
-	description := descStyle.Render(m.permissionDescription)
-
-	// Options
-	optionsStyle := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1)
-
-	options := optionsStyle.Render("[y] Allow  [n] Deny  [a] Always Allow")
-
-	help := ModalHelpStyle.Render("Esc to cancel")
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, toolLine, description, options, help)
 }
 
 func (m *Modal) renderMerge() string {
