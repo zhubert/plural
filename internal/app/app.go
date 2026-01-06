@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -215,11 +217,56 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
 				m.modal.Show(ui.ModalConfirmDelete)
 			}
+		case "v":
+			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
+				sess := m.sidebar.SelectedSession()
+				// Select the session first so we can display in its chat
+				if m.activeSession == nil || m.activeSession.ID != sess.ID {
+					m.selectSession(sess)
+				}
+				// Get worktree status and display it
+				status, err := git.GetWorktreeStatus(sess.WorkTree)
+				if err != nil {
+					m.chat.AppendStreaming(fmt.Sprintf("[Error getting status: %v]\n", err))
+					m.chat.FinishStreaming()
+				} else if !status.HasChanges {
+					m.chat.AppendStreaming("No uncommitted changes in this session.\n")
+					m.chat.FinishStreaming()
+				} else {
+					var sb strings.Builder
+					sb.WriteString(fmt.Sprintf("📝 Uncommitted changes (%s):\n\n", status.Summary))
+					for _, file := range status.Files {
+						sb.WriteString(fmt.Sprintf("  • %s\n", file))
+					}
+					if status.Diff != "" {
+						sb.WriteString("\n--- Diff ---\n")
+						// Truncate diff if too long
+						diff := status.Diff
+						if len(diff) > 3000 {
+							diff = diff[:3000] + "\n... (truncated)"
+						}
+						sb.WriteString(diff)
+					}
+					sb.WriteString("\n")
+					m.chat.AppendStreaming(sb.String())
+					m.chat.FinishStreaming()
+				}
+				return m, nil
+			}
 		case "m":
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
 				sess := m.sidebar.SelectedSession()
 				hasRemote := git.HasRemoteOrigin(sess.RepoPath)
-				m.modal.SetMergeOptions(hasRemote)
+				// Get changes summary to display in modal
+				var changesSummary string
+				if status, err := git.GetWorktreeStatus(sess.WorkTree); err == nil && status.HasChanges {
+					changesSummary = status.Summary
+					// Add file list if not too many files
+					if len(status.Files) <= 5 {
+						changesSummary += ": " + strings.Join(status.Files, ", ")
+					}
+				}
+				m.modal.SetMergeOptions(hasRemote, changesSummary)
 				m.modal.Show(ui.ModalMerge)
 			}
 		case "enter":
@@ -468,7 +515,7 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if option == "" || sess == nil {
 				return m, nil
 			}
-			logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s", option, sess.ID, sess.Branch)
+			logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s, worktree=%s", option, sess.ID, sess.Branch, sess.WorkTree)
 			m.modal.Hide()
 			if m.activeSession == nil || m.activeSession.ID != sess.ID {
 				m.selectSession(sess)
@@ -478,11 +525,11 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if option == "Create PR" {
 				logger.Log("App: Creating PR for branch %s", sess.Branch)
 				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-				m.mergeResultChan = git.CreatePR(m.mergeCtx, sess.RepoPath, sess.Branch)
+				m.mergeResultChan = git.CreatePR(m.mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch)
 			} else {
 				logger.Log("App: Merging branch %s to main", sess.Branch)
 				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.mergeResultChan = git.MergeToMain(m.mergeCtx, sess.RepoPath, sess.Branch)
+				m.mergeResultChan = git.MergeToMain(m.mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch)
 			}
 			return m, m.listenForMergeResult()
 		}

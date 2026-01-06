@@ -170,7 +170,7 @@ func TestMergeToMain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, "feature-branch")
+	ch := MergeToMain(ctx, repoPath, repoPath, "feature-branch")
 
 	var lastResult Result
 	for result := range ch {
@@ -235,7 +235,7 @@ func TestMergeToMain_Conflict(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, "conflict-branch")
+	ch := MergeToMain(ctx, repoPath, repoPath, "conflict-branch")
 
 	var hadError bool
 	for result := range ch {
@@ -262,7 +262,7 @@ func TestMergeToMain_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := MergeToMain(ctx, repoPath, "test-branch")
+	ch := MergeToMain(ctx, repoPath, repoPath, "test-branch")
 
 	// Drain channel
 	for range ch {
@@ -282,7 +282,7 @@ func TestCreatePR_NoGh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := CreatePR(ctx, repoPath, "test-branch")
+	ch := CreatePR(ctx, repoPath, repoPath, "test-branch")
 
 	var hadError bool
 	for result := range ch {
@@ -294,4 +294,224 @@ func TestCreatePR_NoGh(t *testing.T) {
 	if !hadError {
 		t.Error("Expected CreatePR to fail when gh is not installed")
 	}
+}
+
+func TestGetWorktreeStatus_NoChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	status, err := GetWorktreeStatus(repoPath)
+	if err != nil {
+		t.Fatalf("GetWorktreeStatus failed: %v", err)
+	}
+
+	if status.HasChanges {
+		t.Error("Expected HasChanges to be false for clean repo")
+	}
+
+	if status.Summary != "No changes" {
+		t.Errorf("Expected Summary 'No changes', got %q", status.Summary)
+	}
+
+	if len(status.Files) != 0 {
+		t.Errorf("Expected no files, got %d", len(status.Files))
+	}
+}
+
+func TestGetWorktreeStatus_WithChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a new file (untracked)
+	newFile := filepath.Join(repoPath, "new.txt")
+	if err := os.WriteFile(newFile, []byte("new content"), 0644); err != nil {
+		t.Fatalf("Failed to create new file: %v", err)
+	}
+
+	// Modify existing file
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+
+	status, err := GetWorktreeStatus(repoPath)
+	if err != nil {
+		t.Fatalf("GetWorktreeStatus failed: %v", err)
+	}
+
+	if !status.HasChanges {
+		t.Error("Expected HasChanges to be true")
+	}
+
+	if len(status.Files) != 2 {
+		t.Errorf("Expected 2 files, got %d: %v", len(status.Files), status.Files)
+	}
+
+	if status.Summary != "2 files changed" {
+		t.Errorf("Expected Summary '2 files changed', got %q", status.Summary)
+	}
+}
+
+func TestGetWorktreeStatus_SingleFile(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create one new file
+	newFile := filepath.Join(repoPath, "single.txt")
+	if err := os.WriteFile(newFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	status, err := GetWorktreeStatus(repoPath)
+	if err != nil {
+		t.Fatalf("GetWorktreeStatus failed: %v", err)
+	}
+
+	if status.Summary != "1 file changed" {
+		t.Errorf("Expected Summary '1 file changed', got %q", status.Summary)
+	}
+}
+
+func TestGetWorktreeStatus_InvalidPath(t *testing.T) {
+	_, err := GetWorktreeStatus("/nonexistent/path")
+	if err == nil {
+		t.Error("Expected error for invalid path")
+	}
+}
+
+func TestCommitAll_Success(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create changes
+	newFile := filepath.Join(repoPath, "committed.txt")
+	if err := os.WriteFile(newFile, []byte("to be committed"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	// Verify changes exist before commit
+	status, _ := GetWorktreeStatus(repoPath)
+	if !status.HasChanges {
+		t.Fatal("Expected changes before commit")
+	}
+
+	// Commit all changes
+	err := CommitAll(repoPath, "Test commit message")
+	if err != nil {
+		t.Fatalf("CommitAll failed: %v", err)
+	}
+
+	// Verify no changes after commit
+	status, _ = GetWorktreeStatus(repoPath)
+	if status.HasChanges {
+		t.Error("Expected no changes after CommitAll")
+	}
+
+	// Verify commit was created with correct message
+	cmd := exec.Command("git", "log", "-1", "--pretty=%s")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get commit message: %v", err)
+	}
+
+	if string(output) != "Test commit message\n" {
+		t.Errorf("Expected commit message 'Test commit message', got %q", string(output))
+	}
+}
+
+func TestCommitAll_NoChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Try to commit with no changes - should fail
+	err := CommitAll(repoPath, "Empty commit")
+	if err == nil {
+		t.Error("Expected CommitAll to fail with no changes")
+	}
+}
+
+func TestCommitAll_MultipleFiles(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create multiple files
+	for i := 0; i < 3; i++ {
+		file := filepath.Join(repoPath, filepath.Base(repoPath)+string(rune('a'+i))+".txt")
+		if err := os.WriteFile(file, []byte("content"), 0644); err != nil {
+			t.Fatalf("Failed to create file: %v", err)
+		}
+	}
+
+	// Modify existing file too
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("modified"), 0644); err != nil {
+		t.Fatalf("Failed to modify file: %v", err)
+	}
+
+	// Commit all
+	err := CommitAll(repoPath, "Multiple files commit")
+	if err != nil {
+		t.Fatalf("CommitAll failed: %v", err)
+	}
+
+	// Verify clean state
+	status, _ := GetWorktreeStatus(repoPath)
+	if status.HasChanges {
+		t.Error("Expected no changes after committing multiple files")
+	}
+}
+
+func TestGenerateCommitMessage_Success(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create changes
+	newFile := filepath.Join(repoPath, "feature.txt")
+	if err := os.WriteFile(newFile, []byte("feature content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	msg, err := GenerateCommitMessage(repoPath)
+	if err != nil {
+		t.Fatalf("GenerateCommitMessage failed: %v", err)
+	}
+
+	if msg == "" {
+		t.Error("Expected non-empty commit message")
+	}
+
+	// Should contain summary
+	if !contains(msg, "1 file") {
+		t.Errorf("Expected message to contain file count, got: %s", msg)
+	}
+
+	// Should contain file name
+	if !contains(msg, "feature.txt") {
+		t.Errorf("Expected message to contain filename, got: %s", msg)
+	}
+}
+
+func TestGenerateCommitMessage_NoChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	_, err := GenerateCommitMessage(repoPath)
+	if err == nil {
+		t.Error("Expected error when generating commit message with no changes")
+	}
+}
+
+// contains checks if s contains substr
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

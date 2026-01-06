@@ -68,8 +68,8 @@ tail -f /tmp/plural-mcp-*.log
 - **internal/errors** - Structured error types for better error handling
   - `errors.go` - Error types with Op, Kind, and context
   - `errors_test.go` - Test suite
-- **internal/git** - Git operations for merge/PR workflow (HasRemoteOrigin, MergeToMain, CreatePR)
-  - `git.go` - Git operations implementation
+- **internal/git** - Git operations for merge/PR workflow and change tracking
+  - `git.go` - Git operations: HasRemoteOrigin, GetWorktreeStatus, CommitAll, GenerateCommitMessage, MergeToMain, CreatePR
   - `git_test.go` - Test suite
 - **internal/logger** - Simple file logger for debugging
   - `logger.go` - Thread-safe logger with process-specific log paths
@@ -142,16 +142,25 @@ When Claude needs permission for operations (file edits, bash commands, etc.), P
 4. **Per-Session Tracking**: Each session tracks its own pending permission in `pendingPermissions` map
 5. **Persistence**: "Always Allow" decisions are saved per-session in `~/.plural/config.json` and honored on session resume
 
+### Viewing Session Changes
+
+Press `v` with a session selected to view uncommitted changes in that session's worktree:
+- Shows a summary of changed files
+- Displays the git diff (truncated if too large)
+- Useful for reviewing what Claude has modified before merging
+
 ### Merge/PR Workflow
 
 Sessions work in isolated git worktrees with their own branches. To apply changes back:
 
 1. **Trigger**: Press `m` with a session selected (sidebar focused)
-2. **Options Modal**: Choose between:
+2. **Options Modal**: Shows:
+   - Summary of uncommitted changes (or "No uncommitted changes")
    - **Merge to main**: Merges the session branch directly into the default branch
    - **Create PR**: Pushes branch to origin and creates a GitHub PR via `gh` CLI (only available if remote origin exists)
-3. **Streaming Output**: Command output streams to the chat panel in real-time
-4. **Result**: Success or error message displayed when operation completes
+3. **Auto-Commit**: Before merging or creating a PR, any uncommitted changes in the worktree are automatically staged and committed with a descriptive message
+4. **Streaming Output**: Command output streams to the chat panel in real-time
+5. **Result**: Success or error message displayed when operation completes
 
 ### UI Layout
 - Header (1 line) + Content (sidebar 1/3 width | chat 2/3 width) + Footer (1 line)

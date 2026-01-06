@@ -46,9 +46,10 @@ type Modal struct {
 	permissionDecision    PermissionDecision // User's decision
 
 	// Merge modal fields
-	mergeOptions []string // Available merge options
-	mergeIndex   int      // Selected option index
-	hasRemote    bool     // Whether remote origin exists
+	mergeOptions   []string // Available merge options
+	mergeIndex     int      // Selected option index
+	hasRemote      bool     // Whether remote origin exists
+	changesSummary string   // Summary of uncommitted changes
 
 	// Add repo modal fields
 	suggestedRepo    string // Current directory if it's a git repo and not already added
@@ -168,8 +169,9 @@ func (m *Modal) GetPermissionTool() string {
 }
 
 // SetMergeOptions sets the available merge options based on remote availability
-func (m *Modal) SetMergeOptions(hasRemote bool) {
+func (m *Modal) SetMergeOptions(hasRemote bool, changesSummary string) {
 	m.hasRemote = hasRemote
+	m.changesSummary = changesSummary
 	m.mergeOptions = []string{"Merge to main"}
 	if hasRemote {
 		m.mergeOptions = append(m.mergeOptions, "Create PR")
@@ -426,6 +428,21 @@ func (m *Modal) renderPermission() string {
 func (m *Modal) renderMerge() string {
 	title := ModalTitleStyle.Render(m.title)
 
+	// Show changes summary
+	var summarySection string
+	if m.changesSummary != "" {
+		summaryStyle := lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			MarginBottom(1)
+		summarySection = summaryStyle.Render("📝 " + m.changesSummary)
+	} else {
+		noChangesStyle := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginBottom(1)
+		summarySection = noChangesStyle.Render("No uncommitted changes")
+	}
+
 	var optionList string
 	for i, opt := range m.mergeOptions {
 		style := SidebarItemStyle
@@ -447,5 +464,5 @@ func (m *Modal) renderMerge() string {
 
 	help := ModalHelpStyle.Render(m.help)
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, optionList, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, summarySection, optionList, help)
 }
