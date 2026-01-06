@@ -16,6 +16,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/muesli/reflow/wordwrap"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/logger"
 )
@@ -434,11 +435,19 @@ func renderInlineMarkdown(line string) string {
 	return line
 }
 
+// wrapText wraps text to the specified width, handling ANSI escape codes
+func wrapText(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+	return wordwrap.String(text, width)
+}
+
 // renderMarkdownLine renders a single line with markdown formatting
-func renderMarkdownLine(line string) string {
+func renderMarkdownLine(line string, width int) string {
 	trimmed := strings.TrimSpace(line)
 
-	// Headers
+	// Headers - don't wrap, they should be concise
 	if strings.HasPrefix(trimmed, "#### ") {
 		return MarkdownH4Style.Render(strings.TrimPrefix(trimmed, "#### "))
 	}
@@ -460,14 +469,24 @@ func renderMarkdownLine(line string) string {
 	// Blockquote
 	if strings.HasPrefix(trimmed, "> ") {
 		content := strings.TrimPrefix(trimmed, "> ")
-		return MarkdownBlockquoteStyle.Render(renderInlineMarkdown(content))
+		return MarkdownBlockquoteStyle.Render(wrapText(renderInlineMarkdown(content), width-4))
 	}
 
 	// Unordered list items
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 		content := trimmed[2:]
 		bullet := MarkdownListBulletStyle.Render("•")
-		return "  " + bullet + " " + renderInlineMarkdown(content)
+		// Wrap list item content, accounting for indent and bullet
+		wrapped := wrapText(renderInlineMarkdown(content), width-6)
+		// Indent continuation lines
+		lines := strings.Split(wrapped, "\n")
+		if len(lines) > 1 {
+			for i := 1; i < len(lines); i++ {
+				lines[i] = "    " + lines[i]
+			}
+			wrapped = strings.Join(lines, "\n")
+		}
+		return "  " + bullet + " " + wrapped
 	}
 
 	// Numbered list items
@@ -476,12 +495,22 @@ func renderMarkdownLine(line string) string {
 		if strings.HasPrefix(trimmed, prefix) {
 			content := strings.TrimPrefix(trimmed, prefix)
 			number := MarkdownListBulletStyle.Render(fmt.Sprintf("%d.", i))
-			return "  " + number + " " + renderInlineMarkdown(content)
+			// Wrap list item content, accounting for indent and number
+			wrapped := wrapText(renderInlineMarkdown(content), width-6)
+			// Indent continuation lines
+			lines := strings.Split(wrapped, "\n")
+			if len(lines) > 1 {
+				for j := 1; j < len(lines); j++ {
+					lines[j] = "     " + lines[j]
+				}
+				wrapped = strings.Join(lines, "\n")
+			}
+			return "  " + number + " " + wrapped
 		}
 	}
 
-	// Regular line with inline formatting
-	return renderInlineMarkdown(line)
+	// Regular line with inline formatting and wrapping
+	return wrapText(renderInlineMarkdown(line), width)
 }
 
 // renderMarkdown renders markdown content with syntax-highlighted code blocks
@@ -526,8 +555,8 @@ func renderMarkdown(content string, width int) string {
 			}
 			codeBlockContent.WriteString(line)
 		} else {
-			// Render markdown line
-			result.WriteString(renderMarkdownLine(line))
+			// Render markdown line with wrapping
+			result.WriteString(renderMarkdownLine(line, width))
 			result.WriteString("\n")
 		}
 	}
