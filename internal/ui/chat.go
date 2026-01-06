@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -16,6 +17,35 @@ import (
 // StopwatchTickMsg is sent to update the stopwatch display
 type StopwatchTickMsg time.Time
 
+// thinkingVerbs are playful status messages that cycle while waiting for Claude
+var thinkingVerbs = []string{
+	"Thinking",
+	"Reasoning",
+	"Pondering",
+	"Contemplating",
+	"Musing",
+	"Cogitating",
+	"Ruminating",
+	"Deliberating",
+	"Reflecting",
+	"Considering",
+	"Analyzing",
+	"Processing",
+	"Computing",
+	"Synthesizing",
+	"Formulating",
+	"Brainstorming",
+	"Noodling",
+	"Percolating",
+	"Brewing",
+	"Marinating",
+}
+
+// randomThinkingVerb returns a random verb from the list
+func randomThinkingVerb() string {
+	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
+}
+
 // Chat represents the right panel with conversation view
 type Chat struct {
 	viewport      viewport.Model
@@ -29,6 +59,7 @@ type Chat struct {
 	hasSession    bool
 	waiting       bool      // Waiting for Claude's response
 	waitStartTime time.Time // When waiting started (for stopwatch)
+	waitingVerb   string    // Random verb to display while waiting
 
 	// Pending permission prompt
 	hasPendingPermission   bool
@@ -267,6 +298,7 @@ func (c *Chat) SetWaiting(waiting bool) {
 	c.waiting = waiting
 	if waiting {
 		c.waitStartTime = time.Now()
+		c.waitingVerb = randomThinkingVerb()
 	}
 	c.updateContent()
 }
@@ -275,6 +307,9 @@ func (c *Chat) SetWaiting(waiting bool) {
 func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 	c.waiting = waiting
 	c.waitStartTime = startTime
+	if waiting {
+		c.waitingVerb = randomThinkingVerb()
+	}
 	c.updateContent()
 }
 
@@ -356,7 +391,7 @@ func (c *Chat) updateContent() {
 			stopwatchStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(StatusLoadingStyle.Render("Thinking... "))
+			sb.WriteString(StatusLoadingStyle.Render(c.waitingVerb + "... "))
 			sb.WriteString(stopwatchStyle.Render(formatElapsed(elapsed)))
 		}
 
