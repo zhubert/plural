@@ -111,6 +111,7 @@ tail -f /tmp/plural-mcp-*.log
 - **Context-aware footer**: Shortcuts shown/hidden based on focus, selection state, and pending permissions
 - **Session grouping**: Sidebar groups sessions by repository with custom rendering
 - **Explicit state machine**: App uses `AppState` enum instead of boolean flags
+- **Per-session state**: Each session has independent state (input text, waiting status, permissions) allowing concurrent operation
 
 ### Application State Machine
 
@@ -125,8 +126,18 @@ StateStreamingMerge  - Receiving merge/PR output
 State transitions are logged to `/tmp/plural-debug.log` for debugging. Helper methods:
 - `IsIdle()` - Check if ready for input
 - `IsStreaming()` - Check if any streaming operation is active
-- `CanSendMessage()` - Check if user can send a new message
+- `CanSendMessage()` - Check if user can send a new message (per-session: checks `sessionWaitStart`)
 - `setState(newState)` - Transition to new state with logging
+
+**Per-session state maps:**
+- `sessionWaitStart` - Tracks which sessions are waiting for Claude responses
+- `sessionInputs` - Preserves input text when switching between sessions
+- `sessionStreaming` - Preserves in-progress streaming content when switching sessions
+- `sessionMergeChans` - Per-session merge/PR operation channels
+- `sessionMergeCancels` - Per-session merge/PR cancel functions
+- `pendingPermissions` - Per-session permission prompts
+
+This allows truly independent session operation - you can send messages to session B while session A is waiting for Claude, and merge operations don't block other sessions.
 
 ### Permission System
 

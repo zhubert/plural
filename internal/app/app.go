@@ -76,13 +76,18 @@ type Model struct {
 	// Per-session pending permissions (sessionID -> request)
 	pendingPermissions map[string]*mcp.PermissionRequest
 
-	// Merge/PR operation state
-	mergeCtx        context.Context
-	mergeCancel     context.CancelFunc
-	mergeResultChan <-chan git.Result
+	// Per-session merge/PR operation state
+	sessionMergeChans   map[string]<-chan git.Result
+	sessionMergeCancels map[string]context.CancelFunc
 
 	// Per-session wait tracking for timer
 	sessionWaitStart map[string]time.Time // When each session started waiting
+
+	// Per-session input text (saved when switching sessions)
+	sessionInputs map[string]string
+
+	// Per-session streaming content (for non-active sessions)
+	sessionStreaming map[string]string
 }
 
 // ClaudeResponseMsg is sent when Claude sends a response chunk
@@ -99,23 +104,28 @@ type PermissionRequestMsg struct {
 
 // MergeResultMsg is sent when a merge/PR operation produces output
 type MergeResultMsg struct {
-	Result git.Result
+	SessionID string
+	Result    git.Result
 }
 
 // New creates a new app model
 func New(cfg *config.Config) *Model {
 	m := &Model{
-		config:             cfg,
-		header:             ui.NewHeader(),
-		footer:             ui.NewFooter(),
-		sidebar:            ui.NewSidebar(),
-		chat:               ui.NewChat(),
-		modal:              ui.NewModal(),
-		focus:              FocusSidebar,
-		claudeRunners:      make(map[string]*claude.Runner),
-		sessionWaitStart:   make(map[string]time.Time),
-		pendingPermissions: make(map[string]*mcp.PermissionRequest),
-		state:              StateIdle,
+		config:              cfg,
+		header:              ui.NewHeader(),
+		footer:              ui.NewFooter(),
+		sidebar:             ui.NewSidebar(),
+		chat:                ui.NewChat(),
+		modal:               ui.NewModal(),
+		focus:               FocusSidebar,
+		claudeRunners:       make(map[string]*claude.Runner),
+		sessionWaitStart:    make(map[string]time.Time),
+		pendingPermissions:  make(map[string]*mcp.PermissionRequest),
+		sessionInputs:       make(map[string]string),
+		sessionMergeChans:   make(map[string]<-chan git.Result),
+		sessionMergeCancels: make(map[string]context.CancelFunc),
+		sessionStreaming:    make(map[string]string),
+		state:               StateIdle,
 	}
 
 	// Load sessions into sidebar
@@ -139,7 +149,15 @@ func (m *Model) IsStreaming() bool {
 
 // CanSendMessage returns true if the user can send a new message
 func (m *Model) CanSendMessage() bool {
-	return m.state == StateIdle && m.claudeRunner != nil && m.activeSession != nil
+	if m.claudeRunner == nil || m.activeSession == nil {
+		return false
+	}
+	// Check if the active session is currently waiting for a response
+	_, isWaiting := m.sessionWaitStart[m.activeSession.ID]
+	// Check if the active session has a merge in progress
+	_, isMerging := m.sessionMergeChans[m.activeSession.ID]
+	// Each session can operate independently
+	return !isWaiting && !isMerging
 }
 
 // setState transitions to a new state with logging
@@ -298,6 +316,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.AppendStreaming("\n[Error: " + msg.Chunk.Error.Error() + "]")
+			} else {
+				// Store error for non-active session
+				m.sessionStreaming[msg.SessionID] += "\n[Error: " + msg.Chunk.Error.Error() + "]"
 			}
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
@@ -310,6 +331,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.FinishStreaming()
+			} else {
+				// For non-active session, add accumulated streaming content as a message
+				if content := m.sessionStreaming[msg.SessionID]; content != "" {
+					runner.AddAssistantMessage(content)
+					delete(m.sessionStreaming, msg.SessionID)
+				}
 			}
 			// Mark session as started and save messages
 			sess := m.getSessionByID(msg.SessionID)
@@ -332,6 +359,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.AppendStreaming(msg.Chunk.Content)
+			} else {
+				// Store streaming content for non-active session
+				m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
 			}
 			// Continue listening for more chunks from this session
 			return m, tea.Batch(
@@ -365,15 +395,39 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case MergeResultMsg:
+		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
 		if msg.Result.Error != nil {
-			m.chat.AppendStreaming("\n[Error: " + msg.Result.Error.Error() + "]\n")
-			m.setState(StateIdle)
+			if isActiveSession {
+				m.chat.AppendStreaming("\n[Error: " + msg.Result.Error.Error() + "]\n")
+			} else {
+				m.sessionStreaming[msg.SessionID] += "\n[Error: " + msg.Result.Error.Error() + "]\n"
+			}
+			// Clean up merge state for this session
+			delete(m.sessionMergeChans, msg.SessionID)
+			delete(m.sessionMergeCancels, msg.SessionID)
 		} else if msg.Result.Done {
-			m.chat.FinishStreaming()
-			m.setState(StateIdle)
+			if isActiveSession {
+				m.chat.FinishStreaming()
+			} else {
+				// Store completed merge output as a message for when user switches back
+				if content := m.sessionStreaming[msg.SessionID]; content != "" {
+					if runner, exists := m.claudeRunners[msg.SessionID]; exists {
+						runner.AddAssistantMessage(content)
+						m.saveRunnerMessages(msg.SessionID, runner)
+					}
+					delete(m.sessionStreaming, msg.SessionID)
+				}
+			}
+			// Clean up merge state for this session
+			delete(m.sessionMergeChans, msg.SessionID)
+			delete(m.sessionMergeCancels, msg.SessionID)
 		} else {
-			m.chat.AppendStreaming(msg.Result.Output)
-			return m, m.listenForMergeResult()
+			if isActiveSession {
+				m.chat.AppendStreaming(msg.Result.Output)
+			} else {
+				m.sessionStreaming[msg.SessionID] += msg.Result.Output
+			}
+			return m, m.listenForMergeResult(msg.SessionID)
 		}
 	}
 
@@ -515,23 +569,29 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if option == "" || sess == nil {
 				return m, nil
 			}
+			// Check if this session already has a merge in progress
+			if _, exists := m.sessionMergeChans[sess.ID]; exists {
+				logger.Log("App: Merge already in progress for session %s", sess.ID)
+				return m, nil
+			}
 			logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s, worktree=%s", option, sess.ID, sess.Branch, sess.WorkTree)
 			m.modal.Hide()
 			if m.activeSession == nil || m.activeSession.ID != sess.ID {
 				m.selectSession(sess)
 			}
-			m.setState(StateStreamingMerge)
-			m.mergeCtx, m.mergeCancel = context.WithCancel(context.Background())
+			// Create per-session merge context
+			ctx, cancel := context.WithCancel(context.Background())
+			m.sessionMergeCancels[sess.ID] = cancel
 			if option == "Create PR" {
 				logger.Log("App: Creating PR for branch %s", sess.Branch)
 				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-				m.mergeResultChan = git.CreatePR(m.mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch)
+				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch)
 			} else {
 				logger.Log("App: Merging branch %s to main", sess.Branch)
 				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.mergeResultChan = git.MergeToMain(m.mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch)
+				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch)
 			}
-			return m, m.listenForMergeResult()
+			return m, m.listenForMergeResult(sess.ID)
 		}
 	}
 
@@ -561,6 +621,20 @@ func (m *Model) selectSession(sess *config.Session) {
 	if sess == nil {
 		return
 	}
+
+	// Save current session's state before switching
+	if m.activeSession != nil {
+		currentInput := m.chat.GetInput()
+		m.sessionInputs[m.activeSession.ID] = currentInput
+		logger.Log("App: Saved input for session %s: %q", m.activeSession.ID, currentInput)
+
+		// Save current streaming content if any
+		if streamingContent := m.chat.GetStreaming(); streamingContent != "" {
+			m.sessionStreaming[m.activeSession.ID] = streamingContent
+			logger.Log("App: Saved streaming content for session %s", m.activeSession.ID)
+		}
+	}
+
 	logger.Log("App: Selecting session: id=%s, name=%s", sess.ID, sess.Name)
 	m.activeSession = sess
 
@@ -616,6 +690,20 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.SetPendingPermission(req.Tool, req.Description)
 	} else {
 		m.chat.ClearPendingPermission()
+	}
+
+	// Restore streaming content if this session has ongoing streaming
+	if streamingContent, exists := m.sessionStreaming[sess.ID]; exists && streamingContent != "" {
+		m.chat.SetStreaming(streamingContent)
+		logger.Log("App: Restored streaming content for session %s", sess.ID)
+	}
+
+	// Restore saved input text for this session
+	if savedInput, exists := m.sessionInputs[sess.ID]; exists {
+		m.chat.SetInput(savedInput)
+		logger.Log("App: Restored input for session %s: %q", sess.ID, savedInput)
+	} else {
+		m.chat.ClearInput()
 	}
 
 	logger.Log("App: Session selected and focused: %s", sess.ID)
@@ -746,18 +834,18 @@ func (m *Model) listenForSessionPermission(sessionID string, runner *claude.Runn
 	}
 }
 
-func (m *Model) listenForMergeResult() tea.Cmd {
-	if m.mergeResultChan == nil {
+func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
+	ch, exists := m.sessionMergeChans[sessionID]
+	if !exists || ch == nil {
 		return nil
 	}
 
-	ch := m.mergeResultChan
 	return func() tea.Msg {
 		result, ok := <-ch
 		if !ok {
-			return MergeResultMsg{Result: git.Result{Done: true}}
+			return MergeResultMsg{SessionID: sessionID, Result: git.Result{Done: true}}
 		}
-		return MergeResultMsg{Result: result}
+		return MergeResultMsg{SessionID: sessionID, Result: result}
 	}
 }
 

@@ -164,9 +164,25 @@ func (c *Chat) ClearInput() {
 	c.input.Reset()
 }
 
+// SetInput sets the input field value
+func (c *Chat) SetInput(value string) {
+	c.input.SetValue(value)
+}
+
 // IsStreaming returns whether we're currently streaming a response
 func (c *Chat) IsStreaming() bool {
 	return c.streaming != ""
+}
+
+// GetStreaming returns the current streaming content
+func (c *Chat) GetStreaming() string {
+	return c.streaming
+}
+
+// SetStreaming sets the streaming content (used when restoring session state)
+func (c *Chat) SetStreaming(content string) {
+	c.streaming = content
+	c.updateContent()
 }
 
 // SetPendingPermission sets the pending permission prompt to display

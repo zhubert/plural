@@ -464,6 +464,13 @@ func (r *Runner) ClearMessages() {
 	r.messages = []Message{}
 }
 
+// AddAssistantMessage adds an assistant message to the history
+func (r *Runner) AddAssistantMessage(content string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.messages = append(r.messages, Message{Role: "assistant", Content: content})
+}
+
 // Stop cleanly stops the runner and releases resources.
 // This method is idempotent - multiple calls are safe.
 func (r *Runner) Stop() {
