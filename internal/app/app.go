@@ -441,6 +441,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	}
 
+	// Route scroll keys and mouse wheel to chat panel even when sidebar is focused
+	// This allows scrolling content (e.g., after 'v' to view changes)
+	// Note: up/down/j/k are reserved for sidebar navigation
+	if m.focus == FocusSidebar && m.activeSession != nil {
+		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
+			switch keyMsg.String() {
+			case "pgup", "pgdown", "page up", "page down", "ctrl+u", "ctrl+d", "home", "end":
+				chat, cmd := m.chat.Update(msg)
+				m.chat = chat
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+			}
+		}
+		// Route mouse wheel events to chat panel for scrolling
+		if mouseMsg, isMouse := msg.(tea.MouseWheelMsg); isMouse {
+			// Check if mouse is in chat panel area (right side of screen)
+			if mouseMsg.X > m.sidebar.Width() {
+				chat, cmd := m.chat.Update(msg)
+				m.chat = chat
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+			}
+		}
+	}
+
 	// Update focused panel for other messages
 	if m.focus == FocusSidebar {
 		sidebar, cmd := m.sidebar.Update(msg)

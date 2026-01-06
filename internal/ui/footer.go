@@ -31,6 +31,7 @@ func NewFooter() *Footer {
 			{Key: "v", Desc: "view changes"},
 			{Key: "m", Desc: "merge/pr"},
 			{Key: "d", Desc: "delete"},
+			{Key: "pgup/dn", Desc: "scroll"},
 			{Key: "q", Desc: "quit"},
 		},
 	}
@@ -81,7 +82,7 @@ func (f *Footer) View() string {
 				continue
 			}
 			// Skip session-specific bindings when no session selected
-			if (b.Key == "v" || b.Key == "m" || b.Key == "d") && !f.hasSession {
+			if (b.Key == "v" || b.Key == "m" || b.Key == "d" || b.Key == "pgup/dn") && !f.hasSession {
 				continue
 			}
 

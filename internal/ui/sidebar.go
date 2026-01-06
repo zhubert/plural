@@ -55,6 +55,11 @@ func (s *Sidebar) SetSize(width, height int) {
 	ctx.Log("Sidebar.SetSize: outer=%dx%d, inner=%dx%d", width, height, ctx.InnerWidth(width), ctx.InnerHeight(height))
 }
 
+// Width returns the sidebar width
+func (s *Sidebar) Width() int {
+	return s.width
+}
+
 // SetFocused sets the focus state
 func (s *Sidebar) SetFocused(focused bool) {
 	s.focused = focused
