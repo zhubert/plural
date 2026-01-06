@@ -1,0 +1,382 @@
+package session
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// createTestRepo creates a temporary git repository for testing
+func createTestRepo(t *testing.T) string {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "plural-session-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	// Initialize git repo
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(tmpDir)
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tmpDir
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tmpDir
+	cmd.Run()
+
+	// Create initial commit (required for worktree)
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
+		os.RemoveAll(tmpDir)
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = tmpDir
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(tmpDir)
+		t.Fatalf("Failed to create initial commit: %v", err)
+	}
+
+	return tmpDir
+}
+
+// cleanupWorktrees removes worktrees created during testing
+func cleanupWorktrees(repoPath string) {
+	worktreeDir := GetWorktreeDir(repoPath)
+	os.RemoveAll(worktreeDir)
+
+	// Also prune the worktree references from git
+	cmd := exec.Command("git", "worktree", "prune")
+	cmd.Dir = repoPath
+	cmd.Run()
+}
+
+func TestCreate(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	session, err := Create(repoPath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify session fields
+	if session.ID == "" {
+		t.Error("Session ID should not be empty")
+	}
+
+	if session.RepoPath != repoPath {
+		t.Errorf("RepoPath = %q, want %q", session.RepoPath, repoPath)
+	}
+
+	if session.WorkTree == "" {
+		t.Error("WorkTree should not be empty")
+	}
+
+	if !strings.HasPrefix(session.Branch, "plural-") {
+		t.Errorf("Branch = %q, should start with 'plural-'", session.Branch)
+	}
+
+	if session.Name == "" {
+		t.Error("Name should not be empty")
+	}
+
+	if session.CreatedAt.IsZero() {
+		t.Error("CreatedAt should be set")
+	}
+
+	// Verify the worktree was created
+	if _, err := os.Stat(session.WorkTree); os.IsNotExist(err) {
+		t.Error("Worktree directory should exist")
+	}
+
+	// Verify it's a valid git directory
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd.Dir = session.WorkTree
+	if err := cmd.Run(); err != nil {
+		t.Error("Worktree should be a valid git directory")
+	}
+}
+
+func TestCreate_MultipleSessions(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create multiple sessions
+	session1, err := Create(repoPath)
+	if err != nil {
+		t.Fatalf("Create session1 failed: %v", err)
+	}
+
+	session2, err := Create(repoPath)
+	if err != nil {
+		t.Fatalf("Create session2 failed: %v", err)
+	}
+
+	// They should have different IDs
+	if session1.ID == session2.ID {
+		t.Error("Sessions should have different IDs")
+	}
+
+	// They should have different worktrees
+	if session1.WorkTree == session2.WorkTree {
+		t.Error("Sessions should have different worktrees")
+	}
+
+	// They should have different branches
+	if session1.Branch == session2.Branch {
+		t.Error("Sessions should have different branches")
+	}
+}
+
+func TestCreate_InvalidRepo(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "plural-session-invalid-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Try to create session in non-git directory
+	_, err = Create(tmpDir)
+	if err == nil {
+		t.Error("Create should fail for non-git directory")
+	}
+}
+
+func TestValidateRepo_Valid(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	err := ValidateRepo(repoPath)
+	if err != nil {
+		t.Errorf("ValidateRepo failed for valid repo: %v", err)
+	}
+}
+
+func TestValidateRepo_Invalid(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "plural-validate-invalid-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	err = ValidateRepo(tmpDir)
+	if err == nil {
+		t.Error("ValidateRepo should fail for non-git directory")
+	}
+}
+
+func TestValidateRepo_TildePath(t *testing.T) {
+	err := ValidateRepo("~/some/path")
+	if err == nil {
+		t.Error("ValidateRepo should reject ~ paths")
+	}
+	if !strings.Contains(err.Error(), "absolute path") {
+		t.Errorf("Error should mention absolute path: %v", err)
+	}
+}
+
+func TestValidateRepo_NonexistentPath(t *testing.T) {
+	err := ValidateRepo("/nonexistent/path/to/repo")
+	if err == nil {
+		t.Error("ValidateRepo should fail for nonexistent path")
+	}
+}
+
+func TestGetWorktreeDir(t *testing.T) {
+	tests := []struct {
+		repoPath string
+		expected string
+	}{
+		{"/home/user/projects/myrepo", "/home/user/projects/.plural-worktrees"},
+		{"/var/repos/test", "/var/repos/.plural-worktrees"},
+		{"/Users/dev/Code/project", "/Users/dev/Code/.plural-worktrees"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.repoPath, func(t *testing.T) {
+			result := GetWorktreeDir(tt.repoPath)
+			if result != tt.expected {
+				t.Errorf("GetWorktreeDir(%q) = %q, want %q", tt.repoPath, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetGitRoot_Valid(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	root := GetGitRoot(repoPath)
+
+	// Resolve symlinks for comparison (macOS has /var -> /private/var)
+	expectedPath, _ := filepath.EvalSymlinks(repoPath)
+	actualPath, _ := filepath.EvalSymlinks(root)
+
+	if actualPath != expectedPath {
+		t.Errorf("GetGitRoot = %q, want %q", root, repoPath)
+	}
+}
+
+func TestGetGitRoot_Subdirectory(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a subdirectory
+	subDir := filepath.Join(repoPath, "subdir")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	root := GetGitRoot(subDir)
+
+	// Resolve symlinks for comparison (macOS has /var -> /private/var)
+	expectedPath, _ := filepath.EvalSymlinks(repoPath)
+	actualPath, _ := filepath.EvalSymlinks(root)
+
+	if actualPath != expectedPath {
+		t.Errorf("GetGitRoot from subdir = %q, want %q", root, repoPath)
+	}
+}
+
+func TestGetGitRoot_Invalid(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "plural-gitroot-invalid-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	root := GetGitRoot(tmpDir)
+	if root != "" {
+		t.Errorf("GetGitRoot for non-git dir = %q, want empty string", root)
+	}
+}
+
+func TestGetGitRoot_Nonexistent(t *testing.T) {
+	root := GetGitRoot("/nonexistent/path")
+	if root != "" {
+		t.Errorf("GetGitRoot for nonexistent path = %q, want empty string", root)
+	}
+}
+
+func TestGetCurrentDirGitRoot(t *testing.T) {
+	// Save current directory
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	// Create a test repo and cd into it
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	if err := os.Chdir(repoPath); err != nil {
+		t.Fatalf("Failed to change directory: %v", err)
+	}
+
+	root := GetCurrentDirGitRoot()
+
+	// Resolve symlinks for comparison (macOS has /var -> /private/var)
+	expectedPath, _ := filepath.EvalSymlinks(repoPath)
+	actualPath, _ := filepath.EvalSymlinks(root)
+
+	if actualPath != expectedPath {
+		t.Errorf("GetCurrentDirGitRoot = %q, want %q", root, repoPath)
+	}
+}
+
+func TestSessionName_Format(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	session, err := Create(repoPath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Name should be in format "reponame/shortid"
+	parts := strings.Split(session.Name, "/")
+	if len(parts) != 2 {
+		t.Errorf("Session name format incorrect: %q", session.Name)
+	}
+
+	repoName := filepath.Base(repoPath)
+	if parts[0] != repoName {
+		t.Errorf("Session name repo part = %q, want %q", parts[0], repoName)
+	}
+
+	// Short ID should be 8 characters
+	if len(parts[1]) != 8 {
+		t.Errorf("Session name short ID length = %d, want 8", len(parts[1]))
+	}
+
+	// Short ID should be prefix of full ID
+	if !strings.HasPrefix(session.ID, parts[1]) {
+		t.Errorf("Short ID %q should be prefix of full ID %q", parts[1], session.ID)
+	}
+}
+
+func TestBranchName_Format(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	session, err := Create(repoPath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Branch should be "plural-<UUID>"
+	expectedPrefix := "plural-"
+	if !strings.HasPrefix(session.Branch, expectedPrefix) {
+		t.Errorf("Branch %q should start with %q", session.Branch, expectedPrefix)
+	}
+
+	// The rest should be the session ID
+	branchID := strings.TrimPrefix(session.Branch, expectedPrefix)
+	if branchID != session.ID {
+		t.Errorf("Branch ID part = %q, want session ID %q", branchID, session.ID)
+	}
+}
+
+func TestWorktreePath_Location(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	session, err := Create(repoPath)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Worktree should be in .plural-worktrees directory
+	expectedDir := GetWorktreeDir(repoPath)
+	if !strings.HasPrefix(session.WorkTree, expectedDir) {
+		t.Errorf("WorkTree %q should be in %q", session.WorkTree, expectedDir)
+	}
+
+	// Worktree directory name should be the session ID
+	worktreeName := filepath.Base(session.WorkTree)
+	if worktreeName != session.ID {
+		t.Errorf("Worktree directory name = %q, want session ID %q", worktreeName, session.ID)
+	}
+}
