@@ -37,7 +37,9 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	// Only trim trailing whitespace - leading space is significant in porcelain format
+	// (e.g., " M file.go" means modified in worktree, the leading space is part of status)
+	lines := strings.Split(strings.TrimRight(string(output), "\n\r\t "), "\n")
 	if len(lines) == 1 && lines[0] == "" {
 		// No changes
 		status.HasChanges = false
