@@ -600,7 +600,7 @@ func (m *Modal) renderMerge() string {
 		summaryStyle := lipgloss.NewStyle().
 			Foreground(ColorSecondary).
 			MarginBottom(1)
-		summarySection = summaryStyle.Render("📝 " + m.changesSummary)
+		summarySection = summaryStyle.Render("Changes: " + m.changesSummary)
 	} else {
 		noChangesStyle := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
