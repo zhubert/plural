@@ -197,11 +197,197 @@ func (r *Runner) SetStreamingDone() {
 	r.responseChan = nil
 }
 
+// ChunkType represents the type of streaming chunk
+type ChunkType string
+
+const (
+	ChunkTypeText       ChunkType = "text"        // Regular text content
+	ChunkTypeToolUse    ChunkType = "tool_use"    // Claude is calling a tool
+	ChunkTypeToolResult ChunkType = "tool_result" // Tool execution result
+	ChunkTypeStatus     ChunkType = "status"      // Status message (init, result)
+)
+
 // ResponseChunk represents a chunk of streaming response
 type ResponseChunk struct {
-	Content string
-	Done    bool
-	Error   error
+	Type      ChunkType // Type of this chunk
+	Content   string    // Text content (for text chunks and status)
+	ToolName  string    // Tool being used (for tool_use chunks)
+	ToolInput string    // Brief description of tool input
+	Done      bool
+	Error     error
+}
+
+// streamMessage represents a JSON message from Claude's stream-json output
+type streamMessage struct {
+	Type    string `json:"type"`    // "system", "assistant", "user", "result"
+	Subtype string `json:"subtype"` // "init", "success", etc.
+	Message struct {
+		Content []struct {
+			Type      string          `json:"type"` // "text", "tool_use", "tool_result"
+			Text      string          `json:"text,omitempty"`
+			Name      string          `json:"name,omitempty"`       // tool name
+			Input     json.RawMessage `json:"input,omitempty"`      // tool input
+			ToolUseID string          `json:"tool_use_id,omitempty"`
+			Content   string          `json:"content,omitempty"` // tool result content
+		} `json:"content"`
+	} `json:"message"`
+	Result    string `json:"result,omitempty"` // Final result text
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// parseStreamMessage parses a JSON line from Claude's stream-json output
+// and returns zero or more ResponseChunks representing the message content.
+func parseStreamMessage(line string) []ResponseChunk {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil
+	}
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		// If we can't parse as JSON, treat as raw text (shouldn't happen with stream-json)
+		logger.Log("Claude: Failed to parse stream message: %v, line=%q", err, line)
+		return []ResponseChunk{{Type: ChunkTypeText, Content: line + "\n"}}
+	}
+
+	var chunks []ResponseChunk
+
+	switch msg.Type {
+	case "system":
+		// Init message - we could show "Session started" but skip for now
+		if msg.Subtype == "init" {
+			logger.Log("Claude: Session initialized")
+		}
+
+	case "assistant":
+		// Assistant messages can contain text or tool_use
+		for _, content := range msg.Message.Content {
+			switch content.Type {
+			case "text":
+				if content.Text != "" {
+					chunks = append(chunks, ResponseChunk{
+						Type:    ChunkTypeText,
+						Content: content.Text,
+					})
+				}
+			case "tool_use":
+				// Extract a brief description from the tool input
+				inputDesc := extractToolInputDescription(content.Name, content.Input)
+				chunks = append(chunks, ResponseChunk{
+					Type:      ChunkTypeToolUse,
+					ToolName:  content.Name,
+					ToolInput: inputDesc,
+				})
+				logger.Log("Claude: Tool use: %s - %s", content.Name, inputDesc)
+			}
+		}
+
+	case "user":
+		// User messages in stream-json are tool results
+		for _, content := range msg.Message.Content {
+			if content.Type == "tool_result" {
+				chunks = append(chunks, ResponseChunk{
+					Type:    ChunkTypeToolResult,
+					Content: truncateToolResult(content.Content),
+				})
+			}
+		}
+
+	case "result":
+		// Final result - the actual result text is in msg.Result
+		// but we've already captured text chunks, so just log completion
+		logger.Log("Claude: Result received, subtype=%s", msg.Subtype)
+	}
+
+	return chunks
+}
+
+// extractToolInputDescription extracts a brief, human-readable description from tool input
+func extractToolInputDescription(toolName string, input json.RawMessage) string {
+	if len(input) == 0 {
+		return ""
+	}
+
+	var inputMap map[string]interface{}
+	if err := json.Unmarshal(input, &inputMap); err != nil {
+		return ""
+	}
+
+	switch toolName {
+	case "Read":
+		if path, ok := inputMap["file_path"].(string); ok {
+			return shortenPath(path)
+		}
+	case "Edit":
+		if path, ok := inputMap["file_path"].(string); ok {
+			return shortenPath(path)
+		}
+	case "Write":
+		if path, ok := inputMap["file_path"].(string); ok {
+			return shortenPath(path)
+		}
+	case "Glob":
+		if pattern, ok := inputMap["pattern"].(string); ok {
+			return pattern
+		}
+	case "Grep":
+		if pattern, ok := inputMap["pattern"].(string); ok {
+			if len(pattern) > 30 {
+				return pattern[:30] + "..."
+			}
+			return pattern
+		}
+	case "Bash":
+		if cmd, ok := inputMap["command"].(string); ok {
+			if len(cmd) > 40 {
+				return cmd[:40] + "..."
+			}
+			return cmd
+		}
+	case "Task":
+		if desc, ok := inputMap["description"].(string); ok {
+			return desc
+		}
+	case "WebFetch":
+		if url, ok := inputMap["url"].(string); ok {
+			if len(url) > 40 {
+				return url[:40] + "..."
+			}
+			return url
+		}
+	case "WebSearch":
+		if query, ok := inputMap["query"].(string); ok {
+			return query
+		}
+	}
+
+	// Default: return first string value found
+	for _, v := range inputMap {
+		if s, ok := v.(string); ok && s != "" {
+			if len(s) > 40 {
+				return s[:40] + "..."
+			}
+			return s
+		}
+	}
+	return ""
+}
+
+// shortenPath returns just the filename or last path component
+func shortenPath(path string) string {
+	parts := strings.Split(path, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return path
+}
+
+// truncateToolResult truncates long tool results for display
+func truncateToolResult(result string) string {
+	if len(result) > 100 {
+		return result[:100] + "..."
+	}
+	return result
 }
 
 // ensureServerRunning starts the socket server and creates MCP config if not already running.
@@ -338,11 +524,15 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 		if sessionStarted {
 			args = []string{
 				"--print",
+				"--output-format", "stream-json",
+				"--verbose",
 				"--resume", r.sessionID,
 			}
 		} else {
 			args = []string{
 				"--print",
+				"--output-format", "stream-json",
+				"--verbose",
 				"--session-id", r.sessionID,
 			}
 		}
@@ -390,7 +580,7 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 		}
 		logger.Log("Claude: Command started in %v, pid=%d", time.Since(cmdStartTime), cmd.Process.Pid)
 
-		// Read and stream output
+		// Read and stream JSON output
 		var fullResponse string
 		reader := bufio.NewReader(stdout)
 		firstChunk := true
@@ -401,8 +591,15 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 					logger.Log("Claude: First response chunk received after %v (time to first token)", time.Since(cmdStartTime))
 					firstChunk = false
 				}
-				fullResponse += line
-				ch <- ResponseChunk{Content: line, Done: false}
+
+				// Parse the JSON message
+				chunks := parseStreamMessage(line)
+				for _, chunk := range chunks {
+					if chunk.Type == ChunkTypeText {
+						fullResponse += chunk.Content
+					}
+					ch <- chunk
+				}
 			}
 			if err == io.EOF {
 				break
