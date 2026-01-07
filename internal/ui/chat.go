@@ -82,6 +82,9 @@ type Chat struct {
 	toolName  string // Name of the tool being used (e.g., "Read", "Edit", "Bash")
 	toolInput string // Brief description of tool input (e.g., filename, command)
 
+	// Track last tool use position for marking as complete
+	lastToolUsePos int // Position in streaming content where last tool use marker starts
+
 	// Pending permission prompt
 	hasPendingPermission   bool
 	pendingPermissionTool  string
@@ -104,9 +107,10 @@ func NewChat() *Chat {
 	vp.MouseWheelDelta = 3
 
 	c := &Chat{
-		viewport: vp,
-		input:    ti,
-		messages: []claude.Message{},
+		viewport:       vp,
+		input:          ti,
+		messages:       []claude.Message{},
+		lastToolUsePos: -1,
 	}
 	c.updateContent()
 	return c
@@ -173,6 +177,7 @@ func (c *Chat) ClearSession() {
 	c.streaming = ""
 	c.toolName = ""
 	c.toolInput = ""
+	c.lastToolUsePos = -1
 	c.hasPendingPermission = false
 	c.pendingPermissionTool = ""
 	c.pendingPermissionDesc = ""
@@ -185,10 +190,16 @@ func (c *Chat) AppendStreaming(content string) {
 	c.updateContent()
 }
 
+// ToolUseInProgress is the white circle marker for tool use in progress
+const ToolUseInProgress = "⏺"
+
+// ToolUseComplete is the green circle marker for completed tool use
+const ToolUseComplete = "●"
+
 // AppendToolUse appends a formatted tool use line to the streaming content
 func (c *Chat) AppendToolUse(toolName, toolInput string) {
 	icon := GetToolIcon(toolName)
-	line := "⏺ " + icon + "(" + toolName
+	line := ToolUseInProgress + " " + icon + "(" + toolName
 	if toolInput != "" {
 		line += ": " + toolInput
 	}
@@ -198,8 +209,26 @@ func (c *Chat) AppendToolUse(toolName, toolInput string) {
 	if c.streaming != "" && !strings.HasSuffix(c.streaming, "\n") {
 		c.streaming += "\n"
 	}
+	// Track position where the marker starts
+	c.lastToolUsePos = len(c.streaming)
 	c.streaming += line
 	c.updateContent()
+}
+
+// MarkLastToolUseComplete changes the last tool use marker from white to green
+func (c *Chat) MarkLastToolUseComplete() {
+	if c.lastToolUsePos >= 0 && c.lastToolUsePos < len(c.streaming) {
+		// Check if the marker is at the expected position
+		markerLen := len(ToolUseInProgress)
+		if c.lastToolUsePos+markerLen <= len(c.streaming) {
+			prefix := c.streaming[:c.lastToolUsePos]
+			suffix := c.streaming[c.lastToolUsePos+markerLen:]
+			c.streaming = prefix + ToolUseComplete + suffix
+			c.updateContent()
+		}
+	}
+	// Reset position after marking
+	c.lastToolUsePos = -1
 }
 
 // FinishStreaming completes the streaming and adds to messages
@@ -509,6 +538,12 @@ func highlightCode(code, language string) string {
 
 // renderInlineMarkdown applies inline formatting (bold, italic, code, links) to a line
 func renderInlineMarkdown(line string) string {
+	// Apply tool use marker coloring first
+	// White circle for in-progress tools
+	line = strings.ReplaceAll(line, ToolUseInProgress, ToolUseInProgressStyle.Render(ToolUseInProgress))
+	// Green circle for completed tools
+	line = strings.ReplaceAll(line, ToolUseComplete, ToolUseCompleteStyle.Render(ToolUseComplete))
+
 	// Process inline code first (to avoid formatting inside code)
 	// We need to protect code spans from other formatting
 	type codeSpan struct {

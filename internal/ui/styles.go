@@ -130,6 +130,15 @@ var (
 		Bold(true)
 )
 
+// Tool use marker styles
+var (
+	ToolUseInProgressStyle = lipgloss.NewStyle().
+		Foreground(ColorText) // White circle for in-progress
+
+	ToolUseCompleteStyle = lipgloss.NewStyle().
+		Foreground(ColorSecondary) // Green circle for completed
+)
+
 // Permission prompt styles
 var (
 	PermissionBoxStyle = lipgloss.NewStyle().

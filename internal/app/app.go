@@ -85,6 +85,9 @@ type Model struct {
 
 	// Per-session streaming content (for non-active sessions)
 	sessionStreaming map[string]string
+
+	// Per-session last tool use position (for non-active sessions)
+	sessionToolUsePos map[string]int
 }
 
 // ClaudeResponseMsg is sent when Claude sends a response chunk
@@ -123,6 +126,7 @@ func New(cfg *config.Config) *Model {
 		sessionMergeCancels:  make(map[string]context.CancelFunc),
 		sessionStreamCancels: make(map[string]context.CancelFunc),
 		sessionStreaming:     make(map[string]string),
+		sessionToolUsePos:    make(map[string]int),
 		state:               StateIdle,
 	}
 
@@ -387,7 +391,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.chat.AppendToolUse(msg.Chunk.ToolName, msg.Chunk.ToolInput)
 					m.chat.SetToolStatus(msg.Chunk.ToolName, msg.Chunk.ToolInput)
 				case claude.ChunkTypeToolResult:
-					// Tool completed, clear the status indicator
+					// Tool completed, mark the tool use line as complete and clear status
+					m.chat.MarkLastToolUseComplete()
 					m.chat.ClearToolStatus()
 				case claude.ChunkTypeText:
 					// Don't clear tool status on text - let it persist until tool_result
@@ -404,7 +409,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case claude.ChunkTypeToolUse:
 					// Format tool use for non-active session
 					icon := ui.GetToolIcon(msg.Chunk.ToolName)
-					line := "⏺ " + icon + "(" + msg.Chunk.ToolName
+					line := ui.ToolUseInProgress + " " + icon + "(" + msg.Chunk.ToolName
 					if msg.Chunk.ToolInput != "" {
 						line += ": " + msg.Chunk.ToolInput
 					}
@@ -412,7 +417,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if existing := m.sessionStreaming[msg.SessionID]; existing != "" && !strings.HasSuffix(existing, "\n") {
 						m.sessionStreaming[msg.SessionID] += "\n"
 					}
+					// Track position where the marker starts
+					m.sessionToolUsePos[msg.SessionID] = len(m.sessionStreaming[msg.SessionID])
 					m.sessionStreaming[msg.SessionID] += line
+				case claude.ChunkTypeToolResult:
+					// Mark the tool use as complete for non-active session
+					if pos, exists := m.sessionToolUsePos[msg.SessionID]; exists && pos >= 0 {
+						streaming := m.sessionStreaming[msg.SessionID]
+						markerLen := len(ui.ToolUseInProgress)
+						if pos+markerLen <= len(streaming) {
+							prefix := streaming[:pos]
+							suffix := streaming[pos+markerLen:]
+							m.sessionStreaming[msg.SessionID] = prefix + ui.ToolUseComplete + suffix
+						}
+						delete(m.sessionToolUsePos, msg.SessionID)
+					}
 				case claude.ChunkTypeText:
 					m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
 				default:
