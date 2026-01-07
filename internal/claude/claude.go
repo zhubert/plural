@@ -594,6 +594,7 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 
 		// Read and stream JSON output
 		var fullResponse string
+		var lastWasToolUse bool
 		reader := bufio.NewReader(stdout)
 		firstChunk := true
 		for {
@@ -607,8 +608,27 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 				// Parse the JSON message
 				chunks := parseStreamMessage(line)
 				for _, chunk := range chunks {
-					if chunk.Type == ChunkTypeText {
+					switch chunk.Type {
+					case ChunkTypeText:
+						// Add extra newline after tool use for visual separation
+						if lastWasToolUse && strings.HasSuffix(fullResponse, "\n") && !strings.HasSuffix(fullResponse, "\n\n") {
+							fullResponse += "\n"
+						}
 						fullResponse += chunk.Content
+						lastWasToolUse = false
+					case ChunkTypeToolUse:
+						// Format tool use line to match chat display format
+						// Add newline before if there's existing content that doesn't end with newline
+						if fullResponse != "" && !strings.HasSuffix(fullResponse, "\n") {
+							fullResponse += "\n"
+						}
+						line := "● " + formatToolIcon(chunk.ToolName) + "(" + chunk.ToolName
+						if chunk.ToolInput != "" {
+							line += ": " + chunk.ToolInput
+						}
+						line += ")\n"
+						fullResponse += line
+						lastWasToolUse = true
 					}
 					ch <- chunk
 				}
@@ -720,4 +740,32 @@ func (r *Runner) Stop() {
 
 		logger.Log("Claude: Runner stopped for session %s", r.sessionID)
 	})
+}
+
+// formatToolIcon returns a human-readable verb for the tool type
+func formatToolIcon(toolName string) string {
+	switch toolName {
+	case "Read":
+		return "Reading"
+	case "Edit":
+		return "Editing"
+	case "Write":
+		return "Writing"
+	case "Glob":
+		return "Searching"
+	case "Grep":
+		return "Searching"
+	case "Bash":
+		return "Running"
+	case "Task":
+		return "Delegating"
+	case "WebFetch":
+		return "Fetching"
+	case "WebSearch":
+		return "Searching"
+	case "TodoWrite":
+		return "Planning"
+	default:
+		return "Using"
+	}
 }
