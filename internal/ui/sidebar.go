@@ -168,7 +168,7 @@ func (s *Sidebar) HasPendingPermission(sessionID string) bool {
 
 // SidebarTick returns a command that sends a tick message after a delay
 func SidebarTick() tea.Cmd {
-	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
 		return SidebarTickMsg(t)
 	})
 }
