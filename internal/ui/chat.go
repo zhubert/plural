@@ -445,7 +445,7 @@ func StopwatchTick() tea.Cmd {
 // The offset parameter controls which position in the text is at peak brightness.
 func renderAnimatedText(text string, offset int) string {
 	// Gradient colors from dim to bright and back
-	// Using a purple-based gradient that flows left to right
+	// Using a purple-based gradient that flows right to left
 	colors := []color.Color{
 		lipgloss.Color("#4C1D95"), // Very dark purple
 		lipgloss.Color("#5B21B6"), // Dark purple
@@ -467,8 +467,8 @@ func renderAnimatedText(text string, offset int) string {
 
 	for i, r := range runes {
 		// Calculate which color to use based on position and offset
-		// The offset shifts the "bright" point across the text
-		colorIdx := (i + offset) % gradientLen
+		// The offset shifts the "bright" point across the text (right to left)
+		colorIdx := (gradientLen - 1 - (i+offset)%gradientLen + gradientLen) % gradientLen
 		style := lipgloss.NewStyle().Foreground(colors[colorIdx]).Italic(true)
 		result.WriteString(style.Render(string(r)))
 	}
