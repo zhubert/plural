@@ -8,6 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251106192539-4b304240aab7
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/google/uuid v1.6.0
+	github.com/muesli/reflow v0.3.0
 )
 
 require (
@@ -25,7 +26,6 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.18.0 // indirect

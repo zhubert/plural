@@ -19,7 +19,7 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats: ['tar.gz']
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -28,7 +28,7 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: ['zip']
 
 checksum:
   name_template: 'checksums.txt'
