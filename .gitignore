@@ -4,6 +4,9 @@ plural
 # GoReleaser output
 dist/
 
+# Nix build output
+result
+
 # IDE
 .idea/
 .vscode/
