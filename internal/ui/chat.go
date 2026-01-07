@@ -184,6 +184,23 @@ func (c *Chat) AppendStreaming(content string) {
 	c.updateContent()
 }
 
+// AppendToolUse appends a formatted tool use line to the streaming content
+func (c *Chat) AppendToolUse(toolName, toolInput string) {
+	icon := GetToolIcon(toolName)
+	line := "⏺ " + icon + "(" + toolName
+	if toolInput != "" {
+		line += ": " + toolInput
+	}
+	line += ")\n"
+
+	// Add newline before if there's existing content that doesn't end with newline
+	if c.streaming != "" && !strings.HasSuffix(c.streaming, "\n") {
+		c.streaming += "\n"
+	}
+	c.streaming += line
+	c.updateContent()
+}
+
 // FinishStreaming completes the streaming and adds to messages
 func (c *Chat) FinishStreaming() {
 	// Clear tool status
@@ -346,7 +363,7 @@ func (c *Chat) renderToolStatus() string {
 	}
 
 	// Tool icon based on tool type
-	icon := getToolIcon(c.toolName)
+	icon := GetToolIcon(c.toolName)
 
 	// Style for the tool status
 	toolStyle := lipgloss.NewStyle().
@@ -362,8 +379,8 @@ func (c *Chat) renderToolStatus() string {
 	return toolStyle.Render(icon + " " + c.toolName + "...")
 }
 
-// getToolIcon returns an appropriate icon for the tool type
-func getToolIcon(toolName string) string {
+// GetToolIcon returns an appropriate icon for the tool type
+func GetToolIcon(toolName string) string {
 	switch toolName {
 	case "Read":
 		return "Reading"

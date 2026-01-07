@@ -354,11 +354,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle different chunk types
 				switch msg.Chunk.Type {
 				case claude.ChunkTypeToolUse:
+					// Append tool use to streaming content so it persists in history
+					m.chat.AppendToolUse(msg.Chunk.ToolName, msg.Chunk.ToolInput)
 					m.chat.SetToolStatus(msg.Chunk.ToolName, msg.Chunk.ToolInput)
 				case claude.ChunkTypeToolResult:
+					// Tool completed, clear the status indicator
 					m.chat.ClearToolStatus()
 				case claude.ChunkTypeText:
-					m.chat.ClearToolStatus()
+					// Don't clear tool status on text - let it persist until tool_result
 					m.chat.AppendStreaming(msg.Chunk.Content)
 				default:
 					// For backwards compatibility, treat unknown types as text
@@ -367,9 +370,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else {
-				// Store streaming content for non-active session (only text)
-				if msg.Chunk.Type == claude.ChunkTypeText || msg.Chunk.Content != "" {
+				// Store streaming content for non-active session
+				switch msg.Chunk.Type {
+				case claude.ChunkTypeToolUse:
+					// Format tool use for non-active session
+					icon := ui.GetToolIcon(msg.Chunk.ToolName)
+					line := "⏺ " + icon + "(" + msg.Chunk.ToolName
+					if msg.Chunk.ToolInput != "" {
+						line += ": " + msg.Chunk.ToolInput
+					}
+					line += ")\n"
+					if existing := m.sessionStreaming[msg.SessionID]; existing != "" && !strings.HasSuffix(existing, "\n") {
+						m.sessionStreaming[msg.SessionID] += "\n"
+					}
+					m.sessionStreaming[msg.SessionID] += line
+				case claude.ChunkTypeText:
 					m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
+				default:
+					if msg.Chunk.Content != "" {
+						m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
+					}
 				}
 			}
 			// Continue listening for more chunks from this session
