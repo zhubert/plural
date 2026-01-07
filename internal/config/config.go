@@ -204,20 +204,6 @@ func (c *Config) AddRepo(path string) bool {
 	return true
 }
 
-// RemoveRepo removes a repository path
-func (c *Config) RemoveRepo(path string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for i, r := range c.Repos {
-		if r == path {
-			c.Repos = append(c.Repos[:i], c.Repos[i+1:]...)
-			return true
-		}
-	}
-	return false
-}
-
 // AddSession adds a new session
 func (c *Config) AddSession(session Session) {
 	c.mu.Lock()
@@ -438,34 +424,6 @@ func (c *Config) GetMCPServersForRepo(repoPath string) []MCPServer {
 	return result
 }
 
-// AddGlobalAllowedTool adds a tool to the global allowed tools list
-func (c *Config) AddGlobalAllowedTool(tool string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, t := range c.AllowedTools {
-		if t == tool {
-			return false
-		}
-	}
-	c.AllowedTools = append(c.AllowedTools, tool)
-	return true
-}
-
-// RemoveGlobalAllowedTool removes a tool from the global allowed tools list
-func (c *Config) RemoveGlobalAllowedTool(tool string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for i, t := range c.AllowedTools {
-		if t == tool {
-			c.AllowedTools = append(c.AllowedTools[:i], c.AllowedTools[i+1:]...)
-			return true
-		}
-	}
-	return false
-}
-
 // GetGlobalAllowedTools returns a copy of global allowed tools
 func (c *Config) GetGlobalAllowedTools() []string {
 	c.mu.RLock()
@@ -492,39 +450,6 @@ func (c *Config) AddRepoAllowedTool(repoPath, tool string) bool {
 	}
 	c.RepoAllowedTools[repoPath] = append(c.RepoAllowedTools[repoPath], tool)
 	return true
-}
-
-// RemoveRepoAllowedTool removes a tool from a repository's allowed tools list
-func (c *Config) RemoveRepoAllowedTool(repoPath, tool string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	tools, exists := c.RepoAllowedTools[repoPath]
-	if !exists {
-		return false
-	}
-
-	for i, t := range tools {
-		if t == tool {
-			c.RepoAllowedTools[repoPath] = append(tools[:i], tools[i+1:]...)
-			if len(c.RepoAllowedTools[repoPath]) == 0 {
-				delete(c.RepoAllowedTools, repoPath)
-			}
-			return true
-		}
-	}
-	return false
-}
-
-// GetRepoAllowedTools returns allowed tools for a specific repository
-func (c *Config) GetRepoAllowedTools(repoPath string) []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	tools := c.RepoAllowedTools[repoPath]
-	result := make([]string, len(tools))
-	copy(result, tools)
-	return result
 }
 
 // GetAllowedToolsForRepo returns merged global + per-repo allowed tools
