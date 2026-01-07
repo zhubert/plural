@@ -595,6 +595,11 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			m.modal.Hide()
 			return m, nil
+		case "up", "down", "j", "k":
+			// Forward navigation keys to modal for option selection
+			modal, cmd := m.modal.Update(msg)
+			m.modal = modal
+			return m, cmd
 		}
 		return m, nil
 
