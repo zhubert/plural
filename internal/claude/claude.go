@@ -51,24 +51,20 @@ type Message struct {
 	Content string
 }
 
-// PermissionHandler is called when Claude needs permission for an operation
-type PermissionHandler func(req mcp.PermissionRequest) mcp.PermissionResponse
-
 // Runner manages a Claude Code CLI session
 type Runner struct {
-	sessionID         string
-	workingDir        string
-	messages          []Message
-	sessionStarted    bool // tracks if session has been created
-	mu                sync.RWMutex
-	allowedTools      []string          // Pre-allowed tools for this session
-	permissionHandler PermissionHandler // Callback for permission prompts
-	socketServer      *mcp.SocketServer // Socket server for MCP communication (persistent)
-	mcpConfigPath     string            // Path to MCP config file (persistent)
-	serverRunning     bool              // Whether the socket server is running
-	permReqChan       chan mcp.PermissionRequest
-	permRespChan      chan mcp.PermissionResponse
-	stopOnce          sync.Once // Ensures Stop() is idempotent
+	sessionID      string
+	workingDir     string
+	messages       []Message
+	sessionStarted bool // tracks if session has been created
+	mu             sync.RWMutex
+	allowedTools   []string          // Pre-allowed tools for this session
+	socketServer   *mcp.SocketServer // Socket server for MCP communication (persistent)
+	mcpConfigPath  string            // Path to MCP config file (persistent)
+	serverRunning  bool              // Whether the socket server is running
+	permReqChan  chan mcp.PermissionRequest
+	permRespChan chan mcp.PermissionResponse
+	stopOnce     sync.Once // Ensures Stop() is idempotent
 
 	// Per-session streaming state
 	isStreaming  bool                   // Whether this runner is currently streaming
@@ -155,11 +151,6 @@ func (r *Runner) SetMCPServers(servers []MCPServer) {
 	logger.Log("Claude: Set %d external MCP servers for session %s", len(servers), r.sessionID)
 }
 
-// SetPermissionHandler sets the callback for permission prompts
-func (r *Runner) SetPermissionHandler(handler PermissionHandler) {
-	r.permissionHandler = handler
-}
-
 // PermissionRequestChan returns the channel for receiving permission requests
 func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	return r.permReqChan
@@ -168,11 +159,6 @@ func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 // SendPermissionResponse sends a response to a permission request
 func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.permRespChan <- resp
-}
-
-// GetSessionID returns the session ID for this runner
-func (r *Runner) GetSessionID() string {
-	return r.sessionID
 }
 
 // IsStreaming returns whether this runner is currently streaming a response
@@ -187,14 +173,6 @@ func (r *Runner) GetResponseChan() <-chan ResponseChunk {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.responseChan
-}
-
-// SetStreamingDone marks the streaming as complete
-func (r *Runner) SetStreamingDone() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.isStreaming = false
-	r.responseChan = nil
 }
 
 // ChunkType represents the type of streaming chunk
@@ -400,14 +378,6 @@ func shortenPath(path string) string {
 		return parts[len(parts)-1]
 	}
 	return path
-}
-
-// truncateToolResult truncates long tool results for display
-func truncateToolResult(result string) string {
-	if len(result) > 100 {
-		return result[:100] + "..."
-	}
-	return result
 }
 
 // truncateForLog truncates long strings for log messages
@@ -680,13 +650,6 @@ func (r *Runner) GetMessages() []Message {
 	messages := make([]Message, len(r.messages))
 	copy(messages, r.messages)
 	return messages
-}
-
-// ClearMessages clears the message history
-func (r *Runner) ClearMessages() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.messages = []Message{}
 }
 
 // AddAssistantMessage adds an assistant message to the history

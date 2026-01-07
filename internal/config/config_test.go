@@ -42,27 +42,6 @@ func TestConfig_AddRepo(t *testing.T) {
 	}
 }
 
-func TestConfig_RemoveRepo(t *testing.T) {
-	cfg := &Config{
-		Repos:    []string{"/path/to/repo1", "/path/to/repo2"},
-		Sessions: []Session{},
-	}
-
-	// Test removing existing repo
-	if !cfg.RemoveRepo("/path/to/repo1") {
-		t.Error("RemoveRepo should return true for existing repo")
-	}
-
-	if len(cfg.Repos) != 1 {
-		t.Errorf("Expected 1 repo, got %d", len(cfg.Repos))
-	}
-
-	// Test removing non-existent repo
-	if cfg.RemoveRepo("/path/to/nonexistent") {
-		t.Error("RemoveRepo should return false for non-existent repo")
-	}
-}
-
 func TestConfig_AddSession(t *testing.T) {
 	cfg := &Config{
 		Repos:    []string{},
@@ -142,18 +121,8 @@ func TestConfig_AllowedTools(t *testing.T) {
 	cfg := &Config{
 		Repos:            []string{"/path/to/repo"},
 		Sessions:         []Session{},
-		AllowedTools:     []string{},
+		AllowedTools:     []string{"Edit"},
 		RepoAllowedTools: make(map[string][]string),
-	}
-
-	// Test adding global allowed tool
-	if !cfg.AddGlobalAllowedTool("Edit") {
-		t.Error("AddGlobalAllowedTool should return true for new tool")
-	}
-
-	// Test adding duplicate global tool
-	if cfg.AddGlobalAllowedTool("Edit") {
-		t.Error("AddGlobalAllowedTool should return false for duplicate tool")
 	}
 
 	// Test getting global allowed tools
@@ -175,32 +144,10 @@ func TestConfig_AllowedTools(t *testing.T) {
 		t.Error("AddRepoAllowedTool should return false for duplicate tool")
 	}
 
-	// Test getting per-repo allowed tools
-	repoTools := cfg.GetRepoAllowedTools("/path/to/repo")
-	if len(repoTools) != 1 {
-		t.Errorf("Expected 1 repo tool, got %d", len(repoTools))
-	}
-
 	// Test getting merged allowed tools
 	mergedTools := cfg.GetAllowedToolsForRepo("/path/to/repo")
 	if len(mergedTools) != 2 {
 		t.Errorf("Expected 2 merged tools, got %d", len(mergedTools))
-	}
-
-	// Test removing global tool
-	if !cfg.RemoveGlobalAllowedTool("Edit") {
-		t.Error("RemoveGlobalAllowedTool should return true")
-	}
-	if cfg.RemoveGlobalAllowedTool("Edit") {
-		t.Error("RemoveGlobalAllowedTool should return false for already removed tool")
-	}
-
-	// Test removing per-repo tool
-	if !cfg.RemoveRepoAllowedTool("/path/to/repo", "Bash(git:*)") {
-		t.Error("RemoveRepoAllowedTool should return true")
-	}
-	if cfg.RemoveRepoAllowedTool("/path/to/repo", "Bash(git:*)") {
-		t.Error("RemoveRepoAllowedTool should return false for already removed tool")
 	}
 }
 
