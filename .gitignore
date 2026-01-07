@@ -1,6 +1,9 @@
 # Binary
 plural
 
+# GoReleaser output
+dist/
+
 # IDE
 .idea/
 .vscode/
