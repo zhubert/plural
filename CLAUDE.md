@@ -21,6 +21,9 @@ go build -o plural .
 # Clear all sessions
 ./plural --clear
 
+# Prune orphaned worktrees (worktrees without matching sessions)
+./plural --prune
+
 # Run with go directly
 go run .
 
@@ -77,9 +80,9 @@ tail -f /tmp/plural-mcp-*.log
   - `protocol_test.go` - Protocol test suite
   - `server.go` - MCP server implementation (stdio transport)
   - `socket.go` - Unix socket communication with timeouts to prevent deadlocks
-- **internal/session** - Creates git worktrees for isolated sessions; validates git repos
+- **internal/session** - Creates and manages git worktrees for isolated sessions; validates git repos
   - `doc.go` - Package documentation
-  - `session.go` - Session creation and git worktree management
+  - `session.go` - Session creation, deletion, and orphaned worktree pruning
   - `session_test.go` - Test suite
 - **internal/ui** - UI components using Bubble Tea + Lipgloss:
   - `doc.go` - Package documentation with layout diagrams
@@ -167,6 +170,16 @@ Sessions work in isolated git worktrees with their own branches. To apply change
 3. **Auto-Commit**: Before merging or creating a PR, any uncommitted changes in the worktree are automatically staged and committed with a descriptive message
 4. **Streaming Output**: Command output streams to the chat panel in real-time
 5. **Result**: Success or error message displayed when operation completes
+
+### Worktree Cleanup
+
+Worktrees are created in `.plural-worktrees/<session-id>` directories (sibling to the repo). Two cleanup mechanisms exist:
+
+1. **On Session Delete**: When deleting a session (press `d`), choose between:
+   - **Keep worktree**: Removes session from config but leaves worktree and branch intact
+   - **Delete worktree**: Removes session, worktree directory, and branch
+
+2. **Prune Command**: Run `./plural --prune` to find and remove orphaned worktrees (worktrees that exist on disk but have no matching session in config). This is useful for cleaning up after crashes or manual config edits.
 
 ### UI Layout
 - Header (1 line) + Content (sidebar 1/3 width | chat 2/3 width) + Footer (1 line)

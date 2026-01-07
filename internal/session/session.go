@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -98,4 +99,153 @@ func GetGitRoot(path string) string {
 // GetCurrentDirGitRoot returns the git root of the current working directory
 func GetCurrentDirGitRoot() string {
 	return GetGitRoot(".")
+}
+
+// Delete removes a session's git worktree and branch
+func Delete(sess *config.Session) error {
+	logger.Log("Session: Deleting worktree for session=%s, worktree=%s, branch=%s", sess.ID, sess.WorkTree, sess.Branch)
+
+	// Remove the worktree
+	cmd := exec.Command("git", "worktree", "remove", sess.WorkTree, "--force")
+	cmd.Dir = sess.RepoPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Log("Session: Failed to remove worktree: %s", string(output))
+		return fmt.Errorf("failed to remove worktree: %s: %w", string(output), err)
+	}
+	logger.Log("Session: Worktree removed successfully")
+
+	// Prune worktree references
+	pruneCmd := exec.Command("git", "worktree", "prune")
+	pruneCmd.Dir = sess.RepoPath
+	pruneCmd.Run() // Ignore errors, this is just cleanup
+
+	// Delete the branch
+	branchCmd := exec.Command("git", "branch", "-D", sess.Branch)
+	branchCmd.Dir = sess.RepoPath
+
+	branchOutput, err := branchCmd.CombinedOutput()
+	if err != nil {
+		logger.Log("Session: Failed to delete branch (may already be deleted): %s", string(branchOutput))
+		// Don't return error - the worktree is already gone, branch deletion is best-effort
+	} else {
+		logger.Log("Session: Branch deleted successfully")
+	}
+
+	return nil
+}
+
+// OrphanedWorktree represents a worktree that has no matching session
+type OrphanedWorktree struct {
+	Path     string // Full path to the worktree
+	RepoPath string // Parent repo path (derived from .plural-worktrees location)
+	ID       string // Session ID (directory name)
+}
+
+// FindOrphanedWorktrees finds all worktrees in .plural-worktrees directories
+// that don't have a matching session in config
+func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
+	logger.Log("Session: Searching for orphaned worktrees")
+
+	// Build a set of known session IDs
+	knownSessions := make(map[string]bool)
+	for _, sess := range cfg.GetSessions() {
+		knownSessions[sess.ID] = true
+	}
+
+	var orphans []OrphanedWorktree
+
+	// Get all repo paths from config
+	repoPaths := cfg.GetRepos()
+	if len(repoPaths) == 0 {
+		logger.Log("Session: No repos in config, checking common locations")
+	}
+
+	// Check .plural-worktrees directories next to each repo
+	checkedDirs := make(map[string]bool)
+	for _, repoPath := range repoPaths {
+		repoParent := filepath.Dir(repoPath)
+		worktreesDir := filepath.Join(repoParent, ".plural-worktrees")
+
+		if checkedDirs[worktreesDir] {
+			continue
+		}
+		checkedDirs[worktreesDir] = true
+
+		orphansInDir, err := findOrphansInDir(worktreesDir, repoPath, knownSessions)
+		if err != nil {
+			continue // Skip if directory doesn't exist or can't be read
+		}
+		orphans = append(orphans, orphansInDir...)
+	}
+
+	logger.Log("Session: Found %d orphaned worktrees", len(orphans))
+	return orphans, nil
+}
+
+func findOrphansInDir(worktreesDir, repoPath string, knownSessions map[string]bool) ([]OrphanedWorktree, error) {
+	entries, err := os.ReadDir(worktreesDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var orphans []OrphanedWorktree
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		sessionID := entry.Name()
+		if !knownSessions[sessionID] {
+			orphans = append(orphans, OrphanedWorktree{
+				Path:     filepath.Join(worktreesDir, sessionID),
+				RepoPath: repoPath,
+				ID:       sessionID,
+			})
+		}
+	}
+
+	return orphans, nil
+}
+
+// PruneOrphanedWorktrees removes all orphaned worktrees and their branches
+func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
+	orphans, err := FindOrphanedWorktrees(cfg)
+	if err != nil {
+		return 0, err
+	}
+
+	pruned := 0
+	for _, orphan := range orphans {
+		logger.Log("Session: Pruning orphaned worktree: %s", orphan.Path)
+
+		// Try to remove via git worktree remove first
+		cmd := exec.Command("git", "worktree", "remove", orphan.Path, "--force")
+		cmd.Dir = orphan.RepoPath
+		if err := cmd.Run(); err != nil {
+			// If git command fails, try direct removal
+			logger.Log("Session: git worktree remove failed, trying direct removal")
+			if err := os.RemoveAll(orphan.Path); err != nil {
+				logger.Log("Session: Failed to remove orphan %s: %v", orphan.Path, err)
+				continue
+			}
+		}
+
+		// Prune worktree references
+		pruneCmd := exec.Command("git", "worktree", "prune")
+		pruneCmd.Dir = orphan.RepoPath
+		pruneCmd.Run()
+
+		// Try to delete the branch
+		branchName := fmt.Sprintf("plural-%s", orphan.ID)
+		branchCmd := exec.Command("git", "branch", "-D", branchName)
+		branchCmd.Dir = orphan.RepoPath
+		branchCmd.Run() // Ignore errors
+
+		pruned++
+		logger.Log("Session: Pruned orphan: %s", orphan.Path)
+	}
+
+	return pruned, nil
 }

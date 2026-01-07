@@ -38,6 +38,10 @@ type Modal struct {
 	// Add repo modal fields
 	suggestedRepo    string // Current directory if it's a git repo and not already added
 	useSuggestedRepo bool   // Whether the suggestion is selected (vs text input)
+
+	// Delete modal fields
+	deleteOptions []string // Delete options (keep/delete worktree)
+	deleteIndex   int      // Selected delete option index
 }
 
 // NewModal creates a new modal
@@ -84,7 +88,9 @@ func (m *Modal) Show(t ModalType) {
 		m.repoIndex = 0
 	case ModalConfirmDelete:
 		m.title = "Delete Session?"
-		m.help = "Press Enter to confirm, Esc to cancel"
+		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
+		m.deleteOptions = []string{"Keep worktree", "Delete worktree"}
+		m.deleteIndex = 0
 	case ModalMerge:
 		m.title = "Merge/PR"
 		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
@@ -153,6 +159,11 @@ func (m *Modal) GetSelectedMergeOption() string {
 	return m.mergeOptions[m.mergeIndex]
 }
 
+// ShouldDeleteWorktree returns true if user selected to delete the worktree
+func (m *Modal) ShouldDeleteWorktree() bool {
+	return m.deleteIndex == 1 // "Delete worktree" is index 1
+}
+
 // Update handles messages
 func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 	if !m.IsVisible() {
@@ -171,6 +182,17 @@ func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 			case "down", "j":
 				if m.repoIndex < len(m.repoOptions)-1 {
 					m.repoIndex++
+				}
+			}
+		case ModalConfirmDelete:
+			switch msg.String() {
+			case "up", "k":
+				if m.deleteIndex > 0 {
+					m.deleteIndex--
+				}
+			case "down", "j":
+				if m.deleteIndex < len(m.deleteOptions)-1 {
+					m.deleteIndex++
 				}
 			}
 		case ModalMerge:
@@ -341,11 +363,23 @@ func (m *Modal) renderConfirmDelete() string {
 
 	message := lipgloss.NewStyle().
 		Foreground(ColorText).
-		Render("This will remove the session from the list.\nThe worktree and branch will remain intact.")
+		MarginBottom(1).
+		Render("This will remove the session from the list.")
 
-	help := ModalHelpStyle.Render("Enter to confirm, Esc to cancel")
+	var optionList string
+	for i, opt := range m.deleteOptions {
+		style := SidebarItemStyle
+		prefix := "  "
+		if i == m.deleteIndex {
+			style = SidebarSelectedStyle
+			prefix = "> "
+		}
+		optionList += style.Render(prefix+opt) + "\n"
+	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, message, help)
+	help := ModalHelpStyle.Render(m.help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, message, optionList, help)
 }
 
 func (m *Modal) renderMerge() string {

@@ -549,7 +549,17 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if sess := m.sidebar.SelectedSession(); sess != nil {
-				logger.Log("App: Deleting session: id=%s, name=%s", sess.ID, sess.Name)
+				deleteWorktree := m.modal.ShouldDeleteWorktree()
+				logger.Log("App: Deleting session: id=%s, name=%s, deleteWorktree=%v", sess.ID, sess.Name, deleteWorktree)
+
+				// Delete worktree if requested
+				if deleteWorktree {
+					if err := session.Delete(sess); err != nil {
+						logger.Log("App: Failed to delete worktree: %v", err)
+						// Continue with session removal even if worktree deletion fails
+					}
+				}
+
 				m.config.RemoveSession(sess.ID)
 				m.config.Save()
 				config.DeleteSessionMessages(sess.ID)

@@ -13,6 +13,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/session"
 )
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 
 	clearSessions := flag.Bool("clear", false, "Remove all sessions and exit")
 	checkPrereqs := flag.Bool("check-prereqs", false, "Check CLI prerequisites and exit")
+	pruneWorktrees := flag.Bool("prune", false, "Remove orphaned worktrees (worktrees without matching sessions)")
 	flag.Parse()
 
 	// Check prerequisites
@@ -57,6 +59,34 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("All sessions cleared.")
+		return
+	}
+
+	// Handle prune flag
+	if *pruneWorktrees {
+		orphans, err := session.FindOrphanedWorktrees(cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error finding orphaned worktrees: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(orphans) == 0 {
+			fmt.Println("No orphaned worktrees found.")
+			return
+		}
+
+		fmt.Printf("Found %d orphaned worktree(s):\n", len(orphans))
+		for _, orphan := range orphans {
+			fmt.Printf("  - %s\n", orphan.Path)
+		}
+
+		pruned, err := session.PruneOrphanedWorktrees(cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error pruning worktrees: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Pruned %d worktree(s).\n", pruned)
 		return
 	}
 
