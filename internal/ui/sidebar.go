@@ -10,8 +10,13 @@ import (
 	"github.com/zhubert/plural/internal/config"
 )
 
-// Braille spinner frames for sidebar
-var sidebarSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// sidebarSpinnerFrames uses the same shimmering spinner as the chat panel
+// Inspired by Claude Code's flower-like spinner
+var sidebarSpinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
+
+// sidebarSpinnerHoldTimes defines how long each frame should be held (in ticks)
+// First and last frames hold longer for a "breathing" effect
+var sidebarSpinnerHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
 
 // SidebarTickMsg is sent to advance the spinner animation
 type SidebarTickMsg time.Time
@@ -35,6 +40,7 @@ type Sidebar struct {
 	streamingSessions  map[string]bool // Map of session IDs that are currently streaming
 	pendingPermissions map[string]bool // Map of session IDs that have pending permission requests
 	spinnerFrame       int             // Current spinner animation frame
+	spinnerTick        int             // Tick counter for frame hold timing
 }
 
 // NewSidebar creates a new sidebar
@@ -172,7 +178,13 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 	switch msg := msg.(type) {
 	case SidebarTickMsg:
 		if s.IsStreaming() {
-			s.spinnerFrame = (s.spinnerFrame + 1) % len(sidebarSpinnerFrames)
+			// Advance the spinner with easing (some frames hold longer)
+			s.spinnerTick++
+			holdTime := sidebarSpinnerHoldTimes[s.spinnerFrame%len(sidebarSpinnerHoldTimes)]
+			if s.spinnerTick >= holdTime {
+				s.spinnerTick = 0
+				s.spinnerFrame = (s.spinnerFrame + 1) % len(sidebarSpinnerFrames)
+			}
 			return s, SidebarTick()
 		}
 		return s, nil

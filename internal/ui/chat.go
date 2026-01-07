@@ -3,7 +3,6 @@ package ui
 import (
 	"bytes"
 	"fmt"
-	"image/color"
 	"math/rand"
 	"regexp"
 	"strings"
@@ -63,6 +62,14 @@ func randomThinkingVerb() string {
 	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
 }
 
+// spinnerFrames are the characters used for the shimmering spinner animation
+// Inspired by Claude Code's flower-like spinner
+var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
+
+// spinnerFrameHoldTimes defines how long each frame should be held (in ticks)
+// First and last frames hold longer for a "breathing" effect
+var spinnerFrameHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
+
 // Chat represents the right panel with conversation view
 type Chat struct {
 	viewport    viewport.Model
@@ -76,7 +83,8 @@ type Chat struct {
 	hasSession  bool
 	waiting     bool   // Waiting for Claude's response
 	waitingVerb string // Random verb to display while waiting
-	colorOffset int    // Animation offset for flowing color effect
+	spinnerIdx  int    // Current spinner frame index
+	spinnerTick int    // Tick counter for frame hold timing
 
 	// Current tool status (shown while Claude is using a tool)
 	toolName  string // Name of the tool being used (e.g., "Read", "Edit", "Bash")
@@ -443,7 +451,8 @@ func (c *Chat) SetWaiting(waiting bool) {
 	c.waiting = waiting
 	if waiting {
 		c.waitingVerb = randomThinkingVerb()
-		c.colorOffset = 0
+		c.spinnerIdx = 0
+		c.spinnerTick = 0
 	}
 	c.updateContent()
 }
@@ -454,7 +463,8 @@ func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 	c.waiting = waiting
 	if waiting {
 		c.waitingVerb = randomThinkingVerb()
-		c.colorOffset = 0
+		c.spinnerIdx = 0
+		c.spinnerTick = 0
 	}
 	c.updateContent()
 }
@@ -471,39 +481,23 @@ func StopwatchTick() tea.Cmd {
 	})
 }
 
-// renderAnimatedText renders text with a flowing color gradient effect.
-// The offset parameter controls which position in the text is at peak brightness.
-func renderAnimatedText(text string, offset int) string {
-	// Gradient colors from dim to bright and back
-	// Using a purple-based gradient that flows right to left
-	colors := []color.Color{
-		lipgloss.Color("#4C1D95"), // Very dark purple
-		lipgloss.Color("#5B21B6"), // Dark purple
-		lipgloss.Color("#6D28D9"), // Purple
-		lipgloss.Color("#7C3AED"), // Medium purple
-		lipgloss.Color("#8B5CF6"), // Light purple
-		lipgloss.Color("#A78BFA"), // Lighter purple
-		lipgloss.Color("#C4B5FD"), // Very light purple (peak)
-		lipgloss.Color("#A78BFA"), // Lighter purple
-		lipgloss.Color("#8B5CF6"), // Light purple
-		lipgloss.Color("#7C3AED"), // Medium purple
-		lipgloss.Color("#6D28D9"), // Purple
-		lipgloss.Color("#5B21B6"), // Dark purple
-	}
+// renderSpinner renders the shimmering spinner with the thinking verb.
+// Returns the spinner character followed by the verb text.
+func renderSpinner(verb string, frameIdx int) string {
+	// Get the current spinner frame
+	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
 
-	runes := []rune(text + "...")
-	var result strings.Builder
-	gradientLen := len(colors)
+	// Style for the spinner character - purple to match theme
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#A78BFA")). // Light purple
+		Bold(true)
 
-	for i, r := range runes {
-		// Calculate which color to use based on position and offset
-		// The offset shifts the "bright" point across the text (right to left)
-		colorIdx := (gradientLen - 1 - (i+offset)%gradientLen + gradientLen) % gradientLen
-		style := lipgloss.NewStyle().Foreground(colors[colorIdx]).Italic(true)
-		result.WriteString(style.Render(string(r)))
-	}
+	// Style for the verb text - dimmer, italic
+	verbStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7C3AED")). // Medium purple
+		Italic(true)
 
-	return result.String()
+	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...")
 }
 
 // highlightCode applies syntax highlighting to code using chroma
@@ -797,7 +791,7 @@ func (c *Chat) updateContent() {
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(renderAnimatedText(c.waitingVerb, c.colorOffset))
+			sb.WriteString(renderSpinner(c.waitingVerb, c.spinnerIdx))
 		}
 
 		// Show pending permission prompt
@@ -820,7 +814,16 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 	switch msg.(type) {
 	case StopwatchTickMsg:
 		if c.waiting {
-			c.colorOffset++ // Advance the color animation
+			// Advance the spinner with easing (some frames hold longer)
+			c.spinnerTick++
+			holdTime := spinnerFrameHoldTimes[c.spinnerIdx%len(spinnerFrameHoldTimes)]
+			if c.spinnerTick >= holdTime {
+				c.spinnerTick = 0
+				c.spinnerIdx++
+				if c.spinnerIdx >= len(spinnerFrames) {
+					c.spinnerIdx = 0
+				}
+			}
 			c.updateContent()
 			cmds = append(cmds, StopwatchTick())
 		}
