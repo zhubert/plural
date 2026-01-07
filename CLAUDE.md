@@ -59,9 +59,9 @@ tail -f /tmp/plural-mcp-*.log
 
 - **main.go** - Entry point, sets up Bubble Tea program with alt screen; also handles `mcp-server` subcommand
 - **internal/app** - Main Bubble Tea model coordinating all UI components and Claude runners
-- **internal/claude** - Wrapper around Claude Code CLI (`claude --print`), manages streaming responses via stdout pipe
+- **internal/claude** - Wrapper around Claude Code CLI (`claude --print --output-format stream-json`), manages streaming responses via stdout pipe
   - `doc.go` - Package documentation
-  - `claude.go` - Runner implementation with message streaming and permission handling
+  - `claude.go` - Runner implementation with message streaming, tool status parsing, and permission handling
 - **internal/cli** - CLI prerequisites checking
   - `prerequisites.go` - Validates required CLI tools (claude, git, gh) are available
   - `prerequisites_test.go` - Test suite
@@ -155,6 +155,30 @@ When Claude needs permission for operations (file edits, bash commands, etc.), P
    - **Per-repo tools**: Tools specific to a repository (`repo_allowed_tools` in config)
    - When user presses `a` (always allow), the tool is saved to the per-repo allowed list
    - Tools are merged: defaults + global + per-repo
+
+### Streaming & Tool Status
+
+Plural uses Claude CLI's `--output-format stream-json` to provide real-time feedback on what Claude is doing:
+
+1. **JSON Streaming**: Claude CLI outputs structured JSON messages instead of plain text, which Plural parses to extract:
+   - Text content (displayed as the response)
+   - Tool use events (what tool Claude is calling)
+   - Tool results (when a tool completes)
+
+2. **Tool Status Display**: While Claude is using a tool, the chat shows a status indicator:
+   - `Reading go.mod` - Reading a file
+   - `Editing app.go` - Editing a file
+   - `Searching *.ts` - Glob/Grep search
+   - `Running go build` - Bash command
+   - `Delegating explore codebase` - Task delegation
+
+3. **Response Chunks**: The `ResponseChunk` type includes:
+   - `Type`: `text`, `tool_use`, `tool_result`, or `status`
+   - `ToolName`: Name of the tool being used
+   - `ToolInput`: Brief description (filename, pattern, command)
+   - `Content`: Text content for text chunks
+
+This provides visibility into Claude's work, especially during multi-tool operations that can take minutes.
 
 ### Viewing Session Changes
 

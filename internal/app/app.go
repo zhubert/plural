@@ -351,10 +351,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.sessionWaitStart, msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
-				m.chat.AppendStreaming(msg.Chunk.Content)
+				// Handle different chunk types
+				switch msg.Chunk.Type {
+				case claude.ChunkTypeToolUse:
+					m.chat.SetToolStatus(msg.Chunk.ToolName, msg.Chunk.ToolInput)
+				case claude.ChunkTypeToolResult:
+					m.chat.ClearToolStatus()
+				case claude.ChunkTypeText:
+					m.chat.ClearToolStatus()
+					m.chat.AppendStreaming(msg.Chunk.Content)
+				default:
+					// For backwards compatibility, treat unknown types as text
+					if msg.Chunk.Content != "" {
+						m.chat.AppendStreaming(msg.Chunk.Content)
+					}
+				}
 			} else {
-				// Store streaming content for non-active session
-				m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
+				// Store streaming content for non-active session (only text)
+				if msg.Chunk.Type == claude.ChunkTypeText || msg.Chunk.Content != "" {
+					m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
+				}
 			}
 			// Continue listening for more chunks from this session
 			return m, tea.Batch(
