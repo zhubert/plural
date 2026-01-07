@@ -86,10 +86,6 @@ type Chat struct {
 	spinnerIdx  int    // Current spinner frame index
 	spinnerTick int    // Tick counter for frame hold timing
 
-	// Current tool status (shown while Claude is using a tool)
-	toolName  string // Name of the tool being used (e.g., "Read", "Edit", "Bash")
-	toolInput string // Brief description of tool input (e.g., filename, command)
-
 	// Track last tool use position for marking as complete
 	lastToolUsePos int // Position in streaming content where last tool use marker starts
 
@@ -183,8 +179,6 @@ func (c *Chat) ClearSession() {
 	c.messages = nil
 	c.hasSession = false
 	c.streaming = ""
-	c.toolName = ""
-	c.toolInput = ""
 	c.lastToolUsePos = -1
 	c.hasPendingPermission = false
 	c.pendingPermissionTool = ""
@@ -245,9 +239,6 @@ func (c *Chat) MarkLastToolUseComplete() {
 
 // FinishStreaming completes the streaming and adds to messages
 func (c *Chat) FinishStreaming() {
-	// Clear tool status
-	c.toolName = ""
-	c.toolInput = ""
 	if c.streaming != "" {
 		c.messages = append(c.messages, claude.Message{
 			Role:    "assistant",
@@ -321,27 +312,6 @@ func (c *Chat) HasPendingPermission() bool {
 	return c.hasPendingPermission
 }
 
-// SetToolStatus sets the current tool being used (shown as status indicator)
-func (c *Chat) SetToolStatus(toolName, toolInput string) {
-	c.toolName = toolName
-	c.toolInput = toolInput
-	c.updateContent()
-}
-
-// ClearToolStatus clears the current tool status
-func (c *Chat) ClearToolStatus() {
-	if c.toolName != "" {
-		c.toolName = ""
-		c.toolInput = ""
-		c.updateContent()
-	}
-}
-
-// HasToolStatus returns whether there's a tool status to display
-func (c *Chat) HasToolStatus() bool {
-	return c.toolName != ""
-}
-
 // renderNoSessionMessage renders the placeholder message when no session is selected
 func (c *Chat) renderNoSessionMessage() string {
 	msgStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
@@ -393,29 +363,6 @@ func (c *Chat) renderPermissionPrompt(wrapWidth int) string {
 		boxWidth = 80
 	}
 	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
-}
-
-// renderToolStatus renders the current tool activity indicator
-func (c *Chat) renderToolStatus() string {
-	if c.toolName == "" {
-		return ""
-	}
-
-	// Tool icon based on tool type
-	icon := GetToolIcon(c.toolName)
-
-	// Style for the tool status
-	toolStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary).
-		Italic(true)
-
-	inputStyle := lipgloss.NewStyle().
-		Foreground(ColorTextMuted)
-
-	if c.toolInput != "" {
-		return toolStyle.Render(icon+" "+c.toolName) + " " + inputStyle.Render(c.toolInput)
-	}
-	return toolStyle.Render(icon + " " + c.toolName + "...")
 }
 
 // GetToolIcon returns an appropriate icon for the tool type
@@ -771,20 +718,8 @@ func (c *Chat) updateContent() {
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
 			// Render markdown for streaming content
+			// Tool use lines are already included in streaming content with circle markers
 			sb.WriteString(renderMarkdown(strings.TrimSpace(c.streaming), wrapWidth))
-			// Show tool status after streaming content if a tool is active
-			if c.toolName != "" {
-				sb.WriteString("\n")
-				sb.WriteString(c.renderToolStatus())
-			}
-		} else if c.toolName != "" {
-			// Tool is active but no text content yet
-			if len(c.messages) > 0 {
-				sb.WriteString("\n\n")
-			}
-			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
-			sb.WriteString("\n")
-			sb.WriteString(c.renderToolStatus())
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
