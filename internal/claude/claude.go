@@ -228,7 +228,8 @@ type streamMessage struct {
 			Name      string          `json:"name,omitempty"`       // tool name
 			Input     json.RawMessage `json:"input,omitempty"`      // tool input
 			ToolUseID string          `json:"tool_use_id,omitempty"`
-			Content   string          `json:"content,omitempty"` // tool result content
+			ToolUseId string          `json:"toolUseId,omitempty"` // camelCase variant from Claude CLI
+			Content   string          `json:"content,omitempty"`   // tool result content
 		} `json:"content"`
 	} `json:"message"`
 	Result    string `json:"result,omitempty"` // Final result text
@@ -245,9 +246,22 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		// If we can't parse as JSON, treat as raw text (shouldn't happen with stream-json)
+		// Log the raw JSON for debugging
 		logger.Log("Claude: Failed to parse stream message: %v, line=%q", err, line)
-		return []ResponseChunk{{Type: ChunkTypeText, Content: line + "\n"}}
+		// Show user-friendly error requesting they report the issue
+		return []ResponseChunk{{
+			Type:    ChunkTypeText,
+			Content: "\n[Plural bug: failed to parse Claude response. Please open an issue at https://github.com/zhubert/plural/issues with your /tmp/plural-debug.log]\n",
+		}}
+	}
+
+	// If this looks like a stream-json message but we don't handle it, request a bug report
+	if msg.Type == "" && strings.HasPrefix(line, "{") {
+		logger.Log("Claude: Unrecognized JSON message type: %s", truncateForLog(line))
+		return []ResponseChunk{{
+			Type:    ChunkTypeText,
+			Content: "\n[Plural bug: unrecognized message format. Please open an issue at https://github.com/zhubert/plural/issues with your /tmp/plural-debug.log]\n",
+		}}
 	}
 
 	var chunks []ResponseChunk
@@ -284,14 +298,20 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 	case "user":
 		// User messages in stream-json are tool results
+		// We silently skip these - they're internal to Claude's operation
+		// and don't need to be displayed to users. We check for both
+		// "tool_result" type and the presence of toolUseId field (camelCase variant).
 		for _, content := range msg.Message.Content {
-			if content.Type == "tool_result" {
-				chunks = append(chunks, ResponseChunk{
-					Type:    ChunkTypeToolResult,
-					Content: truncateToolResult(content.Content),
-				})
+			// Check for tool_result type or presence of tool use ID (indicates tool result)
+			isToolResult := content.Type == "tool_result" ||
+				content.ToolUseID != "" ||
+				content.ToolUseId != ""
+			if isToolResult {
+				// Log but don't display tool results - they're internal
+				logger.Log("Claude: Tool result received (not displayed)")
 			}
 		}
+		// Return empty - user messages (tool results) don't need to be displayed
 
 	case "result":
 		// Final result - the actual result text is in msg.Result
@@ -388,6 +408,14 @@ func truncateToolResult(result string) string {
 		return result[:100] + "..."
 	}
 	return result
+}
+
+// truncateForLog truncates long strings for log messages
+func truncateForLog(s string) string {
+	if len(s) > 200 {
+		return s[:200] + "..."
+	}
+	return s
 }
 
 // ensureServerRunning starts the socket server and creates MCP config if not already running.
