@@ -31,7 +31,7 @@ func (h *Header) SetSessionName(name string) {
 // View renders the header
 func (h *Header) View() string {
 	// Build the content string (without styling)
-	titleText := " Plural"
+	titleText := " plural"
 	var rightText string
 	if h.sessionName != "" {
 		rightText = h.sessionName + " "
