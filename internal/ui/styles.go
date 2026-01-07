@@ -17,8 +17,8 @@ var (
 	ColorAssistant   = lipgloss.Color("#22D3EE") // Bright cyan for assistant messages
 	ColorWarning     = lipgloss.Color("#F59E0B") // Amber for permission prompts
 	ColorInfo        = lipgloss.Color("#06B6D4") // Cyan for info/questions
+  ColorError       = lipgloss.Color("#EF4444") // Red for errors
 )
-
 // Header styles
 var (
 	HeaderStyle = lipgloss.NewStyle().

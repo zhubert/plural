@@ -13,6 +13,7 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -96,6 +97,11 @@ type Model struct {
 
 	// Per-session last tool use position (for non-active sessions)
 	sessionToolUsePos map[string]int
+
+	// Per-session "session in use" error tracking
+	// When a session fails with "session in use", we track it here so the user
+	// can press 'f' to force-resume by killing orphaned processes
+	sessionInUseError map[string]bool
 }
 
 // ClaudeResponseMsg is sent when Claude sends a response chunk
@@ -150,6 +156,7 @@ func New(cfg *config.Config) *Model {
 		sessionStreamCancels: make(map[string]context.CancelFunc),
 		sessionStreaming:     make(map[string]string),
 		sessionToolUsePos:    make(map[string]int),
+		sessionInUseError:    make(map[string]bool),
 		state:               StateIdle,
 	}
 
@@ -352,6 +359,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modal.SetMergeOptions(hasRemote, changesSummary)
 				m.modal.Show(ui.ModalMerge)
 			}
+		case "f":
+			// Force-resume: kill orphaned processes and clear the error state
+			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
+				sess := m.sidebar.SelectedSession()
+				if m.sessionInUseError[sess.ID] {
+					return m.forceResumeSession(sess)
+				}
+			}
 		case "s":
 			if !m.chat.IsFocused() {
 				m.showMCPServersModal()
@@ -379,16 +394,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
 
 		if msg.Chunk.Error != nil {
-			logger.Log("App: Error in session %s: %v", msg.SessionID, msg.Chunk.Error)
+			errMsg := msg.Chunk.Error.Error()
+			logger.Log("App: Error in session %s: %v", msg.SessionID, errMsg)
 			m.sidebar.SetStreaming(msg.SessionID, false)
 			delete(m.sessionWaitStart, msg.SessionID)
 			delete(m.sessionStreamCancels, msg.SessionID)
+
+			// Check if this is a "session in use" error
+			if process.IsSessionInUseError(errMsg) {
+				logger.Log("App: Session %s appears to be in use by another process", msg.SessionID)
+				m.sessionInUseError[msg.SessionID] = true
+				m.sidebar.SetSessionInUse(msg.SessionID, true)
+				errMsg = "Session is in use by another process. Press 'f' to force resume by killing orphaned processes."
+			}
+
 			if isActiveSession {
 				m.chat.SetWaiting(false)
-				m.chat.AppendStreaming("\n[Error: " + msg.Chunk.Error.Error() + "]")
+				m.chat.AppendStreaming("\n[Error: " + errMsg + "]")
 			} else {
 				// Store error for non-active session
-				m.sessionStreaming[msg.SessionID] += "\n[Error: " + msg.Chunk.Error.Error() + "]"
+				m.sessionStreaming[msg.SessionID] += "\n[Error: " + errMsg + "]"
 			}
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
@@ -1143,6 +1168,43 @@ func (m *Model) selectSession(sess *config.Session) {
 	logger.Log("App: Session selected and focused: %s", sess.ID)
 }
 
+// forceResumeSession kills any orphaned Claude processes for the session and clears the error state
+func (m *Model) forceResumeSession(sess *config.Session) (tea.Model, tea.Cmd) {
+	logger.Log("App: Force-resuming session %s", sess.ID)
+
+	// Try to kill orphaned processes
+	killed, err := process.KillClaudeProcesses(sess.ID)
+	if err != nil {
+		logger.Log("App: Error killing orphaned processes for session %s: %v", sess.ID, err)
+		m.chat.AppendStreaming(fmt.Sprintf("\n[Error killing orphaned processes: %v]", err))
+		return m, nil
+	}
+
+	// Clear the error state
+	delete(m.sessionInUseError, sess.ID)
+	m.sidebar.SetSessionInUse(sess.ID, false)
+
+	// Clear the old runner from cache so a fresh one will be created
+	if oldRunner, exists := m.claudeRunners[sess.ID]; exists {
+		oldRunner.Stop()
+		delete(m.claudeRunners, sess.ID)
+	}
+
+	// Show result in chat
+	if killed > 0 {
+		m.chat.AppendStreaming(fmt.Sprintf("\n[Killed %d orphaned process(es). Session ready to resume.]", killed))
+		logger.Log("App: Killed %d orphaned processes for session %s", killed, sess.ID)
+	} else {
+		m.chat.AppendStreaming("\n[No orphaned processes found. Session state cleared.]")
+		logger.Log("App: No orphaned processes found for session %s, cleared error state", sess.ID)
+	}
+
+	// Re-select the session to create a fresh runner
+	m.selectSession(sess)
+
+	return m, nil
+}
+
 func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	input := m.chat.GetInput()
 	logger.Log("App: sendMessage called, input=%q, len=%d, canSend=%v", input, len(input), m.CanSendMessage())
@@ -1430,7 +1492,9 @@ func (m *Model) View() tea.View {
 	hasPendingPermission := m.activeSession != nil && m.pendingPermissions[m.activeSession.ID] != nil
 	hasPendingQuestion := m.activeSession != nil && m.pendingQuestions[m.activeSession.ID] != nil
 	isStreaming := m.activeSession != nil && m.sessionStreamCancels[m.activeSession.ID] != nil
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming)
+	selectedSess := m.sidebar.SelectedSession()
+	sessionInUse := selectedSess != nil && m.sessionInUseError[selectedSess.ID]
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse)
 
 	header := m.header.View()
 	footer := m.footer.View()
