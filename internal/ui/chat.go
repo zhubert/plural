@@ -3,6 +3,7 @@ package ui
 import (
 	"bytes"
 	"fmt"
+	"image/color"
 	"math/rand"
 	"regexp"
 	"strings"
@@ -30,7 +31,7 @@ var (
 	linkPattern       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 )
 
-// StopwatchTickMsg is sent to update the stopwatch display
+// StopwatchTickMsg is sent to update the animated waiting display
 type StopwatchTickMsg time.Time
 
 // thinkingVerbs are playful status messages that cycle while waiting for Claude
@@ -64,18 +65,18 @@ func randomThinkingVerb() string {
 
 // Chat represents the right panel with conversation view
 type Chat struct {
-	viewport      viewport.Model
-	input         textarea.Model
-	width         int
-	height        int
-	focused       bool
-	messages      []claude.Message
-	streaming     string    // Current streaming response
-	sessionName   string
-	hasSession    bool
-	waiting       bool      // Waiting for Claude's response
-	waitStartTime time.Time // When waiting started (for stopwatch)
-	waitingVerb   string    // Random verb to display while waiting
+	viewport    viewport.Model
+	input       textarea.Model
+	width       int
+	height      int
+	focused     bool
+	messages    []claude.Message
+	streaming   string // Current streaming response
+	sessionName string
+	hasSession  bool
+	waiting     bool   // Waiting for Claude's response
+	waitingVerb string // Random verb to display while waiting
+	colorOffset int    // Animation offset for flowing color effect
 
 	// Current tool status (shown while Claude is using a tool)
 	toolName  string // Name of the tool being used (e.g., "Read", "Edit", "Bash")
@@ -394,18 +395,19 @@ func getToolIcon(toolName string) string {
 func (c *Chat) SetWaiting(waiting bool) {
 	c.waiting = waiting
 	if waiting {
-		c.waitStartTime = time.Now()
 		c.waitingVerb = randomThinkingVerb()
+		c.colorOffset = 0
 	}
 	c.updateContent()
 }
 
 // SetWaitingWithStart sets the waiting state with a specific start time (for session restoration)
+// Note: startTime parameter is kept for API compatibility but no longer used
 func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 	c.waiting = waiting
-	c.waitStartTime = startTime
 	if waiting {
 		c.waitingVerb = randomThinkingVerb()
+		c.colorOffset = 0
 	}
 	c.updateContent()
 }
@@ -422,14 +424,39 @@ func StopwatchTick() tea.Cmd {
 	})
 }
 
-// formatElapsed formats a duration as a stopwatch string (e.g., "1.2s", "1:23")
-func formatElapsed(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%.1fs", d.Seconds())
+// renderAnimatedText renders text with a flowing color gradient effect.
+// The offset parameter controls which position in the text is at peak brightness.
+func renderAnimatedText(text string, offset int) string {
+	// Gradient colors from dim to bright and back
+	// Using a purple-based gradient that flows left to right
+	colors := []color.Color{
+		lipgloss.Color("#4C1D95"), // Very dark purple
+		lipgloss.Color("#5B21B6"), // Dark purple
+		lipgloss.Color("#6D28D9"), // Purple
+		lipgloss.Color("#7C3AED"), // Medium purple
+		lipgloss.Color("#8B5CF6"), // Light purple
+		lipgloss.Color("#A78BFA"), // Lighter purple
+		lipgloss.Color("#C4B5FD"), // Very light purple (peak)
+		lipgloss.Color("#A78BFA"), // Lighter purple
+		lipgloss.Color("#8B5CF6"), // Light purple
+		lipgloss.Color("#7C3AED"), // Medium purple
+		lipgloss.Color("#6D28D9"), // Purple
+		lipgloss.Color("#5B21B6"), // Dark purple
 	}
-	mins := int(d.Minutes())
-	secs := int(d.Seconds()) % 60
-	return fmt.Sprintf("%d:%02d", mins, secs)
+
+	runes := []rune(text + "...")
+	var result strings.Builder
+	gradientLen := len(colors)
+
+	for i, r := range runes {
+		// Calculate which color to use based on position and offset
+		// The offset shifts the "bright" point across the text
+		colorIdx := (i + offset) % gradientLen
+		style := lipgloss.NewStyle().Foreground(colors[colorIdx]).Italic(true)
+		result.WriteString(style.Render(string(r)))
+	}
+
+	return result.String()
 }
 
 // highlightCode applies syntax highlighting to code using chroma
@@ -715,12 +742,9 @@ func (c *Chat) updateContent() {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
 			}
-			elapsed := time.Since(c.waitStartTime)
-			stopwatchStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(StatusLoadingStyle.Render(c.waitingVerb + "... "))
-			sb.WriteString(stopwatchStyle.Render(formatElapsed(elapsed)))
+			sb.WriteString(renderAnimatedText(c.waitingVerb, c.colorOffset))
 		}
 
 		// Show pending permission prompt
@@ -743,6 +767,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 	switch msg.(type) {
 	case StopwatchTickMsg:
 		if c.waiting {
+			c.colorOffset++ // Advance the color animation
 			c.updateContent()
 			cmds = append(cmds, StopwatchTick())
 		}
