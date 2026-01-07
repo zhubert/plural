@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 
@@ -166,49 +167,12 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	// Get the input object for building description
 	if input, ok := params.Arguments["input"].(map[string]interface{}); ok {
 		arguments = input
-
-		// Build description based on tool type
-		switch tool {
-		case "Edit":
-			if filePath, ok := input["file_path"].(string); ok {
-				description = "Edit file: " + filePath
-			}
-		case "Write":
-			if filePath, ok := input["file_path"].(string); ok {
-				description = "Write file: " + filePath
-			}
-		case "Read":
-			if filePath, ok := input["file_path"].(string); ok {
-				description = "Read file: " + filePath
-			}
-		case "Bash":
-			if cmd, ok := input["command"].(string); ok {
-				// Truncate long commands
-				if len(cmd) > 80 {
-					cmd = cmd[:77] + "..."
-				}
-				description = "Run: " + cmd
-			}
-		case "Glob", "Grep":
-			if pattern, ok := input["pattern"].(string); ok {
-				description = tool + ": " + pattern
-			}
-		default:
-			// For unknown tools, try to create something useful
-			if filePath, ok := input["file_path"].(string); ok {
-				description = tool + ": " + filePath
-			} else if cmd, ok := input["command"].(string); ok {
-				description = tool + ": " + cmd
-			}
-		}
+		description = buildToolDescription(tool, input)
 	}
 
 	// Fallback if we couldn't build a description
 	if description == "" {
-		description = string(argsJSON)
-		if len(description) > 100 {
-			description = description[:97] + "..."
-		}
+		description = formatInputForDisplay(params.Arguments)
 	}
 
 	// Fallback for tool name
@@ -326,4 +290,244 @@ func (s *Server) send(resp JSONRPCResponse) {
 	} else {
 		logger.Log("MCP: Sent: %s", string(data))
 	}
+}
+
+// buildToolDescription creates a human-readable description for known tools
+func buildToolDescription(tool string, input map[string]interface{}) string {
+	switch tool {
+	case "Edit":
+		if filePath, ok := input["file_path"].(string); ok {
+			return "Edit file: " + filePath
+		}
+	case "Write":
+		if filePath, ok := input["file_path"].(string); ok {
+			return "Write file: " + filePath
+		}
+	case "Read":
+		if filePath, ok := input["file_path"].(string); ok {
+			return "Read file: " + filePath
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			return "Run: " + truncateString(cmd, 100)
+		}
+	case "Glob":
+		if pattern, ok := input["pattern"].(string); ok {
+			desc := "Search for files: " + pattern
+			if path, ok := input["path"].(string); ok {
+				desc += " in " + path
+			}
+			return desc
+		}
+	case "Grep":
+		if pattern, ok := input["pattern"].(string); ok {
+			desc := "Search for: " + pattern
+			if path, ok := input["path"].(string); ok {
+				desc += " in " + path
+			}
+			return desc
+		}
+	case "Task":
+		if desc, ok := input["description"].(string); ok {
+			return "Delegate task: " + desc
+		}
+		if prompt, ok := input["prompt"].(string); ok {
+			return "Delegate task: " + truncateString(prompt, 60)
+		}
+	case "WebFetch":
+		if url, ok := input["url"].(string); ok {
+			return "Fetch URL: " + url
+		}
+	case "WebSearch":
+		if query, ok := input["query"].(string); ok {
+			return "Web search: " + query
+		}
+	case "NotebookEdit":
+		if path, ok := input["notebook_path"].(string); ok {
+			return "Edit notebook: " + path
+		}
+	default:
+		// For unknown tools, try common field names
+		if filePath, ok := input["file_path"].(string); ok {
+			return tool + ": " + filePath
+		}
+		if cmd, ok := input["command"].(string); ok {
+			return tool + ": " + truncateString(cmd, 80)
+		}
+		if url, ok := input["url"].(string); ok {
+			return tool + ": " + url
+		}
+		if path, ok := input["path"].(string); ok {
+			return tool + ": " + path
+		}
+	}
+	return ""
+}
+
+// formatInputForDisplay converts tool arguments to a human-readable format (horizontal layout)
+func formatInputForDisplay(args map[string]interface{}) string {
+	if len(args) == 0 {
+		return "(no details available)"
+	}
+
+	var parts []string
+
+	// Get sorted keys for consistent output
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		value := args[key]
+		// Skip internal fields that aren't useful to display
+		if key == "tool_use_id" {
+			continue
+		}
+
+		formatted := formatValue(key, value)
+		if formatted != "" {
+			parts = append(parts, formatted)
+		}
+	}
+
+	if len(parts) == 0 {
+		return "(no details available)"
+	}
+
+	// Join with separator for horizontal layout
+	return strings.Join(parts, "  •  ")
+}
+
+// formatValue formats a single key-value pair for display
+func formatValue(key string, value interface{}) string {
+	// Make key more readable
+	displayKey := humanizeKey(key)
+
+	switch v := value.(type) {
+	case string:
+		if v == "" {
+			return ""
+		}
+		return displayKey + ": " + truncateString(v, 100)
+	case bool:
+		if v {
+			return displayKey + ": yes"
+		}
+		return displayKey + ": no"
+	case float64:
+		return fmt.Sprintf("%s: %v", displayKey, v)
+	case map[string]interface{}:
+		// For nested objects, show a summary
+		if len(v) == 0 {
+			return ""
+		}
+		return displayKey + ": " + formatNestedObject(v)
+	case []interface{}:
+		if len(v) == 0 {
+			return ""
+		}
+		return displayKey + ": " + formatArray(v)
+	default:
+		if value == nil {
+			return ""
+		}
+		return fmt.Sprintf("%s: %v", displayKey, value)
+	}
+}
+
+// humanizeKey converts snake_case keys to readable labels
+func humanizeKey(key string) string {
+	// Common key mappings
+	keyMap := map[string]string{
+		"file_path":     "File",
+		"command":       "Command",
+		"pattern":       "Pattern",
+		"path":          "Path",
+		"tool_name":     "Tool",
+		"input":         "Input",
+		"description":   "Description",
+		"url":           "URL",
+		"query":         "Query",
+		"notebook_path": "Notebook",
+		"content":       "Content",
+		"old_string":    "Find",
+		"new_string":    "Replace with",
+		"replace_all":   "Replace all",
+	}
+
+	if mapped, ok := keyMap[key]; ok {
+		return mapped
+	}
+
+	// Convert snake_case to Title Case
+	words := strings.Split(key, "_")
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
+// formatNestedObject formats a nested map for display
+func formatNestedObject(obj map[string]interface{}) string {
+	if len(obj) == 0 {
+		return "(empty)"
+	}
+
+	// For small objects, show inline
+	if len(obj) <= 3 {
+		var parts []string
+		keys := make([]string, 0, len(obj))
+		for k := range obj {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			v := obj[k]
+			switch val := v.(type) {
+			case string:
+				parts = append(parts, humanizeKey(k)+": "+truncateString(val, 40))
+			case bool:
+				if val {
+					parts = append(parts, humanizeKey(k)+": yes")
+				} else {
+					parts = append(parts, humanizeKey(k)+": no")
+				}
+			default:
+				parts = append(parts, fmt.Sprintf("%s: %v", humanizeKey(k), v))
+			}
+		}
+		return strings.Join(parts, ", ")
+	}
+
+	return fmt.Sprintf("(%d properties)", len(obj))
+}
+
+// formatArray formats an array for display
+func formatArray(arr []interface{}) string {
+	if len(arr) == 0 {
+		return "(empty)"
+	}
+	if len(arr) == 1 {
+		if s, ok := arr[0].(string); ok {
+			return truncateString(s, 60)
+		}
+		return fmt.Sprintf("%v", arr[0])
+	}
+	return fmt.Sprintf("(%d items)", len(arr))
+}
+
+// truncateString truncates a string to maxLen, adding ellipsis if needed
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }

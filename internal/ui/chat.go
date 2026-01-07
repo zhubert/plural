@@ -354,11 +354,8 @@ func (c *Chat) renderNoSessionMessage() string {
 func (c *Chat) renderPermissionPrompt(wrapWidth int) string {
 	var sb strings.Builder
 
-	// Title
-	sb.WriteString(PermissionTitleStyle.Render("⚠ Permission Required"))
-	sb.WriteString("\n")
-
-	// Tool name
+	// Title with tool name on same line: "⚠ Permission Required: Edit"
+	sb.WriteString(PermissionTitleStyle.Render("⚠ Permission Required: "))
 	sb.WriteString(PermissionToolStyle.Render(c.pendingPermissionTool))
 	sb.WriteString("\n")
 
@@ -367,7 +364,7 @@ func (c *Chat) renderPermissionPrompt(wrapWidth int) string {
 	sb.WriteString(descStyle.Render(c.pendingPermissionDesc))
 	sb.WriteString("\n\n")
 
-	// Keyboard hints
+	// Keyboard hints - compact horizontal layout
 	keyStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
 	hintStyle := PermissionHintStyle
 
@@ -376,12 +373,12 @@ func (c *Chat) renderPermissionPrompt(wrapWidth int) string {
 	sb.WriteString(keyStyle.Render("[n]"))
 	sb.WriteString(hintStyle.Render(" Deny  "))
 	sb.WriteString(keyStyle.Render("[a]"))
-	sb.WriteString(hintStyle.Render(" Always Allow"))
+	sb.WriteString(hintStyle.Render(" Always"))
 
-	// Wrap in a box
+	// Wrap in a box - allow wider for horizontal content
 	boxWidth := wrapWidth
-	if boxWidth > 60 {
-		boxWidth = 60 // Cap the width for readability
+	if boxWidth > 80 {
+		boxWidth = 80
 	}
 	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
 }
