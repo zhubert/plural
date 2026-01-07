@@ -302,7 +302,7 @@ Key v2 API changes from v1:
 
 ## Releasing
 
-The project uses [GoReleaser](https://goreleaser.com/) for automated releases and Homebrew distribution.
+The project uses [GoReleaser](https://goreleaser.com/) for automated releases and Homebrew distribution. A release script automates the full process including version bumping and Nix vendorHash updates.
 
 ### Prerequisites
 
@@ -310,23 +310,27 @@ The project uses [GoReleaser](https://goreleaser.com/) for automated releases an
 # Install GoReleaser
 brew install goreleaser
 
-# Set up GitHub token for Homebrew tap updates
+# Set up GitHub tokens
+export GITHUB_TOKEN=your_github_token
 export HOMEBREW_TAP_GITHUB_TOKEN=your_github_token
 ```
 
 ### Creating a Release
 
 ```bash
-# Tag the release
-git tag v1.0.0
-git push origin v1.0.0
-
-# Run GoReleaser (requires GITHUB_TOKEN and HOMEBREW_TAP_GITHUB_TOKEN)
-goreleaser release
+# Run the release script
+./scripts/release.sh v0.0.5
 
 # Or do a dry run to test without publishing
-goreleaser release --snapshot --clean
+./scripts/release.sh v0.0.5 --dry-run
 ```
+
+The release script:
+1. Updates version in flake.nix
+2. Auto-updates vendorHash (via `scripts/update-vendor-hash.sh`)
+3. Commits and tags the release
+4. Pushes to origin
+5. Runs GoReleaser
 
 ### What GoReleaser Does
 
