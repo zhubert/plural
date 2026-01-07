@@ -51,7 +51,7 @@ tail -f /tmp/plural-mcp-*.log
 1. User registers git repositories via the TUI
 2. Creating a new session:
    - Generates a UUID for the session
-   - Creates a git worktree with branch `plural-<UUID>` in `.plural-worktrees/<UUID>` (sibling to the repo)
+   - Creates a git worktree with branch name (custom if provided, otherwise `plural-<UUID>`) in `.plural-worktrees/<UUID>` (sibling to the repo)
    - Starts a Claude Code CLI process in that worktree using `--session-id` for first message, `--resume` for subsequent
 3. Each session maintains its own message history and Claude CLI session
 

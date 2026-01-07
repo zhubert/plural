@@ -71,7 +71,7 @@ func TestCreate(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath)
+	session, err := Create(repoPath, "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -120,12 +120,12 @@ func TestCreate_MultipleSessions(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create multiple sessions
-	session1, err := Create(repoPath)
+	session1, err := Create(repoPath, "")
 	if err != nil {
 		t.Fatalf("Create session1 failed: %v", err)
 	}
 
-	session2, err := Create(repoPath)
+	session2, err := Create(repoPath, "")
 	if err != nil {
 		t.Fatalf("Create session2 failed: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestCreate_InvalidRepo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Try to create session in non-git directory
-	_, err = Create(tmpDir)
+	_, err = Create(tmpDir, "")
 	if err == nil {
 		t.Error("Create should fail for non-git directory")
 	}
@@ -288,7 +288,7 @@ func TestSessionName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath)
+	session, err := Create(repoPath, "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestBranchName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath)
+	session, err := Create(repoPath, "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestWorktreePath_Location(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath)
+	session, err := Create(repoPath, "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -358,5 +358,70 @@ func TestWorktreePath_Location(t *testing.T) {
 	worktreeName := filepath.Base(session.WorkTree)
 	if worktreeName != session.ID {
 		t.Errorf("Worktree directory name = %q, want session ID %q", worktreeName, session.ID)
+	}
+}
+
+func TestCreate_CustomBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	customBranch := "feature/my-cool-feature"
+	session, err := Create(repoPath, customBranch)
+	if err != nil {
+		t.Fatalf("Create with custom branch failed: %v", err)
+	}
+
+	if session.Branch != customBranch {
+		t.Errorf("Branch = %q, want %q", session.Branch, customBranch)
+	}
+}
+
+func TestValidateBranchName(t *testing.T) {
+	tests := []struct {
+		name    string
+		branch  string
+		wantErr bool
+	}{
+		{"empty is allowed", "", false},
+		{"simple name", "feature", false},
+		{"with slash", "feature/my-branch", false},
+		{"with underscore", "feature_test", false},
+		{"with dash", "feature-test", false},
+		{"with dots", "v1.2.3", false},
+		{"complex valid", "feature/ABC-123_test.v2", false},
+		{"starts with dash", "-invalid", true},
+		{"ends with .lock", "branch.lock", true},
+		{"contains ..", "branch..name", true},
+		{"contains space", "branch name", true},
+		{"contains tilde", "branch~name", true},
+		{"contains caret", "branch^name", true},
+		{"contains colon", "branch:name", true},
+		{"too long", strings.Repeat("a", 101), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateBranchName(tt.branch)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateBranchName(%q) error = %v, wantErr %v", tt.branch, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestBranchExists(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// The default branch should exist (main or master)
+	// Check for main first, then master
+	if !BranchExists(repoPath, "main") && !BranchExists(repoPath, "master") {
+		t.Error("Expected default branch to exist")
+	}
+
+	// A random branch should not exist
+	if BranchExists(repoPath, "nonexistent-branch-12345") {
+		t.Error("Expected nonexistent branch to not exist")
 	}
 }

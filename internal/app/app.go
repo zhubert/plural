@@ -590,8 +590,19 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if repoPath == "" {
 				return m, nil
 			}
-			logger.Log("App: Creating new session for repo=%s", repoPath)
-			sess, err := session.Create(repoPath)
+			branchName := m.modal.GetBranchName()
+			// Validate branch name
+			if err := session.ValidateBranchName(branchName); err != nil {
+				m.modal.SetError(err.Error())
+				return m, nil
+			}
+			// Check if branch already exists
+			if branchName != "" && session.BranchExists(repoPath, branchName) {
+				m.modal.SetError("Branch already exists: " + branchName)
+				return m, nil
+			}
+			logger.Log("App: Creating new session for repo=%s, branch=%q", repoPath, branchName)
+			sess, err := session.Create(repoPath, branchName)
 			if err != nil {
 				logger.Log("App: Failed to create session: %v", err)
 				m.modal.SetError(err.Error())

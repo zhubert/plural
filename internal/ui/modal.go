@@ -45,6 +45,10 @@ type Modal struct {
 	deleteOptions []string // Delete options (keep/delete worktree)
 	deleteIndex   int      // Selected delete option index
 
+	// New session modal fields
+	branchInput      textinput.Model // Optional branch name input
+	newSessionFocus  int             // 0=repo list, 1=branch input
+
 	// MCP server modal fields
 	mcpServers     []MCPServerDisplay // Flattened list of all servers for display
 	mcpServerIndex int                // Selected server index
@@ -91,9 +95,16 @@ func NewModal() *Modal {
 	argsInput.CharLimit = 200
 	argsInput.SetWidth(ModalInputWidth)
 
+	// Branch name input
+	branchInput := textinput.New()
+	branchInput.Placeholder = "optional branch name (leave empty for auto)"
+	branchInput.CharLimit = 100
+	branchInput.SetWidth(ModalInputWidth)
+
 	return &Modal{
 		Type:         ModalNone,
 		input:        ti,
+		branchInput:  branchInput,
 		mcpNameInput: nameInput,
 		mcpCmdInput:  cmdInput,
 		mcpArgsInput: argsInput,
@@ -127,8 +138,11 @@ func (m *Modal) Show(t ModalType) {
 		}
 	case ModalNewSession:
 		m.title = "New Session"
-		m.help = "Select a repository for the new session"
+		m.help = "↑/↓ select repo  Tab: branch name  Enter: create"
 		m.repoIndex = 0
+		m.newSessionFocus = 0
+		m.branchInput.Reset()
+		m.branchInput.Blur()
 	case ModalConfirmDelete:
 		m.title = "Delete Session?"
 		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
@@ -192,6 +206,11 @@ func (m *Modal) GetSelectedRepo() string {
 		m.repoIndex = 0
 	}
 	return m.repoOptions[m.repoIndex]
+}
+
+// GetBranchName returns the custom branch name entered by user (empty if not specified)
+func (m *Modal) GetBranchName() string {
+	return m.branchInput.Value()
 }
 
 // SetMergeOptions sets the available merge options based on remote availability
@@ -278,13 +297,30 @@ func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 		case ModalNewSession:
 			switch msg.String() {
 			case "up", "k":
-				if m.repoIndex > 0 {
+				if m.newSessionFocus == 0 && m.repoIndex > 0 {
 					m.repoIndex--
 				}
 			case "down", "j":
-				if m.repoIndex < len(m.repoOptions)-1 {
+				if m.newSessionFocus == 0 && m.repoIndex < len(m.repoOptions)-1 {
 					m.repoIndex++
 				}
+			case "tab":
+				// Toggle between repo list and branch input
+				if m.newSessionFocus == 0 {
+					m.newSessionFocus = 1
+					m.branchInput.Focus()
+				} else {
+					m.newSessionFocus = 0
+					m.branchInput.Blur()
+				}
+				return m, nil
+			case "shift+tab":
+				// Toggle back
+				if m.newSessionFocus == 1 {
+					m.newSessionFocus = 0
+					m.branchInput.Blur()
+				}
+				return m, nil
 			}
 		case ModalConfirmDelete:
 			switch msg.String() {
@@ -342,6 +378,13 @@ func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 		case 4:
 			m.mcpArgsInput, cmd = m.mcpArgsInput.Update(msg)
 		}
+		return m, cmd
+	}
+
+	// Handle New Session modal branch input updates
+	if m.Type == ModalNewSession && m.newSessionFocus == 1 {
+		var cmd tea.Cmd
+		m.branchInput, cmd = m.branchInput.Update(msg)
 		return m, cmd
 	}
 
@@ -475,6 +518,11 @@ func (m *Modal) GetAddRepoPath() string {
 func (m *Modal) renderNewSession() string {
 	title := ModalTitleStyle.Render(m.title)
 
+	// Repository selection section
+	repoLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Repository:")
+
 	var repoList string
 	if len(m.repoOptions) == 0 {
 		repoList = lipgloss.NewStyle().
@@ -485,17 +533,38 @@ func (m *Modal) renderNewSession() string {
 		for i, repo := range m.repoOptions {
 			style := SidebarItemStyle
 			prefix := "  "
-			if i == m.repoIndex {
+			if m.newSessionFocus == 0 && i == m.repoIndex {
 				style = SidebarSelectedStyle
 				prefix = "> "
+			} else if i == m.repoIndex {
+				prefix = "● "
 			}
 			repoList += style.Render(prefix+repo) + "\n"
 		}
 	}
 
-	help := ModalHelpStyle.Render("↑/↓ to select, Enter to confirm, Esc to cancel")
+	// Branch name input section
+	branchLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Branch name:")
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, repoList, help)
+	branchInputStyle := lipgloss.NewStyle()
+	if m.newSessionFocus == 1 {
+		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		branchInputStyle = branchInputStyle.PaddingLeft(2)
+	}
+	branchView := branchInputStyle.Render(m.branchInput.View())
+
+	var errView string
+	if m.error != "" {
+		errView = "\n" + StatusErrorStyle.Render(m.error)
+	}
+
+	help := ModalHelpStyle.Render(m.help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, branchLabel, branchView, errView, help)
 }
 
 func (m *Modal) renderConfirmDelete() string {

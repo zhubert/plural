@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -13,10 +14,53 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
-// Create creates a new session with a git worktree for the given repo path
-func Create(repoPath string) (*config.Session, error) {
+// validBranchNameRegex matches valid git branch name characters
+// Git branch names cannot contain: space, ~, ^, :, ?, *, [, \, or control characters
+// They also cannot start with - or end with .lock
+var validBranchNameRegex = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$`)
+
+// ValidateBranchName checks if a branch name is valid for git
+func ValidateBranchName(branch string) error {
+	if branch == "" {
+		return nil // Empty is allowed (will use default)
+	}
+
+	if len(branch) > 100 {
+		return fmt.Errorf("branch name too long (max 100 characters)")
+	}
+
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("branch name cannot start with '-'")
+	}
+
+	if strings.HasSuffix(branch, ".lock") {
+		return fmt.Errorf("branch name cannot end with '.lock'")
+	}
+
+	if strings.Contains(branch, "..") {
+		return fmt.Errorf("branch name cannot contain '..'")
+	}
+
+	if !validBranchNameRegex.MatchString(branch) {
+		return fmt.Errorf("branch name contains invalid characters (use letters, numbers, /, _, ., -)")
+	}
+
+	return nil
+}
+
+// BranchExists checks if a branch already exists in the repo
+func BranchExists(repoPath, branch string) bool {
+	cmd := exec.Command("git", "rev-parse", "--verify", branch)
+	cmd.Dir = repoPath
+	return cmd.Run() == nil
+}
+
+// Create creates a new session with a git worktree for the given repo path.
+// If customBranch is provided, it will be used as the branch name; otherwise
+// a branch named "plural-<UUID>" will be created.
+func Create(repoPath string, customBranch string) (*config.Session, error) {
 	startTime := time.Now()
-	logger.Log("Session: Creating new session for repo=%s", repoPath)
+	logger.Log("Session: Creating new session for repo=%s, customBranch=%q", repoPath, customBranch)
 
 	// Generate UUID for this session
 	id := uuid.New().String()
@@ -25,8 +69,13 @@ func Create(repoPath string) (*config.Session, error) {
 	// Get repo name from path
 	repoName := filepath.Base(repoPath)
 
-	// Branch name: plural-<UUID>
-	branch := fmt.Sprintf("plural-%s", id)
+	// Branch name: use custom if provided, otherwise plural-<UUID>
+	var branch string
+	if customBranch != "" {
+		branch = customBranch
+	} else {
+		branch = fmt.Sprintf("plural-%s", id)
+	}
 
 	// Worktree path: sibling to repo in .plural-worktrees directory
 	repoParent := filepath.Dir(repoPath)
