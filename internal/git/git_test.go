@@ -170,7 +170,7 @@ func TestMergeToMain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "feature-branch")
+	ch := MergeToMain(ctx, repoPath, repoPath, "feature-branch", "")
 
 	var lastResult Result
 	for result := range ch {
@@ -235,7 +235,7 @@ func TestMergeToMain_Conflict(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "conflict-branch")
+	ch := MergeToMain(ctx, repoPath, repoPath, "conflict-branch", "")
 
 	var hadError bool
 	for result := range ch {
@@ -262,7 +262,7 @@ func TestMergeToMain_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "test-branch")
+	ch := MergeToMain(ctx, repoPath, repoPath, "test-branch", "")
 
 	// Drain channel
 	for range ch {
@@ -282,7 +282,7 @@ func TestCreatePR_NoGh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := CreatePR(ctx, repoPath, repoPath, "test-branch")
+	ch := CreatePR(ctx, repoPath, repoPath, "test-branch", "")
 
 	var hadError bool
 	for result := range ch {

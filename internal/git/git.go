@@ -341,7 +341,8 @@ func GetDefaultBranch(repoPath string) string {
 
 // MergeToMain merges a branch into the default branch
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
-func MergeToMain(ctx context.Context, repoPath, worktreePath, branch string) <-chan Result {
+// If commitMsg is provided and non-empty, it will be used directly instead of generating one
+func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -359,20 +360,28 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch string) <-c
 
 		if status.HasChanges {
 			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-			ch <- Result{Output: "Generating commit message with Claude...\n"}
 
-			// Try to generate commit message with Claude, fall back to simple message
-			commitMsg, err := GenerateCommitMessageWithClaude(ctx, worktreePath)
-			if err != nil {
-				logger.Log("Git: Claude commit message failed, using fallback: %v", err)
-				ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
-				commitMsg, err = GenerateCommitMessage(worktreePath)
+			// Use provided commit message or generate one
+			if commitMsg == "" {
+				ch <- Result{Output: "Generating commit message with Claude...\n"}
+
+				// Try to generate commit message with Claude, fall back to simple message
+				commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
 				if err != nil {
-					ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-					return
+					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
+					commitMsg, err = GenerateCommitMessage(worktreePath)
+					if err != nil {
+						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
+						return
+					}
+				} else {
+					// Show the generated commit message
+					firstLine := strings.Split(commitMsg, "\n")[0]
+					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
 				}
 			} else {
-				// Show the generated commit message
+				// Show the user-provided commit message
 				firstLine := strings.Split(commitMsg, "\n")[0]
 				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
 			}
@@ -417,7 +426,8 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch string) <-c
 
 // CreatePR pushes the branch and creates a pull request using gh CLI
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
-func CreatePR(ctx context.Context, repoPath, worktreePath, branch string) <-chan Result {
+// If commitMsg is provided and non-empty, it will be used directly instead of generating one
+func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -441,20 +451,28 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch string) <-chan
 
 		if status.HasChanges {
 			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-			ch <- Result{Output: "Generating commit message with Claude...\n"}
 
-			// Try to generate commit message with Claude, fall back to simple message
-			commitMsg, err := GenerateCommitMessageWithClaude(ctx, worktreePath)
-			if err != nil {
-				logger.Log("Git: Claude commit message failed, using fallback: %v", err)
-				ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
-				commitMsg, err = GenerateCommitMessage(worktreePath)
+			// Use provided commit message or generate one
+			if commitMsg == "" {
+				ch <- Result{Output: "Generating commit message with Claude...\n"}
+
+				// Try to generate commit message with Claude, fall back to simple message
+				commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
 				if err != nil {
-					ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-					return
+					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
+					commitMsg, err = GenerateCommitMessage(worktreePath)
+					if err != nil {
+						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
+						return
+					}
+				} else {
+					// Show the generated commit message
+					firstLine := strings.Split(commitMsg, "\n")[0]
+					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
 				}
 			} else {
-				// Show the generated commit message
+				// Show the user-provided commit message
 				firstLine := strings.Split(commitMsg, "\n")[0]
 				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
 			}
