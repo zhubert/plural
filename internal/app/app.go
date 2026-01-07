@@ -356,11 +356,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chat.SetWaiting(false)
 				m.chat.FinishStreaming()
 			} else {
-				// For non-active session, add accumulated streaming content as a message
-				if content := m.sessionStreaming[msg.SessionID]; content != "" {
-					runner.AddAssistantMessage(content)
-					delete(m.sessionStreaming, msg.SessionID)
-				}
+				// For non-active session, just clear our saved streaming content
+				// The runner already adds the assistant message when streaming completes (claude.go)
+				delete(m.sessionStreaming, msg.SessionID)
 			}
 			// Mark session as started and save messages
 			sess := m.getSessionByID(msg.SessionID)
