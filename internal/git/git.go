@@ -413,7 +413,18 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		cmd.Dir = repoPath
 		output, err = cmd.CombinedOutput()
 		if err != nil {
-			ch <- Result{Output: string(output), Error: fmt.Errorf("merge failed: %w", err), Done: true}
+			// Include git output and helpful hints for resolving merge conflicts
+			hint := fmt.Sprintf(`
+
+To resolve this merge conflict:
+  1. cd %s
+  2. Resolve conflicts in the affected files
+  3. git add <resolved-files>
+  4. git commit
+
+Or abort the merge with: git merge --abort
+`, repoPath)
+			ch <- Result{Output: string(output) + hint, Error: fmt.Errorf("merge failed: %w", err), Done: true}
 			return
 		}
 		ch <- Result{Output: string(output)}
