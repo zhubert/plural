@@ -21,6 +21,7 @@ type Footer struct {
 	pendingPermission bool // Whether chat has a pending permission prompt
 	pendingQuestion   bool // Whether chat has a pending question prompt
 	streaming         bool // Whether active session is streaming
+	sessionInUse      bool // Whether selected session has "session in use" error
 }
 
 // NewFooter creates a new footer
@@ -41,12 +42,13 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
 	f.pendingQuestion = pendingQuestion
 	f.streaming = streaming
+	f.sessionInUse = sessionInUse
 }
 
 // SetWidth sets the footer width
@@ -97,6 +99,20 @@ func (f *Footer) View() string {
 			{Key: "pgup/dn", Desc: "scroll"},
 		}
 		for _, b := range streamBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
+	} else if f.sessionInUse && f.sidebarFocused {
+		// Show force-resume option when session has "in use" error
+		inUseBindings := []KeyBinding{
+			{Key: "f", Desc: "force resume"},
+			{Key: "tab", Desc: "switch pane"},
+			{Key: "n", Desc: "new session"},
+			{Key: "d", Desc: "delete"},
+			{Key: "q", Desc: "quit"},
+		}
+		for _, b := range inUseBindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)

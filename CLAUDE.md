@@ -81,6 +81,9 @@ tail -f /tmp/plural-mcp-*.log
   - `protocol_test.go` - Protocol test suite
   - `server.go` - MCP server implementation (stdio transport)
   - `socket.go` - Unix socket communication with timeouts to prevent deadlocks
+- **internal/process** - Process management utilities for Claude CLI
+  - `process.go` - Find and kill orphaned Claude processes by session ID
+  - `process_test.go` - Test suite
 - **internal/session** - Creates and manages git worktrees for isolated sessions; validates git repos
   - `doc.go` - Package documentation
   - `session.go` - Session creation, deletion, and orphaned worktree pruning
@@ -187,6 +190,20 @@ This provides visibility into Claude's work, especially during multi-tool operat
    - Shows "[Interrupted]" in the chat to indicate the response was stopped
    - The footer shows "esc: stop" when streaming is active
    - Useful for stopping runaway responses or long operations
+
+### Force Resume (Hung Sessions)
+
+If a Claude session gets stuck or Plural crashes while a session is running, the Claude CLI may leave behind a "session in use" lock. When you try to resume the session, you'll see an error and a ⛔ indicator in the sidebar.
+
+To recover from this state:
+1. Select the affected session in the sidebar
+2. Press `f` to force-resume
+3. Plural will:
+   - Find and kill any orphaned Claude processes using that session ID
+   - Clear the error state
+   - Create a fresh runner so you can continue working
+
+The `internal/process` package provides utilities for detecting and killing orphaned Claude processes by searching for processes with matching `--session-id` or `--resume` arguments.
 
 ### Viewing Session Changes
 
