@@ -19,6 +19,7 @@ type Footer struct {
 	hasSession        bool // Whether a session is selected
 	sidebarFocused    bool // Whether sidebar has focus
 	pendingPermission bool // Whether chat has a pending permission prompt
+	streaming         bool // Whether active session is streaming
 }
 
 // NewFooter creates a new footer
@@ -39,10 +40,11 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, streaming bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
+	f.streaming = streaming
 }
 
 // SetWidth sets the footer width
@@ -68,6 +70,18 @@ func (f *Footer) View() string {
 			{Key: "tab", Desc: "switch pane"},
 		}
 		for _, b := range permBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
+	} else if f.streaming && !f.sidebarFocused {
+		// Show streaming-specific shortcuts when streaming in chat
+		streamBindings := []KeyBinding{
+			{Key: "esc", Desc: "stop"},
+			{Key: "tab", Desc: "switch pane"},
+			{Key: "pgup/dn", Desc: "scroll"},
+		}
+		for _, b := range streamBindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)

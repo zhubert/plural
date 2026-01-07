@@ -74,6 +74,9 @@ type Model struct {
 	sessionMergeChans   map[string]<-chan git.Result
 	sessionMergeCancels map[string]context.CancelFunc
 
+	// Per-session Claude streaming cancel functions
+	sessionStreamCancels map[string]context.CancelFunc
+
 	// Per-session wait tracking for timer
 	sessionWaitStart map[string]time.Time // When each session started waiting
 
@@ -116,9 +119,10 @@ func New(cfg *config.Config) *Model {
 		sessionWaitStart:    make(map[string]time.Time),
 		pendingPermissions:  make(map[string]*mcp.PermissionRequest),
 		sessionInputs:       make(map[string]string),
-		sessionMergeChans:   make(map[string]<-chan git.Result),
-		sessionMergeCancels: make(map[string]context.CancelFunc),
-		sessionStreaming:    make(map[string]string),
+		sessionMergeChans:    make(map[string]<-chan git.Result),
+		sessionMergeCancels:  make(map[string]context.CancelFunc),
+		sessionStreamCancels: make(map[string]context.CancelFunc),
+		sessionStreaming:     make(map[string]string),
 		state:               StateIdle,
 	}
 
@@ -185,6 +189,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "y", "Y", "n", "N", "a", "A":
 					return m.handlePermissionResponse(msg.String(), m.activeSession.ID, req)
 				}
+			}
+		}
+
+		// Handle Escape to interrupt streaming
+		if msg.String() == "esc" && m.activeSession != nil {
+			if cancel, exists := m.sessionStreamCancels[m.activeSession.ID]; exists {
+				logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
+				cancel()
+				delete(m.sessionStreamCancels, m.activeSession.ID)
+				delete(m.sessionWaitStart, m.activeSession.ID)
+				m.sidebar.SetStreaming(m.activeSession.ID, false)
+				m.chat.SetWaiting(false)
+				m.chat.ClearToolStatus()
+				// Save partial response to runner before finishing
+				if content := m.chat.GetStreaming(); content != "" {
+					m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
+					m.saveRunnerMessages(m.activeSession.ID, m.claudeRunner)
+				}
+				m.chat.AppendStreaming("\n[Interrupted]\n")
+				m.chat.FinishStreaming()
+				// Check if any sessions are still streaming
+				if !m.hasAnyStreamingSessions() {
+					m.setState(StateIdle)
+				}
+				return m, nil
 			}
 		}
 
@@ -306,6 +335,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Log("App: Error in session %s: %v", msg.SessionID, msg.Chunk.Error)
 			m.sidebar.SetStreaming(msg.SessionID, false)
 			delete(m.sessionWaitStart, msg.SessionID)
+			delete(m.sessionStreamCancels, msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.AppendStreaming("\n[Error: " + msg.Chunk.Error.Error() + "]")
@@ -321,6 +351,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Log("App: Session %s completed streaming", msg.SessionID)
 			m.sidebar.SetStreaming(msg.SessionID, false)
 			delete(m.sessionWaitStart, msg.SessionID)
+			delete(m.sessionStreamCancels, msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.FinishStreaming()
@@ -614,6 +645,11 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 					cancel()
 					delete(m.sessionMergeCancels, sess.ID)
 					delete(m.sessionMergeChans, sess.ID)
+				}
+				// Cancel any in-progress streaming
+				if cancel, exists := m.sessionStreamCancels[sess.ID]; exists {
+					cancel()
+					delete(m.sessionStreamCancels, sess.ID)
 				}
 				// Clean up per-session state maps
 				delete(m.pendingPermissions, sess.ID)
@@ -922,7 +958,7 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 
 	// Create context for this request
 	ctx, cancel := context.WithCancel(context.Background())
-	_ = cancel // Cancel stored in runner, not used directly here
+	m.sessionStreamCancels[sessionID] = cancel
 
 	// Start Claude request - runner tracks its own response channel
 	responseChan := runner.Send(ctx, input)
@@ -1103,7 +1139,8 @@ func (m *Model) View() tea.View {
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
 	hasPendingPermission := m.activeSession != nil && m.pendingPermissions[m.activeSession.ID] != nil
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission)
+	isStreaming := m.activeSession != nil && m.sessionStreamCancels[m.activeSession.ID] != nil
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, isStreaming)
 
 	header := m.header.View()
 	footer := m.footer.View()

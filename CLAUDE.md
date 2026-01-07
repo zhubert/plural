@@ -133,6 +133,7 @@ State transitions are logged to `/tmp/plural-debug.log` for debugging. Helper me
 - `sessionStreaming` - Preserves in-progress streaming content when switching sessions
 - `sessionMergeChans` - Per-session merge/PR operation channels
 - `sessionMergeCancels` - Per-session merge/PR cancel functions
+- `sessionStreamCancels` - Per-session Claude streaming cancel functions (for Escape key interruption)
 - `pendingPermissions` - Per-session permission prompts
 
 This allows truly independent session operation - you can send messages to session B while session A is waiting for Claude, and merge operations don't block other sessions.
@@ -179,6 +180,12 @@ Plural uses Claude CLI's `--output-format stream-json` to provide real-time feed
    - `Content`: Text content for text chunks
 
 This provides visibility into Claude's work, especially during multi-tool operations that can take minutes.
+
+4. **Stream Interruption**: Press `Esc` while Claude is streaming to interrupt the response:
+   - Cancels the underlying Claude CLI process via context cancellation
+   - Shows "[Interrupted]" in the chat to indicate the response was stopped
+   - The footer shows "esc: stop" when streaming is active
+   - Useful for stopping runaway responses or long operations
 
 ### Viewing Session Changes
 
