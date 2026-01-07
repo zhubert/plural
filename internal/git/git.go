@@ -102,7 +102,7 @@ func CommitAll(worktreePath, message string) error {
 	return nil
 }
 
-// GenerateCommitMessage creates a commit message based on the changes
+// GenerateCommitMessage creates a commit message based on the changes (simple fallback)
 func GenerateCommitMessage(worktreePath string) (string, error) {
 	status, err := GetWorktreeStatus(worktreePath)
 	if err != nil {
@@ -129,6 +129,179 @@ func GenerateCommitMessage(worktreePath string) (string, error) {
 	}
 
 	return message, nil
+}
+
+// GenerateCommitMessageWithClaude uses Claude to generate a commit message from the diff
+func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (string, error) {
+	logger.Log("Git: Generating commit message with Claude for %s", worktreePath)
+
+	status, err := GetWorktreeStatus(worktreePath)
+	if err != nil {
+		return "", err
+	}
+
+	if !status.HasChanges {
+		return "", fmt.Errorf("no changes to commit")
+	}
+
+	// Get the full diff for Claude to analyze
+	cmd := exec.CommandContext(ctx, "git", "diff", "HEAD")
+	cmd.Dir = worktreePath
+	diffOutput, err := cmd.Output()
+	if err != nil {
+		// Try without HEAD for new repos
+		cmd = exec.CommandContext(ctx, "git", "diff")
+		cmd.Dir = worktreePath
+		diffOutput, _ = cmd.Output()
+	}
+
+	// Also get staged changes
+	cmd = exec.CommandContext(ctx, "git", "diff", "--cached")
+	cmd.Dir = worktreePath
+	cachedOutput, _ := cmd.Output()
+
+	fullDiff := string(diffOutput) + string(cachedOutput)
+
+	// Truncate diff if too large (Claude has context limits)
+	maxDiffSize := 50000
+	if len(fullDiff) > maxDiffSize {
+		fullDiff = fullDiff[:maxDiffSize] + "\n... (diff truncated)"
+	}
+
+	// Build the prompt for Claude
+	prompt := fmt.Sprintf(`Generate a git commit message for the following changes. Follow these rules:
+1. First line: Short summary (max 72 chars) in imperative mood (e.g., "Add feature", "Fix bug", "Update config")
+2. Blank line after summary
+3. Optional body: Explain the "why" not the "what" (the diff shows what changed)
+4. Focus on the purpose and impact of the changes
+5. Be concise - only add body if the changes are complex enough to warrant explanation
+6. Do NOT include any preamble like "Here's a commit message:" - just output the commit message directly
+
+Changed files: %s
+
+Diff:
+%s`, strings.Join(status.Files, ", "), fullDiff)
+
+	// Call Claude CLI directly with --print for a simple response
+	args := []string{"--print", "-p", prompt}
+
+	cmd = exec.CommandContext(ctx, "claude", args...)
+	cmd.Dir = worktreePath
+
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Claude commit message generation failed: %v", err)
+		return "", fmt.Errorf("failed to generate commit message with Claude: %w", err)
+	}
+
+	commitMsg := strings.TrimSpace(string(output))
+	if commitMsg == "" {
+		return "", fmt.Errorf("Claude returned empty commit message")
+	}
+
+	logger.Log("Git: Generated commit message: %s", strings.Split(commitMsg, "\n")[0])
+	return commitMsg, nil
+}
+
+// GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes
+func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string) (title, body string, err error) {
+	logger.Log("Git: Generating PR title and body with Claude for branch %s", branch)
+
+	defaultBranch := GetDefaultBranch(repoPath)
+
+	// Get the commit log for this branch
+	cmd := exec.CommandContext(ctx, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
+	cmd.Dir = repoPath
+	commitLog, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Failed to get commit log: %v", err)
+		return "", "", fmt.Errorf("failed to get commit log: %w", err)
+	}
+
+	// Get the diff from base branch
+	cmd = exec.CommandContext(ctx, "git", "diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
+	cmd.Dir = repoPath
+	diffOutput, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Failed to get diff: %v", err)
+		return "", "", fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	fullDiff := string(diffOutput)
+
+	// Truncate diff if too large
+	maxDiffSize := 50000
+	if len(fullDiff) > maxDiffSize {
+		fullDiff = fullDiff[:maxDiffSize] + "\n... (diff truncated)"
+	}
+
+	// Build the prompt for Claude
+	prompt := fmt.Sprintf(`Generate a GitHub pull request title and body for the following changes.
+
+Output format (use exactly this format with the markers):
+---TITLE---
+Your PR title here (max 72 chars, imperative mood)
+---BODY---
+## Summary
+Brief description of what this PR does
+
+## Changes
+- Bullet points of key changes
+
+## Test plan
+- How to test these changes
+
+Rules:
+1. Title should be concise and descriptive (max 72 chars)
+2. Body should explain the purpose and changes clearly
+3. Include a test plan section
+4. Do NOT include any preamble - start directly with ---TITLE---
+
+Commits in this branch:
+%s
+
+Diff:
+%s`, string(commitLog), fullDiff)
+
+	// Call Claude CLI
+	args := []string{"--print", "-p", prompt}
+
+	cmd = exec.CommandContext(ctx, "claude", args...)
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Claude PR generation failed: %v", err)
+		return "", "", fmt.Errorf("failed to generate PR with Claude: %w", err)
+	}
+
+	result := strings.TrimSpace(string(output))
+
+	// Parse the output
+	titleMarker := "---TITLE---"
+	bodyMarker := "---BODY---"
+
+	titleStart := strings.Index(result, titleMarker)
+	bodyStart := strings.Index(result, bodyMarker)
+
+	if titleStart == -1 || bodyStart == -1 {
+		// Fallback: use first line as title, rest as body
+		lines := strings.SplitN(result, "\n", 2)
+		title = strings.TrimSpace(lines[0])
+		if len(lines) > 1 {
+			body = strings.TrimSpace(lines[1])
+		}
+	} else {
+		title = strings.TrimSpace(result[titleStart+len(titleMarker) : bodyStart])
+		body = strings.TrimSpace(result[bodyStart+len(bodyMarker):])
+	}
+
+	if title == "" {
+		return "", "", fmt.Errorf("Claude returned empty PR title")
+	}
+
+	logger.Log("Git: Generated PR title: %s", title)
+	return title, body, nil
 }
 
 // HasRemoteOrigin checks if the repository has a remote named "origin"
@@ -184,14 +357,25 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch string) <-c
 
 		if status.HasChanges {
 			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-			ch <- Result{Output: "Committing changes...\n"}
+			ch <- Result{Output: "Generating commit message with Claude...\n"}
 
-			commitMsg, err := GenerateCommitMessage(worktreePath)
+			// Try to generate commit message with Claude, fall back to simple message
+			commitMsg, err := GenerateCommitMessageWithClaude(ctx, worktreePath)
 			if err != nil {
-				ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-				return
+				logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+				ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
+				commitMsg, err = GenerateCommitMessage(worktreePath)
+				if err != nil {
+					ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
+					return
+				}
+			} else {
+				// Show the generated commit message
+				firstLine := strings.Split(commitMsg, "\n")[0]
+				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
 			}
 
+			ch <- Result{Output: "Committing changes...\n"}
 			if err := CommitAll(worktreePath, commitMsg); err != nil {
 				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
 				return
@@ -255,14 +439,25 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch string) <-chan
 
 		if status.HasChanges {
 			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-			ch <- Result{Output: "Committing changes...\n"}
+			ch <- Result{Output: "Generating commit message with Claude...\n"}
 
-			commitMsg, err := GenerateCommitMessage(worktreePath)
+			// Try to generate commit message with Claude, fall back to simple message
+			commitMsg, err := GenerateCommitMessageWithClaude(ctx, worktreePath)
 			if err != nil {
-				ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-				return
+				logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+				ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
+				commitMsg, err = GenerateCommitMessage(worktreePath)
+				if err != nil {
+					ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
+					return
+				}
+			} else {
+				// Show the generated commit message
+				firstLine := strings.Split(commitMsg, "\n")[0]
+				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
 			}
 
+			ch <- Result{Output: "Committing changes...\n"}
 			if err := CommitAll(worktreePath, commitMsg); err != nil {
 				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
 				return
@@ -283,13 +478,28 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch string) <-chan
 		}
 		ch <- Result{Output: string(output)}
 
-		// Create PR using gh CLI
-		ch <- Result{Output: "\nCreating pull request...\n"}
-		cmd = exec.CommandContext(ctx, "gh", "pr", "create",
-			"--base", defaultBranch,
-			"--head", branch,
-			"--fill", // Use commit info for title/body
-		)
+		// Generate PR title and body with Claude
+		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
+		prTitle, prBody, err := GeneratePRTitleAndBody(ctx, repoPath, branch)
+		if err != nil {
+			logger.Log("Git: Claude PR generation failed, using --fill: %v", err)
+			ch <- Result{Output: "Claude unavailable, using commit info for PR...\n"}
+			// Fall back to --fill which uses commit info
+			cmd = exec.CommandContext(ctx, "gh", "pr", "create",
+				"--base", defaultBranch,
+				"--head", branch,
+				"--fill",
+			)
+		} else {
+			ch <- Result{Output: fmt.Sprintf("PR title: %s\n", prTitle)}
+			// Create PR with Claude-generated title and body
+			cmd = exec.CommandContext(ctx, "gh", "pr", "create",
+				"--base", defaultBranch,
+				"--head", branch,
+				"--title", prTitle,
+				"--body", prBody,
+			)
+		}
 		cmd.Dir = repoPath
 
 		// Stream the output
