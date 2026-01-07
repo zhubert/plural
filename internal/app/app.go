@@ -923,7 +923,12 @@ func (m *Model) selectSession(sess *config.Session) {
 	}
 
 	m.chat.SetSession(sess.Name, m.claudeRunner.GetMessages())
-	m.header.SetSessionName(sess.Name)
+	// Use branch name for header if it's a custom branch, otherwise use session name
+	headerName := sess.Name
+	if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
+		headerName = sess.Branch
+	}
+	m.header.SetSessionName(headerName)
 	m.focus = FocusChat
 	m.sidebar.SetFocused(false)
 	m.chat.SetFocused(true)

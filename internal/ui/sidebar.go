@@ -264,12 +264,16 @@ func (s *Sidebar) View() string {
 
 			// Sessions in this group
 			for _, sess := range group.Sessions {
-				// Extract just the short ID part from the name (after the /)
-				displayName := sess.Name
-				if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
+				// Use branch name if it's a custom branch, otherwise use the short ID from name
+				var displayName string
+				if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
+					// Custom branch name - show it
+					displayName = "  " + sess.Branch
+				} else if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
+					// Extract short ID from name
 					displayName = "  " + parts[len(parts)-1]
 				} else {
-					displayName = "  " + displayName
+					displayName = "  " + sess.Name
 				}
 
 				itemStyle := SidebarItemStyle

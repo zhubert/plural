@@ -53,6 +53,7 @@ tail -f /tmp/plural-mcp-*.log
    - Generates a UUID for the session
    - Creates a git worktree with branch name (custom if provided, otherwise `plural-<UUID>`) in `.plural-worktrees/<UUID>` (sibling to the repo)
    - Starts a Claude Code CLI process in that worktree using `--session-id` for first message, `--resume` for subsequent
+   - Sessions with custom branch names display the branch name in the sidebar and header instead of the UUID
 3. Each session maintains its own message history and Claude CLI session
 
 ### Package Structure

@@ -94,12 +94,20 @@ func Create(repoPath string, customBranch string) (*config.Session, error) {
 	}
 	logger.Log("Session: Git worktree created in %v", time.Since(worktreeStart))
 
+	// Display name: use custom branch if provided, otherwise use short UUID
+	var displayName string
+	if customBranch != "" {
+		displayName = customBranch
+	} else {
+		displayName = shortID
+	}
+
 	session := &config.Session{
 		ID:        id,
 		RepoPath:  repoPath,
 		WorkTree:  worktreePath,
 		Branch:    branch,
-		Name:      fmt.Sprintf("%s/%s", repoName, shortID),
+		Name:      fmt.Sprintf("%s/%s", repoName, displayName),
 		CreatedAt: time.Now(),
 	}
 
