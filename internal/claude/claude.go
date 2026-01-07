@@ -229,7 +229,7 @@ type streamMessage struct {
 			Input     json.RawMessage `json:"input,omitempty"`      // tool input
 			ToolUseID string          `json:"tool_use_id,omitempty"`
 			ToolUseId string          `json:"toolUseId,omitempty"` // camelCase variant from Claude CLI
-			Content   string          `json:"content,omitempty"`   // tool result content
+			Content   json.RawMessage `json:"content,omitempty"`   // tool result content (can be string or array)
 		} `json:"content"`
 	} `json:"message"`
 	Result    string `json:"result,omitempty"` // Final result text
