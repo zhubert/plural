@@ -61,7 +61,7 @@
 
         .ascii-logo {
             color: var(--primary);
-            font-size: 0.65rem;
+            font-size: 0.9rem;
             line-height: 1.2;
             letter-spacing: 0;
             white-space: pre;
@@ -71,7 +71,7 @@
 
         @media (max-width: 480px) {
             .ascii-logo {
-                font-size: 0.45rem;
+                font-size: 0.6rem;
             }
         }
 
@@ -79,6 +79,7 @@
             color: var(--text-muted);
             margin-top: 1.5rem;
             font-size: 0.9rem;
+            text-align: center;
         }
 
         .tagline span {
@@ -436,7 +437,7 @@
 ██╔═══╝ ██║     ██║   ██║██╔══██╗██╔══██║██║
 ██║     ███████╗╚██████╔╝██║  ██║██║  ██║███████╗
 ╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝</pre>
-            <p class="tagline"><span>parallel</span> claude code sessions<br>each in its own <span>git worktree</span></p>
+            <p class="tagline"><span>parallel</span> claude code sessions, each in its own <span>git worktree</span></p>
         </header>
 
         <div class="terminal fade-in">
@@ -462,9 +463,6 @@
                         <div class="tui-session">
                             dark-mode
                         </div>
-                        <div class="tui-footer">
-                            <span>n</span> new  <span>m</span> merge  <span>q</span> quit
-                        </div>
                     </div>
                     <div class="tui-panel">
                         <div class="tui-panel-title tui-chat-title">
@@ -481,6 +479,9 @@
                         </div>
                         <div class="tui-status">Reading middleware/auth.go</div>
                     </div>
+                </div>
+                <div class="tui-footer">
+                    <span>n</span> new  <span>m</span> merge  <span>q</span> quit
                 </div>
             </div>
         </div>
