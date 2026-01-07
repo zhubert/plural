@@ -12,7 +12,7 @@ import (
 // Configuration constants
 const (
 	// MaxSessionMessageLines is the maximum number of lines to keep in session message history
-	MaxSessionMessageLines = 100
+	MaxSessionMessageLines = 10000
 )
 
 // Session represents a Claude Code conversation session with its own worktree

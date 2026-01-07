@@ -271,7 +271,7 @@ Layout constants are centralized in `internal/ui/constants.go`:
 - `BorderSize`: 2 (1 on each side)
 - `SidebarWidthRatio`: 3 (sidebar gets 1/3 of width)
 - `TextareaHeight`: 3 lines for input
-- `MaxSessionMessageLines`: 100 lines kept in history (in config package)
+- `MaxSessionMessageLines`: 10,000 lines kept in history (in config package)
 - `PermissionTimeout`: 5 minutes for permission responses
 
 ### CLI Prerequisites

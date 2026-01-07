@@ -7,7 +7,7 @@ A TUI for managing multiple concurrent Claude Code sessions, each running in its
 - Run multiple Claude Code conversations simultaneously
 - Each session gets its own git branch and worktree for isolated changes
 - Sessions grouped by repository in the sidebar
-- Conversation history persists across restarts (last 100 lines)
+- Conversation history persists across restarts (last 10,000 lines)
 - Streaming responses from Claude Code CLI
 - Interactive permission prompts (Allow, Deny, Always Allow)
 - Merge session branches to main or create GitHub PRs

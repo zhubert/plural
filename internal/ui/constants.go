@@ -40,7 +40,7 @@ const (
 // Session message limits
 const (
 	// MaxSessionMessageLines is the maximum number of lines to keep in session message history
-	MaxSessionMessageLines = 100
+	MaxSessionMessageLines = 10000
 
 	// PermissionChannelBuffer is the buffer size for permission request/response channels
 	PermissionChannelBuffer = 1

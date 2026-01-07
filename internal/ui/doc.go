@@ -60,7 +60,7 @@
 //   - BorderSize: 2 (1 on each side)
 //   - SidebarWidthRatio: 3 (sidebar gets 1/3 of width)
 //   - TextareaHeight: 3 lines for input
-//   - MaxSessionMessageLines: 100 lines kept in history
+//   - MaxSessionMessageLines: 10,000 lines kept in history
 //
 // # Styles
 //
