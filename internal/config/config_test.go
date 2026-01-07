@@ -140,42 +140,67 @@ func TestConfig_GetSession(t *testing.T) {
 
 func TestConfig_AllowedTools(t *testing.T) {
 	cfg := &Config{
-		Repos: []string{},
-		Sessions: []Session{
-			{ID: "session-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1"},
-		},
+		Repos:            []string{"/path/to/repo"},
+		Sessions:         []Session{},
+		AllowedTools:     []string{},
+		RepoAllowedTools: make(map[string][]string),
 	}
 
-	// Test adding allowed tool
-	if !cfg.AddAllowedTool("session-1", "Edit") {
-		t.Error("AddAllowedTool should return true for new tool")
+	// Test adding global allowed tool
+	if !cfg.AddGlobalAllowedTool("Edit") {
+		t.Error("AddGlobalAllowedTool should return true for new tool")
 	}
 
-	// Test adding duplicate tool
-	if cfg.AddAllowedTool("session-1", "Edit") {
-		t.Error("AddAllowedTool should return false for duplicate tool")
+	// Test adding duplicate global tool
+	if cfg.AddGlobalAllowedTool("Edit") {
+		t.Error("AddGlobalAllowedTool should return false for duplicate tool")
 	}
 
-	// Test getting allowed tools
-	tools := cfg.GetAllowedTools("session-1")
-	if len(tools) != 1 {
-		t.Errorf("Expected 1 tool, got %d", len(tools))
+	// Test getting global allowed tools
+	globalTools := cfg.GetGlobalAllowedTools()
+	if len(globalTools) != 1 {
+		t.Errorf("Expected 1 global tool, got %d", len(globalTools))
 	}
-	if tools[0] != "Edit" {
-		t.Errorf("Expected tool 'Edit', got '%s'", tools[0])
-	}
-
-	// Test IsToolAllowed
-	if !cfg.IsToolAllowed("session-1", "Edit") {
-		t.Error("IsToolAllowed should return true for allowed tool")
-	}
-	if cfg.IsToolAllowed("session-1", "Bash") {
-		t.Error("IsToolAllowed should return false for non-allowed tool")
+	if globalTools[0] != "Edit" {
+		t.Errorf("Expected tool 'Edit', got '%s'", globalTools[0])
 	}
 
-	// Test adding tool to non-existent session
-	if cfg.AddAllowedTool("nonexistent", "Edit") {
-		t.Error("AddAllowedTool should return false for non-existent session")
+	// Test adding per-repo allowed tool
+	if !cfg.AddRepoAllowedTool("/path/to/repo", "Bash(git:*)") {
+		t.Error("AddRepoAllowedTool should return true for new tool")
+	}
+
+	// Test adding duplicate per-repo tool
+	if cfg.AddRepoAllowedTool("/path/to/repo", "Bash(git:*)") {
+		t.Error("AddRepoAllowedTool should return false for duplicate tool")
+	}
+
+	// Test getting per-repo allowed tools
+	repoTools := cfg.GetRepoAllowedTools("/path/to/repo")
+	if len(repoTools) != 1 {
+		t.Errorf("Expected 1 repo tool, got %d", len(repoTools))
+	}
+
+	// Test getting merged allowed tools
+	mergedTools := cfg.GetAllowedToolsForRepo("/path/to/repo")
+	if len(mergedTools) != 2 {
+		t.Errorf("Expected 2 merged tools, got %d", len(mergedTools))
+	}
+
+	// Test removing global tool
+	if !cfg.RemoveGlobalAllowedTool("Edit") {
+		t.Error("RemoveGlobalAllowedTool should return true")
+	}
+	if cfg.RemoveGlobalAllowedTool("Edit") {
+		t.Error("RemoveGlobalAllowedTool should return false for already removed tool")
+	}
+
+	// Test removing per-repo tool
+	if !cfg.RemoveRepoAllowedTool("/path/to/repo", "Bash(git:*)") {
+		t.Error("RemoveRepoAllowedTool should return true")
+	}
+	if cfg.RemoveRepoAllowedTool("/path/to/repo", "Bash(git:*)") {
+		t.Error("RemoveRepoAllowedTool should return false for already removed tool")
 	}
 }
 
@@ -528,8 +553,11 @@ func TestConfig_SaveAndLoad(t *testing.T) {
 				Name:      "repo1/session1",
 				CreatedAt: time.Now(),
 				Started:   true,
-				AllowedTools: []string{"Edit", "Bash(git:*)"},
 			},
+		},
+		AllowedTools: []string{"Edit"},
+		RepoAllowedTools: map[string][]string{
+			"/path/to/repo1": {"Bash(git:*)"},
 		},
 		filePath: configPath,
 	}
@@ -568,7 +596,11 @@ func TestConfig_SaveAndLoad(t *testing.T) {
 		t.Errorf("Expected session ID 'session-1', got '%s'", loaded.Sessions[0].ID)
 	}
 
-	if len(loaded.Sessions[0].AllowedTools) != 2 {
-		t.Errorf("Expected 2 allowed tools, got %d", len(loaded.Sessions[0].AllowedTools))
+	if len(loaded.AllowedTools) != 1 {
+		t.Errorf("Expected 1 global allowed tool, got %d", len(loaded.AllowedTools))
+	}
+
+	if len(loaded.RepoAllowedTools["/path/to/repo1"]) != 1 {
+		t.Errorf("Expected 1 repo allowed tool, got %d", len(loaded.RepoAllowedTools["/path/to/repo1"]))
 	}
 }

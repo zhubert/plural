@@ -795,10 +795,10 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.claudeRunners[sess.ID] = m.claudeRunner
 	}
 
-	// Load allowed tools from config for session resumption
-	allowedTools := m.config.GetAllowedTools(sess.ID)
+	// Load allowed tools from config (global + per-repo)
+	allowedTools := m.config.GetAllowedToolsForRepo(sess.RepoPath)
 	if len(allowedTools) > 0 {
-		logger.Log("App: Loaded %d allowed tools for session %s", len(allowedTools), sess.ID)
+		logger.Log("App: Loaded %d allowed tools for repo %s", len(allowedTools), sess.RepoPath)
 		m.claudeRunner.SetAllowedTools(allowedTools)
 	}
 
@@ -926,11 +926,14 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 		resp.Message = "User denied permission"
 	}
 
-	// If always, save the tool to allowed list
+	// If always, save the tool to per-repo allowed list
 	if always {
-		m.config.AddAllowedTool(sessionID, req.Tool)
-		m.config.Save()
-		runner.AddAllowedTool(req.Tool)
+		if sess := m.config.GetSession(sessionID); sess != nil {
+			m.config.AddRepoAllowedTool(sess.RepoPath, req.Tool)
+			m.config.Save()
+			runner.AddAllowedTool(req.Tool)
+			logger.Log("App: Added tool %s to allowed list for repo %s", req.Tool, sess.RepoPath)
+		}
 	}
 
 	// Send response

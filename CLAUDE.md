@@ -97,7 +97,7 @@ tail -f /tmp/plural-mcp-*.log
 
 ### Data Storage
 
-- **~/.plural/config.json** - Repos, sessions, allowed tools, MCP servers (global and per-repo), session started state
+- **~/.plural/config.json** - Repos, sessions, allowed tools (global and per-repo), MCP servers (global and per-repo)
 - **~/.plural/sessions/<session-id>.json** - Conversation history (last 100 lines per session)
 
 ### Key Patterns
@@ -149,7 +149,12 @@ When Claude needs permission for operations (file edits, bash commands, etc.), P
    - Press `y` to allow, `n` to deny, or `a` to always allow
    - Users can freely switch between sessions while permissions are pending
 4. **Per-Session Tracking**: Each session tracks its own pending permission in `pendingPermissions` map
-5. **Persistence**: "Always Allow" decisions are saved per-session in `~/.plural/config.json` and honored on session resume
+5. **Allowed Tools Configuration**:
+   - **Default tools**: A minimal safe set (Read, Glob, Grep, Edit, Write, ls, cat, etc.)
+   - **Global tools**: User-configured tools that apply to all sessions (`allowed_tools` in config)
+   - **Per-repo tools**: Tools specific to a repository (`repo_allowed_tools` in config)
+   - When user presses `a` (always allow), the tool is saved to the per-repo allowed list
+   - Tools are merged: defaults + global + per-repo
 
 ### Viewing Session Changes
 
@@ -209,6 +214,10 @@ Plural supports configuring external MCP (Model Context Protocol) servers to ext
 **Example config:**
 ```json
 {
+  "allowed_tools": ["Bash(git:*)", "Bash(go:*)"],
+  "repo_allowed_tools": {
+    "/path/to/repo": ["Bash(npm:*)", "Bash(docker:*)"]
+  },
   "mcp_servers": [
     {"name": "github", "command": "npx", "args": ["@modelcontextprotocol/server-github"]}
   ],

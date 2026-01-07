@@ -26,52 +26,23 @@ const (
 	PermissionTimeout = 5 * time.Minute
 )
 
-// DefaultAllowedTools is the default set of permitted tools for new sessions.
-// These are commonly used, relatively safe operations for development workflows.
+// DefaultAllowedTools is the minimal set of safe tools allowed by default.
+// Users can add more tools via global or per-repo config, or by pressing 'a' during sessions.
 var DefaultAllowedTools = []string{
 	// Read-only operations
 	"Read",
 	"Glob",
 	"Grep",
-	"WebFetch",
-	"WebSearch",
-	// File modifications
+	// File modifications (core editing workflow)
 	"Edit",
 	"Write",
-	"NotebookEdit",
-	// Git (read and write operations)
-	"Bash(git:*)",
-	// Build tools and package managers
-	"Bash(go:*)",
-	"Bash(npm:*)",
-	"Bash(npx:*)",
-	"Bash(yarn:*)",
-	"Bash(pnpm:*)",
-	"Bash(make:*)",
-	"Bash(cargo:*)",
-	"Bash(rustc:*)",
-	"Bash(python:*)",
-	"Bash(pip:*)",
-	"Bash(poetry:*)",
-	"Bash(bundle:*)",
-	"Bash(rake:*)",
-	"Bash(mix:*)",
-	// Read-only shell commands
+	// Safe read-only shell commands
 	"Bash(ls:*)",
 	"Bash(cat:*)",
 	"Bash(head:*)",
 	"Bash(tail:*)",
 	"Bash(wc:*)",
-	"Bash(find:*)",
-	"Bash(tree:*)",
 	"Bash(pwd:*)",
-	"Bash(which:*)",
-	"Bash(env:*)",
-	"Bash(echo:*)",
-	// Safe file operations
-	"Bash(mkdir:*)",
-	"Bash(cp:*)",
-	"Bash(touch:*)",
 }
 
 // Message represents a chat message
