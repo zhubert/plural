@@ -28,6 +28,7 @@ func NewFooter() *Footer {
 			{Key: "tab", Desc: "switch pane"},
 			{Key: "n", Desc: "new session"},
 			{Key: "r", Desc: "add repo"},
+			{Key: "s", Desc: "mcp servers"},
 			{Key: "v", Desc: "view changes"},
 			{Key: "m", Desc: "merge/pr"},
 			{Key: "d", Desc: "delete"},
@@ -78,7 +79,7 @@ func (f *Footer) View() string {
 				continue
 			}
 			// Skip sidebar-only bindings when chat is focused
-			if (b.Key == "n" || b.Key == "r" || b.Key == "v" || b.Key == "m" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
+			if (b.Key == "n" || b.Key == "r" || b.Key == "s" || b.Key == "v" || b.Key == "m" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
 				continue
 			}
 			// Skip session-specific bindings when no session selected

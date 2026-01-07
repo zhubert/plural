@@ -15,6 +15,8 @@ const (
 	ModalNewSession
 	ModalConfirmDelete
 	ModalMerge
+	ModalMCPServers
+	ModalAddMCPServer
 )
 
 // Modal represents a popup dialog
@@ -42,6 +44,26 @@ type Modal struct {
 	// Delete modal fields
 	deleteOptions []string // Delete options (keep/delete worktree)
 	deleteIndex   int      // Selected delete option index
+
+	// MCP server modal fields
+	mcpServers     []MCPServerDisplay // Flattened list of all servers for display
+	mcpServerIndex int                // Selected server index
+	mcpIsGlobal    bool               // Add modal: true for global, false for per-repo
+	mcpRepos       []string           // Available repos for per-repo selection
+	mcpRepoIndex   int                // Selected repo index in add modal
+	mcpNameInput   textinput.Model    // Name input field
+	mcpCmdInput    textinput.Model    // Command input field
+	mcpArgsInput   textinput.Model    // Args input field
+	mcpInputIndex  int                // Which input is focused (0=scope, 1=repo, 2=name, 3=cmd, 4=args)
+}
+
+// MCPServerDisplay represents an MCP server for display in the modal
+type MCPServerDisplay struct {
+	Name     string
+	Command  string
+	Args     string // Args joined as string for display
+	IsGlobal bool
+	RepoPath string // Only set if per-repo
 }
 
 // NewModal creates a new modal
@@ -51,9 +73,30 @@ func NewModal() *Modal {
 	ti.CharLimit = ModalInputCharLimit
 	ti.SetWidth(ModalInputWidth)
 
+	// MCP name input
+	nameInput := textinput.New()
+	nameInput.Placeholder = "server-name"
+	nameInput.CharLimit = 50
+	nameInput.SetWidth(ModalInputWidth)
+
+	// MCP command input
+	cmdInput := textinput.New()
+	cmdInput.Placeholder = "npx"
+	cmdInput.CharLimit = 100
+	cmdInput.SetWidth(ModalInputWidth)
+
+	// MCP args input
+	argsInput := textinput.New()
+	argsInput.Placeholder = "@modelcontextprotocol/server-github"
+	argsInput.CharLimit = 200
+	argsInput.SetWidth(ModalInputWidth)
+
 	return &Modal{
-		Type:  ModalNone,
-		input: ti,
+		Type:         ModalNone,
+		input:        ti,
+		mcpNameInput: nameInput,
+		mcpCmdInput:  cmdInput,
+		mcpArgsInput: argsInput,
 	}
 }
 
@@ -95,6 +138,20 @@ func (m *Modal) Show(t ModalType) {
 		m.title = "Merge/PR"
 		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
 		m.mergeIndex = 0
+	case ModalMCPServers:
+		m.title = "MCP Servers"
+		m.help = "↑/↓ navigate  a: add  d: delete  Esc: close"
+		m.mcpServerIndex = 0
+	case ModalAddMCPServer:
+		m.title = "Add MCP Server"
+		m.help = "Tab: next  Enter: save  Esc: cancel"
+		m.mcpIsGlobal = true
+		m.mcpRepoIndex = 0
+		m.mcpInputIndex = 0
+		m.mcpNameInput.Reset()
+		m.mcpCmdInput.Reset()
+		m.mcpArgsInput.Reset()
+		m.mcpNameInput.Focus()
 	}
 }
 
@@ -164,6 +221,51 @@ func (m *Modal) ShouldDeleteWorktree() bool {
 	return m.deleteIndex == 1 // "Delete worktree" is index 1
 }
 
+// ShowMCPServers shows the MCP server list modal
+func (m *Modal) ShowMCPServers(globalServers []MCPServerDisplay, perRepoServers map[string][]MCPServerDisplay, repos []string) {
+	m.Show(ModalMCPServers)
+
+	// Build flattened list for navigation
+	m.mcpServers = nil
+	for _, s := range globalServers {
+		m.mcpServers = append(m.mcpServers, s)
+	}
+	for _, repo := range repos {
+		for _, s := range perRepoServers[repo] {
+			m.mcpServers = append(m.mcpServers, s)
+		}
+	}
+	m.mcpRepos = repos
+	m.mcpServerIndex = 0
+}
+
+// ShowAddMCPServer shows the add MCP server modal
+func (m *Modal) ShowAddMCPServer(repos []string) {
+	m.Show(ModalAddMCPServer)
+	m.mcpRepos = repos
+}
+
+// GetNewMCPServer returns the MCP server info from add modal
+// Returns: name, command, args, repoPath (empty if global), isGlobal
+func (m *Modal) GetNewMCPServer() (name, command, args, repoPath string, isGlobal bool) {
+	name = m.mcpNameInput.Value()
+	command = m.mcpCmdInput.Value()
+	args = m.mcpArgsInput.Value()
+	isGlobal = m.mcpIsGlobal
+	if !isGlobal && len(m.mcpRepos) > 0 && m.mcpRepoIndex < len(m.mcpRepos) {
+		repoPath = m.mcpRepos[m.mcpRepoIndex]
+	}
+	return
+}
+
+// GetSelectedMCPServer returns the selected server for deletion
+func (m *Modal) GetSelectedMCPServer() *MCPServerDisplay {
+	if len(m.mcpServers) == 0 || m.mcpServerIndex >= len(m.mcpServers) {
+		return nil
+	}
+	return &m.mcpServers[m.mcpServerIndex]
+}
+
 // Update handles messages
 func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 	if !m.IsVisible() {
@@ -206,7 +308,41 @@ func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 					m.mergeIndex++
 				}
 			}
+		case ModalMCPServers:
+			switch msg.String() {
+			case "up", "k":
+				if m.mcpServerIndex > 0 {
+					m.mcpServerIndex--
+				}
+			case "down", "j":
+				if m.mcpServerIndex < len(m.mcpServers)-1 {
+					m.mcpServerIndex++
+				}
+			}
+		case ModalAddMCPServer:
+			switch msg.String() {
+			case "tab", "down":
+				m.advanceMCPInput()
+				return m, nil
+			case "shift+tab", "up":
+				m.retreatMCPInput()
+				return m, nil
+			}
 		}
+	}
+
+	// Handle MCP add modal text input updates
+	if m.Type == ModalAddMCPServer && m.mcpInputIndex >= 2 {
+		var cmd tea.Cmd
+		switch m.mcpInputIndex {
+		case 2:
+			m.mcpNameInput, cmd = m.mcpNameInput.Update(msg)
+		case 3:
+			m.mcpCmdInput, cmd = m.mcpCmdInput.Update(msg)
+		case 4:
+			m.mcpArgsInput, cmd = m.mcpArgsInput.Update(msg)
+		}
+		return m, cmd
 	}
 
 	if m.Type == ModalAddRepo {
@@ -252,6 +388,10 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 		content = m.renderConfirmDelete()
 	case ModalMerge:
 		content = m.renderMerge()
+	case ModalMCPServers:
+		content = m.renderMCPServers()
+	case ModalAddMCPServer:
+		content = m.renderAddMCPServer()
 	}
 
 	modal := ModalStyle.Render(content)
@@ -422,4 +562,234 @@ func (m *Modal) renderMerge() string {
 	help := ModalHelpStyle.Render(m.help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, summarySection, optionList, help)
+}
+
+func (m *Modal) renderMCPServers() string {
+	title := ModalTitleStyle.Render(m.title)
+
+	var content string
+	if len(m.mcpServers) == 0 {
+		content = lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render("No MCP servers configured.\nPress 'a' to add one.")
+	} else {
+		// Group servers for display
+		currentRepo := ""
+		globalShown := false
+		idx := 0
+
+		for _, server := range m.mcpServers {
+			// Show section headers
+			if server.IsGlobal && !globalShown {
+				if idx > 0 {
+					content += "\n"
+				}
+				content += lipgloss.NewStyle().
+					Foreground(ColorSecondary).
+					Bold(true).
+					Render("Global:") + "\n"
+				globalShown = true
+			} else if !server.IsGlobal && server.RepoPath != currentRepo {
+				content += "\n"
+				content += lipgloss.NewStyle().
+					Foreground(ColorSecondary).
+					Bold(true).
+					Render(truncatePath(server.RepoPath, 40)+":") + "\n"
+				currentRepo = server.RepoPath
+			}
+
+			// Render server entry
+			style := SidebarItemStyle
+			prefix := "  "
+			if idx == m.mcpServerIndex {
+				style = SidebarSelectedStyle
+				prefix = "> "
+			}
+
+			display := server.Name + "  " + lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Render(truncateString(server.Command+" "+server.Args, 35))
+			content += style.Render(prefix+display) + "\n"
+			idx++
+		}
+	}
+
+	help := ModalHelpStyle.Render(m.help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
+}
+
+func (m *Modal) renderAddMCPServer() string {
+	title := ModalTitleStyle.Render(m.title)
+
+	// Scope selector
+	scopeLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Scope:")
+
+	globalStyle := SidebarItemStyle
+	globalPrefix := "  "
+	if m.mcpInputIndex == 0 && m.mcpIsGlobal {
+		globalStyle = SidebarSelectedStyle
+		globalPrefix = "> "
+	} else if m.mcpIsGlobal {
+		globalPrefix = "● "
+	}
+	globalOpt := globalStyle.Render(globalPrefix + "Global")
+
+	repoStyle := SidebarItemStyle
+	repoPrefix := "  "
+	if m.mcpInputIndex == 0 && !m.mcpIsGlobal {
+		repoStyle = SidebarSelectedStyle
+		repoPrefix = "> "
+	} else if !m.mcpIsGlobal {
+		repoPrefix = "● "
+	}
+	repoOpt := repoStyle.Render(repoPrefix + "Per-repository")
+
+	scopeSection := lipgloss.JoinVertical(lipgloss.Left, scopeLabel, globalOpt, repoOpt)
+
+	// Repo selector (only if per-repo)
+	var repoSection string
+	if !m.mcpIsGlobal && len(m.mcpRepos) > 0 {
+		repoLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Repository:")
+
+		var repoList string
+		for i, repo := range m.mcpRepos {
+			style := SidebarItemStyle
+			prefix := "  "
+			if m.mcpInputIndex == 1 && i == m.mcpRepoIndex {
+				style = SidebarSelectedStyle
+				prefix = "> "
+			} else if i == m.mcpRepoIndex {
+				prefix = "● "
+			}
+			repoList += style.Render(prefix+truncatePath(repo, 40)) + "\n"
+		}
+		repoSection = lipgloss.JoinVertical(lipgloss.Left, repoLabel, repoList)
+	}
+
+	// Input fields
+	inputLabel := func(label string, focused bool) string {
+		style := lipgloss.NewStyle().Foreground(ColorTextMuted).MarginTop(1)
+		if focused {
+			style = style.Foreground(ColorPrimary)
+		}
+		return style.Render(label)
+	}
+
+	nameLabel := inputLabel("Name:", m.mcpInputIndex == 2)
+	nameInput := m.mcpNameInput.View()
+
+	cmdLabel := inputLabel("Command:", m.mcpInputIndex == 3)
+	cmdInput := m.mcpCmdInput.View()
+
+	argsLabel := inputLabel("Args:", m.mcpInputIndex == 4)
+	argsInput := m.mcpArgsInput.View()
+
+	inputSection := lipgloss.JoinVertical(lipgloss.Left,
+		nameLabel, nameInput,
+		cmdLabel, cmdInput,
+		argsLabel, argsInput,
+	)
+
+	help := ModalHelpStyle.Render(m.help)
+
+	if repoSection != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, title, scopeSection, repoSection, inputSection, help)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, title, scopeSection, inputSection, help)
+}
+
+// advanceMCPInput moves to the next input field
+func (m *Modal) advanceMCPInput() {
+	m.blurAllMCPInputs()
+
+	maxIndex := 4
+	if m.mcpIsGlobal {
+		// Skip repo selection (index 1) if global
+		if m.mcpInputIndex == 0 {
+			m.mcpInputIndex = 2
+		} else if m.mcpInputIndex < maxIndex {
+			m.mcpInputIndex++
+		}
+	} else {
+		if m.mcpInputIndex < maxIndex {
+			m.mcpInputIndex++
+		}
+	}
+
+	m.focusMCPInput()
+}
+
+// retreatMCPInput moves to the previous input field
+func (m *Modal) retreatMCPInput() {
+	m.blurAllMCPInputs()
+
+	if m.mcpIsGlobal {
+		// Skip repo selection (index 1) if global
+		if m.mcpInputIndex == 2 {
+			m.mcpInputIndex = 0
+		} else if m.mcpInputIndex > 0 {
+			m.mcpInputIndex--
+		}
+	} else {
+		if m.mcpInputIndex > 0 {
+			m.mcpInputIndex--
+		}
+	}
+
+	m.focusMCPInput()
+}
+
+func (m *Modal) blurAllMCPInputs() {
+	m.mcpNameInput.Blur()
+	m.mcpCmdInput.Blur()
+	m.mcpArgsInput.Blur()
+}
+
+func (m *Modal) focusMCPInput() {
+	switch m.mcpInputIndex {
+	case 2:
+		m.mcpNameInput.Focus()
+	case 3:
+		m.mcpCmdInput.Focus()
+	case 4:
+		m.mcpArgsInput.Focus()
+	}
+}
+
+// ToggleMCPScope toggles between global and per-repo in add modal
+func (m *Modal) ToggleMCPScope() {
+	if m.mcpInputIndex == 0 {
+		m.mcpIsGlobal = !m.mcpIsGlobal
+	}
+}
+
+// MoveMCPRepoSelection moves repo selection up or down
+func (m *Modal) MoveMCPRepoSelection(delta int) {
+	if m.mcpInputIndex == 1 {
+		newIdx := m.mcpRepoIndex + delta
+		if newIdx >= 0 && newIdx < len(m.mcpRepos) {
+			m.mcpRepoIndex = newIdx
+		}
+	}
+}
+
+func truncatePath(path string, maxLen int) string {
+	if len(path) <= maxLen {
+		return path
+	}
+	return "..." + path[len(path)-maxLen+3:]
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }

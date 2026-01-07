@@ -104,6 +104,16 @@ type Runner struct {
 	responseChan <-chan ResponseChunk   // Current response channel
 	streamCtx    context.Context        // Context for current streaming operation
 	streamCancel context.CancelFunc     // Cancel function for current streaming
+
+	// External MCP servers to include in config
+	mcpServers []MCPServer
+}
+
+// MCPServer represents an external MCP server configuration
+type MCPServer struct {
+	Name    string
+	Command string
+	Args    []string
 }
 
 // New creates a new Claude runner for a session
@@ -164,6 +174,14 @@ func (r *Runner) AddAllowedTool(tool string) {
 		}
 	}
 	r.allowedTools = append(r.allowedTools, tool)
+}
+
+// SetMCPServers sets the external MCP servers to include in the config
+func (r *Runner) SetMCPServers(servers []MCPServer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.mcpServers = servers
+	logger.Log("Claude: Set %d external MCP servers for session %s", len(servers), r.sessionID)
 }
 
 // SetPermissionHandler sets the callback for permission prompts
@@ -264,13 +282,24 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 		return "", err
 	}
 
-	config := map[string]interface{}{
-		"mcpServers": map[string]interface{}{
-			"plural": map[string]interface{}{
-				"command": execPath,
-				"args":    []string{"mcp-server", "--socket", socketPath},
-			},
+	// Start with the plural permission handler
+	mcpServers := map[string]interface{}{
+		"plural": map[string]interface{}{
+			"command": execPath,
+			"args":    []string{"mcp-server", "--socket", socketPath},
 		},
+	}
+
+	// Add external MCP servers
+	for _, server := range r.mcpServers {
+		mcpServers[server.Name] = map[string]interface{}{
+			"command": server.Command,
+			"args":    server.Args,
+		}
+	}
+
+	config := map[string]interface{}{
+		"mcpServers": mcpServers,
 	}
 
 	configJSON, err := json.Marshal(config)

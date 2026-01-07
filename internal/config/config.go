@@ -27,10 +27,19 @@ type Session struct {
 	AllowedTools []string  `json:"allowed_tools,omitempty"` // Persisted permission decisions (e.g., "Edit", "Bash(git:*)")
 }
 
+// MCPServer represents an MCP server configuration
+type MCPServer struct {
+	Name    string   `json:"name"`    // Unique identifier for the server
+	Command string   `json:"command"` // Executable command (e.g., "npx", "node")
+	Args    []string `json:"args"`    // Command arguments
+}
+
 // Config holds the application configuration
 type Config struct {
-	Repos    []string  `json:"repos"`
-	Sessions []Session `json:"sessions"`
+	Repos      []string               `json:"repos"`
+	Sessions   []Session              `json:"sessions"`
+	MCPServers []MCPServer            `json:"mcp_servers,omitempty"` // Global MCP servers
+	RepoMCP    map[string][]MCPServer `json:"repo_mcp,omitempty"`    // Per-repo MCP servers
 
 	mu       sync.RWMutex
 	filePath string
@@ -62,9 +71,11 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		Repos:    []string{},
-		Sessions: []Session{},
-		filePath: path,
+		Repos:      []string{},
+		Sessions:   []Session{},
+		MCPServers: []MCPServer{},
+		RepoMCP:    make(map[string][]MCPServer),
+		filePath:   path,
 	}
 
 	data, err := os.ReadFile(path)
@@ -92,12 +103,18 @@ func (c *Config) Validate() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Ensure slices are initialized (not nil)
+	// Ensure slices and maps are initialized (not nil)
 	if c.Repos == nil {
 		c.Repos = []string{}
 	}
 	if c.Sessions == nil {
 		c.Sessions = []Session{}
+	}
+	if c.MCPServers == nil {
+		c.MCPServers = []MCPServer{}
+	}
+	if c.RepoMCP == nil {
+		c.RepoMCP = make(map[string][]MCPServer)
 	}
 
 	// Check for duplicate session IDs
@@ -317,6 +334,122 @@ func (c *Config) MarkSessionStarted(sessionID string) bool {
 		}
 	}
 	return false
+}
+
+// AddGlobalMCPServer adds a global MCP server (returns false if name already exists)
+func (c *Config) AddGlobalMCPServer(server MCPServer) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, s := range c.MCPServers {
+		if s.Name == server.Name {
+			return false
+		}
+	}
+	c.MCPServers = append(c.MCPServers, server)
+	return true
+}
+
+// RemoveGlobalMCPServer removes a global MCP server by name
+func (c *Config) RemoveGlobalMCPServer(name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i, s := range c.MCPServers {
+		if s.Name == name {
+			c.MCPServers = append(c.MCPServers[:i], c.MCPServers[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// GetGlobalMCPServers returns a copy of global MCP servers
+func (c *Config) GetGlobalMCPServers() []MCPServer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	servers := make([]MCPServer, len(c.MCPServers))
+	copy(servers, c.MCPServers)
+	return servers
+}
+
+// AddRepoMCPServer adds an MCP server for a specific repository
+func (c *Config) AddRepoMCPServer(repoPath string, server MCPServer) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.RepoMCP == nil {
+		c.RepoMCP = make(map[string][]MCPServer)
+	}
+
+	// Check for duplicate name in this repo
+	for _, s := range c.RepoMCP[repoPath] {
+		if s.Name == server.Name {
+			return false
+		}
+	}
+	c.RepoMCP[repoPath] = append(c.RepoMCP[repoPath], server)
+	return true
+}
+
+// RemoveRepoMCPServer removes an MCP server from a specific repository
+func (c *Config) RemoveRepoMCPServer(repoPath, name string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	servers, exists := c.RepoMCP[repoPath]
+	if !exists {
+		return false
+	}
+
+	for i, s := range servers {
+		if s.Name == name {
+			c.RepoMCP[repoPath] = append(servers[:i], servers[i+1:]...)
+			// Clean up empty map entries
+			if len(c.RepoMCP[repoPath]) == 0 {
+				delete(c.RepoMCP, repoPath)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// GetRepoMCPServers returns MCP servers for a specific repository
+func (c *Config) GetRepoMCPServers(repoPath string) []MCPServer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	servers := c.RepoMCP[repoPath]
+	result := make([]MCPServer, len(servers))
+	copy(result, servers)
+	return result
+}
+
+// GetMCPServersForRepo returns merged global + per-repo servers
+// Per-repo servers with the same name override global ones
+func (c *Config) GetMCPServersForRepo(repoPath string) []MCPServer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	// Start with global servers
+	serverMap := make(map[string]MCPServer)
+	for _, s := range c.MCPServers {
+		serverMap[s.Name] = s
+	}
+
+	// Override with per-repo servers
+	for _, s := range c.RepoMCP[repoPath] {
+		serverMap[s.Name] = s
+	}
+
+	// Convert map back to slice
+	result := make([]MCPServer, 0, len(serverMap))
+	for _, s := range serverMap {
+		result = append(result, s)
+	}
+	return result
 }
 
 // Message represents a chat message for persistence

@@ -97,7 +97,7 @@ tail -f /tmp/plural-mcp-*.log
 
 ### Data Storage
 
-- **~/.plural/config.json** - Repos, sessions, allowed tools, session started state
+- **~/.plural/config.json** - Repos, sessions, allowed tools, MCP servers (global and per-repo), session started state
 - **~/.plural/sessions/<session-id>.json** - Conversation history (last 100 lines per session)
 
 ### Key Patterns
@@ -180,6 +180,45 @@ Worktrees are created in `.plural-worktrees/<session-id>` directories (sibling t
    - **Delete worktree**: Removes session, worktree directory, and branch
 
 2. **Prune Command**: Run `./plural --prune` to find and remove orphaned worktrees (worktrees that exist on disk but have no matching session in config). This is useful for cleaning up after crashes or manual config edits.
+
+### MCP Servers
+
+Plural supports configuring external MCP (Model Context Protocol) servers to extend Claude's capabilities. MCP servers provide additional tools and context to Claude sessions.
+
+**Configuration scopes:**
+- **Global**: MCP servers that apply to all sessions across all repositories
+- **Per-repository**: MCP servers specific to a repository (override global servers with the same name)
+
+**Managing MCP servers:**
+1. Press `s` from the sidebar to open the MCP Servers modal
+2. View existing global and per-repo servers
+3. Press `a` to add a new server (choose scope, enter name, command, and args)
+4. Press `d` to delete the selected server
+
+**Server configuration:**
+- **Name**: Unique identifier for the server (e.g., "github", "postgres")
+- **Command**: Executable to run (e.g., "npx", "node")
+- **Args**: Space-separated arguments (e.g., "@modelcontextprotocol/server-github")
+
+**How it works:**
+- When a session is selected, Plural merges global and per-repo MCP servers
+- Per-repo servers with the same name override global servers
+- The combined servers are passed to Claude via `--mcp-config`
+- Servers are launched as subprocesses when Claude invokes their tools
+
+**Example config:**
+```json
+{
+  "mcp_servers": [
+    {"name": "github", "command": "npx", "args": ["@modelcontextprotocol/server-github"]}
+  ],
+  "repo_mcp": {
+    "/path/to/repo": [
+      {"name": "postgres", "command": "npx", "args": ["@modelcontextprotocol/server-postgres"]}
+    ]
+  }
+}
+```
 
 ### UI Layout
 - Header (1 line) + Content (sidebar 1/3 width | chat 2/3 width) + Footer (1 line)

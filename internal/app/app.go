@@ -276,6 +276,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modal.SetMergeOptions(hasRemote, changesSummary)
 				m.modal.Show(ui.ModalMerge)
 			}
+		case "s":
+			if !m.chat.IsFocused() {
+				m.showMCPServersModal()
+			}
 		case "enter":
 			if m.focus == FocusSidebar {
 				// Select session
@@ -629,6 +633,61 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.listenForMergeResult(sess.ID)
 		}
+
+	case ui.ModalMCPServers:
+		switch key {
+		case "esc":
+			m.modal.Hide()
+			return m, nil
+		case "a":
+			m.modal.ShowAddMCPServer(m.config.GetRepos())
+			return m, nil
+		case "d":
+			if server := m.modal.GetSelectedMCPServer(); server != nil {
+				if server.IsGlobal {
+					m.config.RemoveGlobalMCPServer(server.Name)
+				} else {
+					m.config.RemoveRepoMCPServer(server.RepoPath, server.Name)
+				}
+				m.config.Save()
+				m.showMCPServersModal() // Refresh the modal
+			}
+			return m, nil
+		}
+
+	case ui.ModalAddMCPServer:
+		switch key {
+		case "esc":
+			m.showMCPServersModal() // Go back to list
+			return m, nil
+		case "enter":
+			name, command, args, repoPath, isGlobal := m.modal.GetNewMCPServer()
+			if name == "" || command == "" {
+				return m, nil
+			}
+			// Parse args (space-separated)
+			var argsList []string
+			if args != "" {
+				argsList = strings.Fields(args)
+			}
+			server := config.MCPServer{
+				Name:    name,
+				Command: command,
+				Args:    argsList,
+			}
+			if isGlobal {
+				m.config.AddGlobalMCPServer(server)
+			} else {
+				m.config.AddRepoMCPServer(repoPath, server)
+			}
+			m.config.Save()
+			m.modal.Hide()
+			return m, nil
+		case " ":
+			// Space toggles scope when on scope selector
+			m.modal.ToggleMCPScope()
+			return m, nil
+		}
 	}
 
 	// Update modal input (for text-based modals like AddRepo)
@@ -651,6 +710,41 @@ func (m *Model) toggleFocus() {
 		m.sidebar.SetFocused(true)
 		m.chat.SetFocused(false)
 	}
+}
+
+func (m *Model) showMCPServersModal() {
+	// Build global servers display list
+	var globalServers []ui.MCPServerDisplay
+	for _, s := range m.config.GetGlobalMCPServers() {
+		globalServers = append(globalServers, ui.MCPServerDisplay{
+			Name:     s.Name,
+			Command:  s.Command,
+			Args:     strings.Join(s.Args, " "),
+			IsGlobal: true,
+		})
+	}
+
+	// Build per-repo servers display map
+	repos := m.config.GetRepos()
+	perRepoServers := make(map[string][]ui.MCPServerDisplay)
+	for _, repo := range repos {
+		repoServers := m.config.GetRepoMCPServers(repo)
+		if len(repoServers) > 0 {
+			var displays []ui.MCPServerDisplay
+			for _, s := range repoServers {
+				displays = append(displays, ui.MCPServerDisplay{
+					Name:     s.Name,
+					Command:  s.Command,
+					Args:     strings.Join(s.Args, " "),
+					IsGlobal: false,
+					RepoPath: repo,
+				})
+			}
+			perRepoServers[repo] = displays
+		}
+	}
+
+	m.modal.ShowMCPServers(globalServers, perRepoServers, repos)
 }
 
 func (m *Model) selectSession(sess *config.Session) {
@@ -706,6 +800,21 @@ func (m *Model) selectSession(sess *config.Session) {
 	if len(allowedTools) > 0 {
 		logger.Log("App: Loaded %d allowed tools for session %s", len(allowedTools), sess.ID)
 		m.claudeRunner.SetAllowedTools(allowedTools)
+	}
+
+	// Load MCP servers for this session's repo
+	mcpServers := m.config.GetMCPServersForRepo(sess.RepoPath)
+	if len(mcpServers) > 0 {
+		logger.Log("App: Loaded %d MCP servers for session %s (repo: %s)", len(mcpServers), sess.ID, sess.RepoPath)
+		var servers []claude.MCPServer
+		for _, s := range mcpServers {
+			servers = append(servers, claude.MCPServer{
+				Name:    s.Name,
+				Command: s.Command,
+				Args:    s.Args,
+			})
+		}
+		m.claudeRunner.SetMCPServers(servers)
 	}
 
 	m.chat.SetSession(sess.Name, m.claudeRunner.GetMessages())
