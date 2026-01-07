@@ -298,3 +298,51 @@ Key v2 API changes from v1:
 - Viewport uses `SetWidth()`/`SetHeight()` methods instead of direct field assignment
 - `lipgloss.WithWhitespaceBackground()` replaced with `lipgloss.WithWhitespaceStyle()`
 - Textinput/textarea use `SetWidth()` instead of `Width` field
+
+## Releasing
+
+The project uses [GoReleaser](https://goreleaser.com/) for automated releases and Homebrew distribution.
+
+### Prerequisites
+
+```bash
+# Install GoReleaser
+brew install goreleaser
+
+# Set up GitHub token for Homebrew tap updates
+export HOMEBREW_TAP_GITHUB_TOKEN=your_github_token
+```
+
+### Creating a Release
+
+```bash
+# Tag the release
+git tag v1.0.0
+git push origin v1.0.0
+
+# Run GoReleaser (requires GITHUB_TOKEN and HOMEBREW_TAP_GITHUB_TOKEN)
+goreleaser release
+
+# Or do a dry run to test without publishing
+goreleaser release --snapshot --clean
+```
+
+### What GoReleaser Does
+
+1. Builds binaries for Linux and macOS (amd64 and arm64)
+2. Creates GitHub release with changelog
+3. Generates checksums
+4. Updates the Homebrew tap formula at `zhubert/homebrew-tap`
+
+### Installing via Homebrew
+
+Once released, users can install with:
+
+```bash
+brew tap zhubert/tap
+brew install plural
+```
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
