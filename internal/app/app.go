@@ -322,7 +322,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if len(diff) > 3000 {
 							diff = diff[:3000] + "\n... (truncated)"
 						}
-						sb.WriteString(diff)
+						sb.WriteString(ui.HighlightDiff(diff))
 					}
 					sb.WriteString("\n")
 					m.chat.AppendStreaming(sb.String())

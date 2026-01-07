@@ -674,6 +674,64 @@ func highlightCode(code, language string) string {
 	return buf.String()
 }
 
+// Diff coloring styles
+var (
+	DiffAddedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#4ADE80")) // Green for additions
+
+	DiffRemovedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#F87171")) // Red for deletions
+
+	DiffHeaderStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#60A5FA")). // Blue for diff headers
+			Bold(true)
+
+	DiffHunkStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#C084FC")) // Purple for @@ hunk markers
+)
+
+// HighlightDiff applies coloring to git diff output
+func HighlightDiff(diff string) string {
+	if diff == "" {
+		return diff
+	}
+
+	var result strings.Builder
+	lines := strings.Split(diff, "\n")
+
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+			// File headers
+			result.WriteString(DiffHeaderStyle.Render(line))
+		case strings.HasPrefix(line, "@@"):
+			// Hunk markers
+			result.WriteString(DiffHunkStyle.Render(line))
+		case strings.HasPrefix(line, "+"):
+			// Added lines
+			result.WriteString(DiffAddedStyle.Render(line))
+		case strings.HasPrefix(line, "-"):
+			// Removed lines
+			result.WriteString(DiffRemovedStyle.Render(line))
+		case strings.HasPrefix(line, "diff --git"):
+			// Diff command header
+			result.WriteString(DiffHeaderStyle.Render(line))
+		case strings.HasPrefix(line, "index "):
+			// Index line
+			result.WriteString(DiffHeaderStyle.Render(line))
+		case strings.HasPrefix(line, "new file mode") || strings.HasPrefix(line, "deleted file mode"):
+			// File mode changes
+			result.WriteString(DiffHeaderStyle.Render(line))
+		default:
+			// Context lines (unchanged)
+			result.WriteString(line)
+		}
+		result.WriteString("\n")
+	}
+
+	return strings.TrimRight(result.String(), "\n")
+}
+
 // renderInlineMarkdown applies inline formatting (bold, italic, code, links) to a line
 func renderInlineMarkdown(line string) string {
 	// Apply tool use marker coloring first
