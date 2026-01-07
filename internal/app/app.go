@@ -435,6 +435,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						delete(m.sessionToolUsePos, msg.SessionID)
 					}
 				case claude.ChunkTypeText:
+					// Add extra newline after tool use for visual separation
+					if pos, exists := m.sessionToolUsePos[msg.SessionID]; exists && pos >= 0 {
+						streaming := m.sessionStreaming[msg.SessionID]
+						if strings.HasSuffix(streaming, "\n") && !strings.HasSuffix(streaming, "\n\n") {
+							m.sessionStreaming[msg.SessionID] += "\n"
+						}
+					}
 					m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
 				default:
 					if msg.Chunk.Content != "" {

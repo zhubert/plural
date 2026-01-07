@@ -186,6 +186,10 @@ func (c *Chat) ClearSession() {
 
 // AppendStreaming appends content to the current streaming response
 func (c *Chat) AppendStreaming(content string) {
+	// Add extra newline after tool use for visual separation
+	if c.lastToolUsePos >= 0 && strings.HasSuffix(c.streaming, "\n") && !strings.HasSuffix(c.streaming, "\n\n") {
+		c.streaming += "\n"
+	}
 	c.streaming += content
 	c.updateContent()
 }
