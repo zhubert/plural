@@ -131,3 +131,29 @@ type PermissionResult struct {
 	UpdatedInput map[string]interface{} `json:"updatedInput,omitempty"` // Original or modified input
 	Message      string                 `json:"message,omitempty"`      // Reason for denial
 }
+
+// QuestionOption represents a single option in a question
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description"`
+}
+
+// Question represents a single question with options
+type Question struct {
+	Question    string           `json:"question"`
+	Header      string           `json:"header"`
+	Options     []QuestionOption `json:"options"`
+	MultiSelect bool             `json:"multiSelect"`
+}
+
+// QuestionRequest represents an AskUserQuestion request sent to the TUI
+type QuestionRequest struct {
+	ID        interface{} `json:"id"`        // JSON-RPC request ID for response correlation
+	Questions []Question  `json:"questions"` // Questions to ask the user
+}
+
+// QuestionResponse represents the user's answers to questions
+type QuestionResponse struct {
+	ID      interface{}       `json:"id"`      // Correlates with request ID
+	Answers map[string]string `json:"answers"` // Map of question text to selected option label
+}

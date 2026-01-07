@@ -70,6 +70,9 @@ type Model struct {
 	// Per-session pending permissions (sessionID -> request)
 	pendingPermissions map[string]*mcp.PermissionRequest
 
+	// Per-session pending questions (sessionID -> request)
+	pendingQuestions map[string]*mcp.QuestionRequest
+
 	// Per-session merge/PR operation state
 	sessionMergeChans   map[string]<-chan git.Result
 	sessionMergeCancels map[string]context.CancelFunc
@@ -103,6 +106,12 @@ type PermissionRequestMsg struct {
 	Request   mcp.PermissionRequest
 }
 
+// QuestionRequestMsg is sent when Claude asks a question via AskUserQuestion
+type QuestionRequestMsg struct {
+	SessionID string
+	Request   mcp.QuestionRequest
+}
+
 // MergeResultMsg is sent when a merge/PR operation produces output
 type MergeResultMsg struct {
 	SessionID string
@@ -122,6 +131,7 @@ func New(cfg *config.Config) *Model {
 		claudeRunners:       make(map[string]*claude.Runner),
 		sessionWaitStart:    make(map[string]time.Time),
 		pendingPermissions:  make(map[string]*mcp.PermissionRequest),
+		pendingQuestions:    make(map[string]*mcp.QuestionRequest),
 		sessionInputs:       make(map[string]string),
 		sessionMergeChans:    make(map[string]<-chan git.Result),
 		sessionMergeCancels:  make(map[string]context.CancelFunc),
@@ -194,6 +204,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch msg.String() {
 				case "y", "Y", "n", "N", "a", "A":
 					return m.handlePermissionResponse(msg.String(), m.activeSession.ID, req)
+				}
+			}
+		}
+
+		// Handle question response when chat is focused and has pending question
+		if m.focus == FocusChat && m.activeSession != nil {
+			if _, exists := m.pendingQuestions[m.activeSession.ID]; exists {
+				key := msg.String()
+				switch key {
+				case "1", "2", "3", "4", "5":
+					num := int(key[0] - '0')
+					if m.chat.SelectOptionByNumber(num) {
+						return m.submitQuestionResponse(m.activeSession.ID)
+					}
+					return m, nil
+				case "up", "k":
+					m.chat.MoveQuestionSelection(-1)
+					return m, nil
+				case "down", "j":
+					m.chat.MoveQuestionSelection(1)
+					return m, nil
+				case "enter":
+					if m.chat.SelectCurrentOption() {
+						return m.submitQuestionResponse(m.activeSession.ID)
+					}
+					return m, nil
 				}
 			}
 		}
@@ -449,6 +485,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(
 				m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
 				m.listenForSessionPermission(msg.SessionID, runner),
+				m.listenForSessionQuestion(msg.SessionID, runner),
 			)
 		}
 
@@ -474,6 +511,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(
 			m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
 			m.listenForSessionPermission(msg.SessionID, runner),
+			m.listenForSessionQuestion(msg.SessionID, runner),
+		)
+
+	case QuestionRequestMsg:
+		// Get the runner for this session
+		runner, exists := m.claudeRunners[msg.SessionID]
+		if !exists {
+			logger.Log("App: Received question request for unknown session %s", msg.SessionID)
+			return m, nil
+		}
+
+		// Store question request for this session
+		logger.Log("App: Question request for session %s: %d questions", msg.SessionID, len(msg.Request.Questions))
+		m.pendingQuestions[msg.SessionID] = &msg.Request
+		m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
+
+		// If this is the active session, show question in chat
+		if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
+			m.chat.SetPendingQuestion(msg.Request.Questions)
+		}
+
+		// Continue listening for more requests and responses
+		return m, tea.Batch(
+			m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
+			m.listenForSessionPermission(msg.SessionID, runner),
+			m.listenForSessionQuestion(msg.SessionID, runner),
 		)
 
 	case MergeResultMsg:
@@ -699,6 +762,7 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				}
 				// Clean up per-session state maps
 				delete(m.pendingPermissions, sess.ID)
+				delete(m.pendingQuestions, sess.ID)
 				delete(m.sessionWaitStart, sess.ID)
 				delete(m.sessionInputs, sess.ID)
 				delete(m.sessionStreaming, sess.ID)
@@ -967,6 +1031,13 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.ClearPendingPermission()
 	}
 
+	// Restore pending question if this session has one
+	if req, exists := m.pendingQuestions[sess.ID]; exists {
+		m.chat.SetPendingQuestion(req.Questions)
+	} else {
+		m.chat.ClearPendingQuestion()
+	}
+
 	// Restore streaming content if this session has ongoing streaming
 	if streamingContent, exists := m.sessionStreaming[sess.ID]; exists && streamingContent != "" {
 		m.chat.SetStreaming(streamingContent)
@@ -1016,11 +1087,12 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	// Start Claude request - runner tracks its own response channel
 	responseChan := runner.Send(ctx, input)
 
-	// Return commands to listen for response and permission requests
+	// Return commands to listen for response, permission requests, and question requests
 	// Also start the spinner and stopwatch ticks
 	return m, tea.Batch(
 		m.listenForSessionResponse(sessionID, responseChan),
 		m.listenForSessionPermission(sessionID, runner),
+		m.listenForSessionQuestion(sessionID, runner),
 		ui.SidebarTick(),
 		ui.StopwatchTick(),
 	)
@@ -1075,10 +1147,11 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPermission()
 
-	// Continue listening for responses and permissions
+	// Continue listening for responses, permissions, and questions
 	return m, tea.Batch(
 		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
 		m.listenForSessionPermission(sessionID, runner),
+		m.listenForSessionQuestion(sessionID, runner),
 	)
 }
 
@@ -1111,6 +1184,62 @@ func (m *Model) listenForSessionPermission(sessionID string, runner *claude.Runn
 		}
 		return PermissionRequestMsg{SessionID: sessionID, Request: req}
 	}
+}
+
+// listenForSessionQuestion creates a command to listen for question requests from a specific session
+func (m *Model) listenForSessionQuestion(sessionID string, runner *claude.Runner) tea.Cmd {
+	if runner == nil {
+		return nil
+	}
+
+	ch := runner.QuestionRequestChan()
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return QuestionRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// submitQuestionResponse sends the collected question answers back to Claude
+func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
+	runner, exists := m.claudeRunners[sessionID]
+	if !exists {
+		logger.Log("App: Question response for unknown session %s", sessionID)
+		return m, nil
+	}
+
+	req, exists := m.pendingQuestions[sessionID]
+	if !exists {
+		logger.Log("App: No pending question for session %s", sessionID)
+		return m, nil
+	}
+
+	// Get answers from chat
+	answers := m.chat.GetQuestionAnswers()
+	logger.Log("App: Question response for session %s: %d answers", sessionID, len(answers))
+
+	// Build response
+	resp := mcp.QuestionResponse{
+		ID:      req.ID,
+		Answers: answers,
+	}
+
+	// Send response
+	runner.SendQuestionResponse(resp)
+
+	// Clear pending question
+	delete(m.pendingQuestions, sessionID)
+	m.sidebar.SetPendingPermission(sessionID, false)
+	m.chat.ClearPendingQuestion()
+
+	// Continue listening for responses and more requests
+	return m, tea.Batch(
+		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
+		m.listenForSessionPermission(sessionID, runner),
+		m.listenForSessionQuestion(sessionID, runner),
+	)
 }
 
 func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
@@ -1192,8 +1321,9 @@ func (m *Model) View() tea.View {
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
 	hasPendingPermission := m.activeSession != nil && m.pendingPermissions[m.activeSession.ID] != nil
+	hasPendingQuestion := m.activeSession != nil && m.pendingQuestions[m.activeSession.ID] != nil
 	isStreaming := m.activeSession != nil && m.sessionStreamCancels[m.activeSession.ID] != nil
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, isStreaming)
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming)
 
 	header := m.header.View()
 	footer := m.footer.View()

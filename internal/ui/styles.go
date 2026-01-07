@@ -12,9 +12,11 @@ var (
 	ColorBg          = lipgloss.Color("#1F2937") // Dark background
 	ColorText        = lipgloss.Color("#F9FAFB") // Light text
 	ColorTextMuted   = lipgloss.Color("#9CA3AF") // Muted text
+	ColorTextInverse = lipgloss.Color("#1F2937") // Dark text for light backgrounds
 	ColorUser        = lipgloss.Color("#60A5FA") // Blue for user messages
 	ColorAssistant   = lipgloss.Color("#34D399") // Green for assistant messages
 	ColorWarning     = lipgloss.Color("#F59E0B") // Amber for permission prompts
+	ColorInfo        = lipgloss.Color("#3B82F6") // Blue for info/questions
 )
 
 // Header styles
@@ -164,6 +166,14 @@ var (
 	PermissionIndicatorStyle = lipgloss.NewStyle().
 		Foreground(ColorWarning).
 		Bold(true)
+)
+
+// Question prompt styles
+var (
+	QuestionBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorInfo).
+		Padding(0, 1)
 )
 
 // Markdown rendering styles

@@ -168,11 +168,13 @@ func runMCPServer() {
 	// Create channels for MCP server communication
 	reqChan := make(chan mcp.PermissionRequest)
 	respChan := make(chan mcp.PermissionResponse)
+	questionChan := make(chan mcp.QuestionRequest)
+	answerChan := make(chan mcp.QuestionResponse)
 
 	// Start goroutine to handle permission requests via socket
 	go func() {
 		for req := range reqChan {
-			resp, err := client.SendRequest(req)
+			resp, err := client.SendPermissionRequest(req)
 			if err != nil {
 				// On error, deny permission
 				respChan <- mcp.PermissionResponse{
@@ -186,8 +188,24 @@ func runMCPServer() {
 		}
 	}()
 
+	// Start goroutine to handle question requests via socket
+	go func() {
+		for req := range questionChan {
+			resp, err := client.SendQuestionRequest(req)
+			if err != nil {
+				// On error, return empty answers
+				answerChan <- mcp.QuestionResponse{
+					ID:      req.ID,
+					Answers: map[string]string{},
+				}
+			} else {
+				answerChan <- resp
+			}
+		}
+	}()
+
 	// Run MCP server on stdin/stdout
-	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, nil)
+	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, nil)
 	if err := server.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		os.Exit(1)

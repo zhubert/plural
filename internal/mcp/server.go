@@ -21,21 +21,25 @@ const (
 
 // Server implements an MCP server for handling permission prompts
 type Server struct {
-	reader      *bufio.Reader
-	writer      io.Writer
-	requestChan chan<- PermissionRequest  // Send permission requests to TUI
+	reader       *bufio.Reader
+	writer       io.Writer
+	requestChan  chan<- PermissionRequest  // Send permission requests to TUI
 	responseChan <-chan PermissionResponse // Receive responses from TUI
+	questionChan chan<- QuestionRequest    // Send question requests to TUI
+	answerChan   <-chan QuestionResponse   // Receive answers from TUI
 	allowedTools []string                  // Pre-allowed tools for this session
 	mu           sync.Mutex
 }
 
 // NewServer creates a new MCP server
-func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, allowedTools []string) *Server {
+func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, allowedTools []string) *Server {
 	return &Server{
 		reader:       bufio.NewReader(r),
 		writer:       w,
 		requestChan:  reqChan,
 		responseChan: respChan,
+		questionChan: questionChan,
+		answerChan:   answerChan,
 		allowedTools: allowedTools,
 	}
 }
@@ -182,6 +186,12 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 
 	logger.Log("MCP: Permission request for tool=%s, desc=%s", tool, description)
 
+	// Special handling for AskUserQuestion
+	if tool == "AskUserQuestion" {
+		s.handleAskUserQuestion(req.ID, arguments)
+		return
+	}
+
 	// Check if tool is pre-allowed
 	if s.isToolAllowed(tool) {
 		logger.Log("MCP: Tool %s is pre-allowed", tool)
@@ -204,6 +214,94 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	logger.Log("MCP: Received TUI response: allowed=%v, always=%v", resp.Allowed, resp.Always)
 
 	s.sendPermissionResult(req.ID, resp.Allowed, arguments, resp.Message)
+}
+
+// handleAskUserQuestion handles the AskUserQuestion tool specially
+func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]interface{}) {
+	logger.Log("MCP: Handling AskUserQuestion")
+
+	// Parse questions from arguments
+	questionsRaw, ok := arguments["questions"]
+	if !ok {
+		logger.Log("MCP: AskUserQuestion missing 'questions' field")
+		s.sendPermissionResult(reqID, false, arguments, "Missing questions field")
+		return
+	}
+
+	questionsSlice, ok := questionsRaw.([]interface{})
+	if !ok {
+		logger.Log("MCP: AskUserQuestion 'questions' is not an array")
+		s.sendPermissionResult(reqID, false, arguments, "Invalid questions format")
+		return
+	}
+
+	var questions []Question
+	for _, q := range questionsSlice {
+		qMap, ok := q.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		question := Question{}
+		if qText, ok := qMap["question"].(string); ok {
+			question.Question = qText
+		}
+		if header, ok := qMap["header"].(string); ok {
+			question.Header = header
+		}
+		if multiSelect, ok := qMap["multiSelect"].(bool); ok {
+			question.MultiSelect = multiSelect
+		}
+
+		// Parse options
+		if optionsRaw, ok := qMap["options"].([]interface{}); ok {
+			for _, opt := range optionsRaw {
+				optMap, ok := opt.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				option := QuestionOption{}
+				if label, ok := optMap["label"].(string); ok {
+					option.Label = label
+				}
+				if desc, ok := optMap["description"].(string); ok {
+					option.Description = desc
+				}
+				question.Options = append(question.Options, option)
+			}
+		}
+
+		questions = append(questions, question)
+	}
+
+	if len(questions) == 0 {
+		logger.Log("MCP: AskUserQuestion has no valid questions")
+		s.sendPermissionResult(reqID, false, arguments, "No valid questions")
+		return
+	}
+
+	logger.Log("MCP: Parsed %d questions, sending to TUI", len(questions))
+
+	// Send question request to TUI
+	questionReq := QuestionRequest{
+		ID:        reqID,
+		Questions: questions,
+	}
+
+	s.questionChan <- questionReq
+	logger.Log("MCP: Waiting for TUI answer...")
+
+	// Wait for answer
+	answer := <-s.answerChan
+	logger.Log("MCP: Received TUI answer with %d responses", len(answer.Answers))
+
+	// Build the response with answers in updatedInput
+	updatedInput := map[string]interface{}{
+		"questions": arguments["questions"],
+		"answers":   answer.Answers,
+	}
+
+	s.sendPermissionResult(reqID, true, updatedInput, "")
 }
 
 func (s *Server) isToolAllowed(tool string) bool {

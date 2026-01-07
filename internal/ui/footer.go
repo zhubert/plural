@@ -19,6 +19,7 @@ type Footer struct {
 	hasSession        bool // Whether a session is selected
 	sidebarFocused    bool // Whether sidebar has focus
 	pendingPermission bool // Whether chat has a pending permission prompt
+	pendingQuestion   bool // Whether chat has a pending question prompt
 	streaming         bool // Whether active session is streaming
 }
 
@@ -40,10 +41,11 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, streaming bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
+	f.pendingQuestion = pendingQuestion
 	f.streaming = streaming
 }
 
@@ -70,6 +72,19 @@ func (f *Footer) View() string {
 			{Key: "tab", Desc: "switch pane"},
 		}
 		for _, b := range permBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
+	} else if f.pendingQuestion && !f.sidebarFocused {
+		// Show question-specific shortcuts when pending question in chat
+		questBindings := []KeyBinding{
+			{Key: "1-5", Desc: "select"},
+			{Key: "↑/↓", Desc: "navigate"},
+			{Key: "enter", Desc: "confirm"},
+			{Key: "tab", Desc: "switch pane"},
+		}
+		for _, b := range questBindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)

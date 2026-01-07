@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,16 +21,35 @@ const (
 	SocketReadTimeout = 10 * time.Second
 )
 
+// MessageType identifies the type of socket message
+type MessageType string
+
+const (
+	MessageTypePermission MessageType = "permission"
+	MessageTypeQuestion   MessageType = "question"
+)
+
+// SocketMessage wraps permission or question requests/responses
+type SocketMessage struct {
+	Type     MessageType      `json:"type"`
+	PermReq  *PermissionRequest  `json:"permReq,omitempty"`
+	PermResp *PermissionResponse `json:"permResp,omitempty"`
+	QuestReq *QuestionRequest    `json:"questReq,omitempty"`
+	QuestResp *QuestionResponse  `json:"questResp,omitempty"`
+}
+
 // SocketServer listens for permission requests from MCP server subprocesses
 type SocketServer struct {
-	socketPath string
-	listener   net.Listener
-	requestCh  chan<- PermissionRequest
-	responseCh <-chan PermissionResponse
+	socketPath  string
+	listener    net.Listener
+	requestCh   chan<- PermissionRequest
+	responseCh  <-chan PermissionResponse
+	questionCh  chan<- QuestionRequest
+	answerCh    <-chan QuestionResponse
 }
 
 // NewSocketServer creates a new socket server for the given session
-func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse) (*SocketServer, error) {
+func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse) (*SocketServer, error) {
 	socketPath := filepath.Join(os.TempDir(), "plural-"+sessionID+".sock")
 
 	// Remove existing socket if present
@@ -43,10 +63,12 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 	logger.Log("MCP Socket: Listening on %s", socketPath)
 
 	return &SocketServer{
-		socketPath: socketPath,
-		listener:   listener,
-		requestCh:  reqCh,
-		responseCh: respCh,
+		socketPath:  socketPath,
+		listener:    listener,
+		requestCh:   reqCh,
+		responseCh:  respCh,
+		questionCh:  questCh,
+		answerCh:    ansCh,
 	}, nil
 }
 
@@ -84,7 +106,7 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		// Set read deadline
 		conn.SetReadDeadline(time.Now().Add(SocketReadTimeout))
 
-		// Read permission request
+		// Read message
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -95,65 +117,128 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 			return
 		}
 
-		var req PermissionRequest
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
+		var msg SocketMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			logger.Log("MCP Socket: JSON parse error: %v", err)
 			continue
 		}
 
-		logger.Log("MCP Socket: Received request: tool=%s", req.Tool)
-
-		// Send to TUI (non-blocking with timeout)
-		select {
-		case s.requestCh <- req:
-			// Request sent successfully
-		case <-time.After(SocketReadTimeout):
-			logger.Log("MCP Socket: Timeout sending request to TUI")
-			// Send denial response
-			resp := PermissionResponse{
-				ID:      req.ID,
-				Allowed: false,
-				Message: "Timeout waiting for TUI",
-			}
-			respJSON, _ := json.Marshal(resp)
-			if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-				logger.Log("MCP Socket: Failed to write timeout response: %v", err)
-			}
-			continue
+		switch msg.Type {
+		case MessageTypePermission:
+			s.handlePermissionMessage(conn, msg.PermReq)
+		case MessageTypeQuestion:
+			s.handleQuestionMessage(conn, msg.QuestReq)
+		default:
+			logger.Log("MCP Socket: Unknown message type: %s", msg.Type)
 		}
+	}
+}
 
-		// Wait for response with timeout
-		select {
-		case resp := <-s.responseCh:
-			// Send response back
-			respJSON, err := json.Marshal(resp)
-			if err != nil {
-				logger.Log("MCP Socket: Failed to marshal response: %v", err)
-				continue
-			}
+func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionRequest) {
+	if req == nil {
+		logger.Log("MCP Socket: Nil permission request")
+		return
+	}
 
-			conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
-			_, err = conn.Write(append(respJSON, '\n'))
-			if err != nil {
-				logger.Log("MCP Socket: Write error: %v", err)
-				return
-			}
+	logger.Log("MCP Socket: Received permission request: tool=%s", req.Tool)
 
-			logger.Log("MCP Socket: Sent response: allowed=%v", resp.Allowed)
+	// Send to TUI (non-blocking with timeout)
+	select {
+	case s.requestCh <- *req:
+		// Request sent successfully
+	case <-time.After(SocketReadTimeout):
+		logger.Log("MCP Socket: Timeout sending permission request to TUI")
+		s.sendPermissionResponse(conn, PermissionResponse{
+			ID:      req.ID,
+			Allowed: false,
+			Message: "Timeout waiting for TUI",
+		})
+		return
+	}
 
-		case <-time.After(PermissionResponseTimeout):
-			logger.Log("MCP Socket: Timeout waiting for permission response")
-			// Send denial response due to timeout
-			resp := PermissionResponse{
-				ID:      req.ID,
-				Allowed: false,
-				Message: "Permission request timed out",
-			}
-			respJSON, _ := json.Marshal(resp)
-			if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-				logger.Log("MCP Socket: Failed to write timeout denial response: %v", err)
-			}
-		}
+	// Wait for response with timeout
+	select {
+	case resp := <-s.responseCh:
+		s.sendPermissionResponse(conn, resp)
+		logger.Log("MCP Socket: Sent permission response: allowed=%v", resp.Allowed)
+
+	case <-time.After(PermissionResponseTimeout):
+		logger.Log("MCP Socket: Timeout waiting for permission response")
+		s.sendPermissionResponse(conn, PermissionResponse{
+			ID:      req.ID,
+			Allowed: false,
+			Message: "Permission request timed out",
+		})
+	}
+}
+
+func (s *SocketServer) handleQuestionMessage(conn net.Conn, req *QuestionRequest) {
+	if req == nil {
+		logger.Log("MCP Socket: Nil question request")
+		return
+	}
+
+	logger.Log("MCP Socket: Received question request with %d questions", len(req.Questions))
+
+	// Send to TUI (non-blocking with timeout)
+	select {
+	case s.questionCh <- *req:
+		// Request sent successfully
+	case <-time.After(SocketReadTimeout):
+		logger.Log("MCP Socket: Timeout sending question request to TUI")
+		s.sendQuestionResponse(conn, QuestionResponse{
+			ID:      req.ID,
+			Answers: map[string]string{},
+		})
+		return
+	}
+
+	// Wait for response with timeout
+	select {
+	case resp := <-s.answerCh:
+		s.sendQuestionResponse(conn, resp)
+		logger.Log("MCP Socket: Sent question response with %d answers", len(resp.Answers))
+
+	case <-time.After(PermissionResponseTimeout):
+		logger.Log("MCP Socket: Timeout waiting for question response")
+		s.sendQuestionResponse(conn, QuestionResponse{
+			ID:      req.ID,
+			Answers: map[string]string{},
+		})
+	}
+}
+
+func (s *SocketServer) sendPermissionResponse(conn net.Conn, resp PermissionResponse) {
+	msg := SocketMessage{
+		Type:     MessageTypePermission,
+		PermResp: &resp,
+	}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		logger.Log("MCP Socket: Failed to marshal permission response: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		logger.Log("MCP Socket: Write error: %v", err)
+	}
+}
+
+func (s *SocketServer) sendQuestionResponse(conn net.Conn, resp QuestionResponse) {
+	msg := SocketMessage{
+		Type:      MessageTypeQuestion,
+		QuestResp: &resp,
+	}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		logger.Log("MCP Socket: Failed to marshal question response: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		logger.Log("MCP Socket: Write error: %v", err)
 	}
 }
 
@@ -169,6 +254,7 @@ func (s *SocketServer) Close() error {
 type SocketClient struct {
 	socketPath string
 	conn       net.Conn
+	reader     *bufio.Reader
 }
 
 // NewSocketClient creates a client connected to the TUI socket
@@ -181,13 +267,19 @@ func NewSocketClient(socketPath string) (*SocketClient, error) {
 	return &SocketClient{
 		socketPath: socketPath,
 		conn:       conn,
+		reader:     bufio.NewReader(conn),
 	}, nil
 }
 
-// SendRequest sends a permission request and waits for response
-func (c *SocketClient) SendRequest(req PermissionRequest) (PermissionResponse, error) {
+// SendPermissionRequest sends a permission request and waits for response
+func (c *SocketClient) SendPermissionRequest(req PermissionRequest) (PermissionResponse, error) {
+	msg := SocketMessage{
+		Type:    MessageTypePermission,
+		PermReq: &req,
+	}
+
 	// Send request
-	reqJSON, err := json.Marshal(req)
+	reqJSON, err := json.Marshal(msg)
 	if err != nil {
 		return PermissionResponse{}, err
 	}
@@ -198,18 +290,57 @@ func (c *SocketClient) SendRequest(req PermissionRequest) (PermissionResponse, e
 	}
 
 	// Read response
-	reader := bufio.NewReader(c.conn)
-	line, err := reader.ReadString('\n')
+	line, err := c.reader.ReadString('\n')
 	if err != nil {
 		return PermissionResponse{}, err
 	}
 
-	var resp PermissionResponse
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
 		return PermissionResponse{}, err
 	}
 
-	return resp, nil
+	if respMsg.PermResp == nil {
+		return PermissionResponse{}, fmt.Errorf("expected permission response, got nil")
+	}
+
+	return *respMsg.PermResp, nil
+}
+
+// SendQuestionRequest sends a question request and waits for response
+func (c *SocketClient) SendQuestionRequest(req QuestionRequest) (QuestionResponse, error) {
+	msg := SocketMessage{
+		Type:     MessageTypeQuestion,
+		QuestReq: &req,
+	}
+
+	// Send request
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return QuestionResponse{}, err
+	}
+
+	_, err = c.conn.Write(append(reqJSON, '\n'))
+	if err != nil {
+		return QuestionResponse{}, err
+	}
+
+	// Read response
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return QuestionResponse{}, err
+	}
+
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return QuestionResponse{}, err
+	}
+
+	if respMsg.QuestResp == nil {
+		return QuestionResponse{}, fmt.Errorf("expected question response, got nil")
+	}
+
+	return *respMsg.QuestResp, nil
 }
 
 // Close closes the client connection

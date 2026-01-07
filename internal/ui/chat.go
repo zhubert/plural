@@ -19,6 +19,7 @@ import (
 	"github.com/muesli/reflow/wordwrap"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/mcp"
 )
 
 // Compiled regex patterns for markdown parsing
@@ -93,6 +94,13 @@ type Chat struct {
 	hasPendingPermission   bool
 	pendingPermissionTool  string
 	pendingPermissionDesc  string
+
+	// Pending question prompt
+	hasPendingQuestion    bool
+	pendingQuestions      []mcp.Question
+	currentQuestionIdx    int                // Index of current question being answered
+	selectedOptionIdx     int                // Currently highlighted option
+	questionAnswers       map[string]string  // Collected answers (question text -> selected label)
 }
 
 // NewChat creates a new chat panel
@@ -183,6 +191,11 @@ func (c *Chat) ClearSession() {
 	c.hasPendingPermission = false
 	c.pendingPermissionTool = ""
 	c.pendingPermissionDesc = ""
+	c.hasPendingQuestion = false
+	c.pendingQuestions = nil
+	c.currentQuestionIdx = 0
+	c.selectedOptionIdx = 0
+	c.questionAnswers = nil
 	c.updateContent()
 }
 
@@ -312,6 +325,99 @@ func (c *Chat) HasPendingPermission() bool {
 	return c.hasPendingPermission
 }
 
+// SetPendingQuestion sets the pending question prompt to display
+func (c *Chat) SetPendingQuestion(questions []mcp.Question) {
+	c.hasPendingQuestion = true
+	c.pendingQuestions = questions
+	c.currentQuestionIdx = 0
+	c.selectedOptionIdx = 0
+	c.questionAnswers = make(map[string]string)
+	c.updateContent()
+}
+
+// ClearPendingQuestion clears the pending question prompt
+func (c *Chat) ClearPendingQuestion() {
+	c.hasPendingQuestion = false
+	c.pendingQuestions = nil
+	c.currentQuestionIdx = 0
+	c.selectedOptionIdx = 0
+	c.questionAnswers = nil
+	c.updateContent()
+}
+
+// HasPendingQuestion returns whether there's a pending question prompt
+func (c *Chat) HasPendingQuestion() bool {
+	return c.hasPendingQuestion
+}
+
+// GetQuestionAnswers returns the collected question answers
+func (c *Chat) GetQuestionAnswers() map[string]string {
+	return c.questionAnswers
+}
+
+// MoveQuestionSelection moves the selection up or down
+func (c *Chat) MoveQuestionSelection(delta int) {
+	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+		return
+	}
+	q := c.pendingQuestions[c.currentQuestionIdx]
+	numOptions := len(q.Options) + 1 // +1 for "Other" option
+	c.selectedOptionIdx = (c.selectedOptionIdx + delta + numOptions) % numOptions
+	c.updateContent()
+}
+
+// SelectCurrentOption selects the current option and moves to next question or completes
+// Returns true if all questions are answered
+func (c *Chat) SelectCurrentOption() bool {
+	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+		return true
+	}
+	q := c.pendingQuestions[c.currentQuestionIdx]
+
+	// Determine the selected answer
+	var answer string
+	if c.selectedOptionIdx < len(q.Options) {
+		answer = q.Options[c.selectedOptionIdx].Label
+	} else {
+		// "Other" selected - for now, just use empty string
+		// A full implementation would allow text input
+		answer = ""
+	}
+
+	c.questionAnswers[q.Question] = answer
+
+	// Move to next question or complete
+	c.currentQuestionIdx++
+	c.selectedOptionIdx = 0
+
+	if c.currentQuestionIdx >= len(c.pendingQuestions) {
+		// All questions answered
+		return true
+	}
+
+	c.updateContent()
+	return false
+}
+
+// SelectOptionByNumber selects an option by its number (1-based)
+// Returns true if all questions are answered after this selection
+func (c *Chat) SelectOptionByNumber(num int) bool {
+	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+		return true
+	}
+	q := c.pendingQuestions[c.currentQuestionIdx]
+	numOptions := len(q.Options) + 1 // +1 for "Other"
+
+	// Convert 1-based to 0-based index
+	idx := num - 1
+	if idx < 0 || idx >= numOptions {
+		return false
+	}
+
+	c.selectedOptionIdx = idx
+	return c.SelectCurrentOption()
+}
+
 // renderNoSessionMessage renders the placeholder message when no session is selected
 func (c *Chat) renderNoSessionMessage() string {
 	msgStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
@@ -363,6 +469,96 @@ func (c *Chat) renderPermissionPrompt(wrapWidth int) string {
 		boxWidth = 80
 	}
 	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
+}
+
+// renderQuestionPrompt renders the inline question prompt
+func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
+	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+		return ""
+	}
+
+	q := c.pendingQuestions[c.currentQuestionIdx]
+	var sb strings.Builder
+
+	// Question progress indicator (if multiple questions)
+	if len(c.pendingQuestions) > 1 {
+		progressStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+		sb.WriteString(progressStyle.Render(fmt.Sprintf("Question %d of %d", c.currentQuestionIdx+1, len(c.pendingQuestions))))
+		sb.WriteString("\n\n")
+	}
+
+	// Header/label
+	headerStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	sb.WriteString(headerStyle.Render("? "+q.Header+":"))
+	sb.WriteString(" ")
+
+	// Question text
+	questionStyle := lipgloss.NewStyle().Foreground(ColorText)
+	sb.WriteString(questionStyle.Render(q.Question))
+	sb.WriteString("\n\n")
+
+	// Render options
+	for i, opt := range q.Options {
+		isSelected := i == c.selectedOptionIdx
+
+		// Number indicator
+		numStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+		if isSelected {
+			sb.WriteString(numStyle.Render(fmt.Sprintf("[%d]", i+1)))
+		} else {
+			sb.WriteString(numStyle.Render(fmt.Sprintf(" %d.", i+1)))
+		}
+		sb.WriteString(" ")
+
+		// Option label
+		labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+		if isSelected {
+			labelStyle = labelStyle.Bold(true).Background(ColorPrimary).Foreground(ColorTextInverse)
+		}
+		sb.WriteString(labelStyle.Render(opt.Label))
+
+		// Description if present
+		if opt.Description != "" {
+			descStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+			sb.WriteString(" ")
+			sb.WriteString(descStyle.Render("- " + opt.Description))
+		}
+		sb.WriteString("\n")
+	}
+
+	// "Other" option (always last)
+	otherIdx := len(q.Options)
+	isOtherSelected := c.selectedOptionIdx == otherIdx
+	numStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	if isOtherSelected {
+		sb.WriteString(numStyle.Render(fmt.Sprintf("[%d]", otherIdx+1)))
+	} else {
+		sb.WriteString(numStyle.Render(fmt.Sprintf(" %d.", otherIdx+1)))
+	}
+	sb.WriteString(" ")
+	labelStyle := lipgloss.NewStyle().Foreground(ColorText)
+	if isOtherSelected {
+		labelStyle = labelStyle.Bold(true).Background(ColorPrimary).Foreground(ColorTextInverse)
+	}
+	sb.WriteString(labelStyle.Render("Other"))
+	sb.WriteString("\n\n")
+
+	// Keyboard hints
+	hintStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+	keyStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	sb.WriteString(hintStyle.Render("Press "))
+	sb.WriteString(keyStyle.Render("1-" + fmt.Sprintf("%d", len(q.Options)+1)))
+	sb.WriteString(hintStyle.Render(" to select, or "))
+	sb.WriteString(keyStyle.Render("↑/↓"))
+	sb.WriteString(hintStyle.Render(" + "))
+	sb.WriteString(keyStyle.Render("enter"))
+
+	// Wrap in a box
+	boxWidth := wrapWidth
+	if boxWidth > 80 {
+		boxWidth = 80
+	}
+	return QuestionBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
 // GetToolIcon returns an appropriate icon for the tool type
@@ -735,6 +931,14 @@ func (c *Chat) updateContent() {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(c.renderPermissionPrompt(wrapWidth))
+		}
+
+		// Show pending question prompt
+		if c.hasPendingQuestion {
+			if len(c.messages) > 0 || c.streaming != "" || c.waiting || c.hasPendingPermission {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(c.renderQuestionPrompt(wrapWidth))
 		}
 	}
 

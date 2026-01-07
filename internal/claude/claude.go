@@ -62,9 +62,11 @@ type Runner struct {
 	socketServer   *mcp.SocketServer // Socket server for MCP communication (persistent)
 	mcpConfigPath  string            // Path to MCP config file (persistent)
 	serverRunning  bool              // Whether the socket server is running
-	permReqChan  chan mcp.PermissionRequest
-	permRespChan chan mcp.PermissionResponse
-	stopOnce     sync.Once // Ensures Stop() is idempotent
+	permReqChan    chan mcp.PermissionRequest
+	permRespChan   chan mcp.PermissionResponse
+	questReqChan   chan mcp.QuestionRequest
+	questRespChan  chan mcp.QuestionResponse
+	stopOnce       sync.Once // Ensures Stop() is idempotent
 
 	// Per-session streaming state
 	isStreaming  bool                   // Whether this runner is currently streaming
@@ -102,6 +104,8 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 		allowedTools:   allowedTools,
 		permReqChan:    make(chan mcp.PermissionRequest, PermissionChannelBuffer),
 		permRespChan:   make(chan mcp.PermissionResponse, PermissionChannelBuffer),
+		questReqChan:   make(chan mcp.QuestionRequest, PermissionChannelBuffer),
+		questRespChan:  make(chan mcp.QuestionResponse, PermissionChannelBuffer),
 	}
 }
 
@@ -159,6 +163,16 @@ func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 // SendPermissionResponse sends a response to a permission request
 func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.permRespChan <- resp
+}
+
+// QuestionRequestChan returns the channel for receiving question requests
+func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
+	return r.questReqChan
+}
+
+// SendQuestionResponse sends a response to a question request
+func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
+	r.questRespChan <- resp
 }
 
 // IsStreaming returns whether this runner is currently streaming a response
@@ -402,7 +416,7 @@ func (r *Runner) ensureServerRunning() error {
 	startTime := time.Now()
 
 	// Create socket server
-	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan)
+	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan, r.questReqChan, r.questRespChan)
 	if err != nil {
 		logger.Log("Claude: Failed to create socket server: %v", err)
 		return fmt.Errorf("failed to start permission server: %v", err)
@@ -692,6 +706,16 @@ func (r *Runner) Stop() {
 		if r.permRespChan != nil {
 			close(r.permRespChan)
 			r.permRespChan = nil
+		}
+
+		// Close question channels to unblock any waiting goroutines
+		if r.questReqChan != nil {
+			close(r.questReqChan)
+			r.questReqChan = nil
+		}
+		if r.questRespChan != nil {
+			close(r.questRespChan)
+			r.questRespChan = nil
 		}
 
 		logger.Log("Claude: Runner stopped for session %s", r.sessionID)
