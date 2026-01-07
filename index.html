@@ -488,8 +488,16 @@
         <section class="install fade-in">
             <h2>install via homebrew</h2>
             <div class="command-block">
-                <button class="copy-btn" onclick="copyCommand(this)">copy</button>
+                <button class="copy-btn" onclick="copyCommand(this, 'brew tap zhubert/tap && brew install plural')">copy</button>
                 <code><span class="prompt">$</span> brew tap zhubert/tap && brew install plural</code>
+            </div>
+        </section>
+
+        <section class="install fade-in">
+            <h2>install via devbox</h2>
+            <div class="command-block">
+                <button class="copy-btn" onclick="copyCommand(this, 'devbox global add github:zhubert/plural')">copy</button>
+                <code><span class="prompt">$</span> devbox global add github:zhubert/plural</code>
             </div>
         </section>
 
@@ -535,8 +543,7 @@
     </div>
 
     <script>
-        function copyCommand(btn) {
-            const command = 'brew tap zhubert/tap && brew install plural';
+        function copyCommand(btn, command) {
             navigator.clipboard.writeText(command).then(() => {
                 btn.textContent = 'copied';
                 btn.classList.add('copied');

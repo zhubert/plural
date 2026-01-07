@@ -27,6 +27,24 @@ brew tap zhubert/tap
 brew install plural
 ```
 
+### Nix / Devbox
+
+If you use [Nix](https://nixos.org/) or [Devbox](https://www.jetify.com/devbox):
+
+```bash
+# Run directly without installing
+nix run github:zhubert/plural
+
+# Install to your profile
+nix profile install github:zhubert/plural
+
+# Or add to your devbox.json
+devbox add github:zhubert/plural
+
+# Or install globally with devbox
+devbox global add github:zhubert/plural
+```
+
 ### From Source
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
