@@ -14,23 +14,27 @@ A TUI for managing multiple concurrent Claude Code sessions, each running in its
 
 ## Requirements
 
-- Go 1.24+
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
 - GitHub CLI (`gh`) for PR creation (optional)
 
 ## Installation
 
+### Homebrew (Recommended)
+
 ```bash
-git clone https://github.com/zhubert/plural.git
-cd plural
-go build -o plural .
+brew tap zhubert/tap
+brew install plural
 ```
+
+### From Source
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
 
 ## Usage
 
 ```bash
-./plural
+plural
 ```
 
 ### Keyboard Shortcuts
@@ -43,9 +47,12 @@ Shortcuts are context-aware and shown in the footer when available.
 | `n` | Sidebar | Create new session |
 | `r` | Sidebar | Add repository |
 | `m` | Sidebar (session selected) | Merge to main or create PR |
+| `v` | Sidebar (session selected) | View uncommitted changes |
 | `d` | Sidebar (session selected) | Delete session |
+| `s` | Sidebar | Manage MCP servers |
 | `Enter` | Sidebar | Select/open session |
 | `Enter` | Chat | Send message |
+| `Esc` | Chat (streaming) | Stop Claude response |
 | `↑/↓` or `j/k` | Sidebar | Navigate sessions |
 | `Esc` | Modal | Close modal |
 | `q` | Sidebar | Quit |
@@ -87,12 +94,14 @@ Data is stored in `~/.plural/`:
 
 Clear all sessions:
 ```bash
-./plural --clear
+plural --clear
 ```
 
-## Debug
-
-Logs are written to `/tmp/plural-debug.log`:
+Prune orphaned worktrees:
 ```bash
-tail -f /tmp/plural-debug.log
+plural --prune
 ```
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
