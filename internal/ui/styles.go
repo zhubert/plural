@@ -2,10 +2,10 @@ package ui
 
 import "charm.land/lipgloss/v2"
 
-// Color palette
+// Color palette - Purple + Cyan/Teal theme
 var (
 	ColorPrimary     = lipgloss.Color("#7C3AED") // Purple
-	ColorSecondary   = lipgloss.Color("#10B981") // Green
+	ColorSecondary   = lipgloss.Color("#06B6D4") // Cyan
 	ColorMuted       = lipgloss.Color("#6B7280") // Gray
 	ColorBorder      = lipgloss.Color("#374151") // Dark gray
 	ColorBorderFocus = lipgloss.Color("#7C3AED") // Purple when focused
@@ -13,10 +13,10 @@ var (
 	ColorText        = lipgloss.Color("#F9FAFB") // Light text
 	ColorTextMuted   = lipgloss.Color("#9CA3AF") // Muted text
 	ColorTextInverse = lipgloss.Color("#1F2937") // Dark text for light backgrounds
-	ColorUser        = lipgloss.Color("#60A5FA") // Blue for user messages
-	ColorAssistant   = lipgloss.Color("#34D399") // Green for assistant messages
+	ColorUser        = lipgloss.Color("#A78BFA") // Light purple for user messages
+	ColorAssistant   = lipgloss.Color("#22D3EE") // Bright cyan for assistant messages
 	ColorWarning     = lipgloss.Color("#F59E0B") // Amber for permission prompts
-	ColorInfo        = lipgloss.Color("#3B82F6") // Blue for info/questions
+	ColorInfo        = lipgloss.Color("#06B6D4") // Cyan for info/questions
 )
 
 // Header styles
@@ -186,12 +186,12 @@ var (
 
 	MarkdownH2Style = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#818CF8")). // Indigo
+		Foreground(lipgloss.Color("#C4B5FD")). // Lighter purple
 		MarginTop(1)
 
 	MarkdownH3Style = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#60A5FA")) // Blue
+		Foreground(lipgloss.Color("#22D3EE")) // Cyan
 
 	MarkdownH4Style = lipgloss.NewStyle().
 		Bold(true).
@@ -207,7 +207,7 @@ var (
 		Foreground(ColorText)
 
 	MarkdownInlineCodeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F472B6")). // Pink
+		Foreground(lipgloss.Color("#67E8F9")). // Light cyan
 		Background(lipgloss.Color("#1E1E2E"))  // Dark background
 
 	// Code block
@@ -233,6 +233,6 @@ var (
 
 	// Link
 	MarkdownLinkStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#60A5FA")). // Blue
+		Foreground(lipgloss.Color("#67E8F9")). // Light cyan
 		Underline(true)
 )
