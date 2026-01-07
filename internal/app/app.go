@@ -286,7 +286,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if sess := m.sidebar.SelectedSession(); sess != nil {
 					m.selectSession(sess)
 				}
-			} else if m.focus == FocusChat && m.IsIdle() {
+			} else if m.focus == FocusChat && m.CanSendMessage() {
 				// Send message
 				return m.sendMessage()
 			}
