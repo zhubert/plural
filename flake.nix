@@ -19,7 +19,10 @@
             inherit version;
             src = ./.;
 
-            vendorHash = pkgs.lib.fakeHash;
+            vendorHash = "sha256-sFACAu/4j/svnjn6Oc6W9ogw52hYEQfhvtpNPK9u+o8=";
+
+            # Tests require filesystem access (home directory) which isn't available in Nix sandbox
+            doCheck = false;
 
             ldflags = [
               "-s" "-w"
