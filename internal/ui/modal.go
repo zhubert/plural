@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,6 +16,7 @@ const (
 	ModalNewSession
 	ModalConfirmDelete
 	ModalMerge
+	ModalEditCommit
 	ModalMCPServers
 	ModalAddMCPServer
 )
@@ -59,6 +61,10 @@ type Modal struct {
 	mcpCmdInput    textinput.Model    // Command input field
 	mcpArgsInput   textinput.Model    // Args input field
 	mcpInputIndex  int                // Which input is focused (0=scope, 1=repo, 2=name, 3=cmd, 4=args)
+
+	// Edit commit message modal fields
+	commitTextarea  textarea.Model // Multi-line commit message editor
+	commitMergeType string         // "merge" or "pr" - what operation follows after commit
 }
 
 // MCPServerDisplay represents an MCP server for display in the modal
@@ -101,13 +107,23 @@ func NewModal() *Modal {
 	branchInput.CharLimit = 100
 	branchInput.SetWidth(ModalInputWidth)
 
+	// Commit message textarea
+	commitTA := textarea.New()
+	commitTA.Placeholder = "Enter commit message..."
+	commitTA.CharLimit = 0
+	commitTA.SetHeight(10)
+	commitTA.SetWidth(ModalInputWidth)
+	commitTA.ShowLineNumbers = false
+	commitTA.Prompt = ""
+
 	return &Modal{
-		Type:         ModalNone,
-		input:        ti,
-		branchInput:  branchInput,
-		mcpNameInput: nameInput,
-		mcpCmdInput:  cmdInput,
-		mcpArgsInput: argsInput,
+		Type:           ModalNone,
+		input:          ti,
+		branchInput:    branchInput,
+		mcpNameInput:   nameInput,
+		mcpCmdInput:    cmdInput,
+		mcpArgsInput:   argsInput,
+		commitTextarea: commitTA,
 	}
 }
 
@@ -152,6 +168,10 @@ func (m *Modal) Show(t ModalType) {
 		m.title = "Merge/PR"
 		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
 		m.mergeIndex = 0
+	case ModalEditCommit:
+		m.title = "Edit Commit Message"
+		m.help = "Ctrl+s: commit  Esc: cancel"
+		m.commitTextarea.Focus()
 	case ModalMCPServers:
 		m.title = "MCP Servers"
 		m.help = "↑/↓ navigate  a: add  d: delete  Esc: close"
@@ -238,6 +258,22 @@ func (m *Modal) GetSelectedMergeOption() string {
 // ShouldDeleteWorktree returns true if user selected to delete the worktree
 func (m *Modal) ShouldDeleteWorktree() bool {
 	return m.deleteIndex == 1 // "Delete worktree" is index 1
+}
+
+// SetCommitMessage sets the commit message for editing and the operation type
+func (m *Modal) SetCommitMessage(message, mergeType string) {
+	m.commitTextarea.SetValue(message)
+	m.commitMergeType = mergeType
+}
+
+// GetCommitMessage returns the edited commit message
+func (m *Modal) GetCommitMessage() string {
+	return m.commitTextarea.Value()
+}
+
+// GetCommitMergeType returns the merge type ("merge" or "pr") for after commit
+func (m *Modal) GetCommitMergeType() string {
+	return m.commitMergeType
 }
 
 // ShowMCPServers shows the MCP server list modal
@@ -411,6 +447,13 @@ func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
 		}
 	}
 
+	// Handle commit message textarea updates
+	if m.Type == ModalEditCommit {
+		var cmd tea.Cmd
+		m.commitTextarea, cmd = m.commitTextarea.Update(msg)
+		return m, cmd
+	}
+
 	return m, nil
 }
 
@@ -431,6 +474,8 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 		content = m.renderConfirmDelete()
 	case ModalMerge:
 		content = m.renderMerge()
+	case ModalEditCommit:
+		content = m.renderEditCommit()
 	case ModalMCPServers:
 		content = m.renderMCPServers()
 	case ModalAddMCPServer:
@@ -631,6 +676,27 @@ func (m *Modal) renderMerge() string {
 	help := ModalHelpStyle.Render(m.help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, summarySection, optionList, help)
+}
+
+func (m *Modal) renderEditCommit() string {
+	title := ModalTitleStyle.Render(m.title)
+
+	// Show what operation will follow
+	operationLabel := "Merge to main"
+	if m.commitMergeType == "pr" {
+		operationLabel = "Create PR"
+	}
+	operationStyle := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		MarginBottom(1)
+	operationSection := operationStyle.Render("After commit: " + operationLabel)
+
+	// Textarea for commit message
+	textareaView := m.commitTextarea.View()
+
+	help := ModalHelpStyle.Render(m.help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, operationSection, textareaView, help)
 }
 
 func (m *Modal) renderMCPServers() string {

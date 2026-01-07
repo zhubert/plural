@@ -78,6 +78,10 @@ type Model struct {
 	sessionMergeCancels map[string]context.CancelFunc
 	sessionMergeType    map[string]string // "merge" or "pr" - tracks what operation type is in progress
 
+	// Pending commit message editing state (one at a time)
+	pendingCommitSession string // Session ID waiting for commit message confirmation
+	pendingCommitType    string // "merge" or "pr" - what operation follows after commit
+
 	// Per-session Claude streaming cancel functions
 	sessionStreamCancels map[string]context.CancelFunc
 
@@ -116,6 +120,13 @@ type QuestionRequestMsg struct {
 type MergeResultMsg struct {
 	SessionID string
 	Result    git.Result
+}
+
+// CommitMessageGeneratedMsg is sent when commit message generation completes
+type CommitMessageGeneratedMsg struct {
+	SessionID string
+	Message   string
+	Error     error
 }
 
 // New creates a new app model
@@ -534,6 +545,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.listenForSessionQuestion(msg.SessionID, runner),
 		)
 
+	case CommitMessageGeneratedMsg:
+		// Commit message generation completed
+		if msg.Error != nil {
+			logger.Log("App: Commit message generation failed: %v", msg.Error)
+			m.chat.AppendStreaming(fmt.Sprintf("Failed to generate commit message: %v\n", msg.Error))
+			m.pendingCommitSession = ""
+			m.pendingCommitType = ""
+			return m, nil
+		}
+
+		// Show the edit commit modal with the generated message
+		m.modal.SetCommitMessage(msg.Message, m.pendingCommitType)
+		m.modal.Show(ui.ModalEditCommit)
+		return m, nil
+
 	case MergeResultMsg:
 		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
 		if msg.Result.Error != nil {
@@ -801,18 +827,39 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.activeSession == nil || m.activeSession.ID != sess.ID {
 				m.selectSession(sess)
 			}
-			// Create per-session merge context
+
+			// Check for uncommitted changes
+			status, err := git.GetWorktreeStatus(sess.WorkTree)
+			if err != nil {
+				m.chat.AppendStreaming(fmt.Sprintf("Error checking worktree status: %v\n", err))
+				return m, nil
+			}
+
+			mergeType := "merge"
+			if option == "Create PR" {
+				mergeType = "pr"
+			}
+
+			if status.HasChanges {
+				// Generate commit message and show edit modal
+				m.chat.AppendStreaming("Generating commit message with Claude...\n")
+				m.pendingCommitSession = sess.ID
+				m.pendingCommitType = mergeType
+				return m, m.generateCommitMessage(sess.ID, sess.WorkTree)
+			}
+
+			// No changes - proceed directly with merge/PR
 			ctx, cancel := context.WithCancel(context.Background())
 			m.sessionMergeCancels[sess.ID] = cancel
-			if option == "Create PR" {
-				logger.Log("App: Creating PR for branch %s", sess.Branch)
+			if mergeType == "pr" {
+				logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
 				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch)
+				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, "")
 				m.sessionMergeType[sess.ID] = "pr"
 			} else {
-				logger.Log("App: Merging branch %s to main", sess.Branch)
+				logger.Log("App: Merging branch %s to main (no uncommitted changes)", sess.Branch)
 				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch)
+				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, "")
 				m.sessionMergeType[sess.ID] = "merge"
 			}
 			return m, m.listenForMergeResult(sess.ID)
@@ -871,6 +918,51 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// Space toggles scope when on scope selector
 			m.modal.ToggleMCPScope()
 			return m, nil
+		}
+
+	case ui.ModalEditCommit:
+		switch key {
+		case "esc":
+			// Cancel commit message editing
+			m.modal.Hide()
+			m.pendingCommitSession = ""
+			m.pendingCommitType = ""
+			m.chat.AppendStreaming("Cancelled.\n")
+			return m, nil
+		case "ctrl+s":
+			// Confirm commit and proceed with merge/PR
+			commitMsg := m.modal.GetCommitMessage()
+			if commitMsg == "" {
+				return m, nil // Don't allow empty commit messages
+			}
+			m.modal.Hide()
+
+			sess := m.config.GetSession(m.pendingCommitSession)
+			if sess == nil {
+				m.pendingCommitSession = ""
+				m.pendingCommitType = ""
+				return m, nil
+			}
+
+			mergeType := m.pendingCommitType
+			m.pendingCommitSession = ""
+			m.pendingCommitType = ""
+
+			// Proceed with merge/PR using the edited commit message
+			ctx, cancel := context.WithCancel(context.Background())
+			m.sessionMergeCancels[sess.ID] = cancel
+			if mergeType == "pr" {
+				logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
+				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
+				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg)
+				m.sessionMergeType[sess.ID] = "pr"
+			} else {
+				logger.Log("App: Merging branch %s to main with user-edited commit message", sess.Branch)
+				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
+				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg)
+				m.sessionMergeType[sess.ID] = "merge"
+			}
+			return m, m.listenForMergeResult(sess.ID)
 		}
 	}
 
@@ -1249,6 +1341,26 @@ func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
 			return MergeResultMsg{SessionID: sessionID, Result: git.Result{Done: true}}
 		}
 		return MergeResultMsg{SessionID: sessionID, Result: result}
+	}
+}
+
+// generateCommitMessage creates a command to generate a commit message asynchronously
+func (m *Model) generateCommitMessage(sessionID, worktreePath string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		msg, err := git.GenerateCommitMessageWithClaude(ctx, worktreePath)
+		if err != nil {
+			// Fall back to simple message
+			msg, err = git.GenerateCommitMessage(worktreePath)
+		}
+
+		return CommitMessageGeneratedMsg{
+			SessionID: sessionID,
+			Message:   msg,
+			Error:     err,
+		}
 	}
 }
 
