@@ -881,6 +881,7 @@ func (m *Model) selectSession(sess *config.Session) {
 	// Restore streaming content if this session has ongoing streaming
 	if streamingContent, exists := m.sessionStreaming[sess.ID]; exists && streamingContent != "" {
 		m.chat.SetStreaming(streamingContent)
+		delete(m.sessionStreaming, sess.ID) // Clear so it doesn't persist if we switch away again
 		logger.Log("App: Restored streaming content for session %s", sess.ID)
 	}
 
