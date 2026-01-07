@@ -73,6 +73,7 @@ type Model struct {
 	// Per-session merge/PR operation state
 	sessionMergeChans   map[string]<-chan git.Result
 	sessionMergeCancels map[string]context.CancelFunc
+	sessionMergeType    map[string]string // "merge" or "pr" - tracks what operation type is in progress
 
 	// Per-session Claude streaming cancel functions
 	sessionStreamCancels map[string]context.CancelFunc
@@ -124,6 +125,7 @@ func New(cfg *config.Config) *Model {
 		sessionInputs:       make(map[string]string),
 		sessionMergeChans:    make(map[string]<-chan git.Result),
 		sessionMergeCancels:  make(map[string]context.CancelFunc),
+		sessionMergeType:     make(map[string]string),
 		sessionStreamCancels: make(map[string]context.CancelFunc),
 		sessionStreaming:     make(map[string]string),
 		sessionToolUsePos:    make(map[string]int),
@@ -482,6 +484,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Clean up merge state for this session
 			delete(m.sessionMergeChans, msg.SessionID)
 			delete(m.sessionMergeCancels, msg.SessionID)
+			delete(m.sessionMergeType, msg.SessionID)
 		} else if msg.Result.Done {
 			if isActiveSession {
 				m.chat.FinishStreaming()
@@ -495,9 +498,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					delete(m.sessionStreaming, msg.SessionID)
 				}
 			}
+			// Mark session as merged or PR created based on operation type
+			if mergeType := m.sessionMergeType[msg.SessionID]; mergeType == "pr" {
+				m.config.MarkSessionPRCreated(msg.SessionID)
+				logger.Log("App: Marked session %s as PR created", msg.SessionID)
+			} else if mergeType == "merge" {
+				m.config.MarkSessionMerged(msg.SessionID)
+				logger.Log("App: Marked session %s as merged", msg.SessionID)
+			}
+			m.config.Save()
+			// Update sidebar with new session status
+			m.sidebar.SetSessions(m.config.GetSessions())
 			// Clean up merge state for this session
 			delete(m.sessionMergeChans, msg.SessionID)
 			delete(m.sessionMergeCancels, msg.SessionID)
+			delete(m.sessionMergeType, msg.SessionID)
 		} else {
 			if isActiveSession {
 				m.chat.AppendStreaming(msg.Result.Output)
@@ -731,10 +746,12 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				logger.Log("App: Creating PR for branch %s", sess.Branch)
 				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch)
+				m.sessionMergeType[sess.ID] = "pr"
 			} else {
 				logger.Log("App: Merging branch %s to main", sess.Branch)
 				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
 				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch)
+				m.sessionMergeType[sess.ID] = "merge"
 			}
 			return m, m.listenForMergeResult(sess.ID)
 		}

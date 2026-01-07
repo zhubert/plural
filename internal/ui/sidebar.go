@@ -305,6 +305,23 @@ func (s *Sidebar) View() string {
 					displayName = displayName + " " + indicatorStyle.Render("⚠")
 				}
 
+				// Add merged/PR status labels
+				if sess.Merged {
+					labelColor := ColorSecondary // Green for merged
+					if sessionIdx == s.selectedIdx {
+						labelColor = ColorText // White on purple background
+					}
+					labelStyle := lipgloss.NewStyle().Foreground(labelColor)
+					displayName = displayName + " " + labelStyle.Render("(merged)")
+				} else if sess.PRCreated {
+					labelColor := ColorUser // Blue for PR
+					if sessionIdx == s.selectedIdx {
+						labelColor = ColorText // White on purple background
+					}
+					labelStyle := lipgloss.NewStyle().Foreground(labelColor)
+					displayName = displayName + " " + labelStyle.Render("(pr)")
+				}
+
 				lines = append(lines, itemStyle.Render(displayName))
 				sessionIdx++
 			}

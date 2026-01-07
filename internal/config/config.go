@@ -23,7 +23,9 @@ type Session struct {
 	Branch    string    `json:"branch"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
-	Started   bool      `json:"started,omitempty"` // Whether session has been started with Claude CLI
+	Started   bool      `json:"started,omitempty"`    // Whether session has been started with Claude CLI
+	Merged    bool      `json:"merged,omitempty"`     // Whether session has been merged to main
+	PRCreated bool      `json:"pr_created,omitempty"` // Whether a PR has been created for this session
 }
 
 // MCPServer represents an MCP server configuration
@@ -286,6 +288,34 @@ func (c *Config) MarkSessionStarted(sessionID string) bool {
 	for i := range c.Sessions {
 		if c.Sessions[i].ID == sessionID {
 			c.Sessions[i].Started = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionMerged marks a session as merged to main
+func (c *Config) MarkSessionMerged(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].Merged = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionPRCreated marks a session as having a PR created
+func (c *Config) MarkSessionPRCreated(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].PRCreated = true
 			return true
 		}
 	}
