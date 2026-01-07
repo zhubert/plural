@@ -207,7 +207,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.sessionWaitStart, m.activeSession.ID)
 				m.sidebar.SetStreaming(m.activeSession.ID, false)
 				m.chat.SetWaiting(false)
-				m.chat.ClearToolStatus()
 				// Save partial response to runner before finishing
 				if content := m.chat.GetStreaming(); content != "" {
 					m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
@@ -391,13 +390,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case claude.ChunkTypeToolUse:
 					// Append tool use to streaming content so it persists in history
 					m.chat.AppendToolUse(msg.Chunk.ToolName, msg.Chunk.ToolInput)
-					m.chat.SetToolStatus(msg.Chunk.ToolName, msg.Chunk.ToolInput)
 				case claude.ChunkTypeToolResult:
-					// Tool completed, mark the tool use line as complete and clear status
+					// Tool completed, mark the tool use line as complete
 					m.chat.MarkLastToolUseComplete()
-					m.chat.ClearToolStatus()
 				case claude.ChunkTypeText:
-					// Don't clear tool status on text - let it persist until tool_result
 					m.chat.AppendStreaming(msg.Chunk.Content)
 				default:
 					// For backwards compatibility, treat unknown types as text
