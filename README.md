@@ -120,6 +120,30 @@ Prune orphaned worktrees:
 plural --prune
 ```
 
+## Troubleshooting
+
+### Devbox/Nix upgrade fails with "package not found"
+
+If `devbox global update` fails with:
+```
+Failed to upgrade github:zhubert/plural using `nix profile upgrade`: github:zhubert/plural: package not found
+```
+
+This is a [known nix limitation](https://github.com/NixOS/nix/issues/10463) where `nix profile upgrade` cannot match packages by their original flake reference.
+
+**Workaround**: Remove and reinstall the package:
+```bash
+devbox global rm github:zhubert/plural
+devbox global add github:zhubert/plural
+```
+
+Or use Homebrew instead, which handles upgrades correctly:
+```bash
+brew tap zhubert/tap
+brew install plural
+brew upgrade plural
+```
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

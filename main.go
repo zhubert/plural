@@ -16,6 +16,13 @@ import (
 	"github.com/zhubert/plural/internal/session"
 )
 
+// Version information set via ldflags at build time
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	// Check for subcommand
 	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
@@ -23,10 +30,39 @@ func main() {
 		return
 	}
 
+	// Custom usage function for standard help format
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, `plural - TUI for managing multiple concurrent Claude Code sessions
+
+Usage: plural [options]
+
+Options:
+  -v, --version        Print version information and exit
+  -h, --help           Show this help message
+      --clear          Remove all sessions and exit
+      --check-prereqs  Check CLI prerequisites and exit
+      --prune          Remove orphaned worktrees (worktrees without matching sessions)
+
+For more information, visit: https://github.com/zhubert/plural
+`)
+	}
+
+	showVersion := flag.Bool("version", false, "Print version information and exit")
+	flag.BoolVar(showVersion, "v", false, "Print version information and exit")
 	clearSessions := flag.Bool("clear", false, "Remove all sessions and exit")
 	checkPrereqs := flag.Bool("check-prereqs", false, "Check CLI prerequisites and exit")
 	pruneWorktrees := flag.Bool("prune", false, "Remove orphaned worktrees (worktrees without matching sessions)")
 	flag.Parse()
+
+	// Handle version flag
+	if *showVersion {
+		fmt.Printf("plural %s\n", version)
+		if commit != "none" {
+			fmt.Printf("  commit: %s\n", commit)
+			fmt.Printf("  built:  %s\n", date)
+		}
+		os.Exit(0)
+	}
 
 	// Check prerequisites
 	prereqs := cli.DefaultPrerequisites()
