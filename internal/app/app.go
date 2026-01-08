@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/zhubert/plural/internal/changelog"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
@@ -53,6 +54,7 @@ func (s AppState) String() string {
 // Model is the main Bubble Tea model
 type Model struct {
 	config  *config.Config
+	version string // App version (injected at build time)
 	header  *ui.Header
 	footer  *ui.Footer
 	sidebar *ui.Sidebar
@@ -76,6 +78,9 @@ type Model struct {
 	pendingCommitSession string    // Session ID waiting for commit message confirmation
 	pendingCommitType    MergeType // What operation follows after commit
 }
+
+// StartupModalMsg is sent on app start to trigger welcome/changelog modals
+type StartupModalMsg struct{}
 
 // ClaudeResponseMsg is sent when Claude sends a response chunk
 type ClaudeResponseMsg struct {
@@ -109,9 +114,10 @@ type CommitMessageGeneratedMsg struct {
 }
 
 // New creates a new app model
-func New(cfg *config.Config) *Model {
+func New(cfg *config.Config, version string) *Model {
 	m := &Model{
 		config:     cfg,
+		version:    version,
 		header:     ui.NewHeader(),
 		footer:     ui.NewFooter(),
 		sidebar:    ui.NewSidebar(),
@@ -162,7 +168,10 @@ func (m *Model) sessionState() *SessionStateManager {
 
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
-	return nil
+	// Trigger startup modal check (welcome or changelog)
+	return func() tea.Msg {
+		return StartupModalMsg{}
+	}
 }
 
 // Update handles messages
@@ -621,6 +630,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.listenForMergeResult(msg.SessionID)
 		}
+
+	case StartupModalMsg:
+		return m.handleStartupModals()
 	}
 
 	// Update modal
@@ -1121,6 +1133,45 @@ func (m *Model) generateCommitMessage(sessionID, worktreePath string) tea.Cmd {
 // hasAnyStreamingSessions returns true if any session is currently streaming
 func (m *Model) hasAnyStreamingSessions() bool {
 	return m.sessionMgr.HasActiveStreaming()
+}
+
+// handleStartupModals checks and shows welcome or changelog modals on startup
+func (m *Model) handleStartupModals() (tea.Model, tea.Cmd) {
+	// Priority 1: Welcome modal for first-time users
+	if !m.config.HasSeenWelcome() {
+		logger.Log("App: Showing welcome modal (first-time user)")
+		m.modal.Show(ui.NewWelcomeState())
+		return m, nil
+	}
+
+	// Priority 2: Changelog modal for new versions
+	// Skip for dev builds
+	if m.version != "" && m.version != "dev" {
+		lastSeen := m.config.GetLastSeenVersion()
+		if lastSeen != m.version {
+			entries := changelog.Parse(changelog.Content)
+			changes := changelog.GetChangesSince(lastSeen, entries)
+			if len(changes) > 0 {
+				logger.Log("App: Showing changelog modal (version %s -> %s, %d entries)", lastSeen, m.version, len(changes))
+				// Convert changelog entries to UI entries
+				uiEntries := make([]ui.ChangelogEntry, len(changes))
+				for i, e := range changes {
+					uiEntries[i] = ui.ChangelogEntry{
+						Version: e.Version,
+						Date:    e.Date,
+						Changes: e.Changes,
+					}
+				}
+				m.modal.Show(ui.NewChangelogState(uiEntries))
+				return m, nil
+			}
+			// No new changes, just update last seen version
+			m.config.SetLastSeenVersion(m.version)
+			m.config.Save()
+		}
+	}
+
+	return m, nil
 }
 
 func (m *Model) updateSizes() {

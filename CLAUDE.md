@@ -68,6 +68,9 @@ tail -f /tmp/plural-mcp-*.log
 - **internal/claude** - Wrapper around Claude Code CLI (`claude --print --output-format stream-json --input-format stream-json`), manages persistent process and streaming responses
   - `doc.go` - Package documentation
   - `claude.go` - Runner implementation with persistent process, message streaming, tool status parsing, permission handling, and multi-modal content support
+- **internal/changelog** - Changelog parsing and version comparison
+  - `changelog.go` - Parses CHANGELOG.md and filters entries by version
+  - `CHANGELOG.md` - Embedded changelog content shown in "What's New" modal
 - **internal/cli** - CLI prerequisites checking
   - `prerequisites.go` - Validates required CLI tools (claude, git, gh) are available
   - `prerequisites_test.go` - Test suite
@@ -102,13 +105,13 @@ tail -f /tmp/plural-mcp-*.log
   - `styles.go` - All lipgloss styles and color palette
   - `sidebar.go` - Session list grouped by repository with custom rendering and permission indicators
   - `chat.go` - Conversation view with soft-wrapping, waiting indicator, and inline permission prompts
-  - `modal.go` - Various modals (add repo, new session, delete, merge)
+  - `modal.go` - Various modals (add repo, new session, delete, merge, welcome, changelog)
   - `header.go` - Header with gradient background
   - `footer.go` - Context-aware keyboard shortcuts
 
 ### Data Storage
 
-- **~/.plural/config.json** - Repos, sessions, allowed tools (global and per-repo), MCP servers (global and per-repo)
+- **~/.plural/config.json** - Repos, sessions, allowed tools (global and per-repo), MCP servers (global and per-repo), welcome/version tracking
 - **~/.plural/sessions/<session-id>.json** - Conversation history (last 100 lines per session)
 
 ### Key Patterns
@@ -235,6 +238,29 @@ Plural supports pasting images from the clipboard to include in messages to Clau
 - Uses Claude CLI's `--input-format stream-json` for structured message input
 - Images are base64-encoded and sent as content blocks alongside text
 - The Runner maintains a persistent Claude CLI process for lower latency
+
+### Welcome and Changelog Modals
+
+Plural shows contextual modals on startup to help users get started and stay informed:
+
+**Welcome Modal (first-time users):**
+- Shown once when a user first runs Plural
+- Provides a brief introduction to the app
+- Lists key keyboard shortcuts (r, n, Tab)
+- Directs users to GitHub issues for help or bug reports
+- Press Enter or Esc to dismiss
+
+**Changelog Modal (new versions):**
+- Shown once per version when Plural is updated
+- Displays cumulative changes since the user's last seen version
+- Scrollable if there are many entries (up/down or j/k to scroll)
+- Skipped for development builds (`version="dev"`)
+- Press Enter or Esc to dismiss
+
+**Configuration:**
+- `welcome_shown` (bool): Tracks if welcome modal has been displayed
+- `last_seen_version` (string): Tracks last version user saw changelog for
+- Changelog content is embedded from `internal/changelog/CHANGELOG.md`
 
 ### Viewing Session Changes
 

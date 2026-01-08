@@ -43,6 +43,8 @@ type Config struct {
 	RepoMCP          map[string][]MCPServer `json:"repo_mcp,omitempty"`           // Per-repo MCP servers
 	AllowedTools     []string               `json:"allowed_tools,omitempty"`      // Global allowed tools
 	RepoAllowedTools map[string][]string    `json:"repo_allowed_tools,omitempty"` // Per-repo allowed tools
+	WelcomeShown     bool                   `json:"welcome_shown,omitempty"`      // Whether welcome modal has been shown
+	LastSeenVersion  string                 `json:"last_seen_version,omitempty"`  // Last version user has seen changelog for
 
 	mu       sync.RWMutex
 	filePath string
@@ -585,4 +587,32 @@ func countLines(s string) int {
 		}
 	}
 	return count
+}
+
+// HasSeenWelcome returns whether the welcome modal has been shown
+func (c *Config) HasSeenWelcome() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.WelcomeShown
+}
+
+// MarkWelcomeShown marks the welcome modal as shown
+func (c *Config) MarkWelcomeShown() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.WelcomeShown = true
+}
+
+// GetLastSeenVersion returns the last version the user has seen
+func (c *Config) GetLastSeenVersion() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LastSeenVersion
+}
+
+// SetLastSeenVersion sets the last version the user has seen
+func (c *Config) SetLastSeenVersion(version string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LastSeenVersion = version
 }

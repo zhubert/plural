@@ -33,6 +33,10 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddMCPServerModal(key, msg, s)
 	case *ui.EditCommitState:
 		return m.handleEditCommitModal(key, msg, s)
+	case *ui.WelcomeState:
+		return m.handleWelcomeModal(key, msg, s)
+	case *ui.ChangelogState:
+		return m.handleChangelogModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -342,5 +346,37 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleWelcomeModal handles key events for the Welcome modal.
+func (m *Model) handleWelcomeModal(key string, msg tea.KeyPressMsg, state *ui.WelcomeState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "enter", "esc":
+		// Mark welcome as shown and save
+		m.config.MarkWelcomeShown()
+		m.config.Save()
+		m.modal.Hide()
+		// Check if we should also show changelog
+		return m.handleStartupModals()
+	}
+	return m, nil
+}
+
+// handleChangelogModal handles key events for the Changelog modal.
+func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.ChangelogState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "enter", "esc":
+		// Update last seen version and save
+		m.config.SetLastSeenVersion(m.version)
+		m.config.Save()
+		m.modal.Hide()
+		return m, nil
+	case "up", "k", "down", "j":
+		// Forward scroll keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
 }
 

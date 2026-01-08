@@ -130,7 +130,7 @@ For more information, visit: https://github.com/zhubert/plural
 	defer logger.Close()
 
 	// Create and run the app
-	m := app.New(cfg)
+	m := app.New(cfg, version)
 	p := tea.NewProgram(m)
 
 	if _, err := p.Run(); err != nil {
