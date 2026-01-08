@@ -108,7 +108,7 @@ type AddRepoState struct {
 	UseSuggested   bool
 }
 
-func (AddRepoState) modalState() {}
+func (*AddRepoState) modalState() {}
 
 func (s *AddRepoState) Title() string { return "Add Repository" }
 
@@ -223,7 +223,7 @@ type NewSessionState struct {
 	Focus       int // 0=repo list, 1=branch input
 }
 
-func (NewSessionState) modalState() {}
+func (*NewSessionState) modalState() {}
 
 func (s *NewSessionState) Title() string { return "New Session" }
 
@@ -354,7 +354,7 @@ type ConfirmDeleteState struct {
 	SelectedIndex int
 }
 
-func (ConfirmDeleteState) modalState() {}
+func (*ConfirmDeleteState) modalState() {}
 
 func (s *ConfirmDeleteState) Title() string { return "Delete Session?" }
 
@@ -426,7 +426,7 @@ type MergeState struct {
 	ChangesSummary string
 }
 
-func (MergeState) modalState() {}
+func (*MergeState) modalState() {}
 
 func (s *MergeState) Title() string { return "Merge/PR" }
 
@@ -524,7 +524,7 @@ type EditCommitState struct {
 	MergeType string // "merge" or "pr"
 }
 
-func (EditCommitState) modalState() {}
+func (*EditCommitState) modalState() {}
 
 func (s *EditCommitState) Title() string { return "Edit Commit Message" }
 
@@ -591,7 +591,7 @@ type MCPServersState struct {
 	Repos         []string
 }
 
-func (MCPServersState) modalState() {}
+func (*MCPServersState) modalState() {}
 
 func (s *MCPServersState) Title() string { return "MCP Servers" }
 
@@ -713,7 +713,7 @@ type AddMCPServerState struct {
 	InputIndex int // 0=scope, 1=repo, 2=name, 3=cmd, 4=args
 }
 
-func (AddMCPServerState) modalState() {}
+func (*AddMCPServerState) modalState() {}
 
 func (s *AddMCPServerState) Title() string { return "Add MCP Server" }
 

@@ -98,22 +98,6 @@ func ReadImage() (*ImageData, error) {
 	}, nil
 }
 
-// ReadText reads text from the clipboard.
-func ReadText() (string, error) {
-	if !initialized {
-		if err := Init(); err != nil {
-			return "", err
-		}
-	}
-
-	textBytes := clipboard.Read(clipboard.FmtText)
-	if textBytes == nil {
-		return "", nil
-	}
-
-	return string(textBytes), nil
-}
-
 // Validate checks if the image meets Anthropic's requirements.
 func (img *ImageData) Validate() error {
 	if len(img.Data) > MaxImageSize {
