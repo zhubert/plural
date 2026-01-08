@@ -1251,8 +1251,8 @@ func (m *Model) View() tea.View {
 	// Overlay modal if visible
 	if m.modal.IsVisible() {
 		modalView := m.modal.View(m.width, m.height)
-		// Center modal over the view
-		bgStyle := lipgloss.NewStyle().Background(lipgloss.Color("#000000"))
+		// Center modal over the view using theme's dark background
+		bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(ui.CurrentTheme().BgDark))
 		v.SetContent(lipgloss.Place(
 			m.width, m.height,
 			lipgloss.Center, lipgloss.Center,

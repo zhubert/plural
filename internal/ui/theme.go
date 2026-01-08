@@ -548,7 +548,8 @@ func regenerateStyles() {
 		Foreground(lipgloss.Color(t.DiffRemoved))
 
 	DiffHeaderStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(t.DiffHeader))
+		Foreground(lipgloss.Color(t.DiffHeader)).
+		Bold(true)
 
 	DiffHunkStyle = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.DiffHunk))

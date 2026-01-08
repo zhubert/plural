@@ -49,16 +49,28 @@ func (h *Header) View() string {
 	return h.renderGradient(fullContent)
 }
 
-// renderGradient renders the content with a purple-to-transparent gradient background
+// parseHexColor parses a hex color string (e.g., "#7C3AED") into RGB components
+func parseHexColor(hex string) (r, g, b int) {
+	if len(hex) == 7 && hex[0] == '#' {
+		fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b)
+	}
+	return
+}
+
+// renderGradient renders the content with a theme-aware gradient background
 func (h *Header) renderGradient(content string) string {
 	if len(content) == 0 {
 		return ""
 	}
 
-	// Purple RGB: #7C3AED = (124, 58, 237)
-	startR, startG, startB := 124, 58, 237
-	// End color (terminal default, we'll fade to black/transparent effect)
-	endR, endG, endB := 0, 0, 0
+	// Get colors from current theme
+	theme := CurrentTheme()
+	startR, startG, startB := parseHexColor(theme.Primary)
+	// End color: fade to the dark background
+	endR, endG, endB := parseHexColor(theme.BgDark)
+
+	// Text color from theme
+	textColor := lipgloss.Color(theme.Text)
 
 	runes := []rune(content)
 	width := len(runes)
@@ -79,7 +91,7 @@ func (h *Header) renderGradient(content string) string {
 		// Style for this character
 		style := lipgloss.NewStyle().
 			Background(bgColor).
-			Foreground(lipgloss.Color("#FFFFFF")).
+			Foreground(textColor).
 			Bold(i < 7) // Bold for "Plural" title
 
 		result.WriteString(style.Render(string(r)))

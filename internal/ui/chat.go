@@ -706,14 +706,14 @@ func renderSpinner(verb string, frameIdx int) string {
 	// Get the current spinner frame
 	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
 
-	// Style for the spinner character - purple to match theme
+	// Style for the spinner character - uses theme's user color
 	spinnerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#A78BFA")). // Light purple
+		Foreground(ColorUser).
 		Bold(true)
 
-	// Style for the verb text - dimmer, italic
+	// Style for the verb text - uses theme's primary color, italic
 	verbStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7C3AED")). // Medium purple
+		Foreground(ColorPrimary).
 		Italic(true)
 
 	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...")
@@ -1208,9 +1208,10 @@ func (c *Chat) View() string {
 	var inputContent string
 	if c.HasPendingImage() {
 		// Show image attachment indicator above the textarea
+		theme := CurrentTheme()
 		indicatorStyle := lipgloss.NewStyle().
 			Foreground(ColorInfo).
-			Background(lipgloss.Color("#1E1E2E")).
+			Background(lipgloss.Color(theme.BgDark)).
 			Padding(0, 1)
 		indicator := indicatorStyle.Render(fmt.Sprintf("[Image attached: %dKB] (backspace to remove)", c.GetPendingImageSizeKB()))
 		inputContent = indicator + "\n" + c.input.View()
