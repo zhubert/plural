@@ -34,6 +34,9 @@ type SessionState struct {
 
 	// Error state
 	SessionInUseError bool // Whether session has "session in use" error
+
+	// Parallel options state
+	DetectedOptions []DetectedOption // Options detected in last assistant message
 }
 
 // SessionStateManager provides thread-safe access to per-session state.
@@ -413,4 +416,45 @@ func (m *SessionStateManager) getOrCreate(sessionID string) *SessionState {
 	state := &SessionState{ToolUsePos: -1}
 	m.states[sessionID] = state
 	return state
+}
+
+// SetDetectedOptions sets the detected options for a session.
+func (m *SessionStateManager) SetDetectedOptions(sessionID string, options []DetectedOption) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := m.getOrCreate(sessionID)
+	state.DetectedOptions = options
+}
+
+// GetDetectedOptions returns the detected options for a session.
+func (m *SessionStateManager) GetDetectedOptions(sessionID string) []DetectedOption {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.DetectedOptions
+	}
+	return nil
+}
+
+// ClearDetectedOptions clears the detected options for a session.
+func (m *SessionStateManager) ClearDetectedOptions(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		state.DetectedOptions = nil
+	}
+}
+
+// HasDetectedOptions returns whether a session has detected options.
+func (m *SessionStateManager) HasDetectedOptions(sessionID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return len(state.DetectedOptions) >= 2
+	}
+	return false
 }

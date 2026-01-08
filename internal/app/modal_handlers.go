@@ -42,6 +42,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleThemeModal(key, msg, s)
 	case *ui.MergeConflictState:
 		return m.handleMergeConflictModal(key, msg, s)
+	case *ui.ExploreOptionsState:
+		return m.handleExploreOptionsModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -569,6 +571,167 @@ func (m *Model) handleManualResolve(state *ui.MergeConflictState) (tea.Model, te
 	msg.WriteString("Or abort with: git merge --abort\n")
 
 	m.chat.AppendStreaming(msg.String())
+	return m, nil
+}
+
+// handleExploreOptionsModal handles key events for the Explore Options modal.
+func (m *Model) handleExploreOptionsModal(key string, msg tea.KeyPressMsg, state *ui.ExploreOptionsState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selected := state.GetSelectedOptions()
+		if len(selected) == 0 {
+			return m, nil
+		}
+		m.modal.Hide()
+		return m.createParallelSessions(selected)
+	case "up", "k", "down", "j", " ":
+		// Forward navigation and space (toggle) keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
+
+// parallelSessionInfo holds info needed to start a session after creation
+type parallelSessionInfo struct {
+	Session      *config.Session
+	OptionPrompt string
+}
+
+// createParallelSessions creates new sessions for each selected option, pre-populated with history.
+func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Model, tea.Cmd) {
+	if m.activeSession == nil || m.claudeRunner == nil {
+		return m, nil
+	}
+
+	parentSession := m.activeSession
+	parentMessages := m.claudeRunner.GetMessages()
+
+	logger.Log("App: Creating %d parallel sessions from session %s", len(selectedOptions), parentSession.ID)
+
+	var cmds []tea.Cmd
+	var createdSessions []parallelSessionInfo
+	var firstSession *config.Session
+
+	for _, opt := range selectedOptions {
+		// Create a branch name based on the option
+		branchName := fmt.Sprintf("option-%d", opt.Number)
+
+		// Create new session
+		sess, err := session.Create(parentSession.RepoPath, branchName)
+		if err != nil {
+			logger.Log("App: Failed to create parallel session for option %d: %v", opt.Number, err)
+			m.chat.AppendStreaming(fmt.Sprintf("[Error creating session for option %d: %v]\n", opt.Number, err))
+			continue
+		}
+
+		logger.Log("App: Created parallel session %s for option %d", sess.ID, opt.Number)
+
+		// Build message history: parent messages + option choice
+		var messages []config.Message
+		for _, msg := range parentMessages {
+			messages = append(messages, config.Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		// Add the option choice as a user message
+		optionPrompt := fmt.Sprintf("Let's go with option %d: %s", opt.Number, opt.Text)
+		messages = append(messages, config.Message{
+			Role:    "user",
+			Content: optionPrompt,
+		})
+
+		// Save messages to disk for this new session
+		if err := config.SaveSessionMessages(sess.ID, messages, config.MaxSessionMessageLines); err != nil {
+			logger.Log("App: Failed to save messages for parallel session %s: %v", sess.ID, err)
+		}
+
+		// Add session to config
+		m.config.AddSession(*sess)
+		createdSessions = append(createdSessions, parallelSessionInfo{
+			Session:      sess,
+			OptionPrompt: optionPrompt,
+		})
+
+		if firstSession == nil {
+			firstSession = sess
+		}
+	}
+
+	// Save config
+	if err := m.config.Save(); err != nil {
+		logger.Log("App: Failed to save config after creating parallel sessions: %v", err)
+	}
+
+	// Update sidebar
+	m.sidebar.SetSessions(m.config.GetSessions())
+
+	// Clear detected options since we've acted on them
+	m.sessionState().ClearDetectedOptions(parentSession.ID)
+
+	// Start all sessions in parallel
+	if len(createdSessions) > 0 {
+		m.chat.AppendStreaming(fmt.Sprintf("\nCreated %d parallel session(s) to explore options.\n", len(createdSessions)))
+
+		// Start each session
+		for _, info := range createdSessions {
+			sess := info.Session
+			optionPrompt := info.OptionPrompt
+
+			// Get or create runner for this session (this loads pre-populated messages)
+			result := m.sessionMgr.Select(sess, "", "", "")
+			if result == nil || result.Runner == nil {
+				logger.Log("App: Failed to get runner for parallel session %s", sess.ID)
+				continue
+			}
+
+			runner := result.Runner
+
+			// Start streaming for this session
+			ctx, cancel := context.WithCancel(context.Background())
+			m.sessionState().StartWaiting(sess.ID, cancel)
+			m.sidebar.SetStreaming(sess.ID, true)
+
+			logger.Log("App: Auto-starting parallel session %s with prompt: %s", sess.ID, optionPrompt)
+
+			// Send the option choice to Claude
+			content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: optionPrompt}}
+			responseChan := runner.SendContent(ctx, content)
+
+			// Add listeners for this session
+			cmds = append(cmds,
+				m.listenForSessionResponse(sess.ID, responseChan),
+				m.listenForSessionPermission(sess.ID, runner),
+				m.listenForSessionQuestion(sess.ID, runner),
+			)
+		}
+
+		// Switch to the first session's UI
+		if firstSession != nil {
+			m.sidebar.SelectSession(firstSession.ID)
+			m.selectSession(firstSession)
+
+			// Update UI for the active session
+			if m.claudeRunner != nil {
+				startTime, _ := m.sessionState().GetWaitStart(firstSession.ID)
+				m.chat.SetWaitingWithStart(true, startTime)
+				m.chat.AddUserMessage(createdSessions[0].OptionPrompt)
+			}
+		}
+
+		m.setState(StateStreamingClaude)
+		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+	}
+
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 

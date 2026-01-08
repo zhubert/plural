@@ -14,16 +14,17 @@ type KeyBinding struct {
 
 // Footer represents the bottom footer bar with keybindings
 type Footer struct {
-	width             int
-	bindings          []KeyBinding
-	hasSession        bool // Whether a session is selected
-	sidebarFocused    bool // Whether sidebar has focus
-	pendingPermission bool // Whether chat has a pending permission prompt
-	pendingQuestion   bool // Whether chat has a pending question prompt
-	streaming         bool // Whether active session is streaming
-	sessionInUse      bool // Whether selected session has "session in use" error
-	viewChangesMode   bool // Whether showing view changes overlay
-	searchMode        bool // Whether sidebar is in search mode
+	width              int
+	bindings           []KeyBinding
+	hasSession         bool // Whether a session is selected
+	sidebarFocused     bool // Whether sidebar has focus
+	pendingPermission  bool // Whether chat has a pending permission prompt
+	pendingQuestion    bool // Whether chat has a pending question prompt
+	streaming          bool // Whether active session is streaming
+	sessionInUse       bool // Whether selected session has "session in use" error
+	viewChangesMode    bool // Whether showing view changes overlay
+	searchMode         bool // Whether sidebar is in search mode
+	hasDetectedOptions bool // Whether chat has detected options for parallel exploration
 }
 
 // NewFooter creates a new footer
@@ -46,7 +47,7 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse, viewChangesMode, searchMode bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse, viewChangesMode, searchMode, hasDetectedOptions bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
@@ -55,6 +56,7 @@ func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendi
 	f.sessionInUse = sessionInUse
 	f.viewChangesMode = viewChangesMode
 	f.searchMode = searchMode
+	f.hasDetectedOptions = hasDetectedOptions
 }
 
 // SetWidth sets the footer width
@@ -159,10 +161,16 @@ func (f *Footer) View() string {
 		// Chat focused, not streaming - show enter and ctrl+v
 		chatBindings := []KeyBinding{
 			{Key: "enter", Desc: "send"},
-			{Key: "ctrl+v", Desc: "paste image"},
-			{Key: "tab", Desc: "switch pane"},
-			{Key: "pgup/dn", Desc: "scroll"},
 		}
+		// Show ctrl+p when options are detected
+		if f.hasDetectedOptions {
+			chatBindings = append(chatBindings, KeyBinding{Key: "ctrl+p", Desc: "explore options"})
+		}
+		chatBindings = append(chatBindings,
+			KeyBinding{Key: "ctrl+v", Desc: "paste image"},
+			KeyBinding{Key: "tab", Desc: "switch pane"},
+			KeyBinding{Key: "pgup/dn", Desc: "scroll"},
+		)
 		for _, b := range chatBindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)

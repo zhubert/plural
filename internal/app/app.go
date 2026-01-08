@@ -295,6 +295,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleImagePaste()
 		}
 
+		// Handle Ctrl+P for parallel option exploration when chat is focused
+		if msg.String() == "ctrl+p" && m.focus == FocusChat && m.activeSession != nil {
+			if m.sessionState().HasDetectedOptions(m.activeSession.ID) {
+				return m.showExploreOptionsModal()
+			}
+		}
+
 		// Handle backspace to remove pending image when input is empty
 		if msg.String() == "backspace" && m.focus == FocusChat && m.activeSession != nil {
 			if m.chat.HasPendingImage() && m.chat.GetInput() == "" {
@@ -480,6 +487,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Save messages for this session
 				m.sessionMgr.SaveRunnerMessages(msg.SessionID, runner)
 			}
+			// Detect options in the last assistant message for parallel exploration
+			m.detectOptionsInSession(msg.SessionID, runner)
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
 				m.setState(StateIdle)
@@ -1201,6 +1210,56 @@ func (m *Model) hasAnyStreamingSessions() bool {
 	return m.sessionMgr.HasActiveStreaming()
 }
 
+// detectOptionsInSession scans the runner's messages for numbered options
+func (m *Model) detectOptionsInSession(sessionID string, runner *claude.Runner) {
+	msgs := runner.GetMessages()
+	if len(msgs) == 0 {
+		m.sessionState().ClearDetectedOptions(sessionID)
+		return
+	}
+
+	// Find the last assistant message
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" {
+			options := DetectOptions(msgs[i].Content)
+			if len(options) >= 2 {
+				logger.Log("App: Detected %d options in session %s", len(options), sessionID)
+				m.sessionState().SetDetectedOptions(sessionID, options)
+				return
+			}
+			break // Only check the most recent assistant message
+		}
+	}
+
+	// No options found
+	m.sessionState().ClearDetectedOptions(sessionID)
+}
+
+// showExploreOptionsModal displays the modal for selecting options to explore in parallel
+func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
+	if m.activeSession == nil {
+		return m, nil
+	}
+
+	options := m.sessionState().GetDetectedOptions(m.activeSession.ID)
+	if len(options) < 2 {
+		return m, nil
+	}
+
+	// Convert to UI option items
+	items := make([]ui.OptionItem, len(options))
+	for i, opt := range options {
+		items[i] = ui.OptionItem{
+			Number:   opt.Number,
+			Text:     opt.Text,
+			Selected: false,
+		}
+	}
+
+	m.modal.Show(ui.NewExploreOptionsState(items))
+	return m, nil
+}
+
 // handleStartupModals checks and shows welcome or changelog modals on startup
 func (m *Model) handleStartupModals() (tea.Model, tea.Cmd) {
 	// Priority 1: Welcome modal for first-time users
@@ -1271,7 +1330,8 @@ func (m *Model) View() tea.View {
 	sessionInUse := selectedSess != nil && m.sessionState().HasSessionInUseError(selectedSess.ID)
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse, viewChangesMode, searchMode)
+	hasDetectedOptions := m.activeSession != nil && m.sessionState().HasDetectedOptions(m.activeSession.ID)
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse, viewChangesMode, searchMode, hasDetectedOptions)
 
 	header := m.header.View()
 	footer := m.footer.View()
