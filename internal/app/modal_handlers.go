@@ -72,7 +72,7 @@ func (m *Model) handleAddRepoModal(key string) (tea.Model, tea.Cmd) {
 }
 
 // handleNewSessionModal handles key events for the New Session modal.
-func (m *Model) handleNewSessionModal(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
@@ -113,7 +113,10 @@ func (m *Model) handleNewSessionModal(key string, _ tea.KeyPressMsg) (tea.Model,
 		m.modal.Hide()
 		return m, nil
 	}
-	return m.updateModalInput()
+	// Forward other keys (tab, shift+tab, up, down, etc.) to modal for handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
 // handleConfirmDeleteModal handles key events for the Confirm Delete modal.
