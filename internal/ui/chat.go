@@ -26,7 +26,7 @@ import (
 var (
 	boldPattern       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
 	italicPattern     = regexp.MustCompile(`(?:^|[^*])\*([^*]+)\*(?:[^*]|$)`)
-	underscoreItalic  = regexp.MustCompile(`_([^_]+)_`)
+	underscoreItalic  = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_])_([^_]+)_(?:[^a-zA-Z0-9_]|$)`)
 	inlineCodePattern = regexp.MustCompile("`([^`]+)`")
 	linkPattern       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 )
@@ -770,9 +770,26 @@ func renderInlineMarkdown(line string) string {
 	})
 
 	// Process italic with underscores (_text_)
+	// Only match underscores at word boundaries (not in identifiers like foo_bar_baz)
 	line = underscoreItalic.ReplaceAllStringFunc(line, func(match string) string {
-		text := underscoreItalic.FindStringSubmatch(match)[1]
-		return MarkdownItalicStyle.Render(text)
+		submatch := underscoreItalic.FindStringSubmatch(match)
+		text := submatch[1]
+		// Preserve any prefix/suffix boundary characters that were matched
+		prefix := ""
+		suffix := ""
+		// The regex may have matched a leading non-word character
+		if len(match) > 0 && len(text)+2 < len(match) {
+			// Find where _text_ starts and ends within the match
+			start := strings.Index(match, "_"+text+"_")
+			if start > 0 {
+				prefix = match[:start]
+			}
+			end := start + len("_"+text+"_")
+			if end < len(match) {
+				suffix = match[end:]
+			}
+		}
+		return prefix + MarkdownItalicStyle.Render(text) + suffix
 	})
 
 	// Process links [text](url)
