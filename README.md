@@ -15,6 +15,7 @@ Plural lets you:
 ## Features
 
 - **Isolated Sessions**: Each session gets its own git branch and worktree, so Claude's changes never conflict
+- **Branching Options**: When Claude offers multiple approaches, explore them all in parallel with forked sessions (Ctrl+P)
 - **Multiple Repositories**: Register any git repo and create sessions across your projects
 - **Streaming Responses**: See Claude's work in real-time with tool status indicators
 - **Inline Permissions**: Approve file edits and commands per-session without blocking modals
@@ -82,6 +83,7 @@ Shortcuts are context-aware and shown in the footer.
 | `Enter` | Select session |
 | `↑/↓` or `j/k` | Navigate sessions |
 | `/` | Search sessions |
+| `Ctrl+P` | Explore options in parallel |
 | `m` | Merge or create PR |
 | `v` | View uncommitted changes |
 | `d` | Delete session |
@@ -139,6 +141,21 @@ With many sessions, use `/` to search:
 2. Type to filter by branch name, session name, or repo
 3. Use `↑/↓` to navigate results
 4. Press `Enter` to select, `Esc` to cancel
+
+## Branching Options
+
+When Claude presents multiple approaches (e.g., "Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), you can explore them all in parallel:
+
+1. Select a session where Claude has offered options
+2. Press `Ctrl+P` to open the options explorer
+3. Select which options to explore (use `Space` to toggle, `a` to select all)
+4. Press `Enter` to fork the session
+
+Plural creates child sessions for each selected option, automatically continuing the conversation with that choice. Child sessions appear indented under their parent in the sidebar, showing the relationship visually.
+
+Options are detected from:
+- Markdown headings like `## Option 1:` or `## Option A:`
+- Numbered lists with option patterns
 
 ## Applying Changes
 
