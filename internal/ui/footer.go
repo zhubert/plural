@@ -22,6 +22,7 @@ type Footer struct {
 	pendingQuestion   bool // Whether chat has a pending question prompt
 	streaming         bool // Whether active session is streaming
 	sessionInUse      bool // Whether selected session has "session in use" error
+	viewChangesMode   bool // Whether showing view changes overlay
 }
 
 // NewFooter creates a new footer
@@ -42,13 +43,14 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse, viewChangesMode bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
 	f.pendingQuestion = pendingQuestion
 	f.streaming = streaming
 	f.sessionInUse = sessionInUse
+	f.viewChangesMode = viewChangesMode
 }
 
 // SetWidth sets the footer width
@@ -64,6 +66,22 @@ func (f *Footer) SetBindings(bindings []KeyBinding) {
 // View renders the footer
 func (f *Footer) View() string {
 	var parts []string
+
+	// Show view-changes-specific shortcuts when in view changes mode
+	if f.viewChangesMode {
+		viewChangesBindings := []KeyBinding{
+			{Key: "esc/q/v", Desc: "close"},
+			{Key: "↑/↓/j/k", Desc: "scroll"},
+			{Key: "pgup/dn", Desc: "page"},
+		}
+		for _, b := range viewChangesBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
+		content := strings.Join(parts, "  "+lipgloss.NewStyle().Foreground(ColorBorder).Render("|")+"  ")
+		return FooterStyle.Width(f.width).Render(content)
+	}
 
 	// Show permission-specific shortcuts when pending permission in chat
 	if f.pendingPermission && !f.sidebarFocused {

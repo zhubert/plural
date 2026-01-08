@@ -275,18 +275,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "v":
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
 				sess := m.sidebar.SelectedSession()
-				// Select the session first so we can display in its chat
+				// Select the session first so we can display in its chat panel
 				if m.activeSession == nil || m.activeSession.ID != sess.ID {
 					m.selectSession(sess)
 				}
-				// Get worktree status and display it
+				// Get worktree status and display it in view changes overlay
 				status, err := git.GetWorktreeStatus(sess.WorkTree)
+				var content string
 				if err != nil {
-					m.chat.AppendStreaming(fmt.Sprintf("[Error getting status: %v]\n", err))
-					m.chat.FinishStreaming()
+					content = fmt.Sprintf("[Error getting status: %v]\n", err)
 				} else if !status.HasChanges {
-					m.chat.AppendStreaming("No uncommitted changes in this session.\n")
-					m.chat.FinishStreaming()
+					content = "No uncommitted changes in this session."
 				} else {
 					var sb strings.Builder
 					sb.WriteString(fmt.Sprintf("📝 Uncommitted changes (%s):\n\n", status.Summary))
@@ -297,10 +296,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						sb.WriteString("\n--- Diff ---\n")
 						sb.WriteString(ui.HighlightDiff(status.Diff))
 					}
-					sb.WriteString("\n")
-					m.chat.AppendStreaming(sb.String())
-					m.chat.FinishStreaming()
+					content = sb.String()
 				}
+				m.chat.EnterViewChangesMode(content)
 				return m, nil
 			}
 		case "m":
@@ -720,6 +718,11 @@ func (m *Model) selectSession(sess *config.Session) {
 	m.activeSession = sess
 	m.claudeRunner = result.Runner
 
+	// Exit view changes mode when switching sessions
+	if m.chat.IsInViewChangesMode() {
+		m.chat.ExitViewChangesMode()
+	}
+
 	// Update UI components with session state
 	m.chat.SetSession(sess.Name, result.Messages)
 	m.header.SetSessionName(result.HeaderName)
@@ -1038,7 +1041,8 @@ func (m *Model) View() tea.View {
 	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
 	selectedSess := m.sidebar.SelectedSession()
 	sessionInUse := selectedSess != nil && m.sessionState().HasSessionInUseError(selectedSess.ID)
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse)
+	viewChangesMode := m.chat.IsInViewChangesMode()
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse, viewChangesMode)
 
 	header := m.header.View()
 	footer := m.footer.View()

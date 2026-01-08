@@ -101,6 +101,11 @@ type Chat struct {
 	currentQuestionIdx    int                // Index of current question being answered
 	selectedOptionIdx     int                // Currently highlighted option
 	questionAnswers       map[string]string  // Collected answers (question text -> selected label)
+
+	// View changes mode - temporary overlay showing git diff
+	viewChangesMode    bool             // Whether we're showing the diff overlay
+	viewChangesContent string           // The diff content to display
+	viewChangesViewport viewport.Model  // Separate viewport for diff scrolling
 }
 
 // NewChat creates a new chat panel
@@ -291,6 +296,34 @@ func (c *Chat) SetInput(value string) {
 // IsStreaming returns whether we're currently streaming a response
 func (c *Chat) IsStreaming() bool {
 	return c.streaming != ""
+}
+
+// EnterViewChangesMode enters the temporary diff view overlay
+func (c *Chat) EnterViewChangesMode(content string) {
+	c.viewChangesMode = true
+	c.viewChangesContent = content
+
+	// Create a fresh viewport for the diff content
+	c.viewChangesViewport = viewport.New()
+	c.viewChangesViewport.MouseWheelEnabled = true
+	c.viewChangesViewport.MouseWheelDelta = 3
+
+	// Size it to match the main viewport
+	c.viewChangesViewport.SetWidth(c.viewport.Width())
+	c.viewChangesViewport.SetHeight(c.viewport.Height())
+	c.viewChangesViewport.SetContent(content)
+	c.viewChangesViewport.GotoTop()
+}
+
+// ExitViewChangesMode exits the diff view overlay and returns to chat
+func (c *Chat) ExitViewChangesMode() {
+	c.viewChangesMode = false
+	c.viewChangesContent = ""
+}
+
+// IsInViewChangesMode returns whether we're currently showing the diff overlay
+func (c *Chat) IsInViewChangesMode() bool {
+	return c.viewChangesMode
 }
 
 // GetStreaming returns the current streaming content
@@ -1025,6 +1058,33 @@ func (c *Chat) updateContent() {
 func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	// Handle view changes mode first - it intercepts all input
+	if c.viewChangesMode {
+		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
+			key := keyMsg.String()
+			switch key {
+			case "esc", "q", "v":
+				// Exit view changes mode
+				c.ExitViewChangesMode()
+				return c, nil
+			case "pgup", "pgdown", "ctrl+up", "ctrl+down", "home", "end",
+				"page up", "page down", "ctrl+u", "ctrl+d", "up", "down", "j", "k":
+				// Pass scroll keys to view changes viewport
+				var cmd tea.Cmd
+				c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
+				cmds = append(cmds, cmd)
+				return c, tea.Batch(cmds...)
+			}
+			// Ignore other keys in view changes mode
+			return c, nil
+		}
+		// Pass non-key events (like mouse wheel) to viewport
+		var cmd tea.Cmd
+		c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
+		cmds = append(cmds, cmd)
+		return c, tea.Batch(cmds...)
+	}
+
 	switch msg.(type) {
 	case StopwatchTickMsg:
 		if c.waiting {
@@ -1086,6 +1146,11 @@ func (c *Chat) View() string {
 		panelStyle = PanelFocusedStyle
 	}
 
+	// View changes mode: show diff overlay instead of chat
+	if c.viewChangesMode {
+		return c.renderViewChangesMode(panelStyle)
+	}
+
 	// Viewport content - render placeholder directly if no session
 	var viewportContent string
 	if !c.hasSession {
@@ -1114,4 +1179,10 @@ func (c *Chat) View() string {
 	inputArea := inputStyle.Width(c.width).Render(c.input.View())
 
 	return lipgloss.JoinVertical(lipgloss.Left, chatPanel, inputArea)
+}
+
+// renderViewChangesMode renders the diff overlay view
+func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
+	// Use the full height (no input area in view changes mode)
+	return panelStyle.Width(c.width).Height(c.height).Render(c.viewChangesViewport.View())
 }
