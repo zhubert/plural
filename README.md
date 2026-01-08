@@ -4,7 +4,7 @@ A TUI for managing multiple concurrent Claude Code sessions, each running in its
 
 ## Why Plural?
 
-Claude Code works best with focused, single-purpose sessions. But real work often involves multiple parallel tasks: fixing a bug while prototyping a feature, reviewing code in one repo while implementing in another, or running several experimental approaches simultaneously.
+Ever wish you could have Claude work on multiple things at once, in the same code base? Fix a bug in one session while prototyping a feature in another, or compare different approaches side by side.
 
 Plural lets you:
 - **Run multiple Claude sessions in parallel** without conflicts
