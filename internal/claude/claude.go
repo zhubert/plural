@@ -19,10 +19,15 @@ import (
 
 // Claude runner constants
 const (
-	// PermissionChannelBuffer is the buffer size for permission request/response channels
+	// PermissionChannelBuffer is the buffer size for permission request/response channels.
+	// We use a buffer of 1 to allow the MCP server to send a request without blocking,
+	// giving the user time to respond before the channel blocks on a second request.
+	// A larger buffer would allow multiple permissions to queue up, which could confuse users.
 	PermissionChannelBuffer = 1
 
-	// PermissionTimeout is the timeout for waiting for permission responses
+	// PermissionTimeout is the timeout for waiting for permission responses.
+	// 5 minutes allows users to read the prompt, check documentation, or switch tasks
+	// without the request timing out. If this expires, the permission is denied.
 	PermissionTimeout = 5 * time.Minute
 )
 
@@ -314,75 +319,84 @@ func parseStreamMessage(line string) []ResponseChunk {
 	return chunks
 }
 
-// extractToolInputDescription extracts a brief, human-readable description from tool input
+// toolInputConfig defines how to extract a description from a tool's input.
+type toolInputConfig struct {
+	Field      string // JSON field to extract
+	ShortenPath bool   // Whether to shorten file paths to just filename
+	MaxLen     int    // Maximum length before truncation (0 = no limit)
+}
+
+// toolInputConfigs maps tool names to their input extraction configuration.
+// This replaces the hardcoded switch statement, making it easier to add new tools.
+var toolInputConfigs = map[string]toolInputConfig{
+	// File operations - extract file_path and shorten to filename
+	"Read":  {Field: "file_path", ShortenPath: true},
+	"Edit":  {Field: "file_path", ShortenPath: true},
+	"Write": {Field: "file_path", ShortenPath: true},
+
+	// Search operations - extract the pattern/query
+	"Glob":      {Field: "pattern"},
+	"Grep":      {Field: "pattern", MaxLen: 30},
+	"WebSearch": {Field: "query"},
+
+	// Command execution - show the command with truncation
+	"Bash": {Field: "command", MaxLen: 40},
+
+	// Task delegation - show the description
+	"Task": {Field: "description"},
+
+	// Web operations - show URL with truncation
+	"WebFetch": {Field: "url", MaxLen: 40},
+}
+
+// DefaultToolInputMaxLen is the default max length for tool descriptions.
+const DefaultToolInputMaxLen = 40
+
+// extractToolInputDescription extracts a brief, human-readable description from tool input.
+// Uses the toolInputConfigs map for configuration-driven extraction.
 func extractToolInputDescription(toolName string, input json.RawMessage) string {
 	if len(input) == 0 {
 		return ""
 	}
 
-	var inputMap map[string]interface{}
+	var inputMap map[string]any
 	if err := json.Unmarshal(input, &inputMap); err != nil {
 		return ""
 	}
 
-	switch toolName {
-	case "Read":
-		if path, ok := inputMap["file_path"].(string); ok {
-			return shortenPath(path)
-		}
-	case "Edit":
-		if path, ok := inputMap["file_path"].(string); ok {
-			return shortenPath(path)
-		}
-	case "Write":
-		if path, ok := inputMap["file_path"].(string); ok {
-			return shortenPath(path)
-		}
-	case "Glob":
-		if pattern, ok := inputMap["pattern"].(string); ok {
-			return pattern
-		}
-	case "Grep":
-		if pattern, ok := inputMap["pattern"].(string); ok {
-			if len(pattern) > 30 {
-				return pattern[:30] + "..."
-			}
-			return pattern
-		}
-	case "Bash":
-		if cmd, ok := inputMap["command"].(string); ok {
-			if len(cmd) > 40 {
-				return cmd[:40] + "..."
-			}
-			return cmd
-		}
-	case "Task":
-		if desc, ok := inputMap["description"].(string); ok {
-			return desc
-		}
-	case "WebFetch":
-		if url, ok := inputMap["url"].(string); ok {
-			if len(url) > 40 {
-				return url[:40] + "..."
-			}
-			return url
-		}
-	case "WebSearch":
-		if query, ok := inputMap["query"].(string); ok {
-			return query
+	// Check if we have a config for this tool
+	if cfg, ok := toolInputConfigs[toolName]; ok {
+		if value, exists := inputMap[cfg.Field].(string); exists {
+			return formatToolInput(value, cfg.ShortenPath, cfg.MaxLen)
 		}
 	}
 
 	// Default: return first string value found
 	for _, v := range inputMap {
 		if s, ok := v.(string); ok && s != "" {
-			if len(s) > 40 {
-				return s[:40] + "..."
-			}
-			return s
+			return truncateString(s, DefaultToolInputMaxLen)
 		}
 	}
 	return ""
+}
+
+// formatToolInput formats a tool input value according to the config.
+func formatToolInput(value string, shorten bool, maxLen int) string {
+	if shorten {
+		value = shortenPath(value)
+	}
+	if maxLen > 0 {
+		value = truncateString(value, maxLen)
+	}
+	return value
+}
+
+// truncateString truncates a string to maxLen characters with "..." suffix.
+func truncateString(s string, maxLen int) string {
+	if maxLen > 0 && len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return s
 }
 
 // shortenPath returns just the filename or last path component

@@ -10,6 +10,16 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
+// Configuration constants for git operations
+const (
+	// MaxDiffSize is the maximum number of characters to include in a diff.
+	// This prevents excessive memory usage when Claude is analyzing changes.
+	// Claude's context window can handle much more, but large diffs slow down
+	// commit message generation and rarely provide additional value.
+	// 50KB is enough to capture meaningful changes while staying responsive.
+	MaxDiffSize = 50000
+)
+
 // Result represents output from a git operation
 type Result struct {
 	Output string
@@ -68,15 +78,22 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	diffOutput, err := cmd.Output()
 	if err != nil {
 		// If HEAD doesn't exist (new repo), try diff without HEAD
+		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
 		cmd = exec.Command("git", "diff")
 		cmd.Dir = worktreePath
-		diffOutput, _ = cmd.Output()
+		diffOutput, err = cmd.Output()
+		if err != nil {
+			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
+		}
 	}
 
-	// Also include untracked files in diff-like format
+	// Also include staged changes in diff-like format
 	cmd = exec.Command("git", "diff", "--cached")
 	cmd.Dir = worktreePath
-	cachedDiff, _ := cmd.Output()
+	cachedDiff, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
+	}
 
 	status.Diff = string(diffOutput) + string(cachedDiff)
 
@@ -118,7 +135,10 @@ func GenerateCommitMessage(worktreePath string) (string, error) {
 	// Get the diff stats for a better message
 	cmd := exec.Command("git", "diff", "--stat", "HEAD")
 	cmd.Dir = worktreePath
-	statOutput, _ := cmd.Output()
+	statOutput, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Warning - git diff --stat failed (best-effort): %v", err)
+	}
 
 	// Create a simple but descriptive message
 	message := fmt.Sprintf("Plural session changes\n\n%s\n\nFiles:\n", status.Summary)
@@ -152,20 +172,27 @@ func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (
 	diffOutput, err := cmd.Output()
 	if err != nil {
 		// Try without HEAD for new repos
+		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
 		cmd = exec.CommandContext(ctx, "git", "diff")
 		cmd.Dir = worktreePath
-		diffOutput, _ = cmd.Output()
+		diffOutput, err = cmd.Output()
+		if err != nil {
+			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
+		}
 	}
 
 	// Also get staged changes
 	cmd = exec.CommandContext(ctx, "git", "diff", "--cached")
 	cmd.Dir = worktreePath
-	cachedOutput, _ := cmd.Output()
+	cachedOutput, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
+	}
 
 	fullDiff := string(diffOutput) + string(cachedOutput)
 
 	// Truncate diff if too large (Claude has context limits)
-	maxDiffSize := 50000
+	maxDiffSize := MaxDiffSize
 	if len(fullDiff) > maxDiffSize {
 		fullDiff = fullDiff[:maxDiffSize] + "\n... (diff truncated)"
 	}
@@ -232,7 +259,7 @@ func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string) (title
 	fullDiff := string(diffOutput)
 
 	// Truncate diff if too large
-	maxDiffSize := 50000
+	maxDiffSize := MaxDiffSize
 	if len(fullDiff) > maxDiffSize {
 		fullDiff = fullDiff[:maxDiffSize] + "\n... (diff truncated)"
 	}

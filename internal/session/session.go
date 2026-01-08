@@ -173,10 +173,12 @@ func Delete(sess *config.Session) error {
 	}
 	logger.Log("Session: Worktree removed successfully")
 
-	// Prune worktree references
+	// Prune worktree references (best-effort cleanup)
 	pruneCmd := exec.Command("git", "worktree", "prune")
 	pruneCmd.Dir = sess.RepoPath
-	pruneCmd.Run() // Ignore errors, this is just cleanup
+	if output, err := pruneCmd.CombinedOutput(); err != nil {
+		logger.Log("Session: Warning - worktree prune failed (best-effort): %s - %v", string(output), err)
+	}
 
 	// Delete the branch
 	branchCmd := exec.Command("git", "branch", "-D", sess.Branch)

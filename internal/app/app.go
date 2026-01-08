@@ -68,40 +68,12 @@ type Model struct {
 	// State machine
 	state AppState // Current application state
 
-	// Per-session pending permissions (sessionID -> request)
-	pendingPermissions map[string]*mcp.PermissionRequest
-
-	// Per-session pending questions (sessionID -> request)
-	pendingQuestions map[string]*mcp.QuestionRequest
-
-	// Per-session merge/PR operation state
-	sessionMergeChans   map[string]<-chan git.Result
-	sessionMergeCancels map[string]context.CancelFunc
-	sessionMergeType    map[string]string // "merge" or "pr" - tracks what operation type is in progress
+	// Per-session state manager (thread-safe, consolidates all per-session state)
+	sessionState *SessionStateManager
 
 	// Pending commit message editing state (one at a time)
-	pendingCommitSession string // Session ID waiting for commit message confirmation
-	pendingCommitType    string // "merge" or "pr" - what operation follows after commit
-
-	// Per-session Claude streaming cancel functions
-	sessionStreamCancels map[string]context.CancelFunc
-
-	// Per-session wait tracking for timer
-	sessionWaitStart map[string]time.Time // When each session started waiting
-
-	// Per-session input text (saved when switching sessions)
-	sessionInputs map[string]string
-
-	// Per-session streaming content (for non-active sessions)
-	sessionStreaming map[string]string
-
-	// Per-session last tool use position (for non-active sessions)
-	sessionToolUsePos map[string]int
-
-	// Per-session "session in use" error tracking
-	// When a session fails with "session in use", we track it here so the user
-	// can press 'f' to force-resume by killing orphaned processes
-	sessionInUseError map[string]bool
+	pendingCommitSession string    // Session ID waiting for commit message confirmation
+	pendingCommitType    MergeType // What operation follows after commit
 }
 
 // ClaudeResponseMsg is sent when Claude sends a response chunk
@@ -138,26 +110,16 @@ type CommitMessageGeneratedMsg struct {
 // New creates a new app model
 func New(cfg *config.Config) *Model {
 	m := &Model{
-		config:              cfg,
-		header:              ui.NewHeader(),
-		footer:              ui.NewFooter(),
-		sidebar:             ui.NewSidebar(),
-		chat:                ui.NewChat(),
-		modal:               ui.NewModal(),
-		focus:               FocusSidebar,
-		claudeRunners:       make(map[string]*claude.Runner),
-		sessionWaitStart:    make(map[string]time.Time),
-		pendingPermissions:  make(map[string]*mcp.PermissionRequest),
-		pendingQuestions:    make(map[string]*mcp.QuestionRequest),
-		sessionInputs:       make(map[string]string),
-		sessionMergeChans:    make(map[string]<-chan git.Result),
-		sessionMergeCancels:  make(map[string]context.CancelFunc),
-		sessionMergeType:     make(map[string]string),
-		sessionStreamCancels: make(map[string]context.CancelFunc),
-		sessionStreaming:     make(map[string]string),
-		sessionToolUsePos:    make(map[string]int),
-		sessionInUseError:    make(map[string]bool),
-		state:               StateIdle,
+		config:        cfg,
+		header:        ui.NewHeader(),
+		footer:        ui.NewFooter(),
+		sidebar:       ui.NewSidebar(),
+		chat:          ui.NewChat(),
+		modal:         ui.NewModal(),
+		focus:         FocusSidebar,
+		claudeRunners: make(map[string]*claude.Runner),
+		sessionState:  NewSessionStateManager(),
+		state:         StateIdle,
 	}
 
 	// Load sessions into sidebar
@@ -179,12 +141,9 @@ func (m *Model) CanSendMessage() bool {
 	if m.claudeRunner == nil || m.activeSession == nil {
 		return false
 	}
-	// Check if the active session is currently waiting for a response
-	_, isWaiting := m.sessionWaitStart[m.activeSession.ID]
-	// Check if the active session has a merge in progress
-	_, isMerging := m.sessionMergeChans[m.activeSession.ID]
+	// Check if the active session is currently waiting for a response or has a merge in progress
 	// Each session can operate independently
-	return !isWaiting && !isMerging
+	return !m.sessionState.IsWaiting(m.activeSession.ID) && !m.sessionState.IsMerging(m.activeSession.ID)
 }
 
 // setState transitions to a new state with logging
@@ -218,7 +177,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle permission response when chat is focused and has pending permission
 		if m.focus == FocusChat && m.activeSession != nil {
-			if req, exists := m.pendingPermissions[m.activeSession.ID]; exists {
+			if req := m.sessionState.GetPendingPermission(m.activeSession.ID); req != nil {
 				switch msg.String() {
 				case "y", "Y", "n", "N", "a", "A":
 					return m.handlePermissionResponse(msg.String(), m.activeSession.ID, req)
@@ -228,7 +187,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle question response when chat is focused and has pending question
 		if m.focus == FocusChat && m.activeSession != nil {
-			if _, exists := m.pendingQuestions[m.activeSession.ID]; exists {
+			if m.sessionState.GetPendingQuestion(m.activeSession.ID) != nil {
 				key := msg.String()
 				switch key {
 				case "1", "2", "3", "4", "5":
@@ -254,11 +213,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle Escape to interrupt streaming
 		if msg.String() == "esc" && m.activeSession != nil {
-			if cancel, exists := m.sessionStreamCancels[m.activeSession.ID]; exists {
+			if cancel := m.sessionState.GetStreamCancel(m.activeSession.ID); cancel != nil {
 				logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
 				cancel()
-				delete(m.sessionStreamCancels, m.activeSession.ID)
-				delete(m.sessionWaitStart, m.activeSession.ID)
+				m.sessionState.StopWaiting(m.activeSession.ID)
 				m.sidebar.SetStreaming(m.activeSession.ID, false)
 				m.chat.SetWaiting(false)
 				// Save partial response to runner before finishing
@@ -363,7 +321,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Force-resume: kill orphaned processes and clear the error state
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
 				sess := m.sidebar.SelectedSession()
-				if m.sessionInUseError[sess.ID] {
+				if m.sessionState.HasSessionInUseError(sess.ID) {
 					return m.forceResumeSession(sess)
 				}
 			}
@@ -397,13 +355,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			errMsg := msg.Chunk.Error.Error()
 			logger.Log("App: Error in session %s: %v", msg.SessionID, errMsg)
 			m.sidebar.SetStreaming(msg.SessionID, false)
-			delete(m.sessionWaitStart, msg.SessionID)
-			delete(m.sessionStreamCancels, msg.SessionID)
+			m.sessionState.StopWaiting(msg.SessionID)
 
 			// Check if this is a "session in use" error
 			if process.IsSessionInUseError(errMsg) {
 				logger.Log("App: Session %s appears to be in use by another process", msg.SessionID)
-				m.sessionInUseError[msg.SessionID] = true
+				m.sessionState.SetSessionInUseError(msg.SessionID, true)
 				m.sidebar.SetSessionInUse(msg.SessionID, true)
 				errMsg = "Session is in use by another process. Press 'f' to force resume by killing orphaned processes."
 			}
@@ -413,7 +370,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chat.AppendStreaming("\n[Error: " + errMsg + "]")
 			} else {
 				// Store error for non-active session
-				m.sessionStreaming[msg.SessionID] += "\n[Error: " + errMsg + "]"
+				m.sessionState.AppendStreaming(msg.SessionID, "\n[Error: "+errMsg+"]")
 			}
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
@@ -422,15 +379,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.Chunk.Done {
 			logger.Log("App: Session %s completed streaming", msg.SessionID)
 			m.sidebar.SetStreaming(msg.SessionID, false)
-			delete(m.sessionWaitStart, msg.SessionID)
-			delete(m.sessionStreamCancels, msg.SessionID)
+			m.sessionState.StopWaiting(msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.FinishStreaming()
 			} else {
 				// For non-active session, just clear our saved streaming content
 				// The runner already adds the assistant message when streaming completes (claude.go)
-				delete(m.sessionStreaming, msg.SessionID)
+				m.sessionState.ClearStreaming(msg.SessionID)
 			}
 			// Mark session as started and save messages
 			sess := m.getSessionByID(msg.SessionID)
@@ -449,7 +405,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			// Streaming content - clear wait time since response has started
-			delete(m.sessionWaitStart, msg.SessionID)
+			m.sessionState.ClearWaitStart(msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				// Handle different chunk types
@@ -479,36 +435,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						line += ": " + msg.Chunk.ToolInput
 					}
 					line += ")\n"
-					if existing := m.sessionStreaming[msg.SessionID]; existing != "" && !strings.HasSuffix(existing, "\n") {
-						m.sessionStreaming[msg.SessionID] += "\n"
+					existing := m.sessionState.GetStreaming(msg.SessionID)
+					if existing != "" && !strings.HasSuffix(existing, "\n") {
+						m.sessionState.AppendStreaming(msg.SessionID, "\n")
 					}
 					// Track position where the marker starts
-					m.sessionToolUsePos[msg.SessionID] = len(m.sessionStreaming[msg.SessionID])
-					m.sessionStreaming[msg.SessionID] += line
+					m.sessionState.SetToolUsePos(msg.SessionID, len(m.sessionState.GetStreaming(msg.SessionID)))
+					m.sessionState.AppendStreaming(msg.SessionID, line)
 				case claude.ChunkTypeToolResult:
 					// Mark the tool use as complete for non-active session
-					if pos, exists := m.sessionToolUsePos[msg.SessionID]; exists && pos >= 0 {
-						streaming := m.sessionStreaming[msg.SessionID]
-						markerLen := len(ui.ToolUseInProgress)
-						if pos+markerLen <= len(streaming) {
-							prefix := streaming[:pos]
-							suffix := streaming[pos+markerLen:]
-							m.sessionStreaming[msg.SessionID] = prefix + ui.ToolUseComplete + suffix
-						}
-						delete(m.sessionToolUsePos, msg.SessionID)
+					if pos, exists := m.sessionState.GetToolUsePos(msg.SessionID); exists && pos >= 0 {
+						m.sessionState.ReplaceToolUseMarker(msg.SessionID, ui.ToolUseInProgress, ui.ToolUseComplete, pos)
+						m.sessionState.ClearToolUsePos(msg.SessionID)
 					}
 				case claude.ChunkTypeText:
 					// Add extra newline after tool use for visual separation
-					if pos, exists := m.sessionToolUsePos[msg.SessionID]; exists && pos >= 0 {
-						streaming := m.sessionStreaming[msg.SessionID]
+					if pos, exists := m.sessionState.GetToolUsePos(msg.SessionID); exists && pos >= 0 {
+						streaming := m.sessionState.GetStreaming(msg.SessionID)
 						if strings.HasSuffix(streaming, "\n") && !strings.HasSuffix(streaming, "\n\n") {
-							m.sessionStreaming[msg.SessionID] += "\n"
+							m.sessionState.AppendStreaming(msg.SessionID, "\n")
 						}
 					}
-					m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
+					m.sessionState.AppendStreaming(msg.SessionID, msg.Chunk.Content)
 				default:
 					if msg.Chunk.Content != "" {
-						m.sessionStreaming[msg.SessionID] += msg.Chunk.Content
+						m.sessionState.AppendStreaming(msg.SessionID, msg.Chunk.Content)
 					}
 				}
 			}
@@ -530,7 +481,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Store permission request for this session (inline, not modal)
 		logger.Log("App: Permission request for session %s: tool=%s", msg.SessionID, msg.Request.Tool)
-		m.pendingPermissions[msg.SessionID] = &msg.Request
+		m.sessionState.SetPendingPermission(msg.SessionID, &msg.Request)
 		m.sidebar.SetPendingPermission(msg.SessionID, true)
 
 		// If this is the active session, show permission in chat
@@ -555,7 +506,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Store question request for this session
 		logger.Log("App: Question request for session %s: %d questions", msg.SessionID, len(msg.Request.Questions))
-		m.pendingQuestions[msg.SessionID] = &msg.Request
+		m.sessionState.SetPendingQuestion(msg.SessionID, &msg.Request)
 		m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
 
 		// If this is the active session, show question in chat
@@ -576,12 +527,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Log("App: Commit message generation failed: %v", msg.Error)
 			m.chat.AppendStreaming(fmt.Sprintf("Failed to generate commit message: %v\n", msg.Error))
 			m.pendingCommitSession = ""
-			m.pendingCommitType = ""
+			m.pendingCommitType = MergeTypeNone
 			return m, nil
 		}
 
 		// Show the edit commit modal with the generated message
-		m.modal.SetCommitMessage(msg.Message, m.pendingCommitType)
+		m.modal.SetCommitMessage(msg.Message, m.pendingCommitType.String())
 		m.modal.Show(ui.ModalEditCommit)
 		return m, nil
 
@@ -591,30 +542,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isActiveSession {
 				m.chat.AppendStreaming("\n[Error: " + msg.Result.Error.Error() + "]\n")
 			} else {
-				m.sessionStreaming[msg.SessionID] += "\n[Error: " + msg.Result.Error.Error() + "]\n"
+				m.sessionState.AppendStreaming(msg.SessionID, "\n[Error: "+msg.Result.Error.Error()+"]\n")
 			}
 			// Clean up merge state for this session
-			delete(m.sessionMergeChans, msg.SessionID)
-			delete(m.sessionMergeCancels, msg.SessionID)
-			delete(m.sessionMergeType, msg.SessionID)
+			m.sessionState.StopMerge(msg.SessionID)
 		} else if msg.Result.Done {
 			if isActiveSession {
 				m.chat.FinishStreaming()
 			} else {
 				// Store completed merge output as a message for when user switches back
-				if content := m.sessionStreaming[msg.SessionID]; content != "" {
+				if content := m.sessionState.GetStreaming(msg.SessionID); content != "" {
 					if runner, exists := m.claudeRunners[msg.SessionID]; exists {
 						runner.AddAssistantMessage(content)
 						m.saveRunnerMessages(msg.SessionID, runner)
 					}
-					delete(m.sessionStreaming, msg.SessionID)
+					m.sessionState.ClearStreaming(msg.SessionID)
 				}
 			}
 			// Mark session as merged or PR created based on operation type
-			if mergeType := m.sessionMergeType[msg.SessionID]; mergeType == "pr" {
+			mergeType := m.sessionState.GetMergeType(msg.SessionID)
+			if mergeType == MergeTypePR {
 				m.config.MarkSessionPRCreated(msg.SessionID)
 				logger.Log("App: Marked session %s as PR created", msg.SessionID)
-			} else if mergeType == "merge" {
+			} else if mergeType == MergeTypeMerge {
 				m.config.MarkSessionMerged(msg.SessionID)
 				logger.Log("App: Marked session %s as merged", msg.SessionID)
 			}
@@ -622,14 +572,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update sidebar with new session status
 			m.sidebar.SetSessions(m.config.GetSessions())
 			// Clean up merge state for this session
-			delete(m.sessionMergeChans, msg.SessionID)
-			delete(m.sessionMergeCancels, msg.SessionID)
-			delete(m.sessionMergeType, msg.SessionID)
+			m.sessionState.StopMerge(msg.SessionID)
 		} else {
 			if isActiveSession {
 				m.chat.AppendStreaming(msg.Result.Output)
 			} else {
-				m.sessionStreaming[msg.SessionID] += msg.Result.Output
+				m.sessionState.AppendStreaming(msg.SessionID, msg.Result.Output)
 			}
 			return m, m.listenForMergeResult(msg.SessionID)
 		}
@@ -695,308 +643,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	key := msg.String()
-
-	switch m.modal.Type {
-	case ui.ModalAddRepo:
-		switch key {
-		case "esc":
-			m.modal.Hide()
-			return m, nil
-		case "enter":
-			path := m.modal.GetAddRepoPath()
-			if path == "" {
-				m.modal.SetError("Please enter a path")
-				return m, nil
-			}
-			if err := session.ValidateRepo(path); err != nil {
-				m.modal.SetError(err.Error())
-				return m, nil
-			}
-			if !m.config.AddRepo(path) {
-				m.modal.SetError("Repository already added")
-				return m, nil
-			}
-			if err := m.config.Save(); err != nil {
-				m.modal.SetError("Failed to save: " + err.Error())
-				return m, nil
-			}
-			m.modal.Hide()
-			return m, nil
-		}
-
-	case ui.ModalNewSession:
-		switch key {
-		case "esc":
-			m.modal.Hide()
-			return m, nil
-		case "enter":
-			repoPath := m.modal.GetSelectedRepo()
-			if repoPath == "" {
-				return m, nil
-			}
-			branchName := m.modal.GetBranchName()
-			// Validate branch name
-			if err := session.ValidateBranchName(branchName); err != nil {
-				m.modal.SetError(err.Error())
-				return m, nil
-			}
-			// Check if branch already exists
-			if branchName != "" && session.BranchExists(repoPath, branchName) {
-				m.modal.SetError("Branch already exists: " + branchName)
-				return m, nil
-			}
-			logger.Log("App: Creating new session for repo=%s, branch=%q", repoPath, branchName)
-			sess, err := session.Create(repoPath, branchName)
-			if err != nil {
-				logger.Log("App: Failed to create session: %v", err)
-				m.modal.SetError(err.Error())
-				return m, nil
-			}
-			logger.Log("App: Session created: id=%s, name=%s", sess.ID, sess.Name)
-			m.config.AddSession(*sess)
-			if err := m.config.Save(); err != nil {
-				logger.Log("App: Failed to save config: %v", err)
-				m.modal.SetError("Failed to save: " + err.Error())
-				return m, nil
-			}
-			m.sidebar.SetSessions(m.config.GetSessions())
-			m.sidebar.SelectSession(sess.ID)
-			m.selectSession(sess)
-			m.modal.Hide()
-			return m, nil
-		}
-
-	case ui.ModalConfirmDelete:
-		switch key {
-		case "esc":
-			m.modal.Hide()
-			return m, nil
-		case "enter":
-			if sess := m.sidebar.SelectedSession(); sess != nil {
-				deleteWorktree := m.modal.ShouldDeleteWorktree()
-				logger.Log("App: Deleting session: id=%s, name=%s, deleteWorktree=%v", sess.ID, sess.Name, deleteWorktree)
-
-				// Delete worktree if requested
-				if deleteWorktree {
-					if err := session.Delete(sess); err != nil {
-						logger.Log("App: Failed to delete worktree: %v", err)
-						// Continue with session removal even if worktree deletion fails
-					}
-				}
-
-				m.config.RemoveSession(sess.ID)
-				m.config.Save()
-				config.DeleteSessionMessages(sess.ID)
-				m.sidebar.SetSessions(m.config.GetSessions())
-				if runner, exists := m.claudeRunners[sess.ID]; exists {
-					logger.Log("App: Stopping runner for deleted session %s", sess.ID)
-					runner.Stop()
-					delete(m.claudeRunners, sess.ID)
-				}
-				// Cancel any in-progress merge operation
-				if cancel, exists := m.sessionMergeCancels[sess.ID]; exists {
-					cancel()
-					delete(m.sessionMergeCancels, sess.ID)
-					delete(m.sessionMergeChans, sess.ID)
-				}
-				// Cancel any in-progress streaming
-				if cancel, exists := m.sessionStreamCancels[sess.ID]; exists {
-					cancel()
-					delete(m.sessionStreamCancels, sess.ID)
-				}
-				// Clean up per-session state maps
-				delete(m.pendingPermissions, sess.ID)
-				delete(m.pendingQuestions, sess.ID)
-				delete(m.sessionWaitStart, sess.ID)
-				delete(m.sessionInputs, sess.ID)
-				delete(m.sessionStreaming, sess.ID)
-				m.sidebar.SetPendingPermission(sess.ID, false)
-				if m.activeSession != nil && m.activeSession.ID == sess.ID {
-					m.activeSession = nil
-					m.claudeRunner = nil
-					m.chat.ClearSession()
-					m.header.SetSessionName("")
-				}
-				logger.Log("App: Session deleted successfully: %s", sess.ID)
-			}
-			m.modal.Hide()
-			return m, nil
-		case "up", "down", "j", "k":
-			// Forward navigation keys to modal for option selection
-			modal, cmd := m.modal.Update(msg)
-			m.modal = modal
-			return m, cmd
-		}
-		return m, nil
-
-	case ui.ModalMerge:
-		switch key {
-		case "esc":
-			m.modal.Hide()
-			return m, nil
-		case "enter":
-			option := m.modal.GetSelectedMergeOption()
-			sess := m.sidebar.SelectedSession()
-			if option == "" || sess == nil {
-				return m, nil
-			}
-			// Check if this session already has a merge in progress
-			if _, exists := m.sessionMergeChans[sess.ID]; exists {
-				logger.Log("App: Merge already in progress for session %s", sess.ID)
-				return m, nil
-			}
-			logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s, worktree=%s", option, sess.ID, sess.Branch, sess.WorkTree)
-			m.modal.Hide()
-			if m.activeSession == nil || m.activeSession.ID != sess.ID {
-				m.selectSession(sess)
-			}
-
-			// Check for uncommitted changes
-			status, err := git.GetWorktreeStatus(sess.WorkTree)
-			if err != nil {
-				m.chat.AppendStreaming(fmt.Sprintf("Error checking worktree status: %v\n", err))
-				return m, nil
-			}
-
-			mergeType := "merge"
-			if option == "Create PR" {
-				mergeType = "pr"
-			}
-
-			if status.HasChanges {
-				// Generate commit message and show edit modal
-				m.chat.AppendStreaming("Generating commit message with Claude...\n")
-				m.pendingCommitSession = sess.ID
-				m.pendingCommitType = mergeType
-				return m, m.generateCommitMessage(sess.ID, sess.WorkTree)
-			}
-
-			// No changes - proceed directly with merge/PR
-			ctx, cancel := context.WithCancel(context.Background())
-			m.sessionMergeCancels[sess.ID] = cancel
-			if mergeType == "pr" {
-				logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
-				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, "")
-				m.sessionMergeType[sess.ID] = "pr"
-			} else {
-				logger.Log("App: Merging branch %s to main (no uncommitted changes)", sess.Branch)
-				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, "")
-				m.sessionMergeType[sess.ID] = "merge"
-			}
-			return m, m.listenForMergeResult(sess.ID)
-		}
-
-	case ui.ModalMCPServers:
-		switch key {
-		case "esc":
-			m.modal.Hide()
-			return m, nil
-		case "a":
-			m.modal.ShowAddMCPServer(m.config.GetRepos())
-			return m, nil
-		case "d":
-			if server := m.modal.GetSelectedMCPServer(); server != nil {
-				if server.IsGlobal {
-					m.config.RemoveGlobalMCPServer(server.Name)
-				} else {
-					m.config.RemoveRepoMCPServer(server.RepoPath, server.Name)
-				}
-				m.config.Save()
-				m.showMCPServersModal() // Refresh the modal
-			}
-			return m, nil
-		}
-
-	case ui.ModalAddMCPServer:
-		switch key {
-		case "esc":
-			m.showMCPServersModal() // Go back to list
-			return m, nil
-		case "enter":
-			name, command, args, repoPath, isGlobal := m.modal.GetNewMCPServer()
-			if name == "" || command == "" {
-				return m, nil
-			}
-			// Parse args (space-separated)
-			var argsList []string
-			if args != "" {
-				argsList = strings.Fields(args)
-			}
-			server := config.MCPServer{
-				Name:    name,
-				Command: command,
-				Args:    argsList,
-			}
-			if isGlobal {
-				m.config.AddGlobalMCPServer(server)
-			} else {
-				m.config.AddRepoMCPServer(repoPath, server)
-			}
-			m.config.Save()
-			m.modal.Hide()
-			return m, nil
-		case " ":
-			// Space toggles scope when on scope selector
-			m.modal.ToggleMCPScope()
-			return m, nil
-		}
-
-	case ui.ModalEditCommit:
-		switch key {
-		case "esc":
-			// Cancel commit message editing
-			m.modal.Hide()
-			m.pendingCommitSession = ""
-			m.pendingCommitType = ""
-			m.chat.AppendStreaming("Cancelled.\n")
-			return m, nil
-		case "ctrl+s":
-			// Confirm commit and proceed with merge/PR
-			commitMsg := m.modal.GetCommitMessage()
-			if commitMsg == "" {
-				return m, nil // Don't allow empty commit messages
-			}
-			m.modal.Hide()
-
-			sess := m.config.GetSession(m.pendingCommitSession)
-			if sess == nil {
-				m.pendingCommitSession = ""
-				m.pendingCommitType = ""
-				return m, nil
-			}
-
-			mergeType := m.pendingCommitType
-			m.pendingCommitSession = ""
-			m.pendingCommitType = ""
-
-			// Proceed with merge/PR using the edited commit message
-			ctx, cancel := context.WithCancel(context.Background())
-			m.sessionMergeCancels[sess.ID] = cancel
-			if mergeType == "pr" {
-				logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
-				m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-				m.sessionMergeChans[sess.ID] = git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg)
-				m.sessionMergeType[sess.ID] = "pr"
-			} else {
-				logger.Log("App: Merging branch %s to main with user-edited commit message", sess.Branch)
-				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.sessionMergeChans[sess.ID] = git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg)
-				m.sessionMergeType[sess.ID] = "merge"
-			}
-			return m, m.listenForMergeResult(sess.ID)
-		}
-	}
-
-	// Update modal input (for text-based modals like AddRepo)
-	modal, cmd := m.modal.Update(msg)
-	m.modal = modal
-	return m, cmd
-}
-
 func (m *Model) toggleFocus() {
 	if m.focus == FocusSidebar {
 		// Only allow switching to chat if there's an active session
@@ -1056,12 +702,12 @@ func (m *Model) selectSession(sess *config.Session) {
 	// Save current session's state before switching
 	if m.activeSession != nil {
 		currentInput := m.chat.GetInput()
-		m.sessionInputs[m.activeSession.ID] = currentInput
+		m.sessionState.SaveInput(m.activeSession.ID, currentInput)
 		logger.Log("App: Saved input for session %s: %q", m.activeSession.ID, currentInput)
 
 		// Save current streaming content if any
 		if streamingContent := m.chat.GetStreaming(); streamingContent != "" {
-			m.sessionStreaming[m.activeSession.ID] = streamingContent
+			m.sessionState.SaveStreaming(m.activeSession.ID, streamingContent)
 			logger.Log("App: Saved streaming content for session %s", m.activeSession.ID)
 		}
 	}
@@ -1130,35 +776,35 @@ func (m *Model) selectSession(sess *config.Session) {
 	m.chat.SetFocused(true)
 
 	// Restore waiting state if this session is streaming
-	if startTime, isWaiting := m.sessionWaitStart[sess.ID]; isWaiting {
+	if startTime, isWaiting := m.sessionState.GetWaitStart(sess.ID); isWaiting {
 		m.chat.SetWaitingWithStart(true, startTime)
 	} else {
 		m.chat.SetWaiting(false)
 	}
 
 	// Restore pending permission if this session has one
-	if req, exists := m.pendingPermissions[sess.ID]; exists {
+	if req := m.sessionState.GetPendingPermission(sess.ID); req != nil {
 		m.chat.SetPendingPermission(req.Tool, req.Description)
 	} else {
 		m.chat.ClearPendingPermission()
 	}
 
 	// Restore pending question if this session has one
-	if req, exists := m.pendingQuestions[sess.ID]; exists {
+	if req := m.sessionState.GetPendingQuestion(sess.ID); req != nil {
 		m.chat.SetPendingQuestion(req.Questions)
 	} else {
 		m.chat.ClearPendingQuestion()
 	}
 
 	// Restore streaming content if this session has ongoing streaming
-	if streamingContent, exists := m.sessionStreaming[sess.ID]; exists && streamingContent != "" {
+	if streamingContent := m.sessionState.GetStreaming(sess.ID); streamingContent != "" {
 		m.chat.SetStreaming(streamingContent)
-		delete(m.sessionStreaming, sess.ID) // Clear so it doesn't persist if we switch away again
+		m.sessionState.ClearStreaming(sess.ID) // Clear so it doesn't persist if we switch away again
 		logger.Log("App: Restored streaming content for session %s", sess.ID)
 	}
 
 	// Restore saved input text for this session
-	if savedInput, exists := m.sessionInputs[sess.ID]; exists {
+	if savedInput := m.sessionState.GetInput(sess.ID); savedInput != "" {
 		m.chat.SetInput(savedInput)
 		logger.Log("App: Restored input for session %s: %q", sess.ID, savedInput)
 	} else {
@@ -1181,7 +827,7 @@ func (m *Model) forceResumeSession(sess *config.Session) (tea.Model, tea.Cmd) {
 	}
 
 	// Clear the error state
-	delete(m.sessionInUseError, sess.ID)
+	m.sessionState.SetSessionInUseError(sess.ID, false)
 	m.sidebar.SetSessionInUse(sess.ID, false)
 
 	// Clear the old runner from cache so a fresh one will be created
@@ -1224,14 +870,14 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 
 	m.chat.AddUserMessage(input)
 	m.chat.ClearInput()
-	m.sessionWaitStart[sessionID] = time.Now()
-	m.chat.SetWaitingWithStart(true, m.sessionWaitStart[sessionID])
-	m.sidebar.SetStreaming(sessionID, true)
-	m.setState(StateStreamingClaude)
 
 	// Create context for this request
 	ctx, cancel := context.WithCancel(context.Background())
-	m.sessionStreamCancels[sessionID] = cancel
+	m.sessionState.StartWaiting(sessionID, cancel)
+	startTime, _ := m.sessionState.GetWaitStart(sessionID)
+	m.chat.SetWaitingWithStart(true, startTime)
+	m.sidebar.SetStreaming(sessionID, true)
+	m.setState(StateStreamingClaude)
 
 	// Start Claude request - runner tracks its own response channel
 	responseChan := runner.Send(ctx, input)
@@ -1292,7 +938,7 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 	runner.SendPermissionResponse(resp)
 
 	// Clear pending permission
-	delete(m.pendingPermissions, sessionID)
+	m.sessionState.ClearPendingPermission(sessionID)
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPermission()
 
@@ -1359,8 +1005,8 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	req, exists := m.pendingQuestions[sessionID]
-	if !exists {
+	req := m.sessionState.GetPendingQuestion(sessionID)
+	if req == nil {
 		logger.Log("App: No pending question for session %s", sessionID)
 		return m, nil
 	}
@@ -1379,7 +1025,7 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 	runner.SendQuestionResponse(resp)
 
 	// Clear pending question
-	delete(m.pendingQuestions, sessionID)
+	m.sessionState.ClearPendingQuestion(sessionID)
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingQuestion()
 
@@ -1392,8 +1038,8 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
-	ch, exists := m.sessionMergeChans[sessionID]
-	if !exists || ch == nil {
+	ch := m.sessionState.GetMergeChan(sessionID)
+	if ch == nil {
 		return nil
 	}
 
@@ -1489,11 +1135,11 @@ func (m *Model) View() tea.View {
 	// Update footer context for conditional bindings
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
-	hasPendingPermission := m.activeSession != nil && m.pendingPermissions[m.activeSession.ID] != nil
-	hasPendingQuestion := m.activeSession != nil && m.pendingQuestions[m.activeSession.ID] != nil
-	isStreaming := m.activeSession != nil && m.sessionStreamCancels[m.activeSession.ID] != nil
+	hasPendingPermission := m.activeSession != nil && m.sessionState.GetPendingPermission(m.activeSession.ID) != nil
+	hasPendingQuestion := m.activeSession != nil && m.sessionState.GetPendingQuestion(m.activeSession.ID) != nil
+	isStreaming := m.activeSession != nil && m.sessionState.GetStreamCancel(m.activeSession.ID) != nil
 	selectedSess := m.sidebar.SelectedSession()
-	sessionInUse := selectedSess != nil && m.sessionInUseError[selectedSess.ID]
+	sessionInUse := selectedSess != nil && m.sessionState.HasSessionInUseError(selectedSess.ID)
 	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse)
 
 	header := m.header.View()

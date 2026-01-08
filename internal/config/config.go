@@ -95,6 +95,10 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	// Ensure slices and maps are initialized (not nil) after unmarshaling
+	// This must happen before Validate() since Validate() only reads
+	cfg.ensureInitialized()
+
 	// Validate loaded config
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -103,12 +107,11 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// Validate checks that the config is internally consistent
-func (c *Config) Validate() error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	// Ensure slices and maps are initialized (not nil)
+// ensureInitialized ensures all slices and maps are initialized (not nil).
+// This is called during Load() after unmarshaling, and must be called
+// before Validate() since Validate() only reads. This method is NOT
+// thread-safe and should only be called during initialization.
+func (c *Config) ensureInitialized() {
 	if c.Repos == nil {
 		c.Repos = []string{}
 	}
@@ -127,6 +130,13 @@ func (c *Config) Validate() error {
 	if c.RepoAllowedTools == nil {
 		c.RepoAllowedTools = make(map[string][]string)
 	}
+}
+
+// Validate checks that the config is internally consistent.
+// This is a read-only operation - call ensureInitialized() first if needed.
+func (c *Config) Validate() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	// Check for duplicate session IDs
 	seenIDs := make(map[string]bool)
