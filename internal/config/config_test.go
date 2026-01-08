@@ -865,3 +865,194 @@ func TestConfig_EnsureInitialized(t *testing.T) {
 		t.Error("RepoAllowedTools should be initialized")
 	}
 }
+
+func TestLoad_NewConfig(t *testing.T) {
+	// Create a temp directory to use as HOME
+	tmpDir, err := os.MkdirTemp("", "plural-load-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save original HOME and set temp dir
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Load should create a new config when none exists
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	if cfg == nil {
+		t.Fatal("Load() returned nil config")
+	}
+
+	// Verify defaults are set
+	if cfg.Repos == nil {
+		t.Error("Repos should be initialized")
+	}
+	if cfg.Sessions == nil {
+		t.Error("Sessions should be initialized")
+	}
+	if cfg.AllowedTools == nil {
+		t.Error("AllowedTools should be initialized")
+	}
+	if cfg.RepoAllowedTools == nil {
+		t.Error("RepoAllowedTools should be initialized")
+	}
+}
+
+func TestLoad_ExistingConfig(t *testing.T) {
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "plural-load-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save original HOME and set temp dir
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Create config directory and file
+	pluralDir := filepath.Join(tmpDir, ".plural")
+	if err := os.MkdirAll(pluralDir, 0755); err != nil {
+		t.Fatalf("Failed to create plural dir: %v", err)
+	}
+
+	configData := `{
+		"repos": ["/path/to/repo"],
+		"sessions": [{
+			"id": "test-session",
+			"repo_path": "/path/to/repo",
+			"worktree": "/path/to/worktree",
+			"branch": "plural-test",
+			"name": "test/session"
+		}],
+		"allowed_tools": ["Edit", "Write"]
+	}`
+
+	configFile := filepath.Join(pluralDir, "config.json")
+	if err := os.WriteFile(configFile, []byte(configData), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	// Load the config
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify loaded data
+	if len(cfg.Repos) != 1 {
+		t.Errorf("Expected 1 repo, got %d", len(cfg.Repos))
+	}
+	if cfg.Repos[0] != "/path/to/repo" {
+		t.Errorf("Expected repo '/path/to/repo', got %q", cfg.Repos[0])
+	}
+
+	if len(cfg.Sessions) != 1 {
+		t.Errorf("Expected 1 session, got %d", len(cfg.Sessions))
+	}
+	if cfg.Sessions[0].ID != "test-session" {
+		t.Errorf("Expected session ID 'test-session', got %q", cfg.Sessions[0].ID)
+	}
+
+	if len(cfg.AllowedTools) != 2 {
+		t.Errorf("Expected 2 allowed tools, got %d", len(cfg.AllowedTools))
+	}
+}
+
+func TestLoad_InvalidJSON(t *testing.T) {
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "plural-load-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save original HOME and set temp dir
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Create config directory and invalid file
+	pluralDir := filepath.Join(tmpDir, ".plural")
+	if err := os.MkdirAll(pluralDir, 0755); err != nil {
+		t.Fatalf("Failed to create plural dir: %v", err)
+	}
+
+	configFile := filepath.Join(pluralDir, "config.json")
+	if err := os.WriteFile(configFile, []byte("invalid json"), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	// Load should fail
+	_, err = Load()
+	if err == nil {
+		t.Error("Load() should fail with invalid JSON")
+	}
+}
+
+func TestLoad_InvalidConfig(t *testing.T) {
+	// Create a temp directory
+	tmpDir, err := os.MkdirTemp("", "plural-load-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Save original HOME and set temp dir
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	// Create config directory and file with duplicate session IDs
+	pluralDir := filepath.Join(tmpDir, ".plural")
+	if err := os.MkdirAll(pluralDir, 0755); err != nil {
+		t.Fatalf("Failed to create plural dir: %v", err)
+	}
+
+	configData := `{
+		"repos": [],
+		"sessions": [
+			{"id": "duplicate", "repo_path": "/path1", "worktree": "/wt1", "branch": "b1"},
+			{"id": "duplicate", "repo_path": "/path2", "worktree": "/wt2", "branch": "b2"}
+		]
+	}`
+
+	configFile := filepath.Join(pluralDir, "config.json")
+	if err := os.WriteFile(configFile, []byte(configData), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	// Load should fail validation
+	_, err = Load()
+	if err == nil {
+		t.Error("Load() should fail with duplicate session IDs")
+	}
+}
+
+func TestCountLines_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int
+	}{
+		{"", 0},
+		{"\n", 2},
+		{"\n\n", 3},
+		{"no newline", 1},
+		{"ends with newline\n", 2},
+		{"multi\nline\nstring", 3},
+	}
+
+	for _, tt := range tests {
+		result := countLines(tt.input)
+		if result != tt.expected {
+			t.Errorf("countLines(%q) = %d, want %d", tt.input, result, tt.expected)
+		}
+	}
+}

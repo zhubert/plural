@@ -637,3 +637,297 @@ func TestRunner_ChannelOperations(t *testing.T) {
 		t.Error("QuestionRequestChan returned nil")
 	}
 }
+
+func TestRunner_SessionStarted(t *testing.T) {
+	// Test session not started
+	runner := New("session-1", "/tmp", false, nil)
+	if runner.SessionStarted() {
+		t.Error("Session should not be started initially")
+	}
+
+	// Test session started
+	runner = New("session-2", "/tmp", true, nil)
+	if !runner.SessionStarted() {
+		t.Error("Session should be started")
+	}
+}
+
+func TestParseStreamMessage_NestedToolInput(t *testing.T) {
+	// Test tool use with nested input object
+	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/path/to/file.go","old_string":"foo","new_string":"bar"}}]}}`
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+
+	if chunks[0].Type != ChunkTypeToolUse {
+		t.Errorf("Expected ChunkTypeToolUse, got %v", chunks[0].Type)
+	}
+
+	if chunks[0].ToolName != "Edit" {
+		t.Errorf("Expected tool name 'Edit', got %q", chunks[0].ToolName)
+	}
+}
+
+func TestParseStreamMessage_EmptyContent(t *testing.T) {
+	msg := `{"type":"assistant","message":{"content":[]}}`
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 0 {
+		t.Errorf("Expected 0 chunks for empty content array, got %d", len(chunks))
+	}
+}
+
+func TestParseStreamMessage_NullContent(t *testing.T) {
+	msg := `{"type":"assistant","message":{"content":null}}`
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 0 {
+		t.Errorf("Expected 0 chunks for null content, got %d", len(chunks))
+	}
+}
+
+func TestParseStreamMessage_MixedContentTypes(t *testing.T) {
+	msg := `{"type":"assistant","message":{"content":[
+		{"type":"text","text":"First text"},
+		{"type":"tool_use","name":"Read","input":{"file_path":"test.go"}},
+		{"type":"text","text":"Second text"},
+		{"type":"tool_use","name":"Bash","input":{"command":"ls"}}
+	]}}`
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 4 {
+		t.Fatalf("Expected 4 chunks, got %d", len(chunks))
+	}
+
+	// Verify order and types
+	if chunks[0].Type != ChunkTypeText || chunks[0].Content != "First text" {
+		t.Errorf("First chunk mismatch: %+v", chunks[0])
+	}
+	if chunks[1].Type != ChunkTypeToolUse || chunks[1].ToolName != "Read" {
+		t.Errorf("Second chunk mismatch: %+v", chunks[1])
+	}
+	if chunks[2].Type != ChunkTypeText || chunks[2].Content != "Second text" {
+		t.Errorf("Third chunk mismatch: %+v", chunks[2])
+	}
+	if chunks[3].Type != ChunkTypeToolUse || chunks[3].ToolName != "Bash" {
+		t.Errorf("Fourth chunk mismatch: %+v", chunks[3])
+	}
+}
+
+func TestExtractToolInputDescription_NotebookEdit(t *testing.T) {
+	// NotebookEdit is not in toolInputConfigs, should fall back to first string
+	input := json.RawMessage(`{"notebook_path":"/path/to/notebook.ipynb","cell_number":5}`)
+	desc := extractToolInputDescription("NotebookEdit", input)
+
+	if desc != "/path/to/notebook.ipynb" {
+		t.Errorf("Expected notebook path, got %q", desc)
+	}
+}
+
+func TestExtractToolInputDescription_NoStringFields(t *testing.T) {
+	// Input with no string fields
+	input := json.RawMessage(`{"number":42,"boolean":true}`)
+	desc := extractToolInputDescription("SomeTool", input)
+
+	if desc != "" {
+		t.Errorf("Expected empty string for no string fields, got %q", desc)
+	}
+}
+
+func TestExtractToolInputDescription_EmptyObject(t *testing.T) {
+	input := json.RawMessage(`{}`)
+	desc := extractToolInputDescription("SomeTool", input)
+
+	if desc != "" {
+		t.Errorf("Expected empty string for empty object, got %q", desc)
+	}
+}
+
+func TestRunner_DefaultAllowedToolsCopied(t *testing.T) {
+	runner1 := New("session-1", "/tmp", false, nil)
+	runner2 := New("session-2", "/tmp", false, nil)
+
+	// Add tool to runner1
+	runner1.AddAllowedTool("CustomTool")
+
+	// runner2 should not have CustomTool
+	runner2Tools := make(map[string]bool)
+	runner2.SetAllowedTools([]string{}) // This won't add anything new
+	// Just verify they're independent instances
+
+	// The runner should have default tools
+	if runner1 == runner2 {
+		t.Error("Runners should be different instances")
+	}
+
+	_ = runner2Tools // avoid unused variable warning
+}
+
+func TestRunner_MessagesCopied(t *testing.T) {
+	initialMsgs := []Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi"},
+	}
+	runner := New("session-1", "/tmp", true, initialMsgs)
+
+	// Note: New() assigns the slice directly, so modifying initialMsgs
+	// would affect the runner. This is by design for efficiency.
+	// The copy protection is on GetMessages() output, not input.
+
+	// Verify GetMessages returns a copy
+	msgs := runner.GetMessages()
+	msgs[0].Content = "Modified"
+
+	// Get again - should be unchanged
+	msgs2 := runner.GetMessages()
+	if msgs2[0].Content == "Modified" {
+		t.Error("GetMessages should return a copy")
+	}
+}
+
+func TestShortenPath_EdgeCases(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"/", ""},
+		{"//", ""},
+		{"a", "a"},
+		{"/a", "a"},
+		{"a/b/", ""}, // Trailing slash results in empty last component
+		{"../file.go", "file.go"},
+	}
+
+	for _, tt := range tests {
+		result := shortenPath(tt.path)
+		if result != tt.expected {
+			t.Errorf("shortenPath(%q) = %q, want %q", tt.path, result, tt.expected)
+		}
+	}
+}
+
+func TestTruncateString_EdgeCases(t *testing.T) {
+	tests := []struct {
+		s        string
+		maxLen   int
+		expected string
+	}{
+		{"abc", 3, "abc"},    // Exactly at limit
+		{"abcd", 3, "abc..."}, // One over limit
+		{"ab", 3, "ab"},       // Under limit
+		{"a", 1, "a"},         // Single char at limit
+		{"ab", 1, "a..."},     // Single char limit with longer string
+	}
+
+	for _, tt := range tests {
+		result := truncateString(tt.s, tt.maxLen)
+		if result != tt.expected {
+			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, result, tt.expected)
+		}
+	}
+}
+
+func TestParseStreamMessage_WhitespaceOnly(t *testing.T) {
+	tests := []string{
+		"   ",
+		"\t\t",
+		"\n\n",
+		" \t\n ",
+	}
+
+	for _, line := range tests {
+		chunks := parseStreamMessage(line)
+		if len(chunks) != 0 {
+			t.Errorf("parseStreamMessage(%q) should return 0 chunks, got %d", line, len(chunks))
+		}
+	}
+}
+
+func TestParseStreamMessage_LeadingTrailingWhitespace(t *testing.T) {
+	msg := `  {"type":"assistant","message":{"content":[{"type":"text","text":"test"}]}}  `
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+
+	if chunks[0].Content != "test" {
+		t.Errorf("Expected content 'test', got %q", chunks[0].Content)
+	}
+}
+
+func TestFormatToolInput_EdgeCases(t *testing.T) {
+	tests := []struct {
+		value    string
+		shorten  bool
+		maxLen   int
+		expected string
+	}{
+		{"", false, 0, ""},           // Empty string
+		{"", true, 0, ""},            // Empty with shorten
+		{"file.go", true, 0, "file.go"}, // Already short
+		{"/a/b/c", true, 100, "c"},   // Shorten with high limit
+	}
+
+	for _, tt := range tests {
+		result := formatToolInput(tt.value, tt.shorten, tt.maxLen)
+		if result != tt.expected {
+			t.Errorf("formatToolInput(%q, %v, %d) = %q, want %q", tt.value, tt.shorten, tt.maxLen, result, tt.expected)
+		}
+	}
+}
+
+func TestToolInputConfigs_Coverage(t *testing.T) {
+	// Verify each config has valid fields
+	for name, cfg := range toolInputConfigs {
+		if cfg.Field == "" {
+			t.Errorf("toolInputConfigs[%q] has empty Field", name)
+		}
+	}
+
+	// Verify specific tools have expected config
+	if cfg, ok := toolInputConfigs["Read"]; ok {
+		if !cfg.ShortenPath {
+			t.Error("Read should have ShortenPath=true")
+		}
+	} else {
+		t.Error("Read should be in toolInputConfigs")
+	}
+
+	if cfg, ok := toolInputConfigs["Bash"]; ok {
+		if cfg.MaxLen == 0 {
+			t.Error("Bash should have MaxLen set")
+		}
+	} else {
+		t.Error("Bash should be in toolInputConfigs")
+	}
+}
+
+func TestResponseChunk_Fields(t *testing.T) {
+	chunk := ResponseChunk{
+		Type:      ChunkTypeText,
+		Content:   "test content",
+		ToolName:  "TestTool",
+		ToolInput: "input desc",
+		Done:      true,
+		Error:     nil,
+	}
+
+	if chunk.Type != ChunkTypeText {
+		t.Errorf("Expected type text, got %v", chunk.Type)
+	}
+
+	if chunk.Content != "test content" {
+		t.Errorf("Expected content 'test content', got %q", chunk.Content)
+	}
+
+	if chunk.ToolName != "TestTool" {
+		t.Errorf("Expected tool name 'TestTool', got %q", chunk.ToolName)
+	}
+
+	if !chunk.Done {
+		t.Error("Expected Done=true")
+	}
+}

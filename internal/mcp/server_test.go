@@ -355,3 +355,276 @@ func TestFormatArray(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildToolDescription_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     string
+		input    map[string]interface{}
+		expected string
+	}{
+		{
+			name:     "Nil input",
+			tool:     "Edit",
+			input:    nil,
+			expected: "",
+		},
+		{
+			name: "Task with both description and prompt prefers description",
+			tool: "Task",
+			input: map[string]interface{}{
+				"description": "Short desc",
+				"prompt":      "Long prompt text",
+			},
+			expected: "Delegate task: Short desc",
+		},
+		{
+			name: "Unknown tool with url",
+			tool: "CustomTool",
+			input: map[string]interface{}{
+				"url": "https://example.com",
+			},
+			expected: "CustomTool: https://example.com",
+		},
+		{
+			name: "Unknown tool with path",
+			tool: "CustomTool",
+			input: map[string]interface{}{
+				"path": "/some/path",
+			},
+			expected: "CustomTool: /some/path",
+		},
+		{
+			name: "Unknown tool with no recognized fields",
+			tool: "CustomTool",
+			input: map[string]interface{}{
+				"foo": "bar",
+			},
+			expected: "",
+		},
+		{
+			name: "Wrong type for file_path",
+			tool: "Edit",
+			input: map[string]interface{}{
+				"file_path": 123,
+			},
+			expected: "",
+		},
+		{
+			name: "Task with long prompt truncated",
+			tool: "Task",
+			input: map[string]interface{}{
+				"prompt": strings.Repeat("x", 100),
+			},
+			expected: "Delegate task: " + strings.Repeat("x", 57) + "...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildToolDescription(tt.tool, tt.input)
+			if got != tt.expected {
+				t.Errorf("buildToolDescription() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		key      string
+		value    interface{}
+		contains string
+	}{
+		{
+			name:     "String value",
+			key:      "file_path",
+			value:    "/test/file.go",
+			contains: "File: /test/file.go",
+		},
+		{
+			name:     "Empty string value",
+			key:      "file_path",
+			value:    "",
+			contains: "",
+		},
+		{
+			name:     "Boolean true",
+			key:      "replace_all",
+			value:    true,
+			contains: "yes",
+		},
+		{
+			name:     "Boolean false",
+			key:      "replace_all",
+			value:    false,
+			contains: "no",
+		},
+		{
+			name:     "Float64 value",
+			key:      "line_number",
+			value:    42.0,
+			contains: "42",
+		},
+		{
+			name:     "Nil value",
+			key:      "something",
+			value:    nil,
+			contains: "",
+		},
+		{
+			name:     "Nested object",
+			key:      "options",
+			value:    map[string]interface{}{"key": "val"},
+			contains: "Options:",
+		},
+		{
+			name:     "Empty nested object",
+			key:      "options",
+			value:    map[string]interface{}{},
+			contains: "",
+		},
+		{
+			name:     "Array",
+			key:      "items",
+			value:    []interface{}{"a", "b"},
+			contains: "(2 items)",
+		},
+		{
+			name:     "Empty array",
+			key:      "items",
+			value:    []interface{}{},
+			contains: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatValue(tt.key, tt.value)
+			if tt.contains == "" {
+				if got != "" {
+					t.Errorf("formatValue(%q, %v) = %q, want empty", tt.key, tt.value, got)
+				}
+			} else if !strings.Contains(got, tt.contains) {
+				t.Errorf("formatValue(%q, %v) = %q, want to contain %q", tt.key, tt.value, got, tt.contains)
+			}
+		})
+	}
+}
+
+func TestFormatNestedObject_MultipleFields(t *testing.T) {
+	// Test with exactly 3 fields (boundary for inline display)
+	obj := map[string]interface{}{
+		"file_path": "/test.go",
+		"command":   "test",
+		"pattern":   "*.go",
+	}
+	got := formatNestedObject(obj)
+
+	// Should be inline (3 fields is the limit)
+	if strings.Contains(got, "properties") {
+		t.Errorf("Expected inline format for 3 fields, got %q", got)
+	}
+}
+
+func TestFormatNestedObject_BooleanField(t *testing.T) {
+	obj := map[string]interface{}{
+		"enabled": true,
+	}
+	got := formatNestedObject(obj)
+	if !strings.Contains(got, "yes") {
+		t.Errorf("Expected 'yes' for true boolean, got %q", got)
+	}
+
+	obj["enabled"] = false
+	got = formatNestedObject(obj)
+	if !strings.Contains(got, "no") {
+		t.Errorf("Expected 'no' for false boolean, got %q", got)
+	}
+}
+
+func TestFormatArray_NonStringItem(t *testing.T) {
+	arr := []interface{}{42}
+	got := formatArray(arr)
+	if got != "42" {
+		t.Errorf("Expected '42' for single non-string item, got %q", got)
+	}
+}
+
+func TestHumanizeKey_AllMapped(t *testing.T) {
+	// Test all mapped keys
+	mappedKeys := []string{
+		"file_path", "command", "pattern", "path", "tool_name",
+		"input", "description", "url", "query", "notebook_path",
+		"content", "old_string", "new_string", "replace_all",
+	}
+
+	for _, key := range mappedKeys {
+		got := humanizeKey(key)
+		if got == "" {
+			t.Errorf("humanizeKey(%q) returned empty string", key)
+		}
+		// Mapped keys should not contain underscores
+		if strings.Contains(got, "_") {
+			t.Errorf("humanizeKey(%q) = %q, should not contain underscore", key, got)
+		}
+	}
+}
+
+func TestHumanizeKey_UnmappedMultiWord(t *testing.T) {
+	tests := []struct {
+		key      string
+		expected string
+	}{
+		{"some_long_key", "Some Long Key"},
+		{"a_b_c", "A B C"},
+		{"single", "Single"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		got := humanizeKey(tt.key)
+		if got != tt.expected {
+			t.Errorf("humanizeKey(%q) = %q, want %q", tt.key, got, tt.expected)
+		}
+	}
+}
+
+func TestTruncateString_EdgeCases(t *testing.T) {
+	tests := []struct {
+		s        string
+		maxLen   int
+		expected string
+	}{
+		{"", 10, ""},
+		{"a", 0, ""},     // Zero maxLen returns empty (per implementation)
+		{"ab", 1, "a"},   // Very short truncation
+		{"abc", 3, "abc"}, // Exact length
+	}
+
+	for _, tt := range tests {
+		got := truncateString(tt.s, tt.maxLen)
+		if got != tt.expected {
+			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, got, tt.expected)
+		}
+	}
+}
+
+func TestServerConstants(t *testing.T) {
+	if ProtocolVersion == "" {
+		t.Error("ProtocolVersion should not be empty")
+	}
+
+	if ServerName == "" {
+		t.Error("ServerName should not be empty")
+	}
+
+	if ServerVersion == "" {
+		t.Error("ServerVersion should not be empty")
+	}
+
+	if ToolName == "" {
+		t.Error("ToolName should not be empty")
+	}
+}
