@@ -264,7 +264,11 @@ func TestNewSessionState_Render(t *testing.T) {
 // ConfirmDeleteState tests
 
 func TestNewConfirmDeleteState(t *testing.T) {
-	state := NewConfirmDeleteState()
+	state := NewConfirmDeleteState("my-feature-branch")
+
+	if state.SessionName != "my-feature-branch" {
+		t.Errorf("Expected SessionName 'my-feature-branch', got %q", state.SessionName)
+	}
 
 	if len(state.Options) != 2 {
 		t.Errorf("Expected 2 options, got %d", len(state.Options))
@@ -280,7 +284,7 @@ func TestNewConfirmDeleteState(t *testing.T) {
 }
 
 func TestConfirmDeleteState_ShouldDeleteWorktree(t *testing.T) {
-	state := NewConfirmDeleteState()
+	state := NewConfirmDeleteState("test-session")
 
 	// First option: Keep worktree
 	if state.ShouldDeleteWorktree() {
@@ -295,7 +299,7 @@ func TestConfirmDeleteState_ShouldDeleteWorktree(t *testing.T) {
 }
 
 func TestConfirmDeleteState_Render(t *testing.T) {
-	state := NewConfirmDeleteState()
+	state := NewConfirmDeleteState("test-session")
 	render := state.Render()
 	if render == "" {
 		t.Error("Render should not be empty")
@@ -306,7 +310,11 @@ func TestConfirmDeleteState_Render(t *testing.T) {
 
 func TestNewMergeState(t *testing.T) {
 	// Without remote
-	state := NewMergeState(false, "3 files changed")
+	state := NewMergeState("my-feature", false, "3 files changed")
+
+	if state.SessionName != "my-feature" {
+		t.Errorf("Expected SessionName 'my-feature', got %q", state.SessionName)
+	}
 
 	if len(state.Options) != 1 {
 		t.Errorf("Expected 1 option without remote, got %d", len(state.Options))
@@ -321,7 +329,7 @@ func TestNewMergeState(t *testing.T) {
 	}
 
 	// With remote
-	state = NewMergeState(true, "1 file changed")
+	state = NewMergeState("another-branch", true, "1 file changed")
 
 	if len(state.Options) != 2 {
 		t.Errorf("Expected 2 options with remote, got %d", len(state.Options))
@@ -337,7 +345,7 @@ func TestNewMergeState(t *testing.T) {
 }
 
 func TestMergeState_GetSelectedOption(t *testing.T) {
-	state := NewMergeState(true, "")
+	state := NewMergeState("test-session", true, "")
 
 	// First option
 	if state.GetSelectedOption() != "Merge to main" {
@@ -365,14 +373,14 @@ func TestMergeState_GetSelectedOption(t *testing.T) {
 
 func TestMergeState_Render(t *testing.T) {
 	// With changes summary
-	state := NewMergeState(true, "5 files changed")
+	state := NewMergeState("test-session", true, "5 files changed")
 	render := state.Render()
 	if render == "" {
 		t.Error("Render should not be empty")
 	}
 
 	// Without changes summary
-	state = NewMergeState(false, "")
+	state = NewMergeState("test-session", false, "")
 	render = state.Render()
 	if render == "" {
 		t.Error("Render without changes should not be empty")
@@ -678,6 +686,41 @@ func TestTruncateString_Modal(t *testing.T) {
 		result := truncateString(tt.s, tt.maxLen)
 		if result != tt.expected {
 			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, result, tt.expected)
+		}
+	}
+}
+
+func TestSessionDisplayName(t *testing.T) {
+	tests := []struct {
+		branch   string
+		name     string
+		expected string
+	}{
+		// Custom branch name (not starting with "plural-")
+		{"my-feature-branch", "repo/abc123", "my-feature-branch"},
+		{"fix/bug-123", "repo/def456", "fix/bug-123"},
+
+		// Auto-generated branch name (starting with "plural-")
+		{"plural-abc123", "repo/abc123", "abc123"},
+
+		// No branch, extract short ID from name
+		{"", "myrepo/short-id", "short-id"},
+		{"", "repo/with/multiple/parts/final", "final"},
+
+		// No branch, simple name
+		{"", "simple-session", "simple-session"},
+
+		// Edge case: empty both
+		{"", "", ""},
+
+		// Edge case: branch is just "plural-" prefix with nothing
+		{"plural-", "fallback/id", "id"},
+	}
+
+	for _, tt := range tests {
+		result := SessionDisplayName(tt.branch, tt.name)
+		if result != tt.expected {
+			t.Errorf("SessionDisplayName(%q, %q) = %q, want %q", tt.branch, tt.name, result, tt.expected)
 		}
 	}
 }

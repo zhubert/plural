@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -350,6 +352,7 @@ func NewNewSessionState(repos []string) *NewSessionState {
 // =============================================================================
 
 type ConfirmDeleteState struct {
+	SessionName   string
 	Options       []string
 	SelectedIndex int
 }
@@ -364,6 +367,13 @@ func (s *ConfirmDeleteState) Help() string {
 
 func (s *ConfirmDeleteState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
+
+	// Show session name prominently
+	sessionLabel := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render(s.SessionName)
 
 	message := lipgloss.NewStyle().
 		Foreground(ColorText).
@@ -383,7 +393,7 @@ func (s *ConfirmDeleteState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, message, optionList, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, sessionLabel, message, optionList, help)
 }
 
 func (s *ConfirmDeleteState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
@@ -408,8 +418,9 @@ func (s *ConfirmDeleteState) ShouldDeleteWorktree() bool {
 }
 
 // NewConfirmDeleteState creates a new ConfirmDeleteState
-func NewConfirmDeleteState() *ConfirmDeleteState {
+func NewConfirmDeleteState(sessionName string) *ConfirmDeleteState {
 	return &ConfirmDeleteState{
+		SessionName:   sessionName,
 		Options:       []string{"Keep worktree", "Delete worktree"},
 		SelectedIndex: 0,
 	}
@@ -420,6 +431,7 @@ func NewConfirmDeleteState() *ConfirmDeleteState {
 // =============================================================================
 
 type MergeState struct {
+	SessionName    string
 	Options        []string
 	SelectedIndex  int
 	HasRemote      bool
@@ -436,6 +448,13 @@ func (s *MergeState) Help() string {
 
 func (s *MergeState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
+
+	// Show session name prominently
+	sessionLabel := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render(s.SessionName)
 
 	// Show changes summary
 	var summarySection string
@@ -473,7 +492,7 @@ func (s *MergeState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, summarySection, optionList, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, sessionLabel, summarySection, optionList, help)
 }
 
 func (s *MergeState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
@@ -501,13 +520,14 @@ func (s *MergeState) GetSelectedOption() string {
 }
 
 // NewMergeState creates a new MergeState
-func NewMergeState(hasRemote bool, changesSummary string) *MergeState {
+func NewMergeState(sessionName string, hasRemote bool, changesSummary string) *MergeState {
 	options := []string{"Merge to main"}
 	if hasRemote {
 		options = append(options, "Create PR")
 	}
 
 	return &MergeState{
+		SessionName:    sessionName,
 		Options:        options,
 		SelectedIndex:  0,
 		HasRemote:      hasRemote,
@@ -1222,4 +1242,17 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// SessionDisplayName returns the display name for a session based on branch and name.
+// If the branch is custom (not starting with "plural-"), it returns the branch name.
+// Otherwise, it extracts a short ID from the name.
+func SessionDisplayName(branch, name string) string {
+	if branch != "" && !strings.HasPrefix(branch, "plural-") {
+		return branch
+	}
+	if parts := strings.Split(name, "/"); len(parts) > 1 {
+		return parts[len(parts)-1]
+	}
+	return name
 }
