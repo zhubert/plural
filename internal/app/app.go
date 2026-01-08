@@ -62,14 +62,13 @@ type Model struct {
 	focus  Focus
 
 	activeSession *config.Session
-	claudeRunner  *claude.Runner
-	claudeRunners map[string]*claude.Runner // Cache runners by session ID
+	claudeRunner  *claude.Runner // Currently active runner (convenience reference)
+
+	// Session lifecycle management
+	sessionMgr *SessionManager
 
 	// State machine
 	state AppState // Current application state
-
-	// Per-session state manager (thread-safe, consolidates all per-session state)
-	sessionState *SessionStateManager
 
 	// Pending commit message editing state (one at a time)
 	pendingCommitSession string    // Session ID waiting for commit message confirmation
@@ -110,16 +109,15 @@ type CommitMessageGeneratedMsg struct {
 // New creates a new app model
 func New(cfg *config.Config) *Model {
 	m := &Model{
-		config:        cfg,
-		header:        ui.NewHeader(),
-		footer:        ui.NewFooter(),
-		sidebar:       ui.NewSidebar(),
-		chat:          ui.NewChat(),
-		modal:         ui.NewModal(),
-		focus:         FocusSidebar,
-		claudeRunners: make(map[string]*claude.Runner),
-		sessionState:  NewSessionStateManager(),
-		state:         StateIdle,
+		config:     cfg,
+		header:     ui.NewHeader(),
+		footer:     ui.NewFooter(),
+		sidebar:    ui.NewSidebar(),
+		chat:       ui.NewChat(),
+		modal:      ui.NewModal(),
+		focus:      FocusSidebar,
+		sessionMgr: NewSessionManager(cfg),
+		state:      StateIdle,
 	}
 
 	// Load sessions into sidebar
@@ -143,7 +141,8 @@ func (m *Model) CanSendMessage() bool {
 	}
 	// Check if the active session is currently waiting for a response or has a merge in progress
 	// Each session can operate independently
-	return !m.sessionState.IsWaiting(m.activeSession.ID) && !m.sessionState.IsMerging(m.activeSession.ID)
+	sm := m.sessionMgr.StateManager()
+	return !sm.IsWaiting(m.activeSession.ID) && !sm.IsMerging(m.activeSession.ID)
 }
 
 // setState transitions to a new state with logging
@@ -152,6 +151,11 @@ func (m *Model) setState(newState AppState) {
 		logger.Log("App: State transition %s -> %s", m.state, newState)
 		m.state = newState
 	}
+}
+
+// sessionState returns the session state manager (convenience accessor)
+func (m *Model) sessionState() *SessionStateManager {
+	return m.sessionMgr.StateManager()
 }
 
 // Init initializes the model
@@ -177,7 +181,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle permission response when chat is focused and has pending permission
 		if m.focus == FocusChat && m.activeSession != nil {
-			if req := m.sessionState.GetPendingPermission(m.activeSession.ID); req != nil {
+			if req := m.sessionState().GetPendingPermission(m.activeSession.ID); req != nil {
 				switch msg.String() {
 				case "y", "Y", "n", "N", "a", "A":
 					return m.handlePermissionResponse(msg.String(), m.activeSession.ID, req)
@@ -187,7 +191,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle question response when chat is focused and has pending question
 		if m.focus == FocusChat && m.activeSession != nil {
-			if m.sessionState.GetPendingQuestion(m.activeSession.ID) != nil {
+			if m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil {
 				key := msg.String()
 				switch key {
 				case "1", "2", "3", "4", "5":
@@ -213,16 +217,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle Escape to interrupt streaming
 		if msg.String() == "esc" && m.activeSession != nil {
-			if cancel := m.sessionState.GetStreamCancel(m.activeSession.ID); cancel != nil {
+			if cancel := m.sessionState().GetStreamCancel(m.activeSession.ID); cancel != nil {
 				logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
 				cancel()
-				m.sessionState.StopWaiting(m.activeSession.ID)
+				m.sessionState().StopWaiting(m.activeSession.ID)
 				m.sidebar.SetStreaming(m.activeSession.ID, false)
 				m.chat.SetWaiting(false)
 				// Save partial response to runner before finishing
 				if content := m.chat.GetStreaming(); content != "" {
 					m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
-					m.saveRunnerMessages(m.activeSession.ID, m.claudeRunner)
+					m.sessionMgr.SaveRunnerMessages(m.activeSession.ID, m.claudeRunner)
 				}
 				m.chat.AppendStreaming("\n[Interrupted]\n")
 				m.chat.FinishStreaming()
@@ -321,7 +325,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Force-resume: kill orphaned processes and clear the error state
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
 				sess := m.sidebar.SelectedSession()
-				if m.sessionState.HasSessionInUseError(sess.ID) {
+				if m.sessionState().HasSessionInUseError(sess.ID) {
 					return m.forceResumeSession(sess)
 				}
 			}
@@ -343,7 +347,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ClaudeResponseMsg:
 		// Get the runner for this session
-		runner, exists := m.claudeRunners[msg.SessionID]
+		runner := m.sessionMgr.GetRunner(msg.SessionID)
+		exists := runner != nil
 		if !exists {
 			logger.Log("App: Received response for unknown session %s", msg.SessionID)
 			return m, nil
@@ -355,12 +360,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			errMsg := msg.Chunk.Error.Error()
 			logger.Log("App: Error in session %s: %v", msg.SessionID, errMsg)
 			m.sidebar.SetStreaming(msg.SessionID, false)
-			m.sessionState.StopWaiting(msg.SessionID)
+			m.sessionState().StopWaiting(msg.SessionID)
 
 			// Check if this is a "session in use" error
 			if process.IsSessionInUseError(errMsg) {
 				logger.Log("App: Session %s appears to be in use by another process", msg.SessionID)
-				m.sessionState.SetSessionInUseError(msg.SessionID, true)
+				m.sessionState().SetSessionInUseError(msg.SessionID, true)
 				m.sidebar.SetSessionInUse(msg.SessionID, true)
 				errMsg = "Session is in use by another process. Press 'f' to force resume by killing orphaned processes."
 			}
@@ -370,7 +375,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chat.AppendStreaming("\n[Error: " + errMsg + "]")
 			} else {
 				// Store error for non-active session
-				m.sessionState.AppendStreaming(msg.SessionID, "\n[Error: "+errMsg+"]")
+				m.sessionState().AppendStreaming(msg.SessionID, "\n[Error: "+errMsg+"]")
 			}
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
@@ -379,17 +384,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.Chunk.Done {
 			logger.Log("App: Session %s completed streaming", msg.SessionID)
 			m.sidebar.SetStreaming(msg.SessionID, false)
-			m.sessionState.StopWaiting(msg.SessionID)
+			m.sessionState().StopWaiting(msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				m.chat.FinishStreaming()
 			} else {
 				// For non-active session, just clear our saved streaming content
 				// The runner already adds the assistant message when streaming completes (claude.go)
-				m.sessionState.ClearStreaming(msg.SessionID)
+				m.sessionState().ClearStreaming(msg.SessionID)
 			}
 			// Mark session as started and save messages
-			sess := m.getSessionByID(msg.SessionID)
+			sess := m.sessionMgr.GetSession(msg.SessionID)
 			if sess != nil && runner.SessionStarted() {
 				if !sess.Started {
 					m.config.MarkSessionStarted(sess.ID)
@@ -397,7 +402,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.config.Save()
 				}
 				// Save messages for this session
-				m.saveRunnerMessages(msg.SessionID, runner)
+				m.sessionMgr.SaveRunnerMessages(msg.SessionID, runner)
 			}
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
@@ -405,7 +410,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			// Streaming content - clear wait time since response has started
-			m.sessionState.ClearWaitStart(msg.SessionID)
+			m.sessionState().ClearWaitStart(msg.SessionID)
 			if isActiveSession {
 				m.chat.SetWaiting(false)
 				// Handle different chunk types
@@ -435,31 +440,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						line += ": " + msg.Chunk.ToolInput
 					}
 					line += ")\n"
-					existing := m.sessionState.GetStreaming(msg.SessionID)
+					existing := m.sessionState().GetStreaming(msg.SessionID)
 					if existing != "" && !strings.HasSuffix(existing, "\n") {
-						m.sessionState.AppendStreaming(msg.SessionID, "\n")
+						m.sessionState().AppendStreaming(msg.SessionID, "\n")
 					}
 					// Track position where the marker starts
-					m.sessionState.SetToolUsePos(msg.SessionID, len(m.sessionState.GetStreaming(msg.SessionID)))
-					m.sessionState.AppendStreaming(msg.SessionID, line)
+					m.sessionState().SetToolUsePos(msg.SessionID, len(m.sessionState().GetStreaming(msg.SessionID)))
+					m.sessionState().AppendStreaming(msg.SessionID, line)
 				case claude.ChunkTypeToolResult:
 					// Mark the tool use as complete for non-active session
-					if pos, exists := m.sessionState.GetToolUsePos(msg.SessionID); exists && pos >= 0 {
-						m.sessionState.ReplaceToolUseMarker(msg.SessionID, ui.ToolUseInProgress, ui.ToolUseComplete, pos)
-						m.sessionState.ClearToolUsePos(msg.SessionID)
+					if pos, exists := m.sessionState().GetToolUsePos(msg.SessionID); exists && pos >= 0 {
+						m.sessionState().ReplaceToolUseMarker(msg.SessionID, ui.ToolUseInProgress, ui.ToolUseComplete, pos)
+						m.sessionState().ClearToolUsePos(msg.SessionID)
 					}
 				case claude.ChunkTypeText:
 					// Add extra newline after tool use for visual separation
-					if pos, exists := m.sessionState.GetToolUsePos(msg.SessionID); exists && pos >= 0 {
-						streaming := m.sessionState.GetStreaming(msg.SessionID)
+					if pos, exists := m.sessionState().GetToolUsePos(msg.SessionID); exists && pos >= 0 {
+						streaming := m.sessionState().GetStreaming(msg.SessionID)
 						if strings.HasSuffix(streaming, "\n") && !strings.HasSuffix(streaming, "\n\n") {
-							m.sessionState.AppendStreaming(msg.SessionID, "\n")
+							m.sessionState().AppendStreaming(msg.SessionID, "\n")
 						}
 					}
-					m.sessionState.AppendStreaming(msg.SessionID, msg.Chunk.Content)
+					m.sessionState().AppendStreaming(msg.SessionID, msg.Chunk.Content)
 				default:
 					if msg.Chunk.Content != "" {
-						m.sessionState.AppendStreaming(msg.SessionID, msg.Chunk.Content)
+						m.sessionState().AppendStreaming(msg.SessionID, msg.Chunk.Content)
 					}
 				}
 			}
@@ -473,7 +478,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PermissionRequestMsg:
 		// Get the runner for this session
-		runner, exists := m.claudeRunners[msg.SessionID]
+		runner := m.sessionMgr.GetRunner(msg.SessionID)
+		exists := runner != nil
 		if !exists {
 			logger.Log("App: Received permission request for unknown session %s", msg.SessionID)
 			return m, nil
@@ -481,7 +487,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Store permission request for this session (inline, not modal)
 		logger.Log("App: Permission request for session %s: tool=%s", msg.SessionID, msg.Request.Tool)
-		m.sessionState.SetPendingPermission(msg.SessionID, &msg.Request)
+		m.sessionState().SetPendingPermission(msg.SessionID, &msg.Request)
 		m.sidebar.SetPendingPermission(msg.SessionID, true)
 
 		// If this is the active session, show permission in chat
@@ -498,7 +504,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case QuestionRequestMsg:
 		// Get the runner for this session
-		runner, exists := m.claudeRunners[msg.SessionID]
+		runner := m.sessionMgr.GetRunner(msg.SessionID)
+		exists := runner != nil
 		if !exists {
 			logger.Log("App: Received question request for unknown session %s", msg.SessionID)
 			return m, nil
@@ -506,7 +513,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Store question request for this session
 		logger.Log("App: Question request for session %s: %d questions", msg.SessionID, len(msg.Request.Questions))
-		m.sessionState.SetPendingQuestion(msg.SessionID, &msg.Request)
+		m.sessionState().SetPendingQuestion(msg.SessionID, &msg.Request)
 		m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
 
 		// If this is the active session, show question in chat
@@ -542,25 +549,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if isActiveSession {
 				m.chat.AppendStreaming("\n[Error: " + msg.Result.Error.Error() + "]\n")
 			} else {
-				m.sessionState.AppendStreaming(msg.SessionID, "\n[Error: "+msg.Result.Error.Error()+"]\n")
+				m.sessionState().AppendStreaming(msg.SessionID, "\n[Error: "+msg.Result.Error.Error()+"]\n")
 			}
 			// Clean up merge state for this session
-			m.sessionState.StopMerge(msg.SessionID)
+			m.sessionState().StopMerge(msg.SessionID)
 		} else if msg.Result.Done {
 			if isActiveSession {
 				m.chat.FinishStreaming()
 			} else {
 				// Store completed merge output as a message for when user switches back
-				if content := m.sessionState.GetStreaming(msg.SessionID); content != "" {
-					if runner, exists := m.claudeRunners[msg.SessionID]; exists {
+				if content := m.sessionState().GetStreaming(msg.SessionID); content != "" {
+					if runner := m.sessionMgr.GetRunner(msg.SessionID); runner != nil {
 						runner.AddAssistantMessage(content)
-						m.saveRunnerMessages(msg.SessionID, runner)
+						m.sessionMgr.SaveRunnerMessages(msg.SessionID, runner)
 					}
-					m.sessionState.ClearStreaming(msg.SessionID)
+					m.sessionState().ClearStreaming(msg.SessionID)
 				}
 			}
 			// Mark session as merged or PR created based on operation type
-			mergeType := m.sessionState.GetMergeType(msg.SessionID)
+			mergeType := m.sessionState().GetMergeType(msg.SessionID)
 			if mergeType == MergeTypePR {
 				m.config.MarkSessionPRCreated(msg.SessionID)
 				logger.Log("App: Marked session %s as PR created", msg.SessionID)
@@ -572,12 +579,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update sidebar with new session status
 			m.sidebar.SetSessions(m.config.GetSessions())
 			// Clean up merge state for this session
-			m.sessionState.StopMerge(msg.SessionID)
+			m.sessionState().StopMerge(msg.SessionID)
 		} else {
 			if isActiveSession {
 				m.chat.AppendStreaming(msg.Result.Output)
 			} else {
-				m.sessionState.AppendStreaming(msg.SessionID, msg.Result.Output)
+				m.sessionState().AppendStreaming(msg.SessionID, msg.Result.Output)
 			}
 			return m, m.listenForMergeResult(msg.SessionID)
 		}
@@ -699,114 +706,60 @@ func (m *Model) selectSession(sess *config.Session) {
 		return
 	}
 
-	// Save current session's state before switching
+	// Get previous session state to save
+	var previousSessionID, previousInput, previousStreaming string
 	if m.activeSession != nil {
-		currentInput := m.chat.GetInput()
-		m.sessionState.SaveInput(m.activeSession.ID, currentInput)
-		logger.Log("App: Saved input for session %s: %q", m.activeSession.ID, currentInput)
-
-		// Save current streaming content if any
-		if streamingContent := m.chat.GetStreaming(); streamingContent != "" {
-			m.sessionState.SaveStreaming(m.activeSession.ID, streamingContent)
-			logger.Log("App: Saved streaming content for session %s", m.activeSession.ID)
-		}
+		previousSessionID = m.activeSession.ID
+		previousInput = m.chat.GetInput()
+		previousStreaming = m.chat.GetStreaming()
 	}
 
-	logger.Log("App: Selecting session: id=%s, name=%s", sess.ID, sess.Name)
+	// Use SessionManager to handle selection (creates/reuses runner, gathers state)
+	result := m.sessionMgr.Select(sess, previousSessionID, previousInput, previousStreaming)
+	if result == nil {
+		return
+	}
+
+	// Update app state
 	m.activeSession = sess
+	m.claudeRunner = result.Runner
 
-	// Reuse existing runner or create new one
-	if runner, exists := m.claudeRunners[sess.ID]; exists {
-		logger.Log("App: Reusing existing runner for session %s", sess.ID)
-		m.claudeRunner = runner
-	} else {
-		logger.Log("App: Creating new runner for session %s", sess.ID)
-		// Load saved messages from disk
-		savedMsgs, err := config.LoadSessionMessages(sess.ID)
-		if err != nil {
-			// Log the error but continue with empty messages
-			// This allows the session to work even if message history is corrupted
-			logger.Log("App: Warning - failed to load session messages for %s: %v", sess.ID, err)
-			savedMsgs = []config.Message{}
-		} else {
-			logger.Log("App: Loaded %d saved messages for session %s", len(savedMsgs), sess.ID)
-		}
-		var initialMsgs []claude.Message
-		for _, msg := range savedMsgs {
-			initialMsgs = append(initialMsgs, claude.Message{
-				Role:    msg.Role,
-				Content: msg.Content,
-			})
-		}
-		m.claudeRunner = claude.New(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
-		m.claudeRunners[sess.ID] = m.claudeRunner
-	}
-
-	// Load allowed tools from config (global + per-repo)
-	allowedTools := m.config.GetAllowedToolsForRepo(sess.RepoPath)
-	if len(allowedTools) > 0 {
-		logger.Log("App: Loaded %d allowed tools for repo %s", len(allowedTools), sess.RepoPath)
-		m.claudeRunner.SetAllowedTools(allowedTools)
-	}
-
-	// Load MCP servers for this session's repo
-	mcpServers := m.config.GetMCPServersForRepo(sess.RepoPath)
-	if len(mcpServers) > 0 {
-		logger.Log("App: Loaded %d MCP servers for session %s (repo: %s)", len(mcpServers), sess.ID, sess.RepoPath)
-		var servers []claude.MCPServer
-		for _, s := range mcpServers {
-			servers = append(servers, claude.MCPServer{
-				Name:    s.Name,
-				Command: s.Command,
-				Args:    s.Args,
-			})
-		}
-		m.claudeRunner.SetMCPServers(servers)
-	}
-
-	m.chat.SetSession(sess.Name, m.claudeRunner.GetMessages())
-	// Use branch name for header if it's a custom branch, otherwise use session name
-	headerName := sess.Name
-	if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
-		headerName = sess.Branch
-	}
-	m.header.SetSessionName(headerName)
+	// Update UI components with session state
+	m.chat.SetSession(sess.Name, result.Messages)
+	m.header.SetSessionName(result.HeaderName)
 	m.focus = FocusChat
 	m.sidebar.SetFocused(false)
 	m.chat.SetFocused(true)
 
-	// Restore waiting state if this session is streaming
-	if startTime, isWaiting := m.sessionState.GetWaitStart(sess.ID); isWaiting {
-		m.chat.SetWaitingWithStart(true, startTime)
+	// Restore waiting state
+	if result.IsWaiting {
+		m.chat.SetWaitingWithStart(true, result.WaitStart)
 	} else {
 		m.chat.SetWaiting(false)
 	}
 
-	// Restore pending permission if this session has one
-	if req := m.sessionState.GetPendingPermission(sess.ID); req != nil {
-		m.chat.SetPendingPermission(req.Tool, req.Description)
+	// Restore pending permission
+	if result.Permission != nil {
+		m.chat.SetPendingPermission(result.Permission.Tool, result.Permission.Description)
 	} else {
 		m.chat.ClearPendingPermission()
 	}
 
-	// Restore pending question if this session has one
-	if req := m.sessionState.GetPendingQuestion(sess.ID); req != nil {
-		m.chat.SetPendingQuestion(req.Questions)
+	// Restore pending question
+	if result.Question != nil {
+		m.chat.SetPendingQuestion(result.Question.Questions)
 	} else {
 		m.chat.ClearPendingQuestion()
 	}
 
-	// Restore streaming content if this session has ongoing streaming
-	if streamingContent := m.sessionState.GetStreaming(sess.ID); streamingContent != "" {
-		m.chat.SetStreaming(streamingContent)
-		m.sessionState.ClearStreaming(sess.ID) // Clear so it doesn't persist if we switch away again
-		logger.Log("App: Restored streaming content for session %s", sess.ID)
+	// Restore streaming content
+	if result.Streaming != "" {
+		m.chat.SetStreaming(result.Streaming)
 	}
 
-	// Restore saved input text for this session
-	if savedInput := m.sessionState.GetInput(sess.ID); savedInput != "" {
-		m.chat.SetInput(savedInput)
-		logger.Log("App: Restored input for session %s: %q", sess.ID, savedInput)
+	// Restore saved input
+	if result.SavedInput != "" {
+		m.chat.SetInput(result.SavedInput)
 	} else {
 		m.chat.ClearInput()
 	}
@@ -816,33 +769,21 @@ func (m *Model) selectSession(sess *config.Session) {
 
 // forceResumeSession kills any orphaned Claude processes for the session and clears the error state
 func (m *Model) forceResumeSession(sess *config.Session) (tea.Model, tea.Cmd) {
-	logger.Log("App: Force-resuming session %s", sess.ID)
-
-	// Try to kill orphaned processes
-	killed, err := process.KillClaudeProcesses(sess.ID)
-	if err != nil {
-		logger.Log("App: Error killing orphaned processes for session %s: %v", sess.ID, err)
-		m.chat.AppendStreaming(fmt.Sprintf("\n[Error killing orphaned processes: %v]", err))
+	// Use SessionManager to handle force resume
+	result := m.sessionMgr.ForceResume(sess)
+	if result.Error != nil {
+		m.chat.AppendStreaming(fmt.Sprintf("\n[Error killing orphaned processes: %v]", result.Error))
 		return m, nil
 	}
 
-	// Clear the error state
-	m.sessionState.SetSessionInUseError(sess.ID, false)
+	// Update sidebar UI
 	m.sidebar.SetSessionInUse(sess.ID, false)
 
-	// Clear the old runner from cache so a fresh one will be created
-	if oldRunner, exists := m.claudeRunners[sess.ID]; exists {
-		oldRunner.Stop()
-		delete(m.claudeRunners, sess.ID)
-	}
-
 	// Show result in chat
-	if killed > 0 {
-		m.chat.AppendStreaming(fmt.Sprintf("\n[Killed %d orphaned process(es). Session ready to resume.]", killed))
-		logger.Log("App: Killed %d orphaned processes for session %s", killed, sess.ID)
+	if result.Killed > 0 {
+		m.chat.AppendStreaming(fmt.Sprintf("\n[Killed %d orphaned process(es). Session ready to resume.]", result.Killed))
 	} else {
 		m.chat.AppendStreaming("\n[No orphaned processes found. Session state cleared.]")
-		logger.Log("App: No orphaned processes found for session %s, cleared error state", sess.ID)
 	}
 
 	// Re-select the session to create a fresh runner
@@ -873,8 +814,8 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 
 	// Create context for this request
 	ctx, cancel := context.WithCancel(context.Background())
-	m.sessionState.StartWaiting(sessionID, cancel)
-	startTime, _ := m.sessionState.GetWaitStart(sessionID)
+	m.sessionState().StartWaiting(sessionID, cancel)
+	startTime, _ := m.sessionState().GetWaitStart(sessionID)
 	m.chat.SetWaitingWithStart(true, startTime)
 	m.sidebar.SetStreaming(sessionID, true)
 	m.setState(StateStreamingClaude)
@@ -895,8 +836,8 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 
 // handlePermissionResponse handles y/n/a key presses for permission prompts
 func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.PermissionRequest) (tea.Model, tea.Cmd) {
-	runner, exists := m.claudeRunners[sessionID]
-	if !exists {
+	runner := m.sessionMgr.GetRunner(sessionID)
+	if runner == nil {
 		logger.Log("App: Permission response for unknown session %s", sessionID)
 		return m, nil
 	}
@@ -926,19 +867,14 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 
 	// If always, save the tool to per-repo allowed list
 	if always {
-		if sess := m.config.GetSession(sessionID); sess != nil {
-			m.config.AddRepoAllowedTool(sess.RepoPath, req.Tool)
-			m.config.Save()
-			runner.AddAllowedTool(req.Tool)
-			logger.Log("App: Added tool %s to allowed list for repo %s", req.Tool, sess.RepoPath)
-		}
+		m.sessionMgr.AddAllowedTool(sessionID, req.Tool)
 	}
 
 	// Send response
 	runner.SendPermissionResponse(resp)
 
 	// Clear pending permission
-	m.sessionState.ClearPendingPermission(sessionID)
+	m.sessionState().ClearPendingPermission(sessionID)
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPermission()
 
@@ -999,13 +935,13 @@ func (m *Model) listenForSessionQuestion(sessionID string, runner *claude.Runner
 
 // submitQuestionResponse sends the collected question answers back to Claude
 func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
-	runner, exists := m.claudeRunners[sessionID]
-	if !exists {
+	runner := m.sessionMgr.GetRunner(sessionID)
+	if runner == nil {
 		logger.Log("App: Question response for unknown session %s", sessionID)
 		return m, nil
 	}
 
-	req := m.sessionState.GetPendingQuestion(sessionID)
+	req := m.sessionState().GetPendingQuestion(sessionID)
 	if req == nil {
 		logger.Log("App: No pending question for session %s", sessionID)
 		return m, nil
@@ -1025,7 +961,7 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 	runner.SendQuestionResponse(resp)
 
 	// Clear pending question
-	m.sessionState.ClearPendingQuestion(sessionID)
+	m.sessionState().ClearPendingQuestion(sessionID)
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingQuestion()
 
@@ -1038,7 +974,7 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
-	ch := m.sessionState.GetMergeChan(sessionID)
+	ch := m.sessionState().GetMergeChan(sessionID)
 	if ch == nil {
 		return nil
 	}
@@ -1072,43 +1008,9 @@ func (m *Model) generateCommitMessage(sessionID, worktreePath string) tea.Cmd {
 	}
 }
 
-// saveRunnerMessages saves messages for a specific runner/session
-func (m *Model) saveRunnerMessages(sessionID string, runner *claude.Runner) {
-	if runner == nil {
-		return
-	}
-
-	msgs := runner.GetMessages()
-	var configMsgs []config.Message
-	for _, msg := range msgs {
-		configMsgs = append(configMsgs, config.Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
-	}
-
-	config.SaveSessionMessages(sessionID, configMsgs, config.MaxSessionMessageLines)
-}
-
 // hasAnyStreamingSessions returns true if any session is currently streaming
 func (m *Model) hasAnyStreamingSessions() bool {
-	for _, runner := range m.claudeRunners {
-		if runner.IsStreaming() {
-			return true
-		}
-	}
-	return false
-}
-
-// getSessionByID returns the session config for a given session ID
-func (m *Model) getSessionByID(sessionID string) *config.Session {
-	sessions := m.config.GetSessions()
-	for i := range sessions {
-		if sessions[i].ID == sessionID {
-			return &sessions[i]
-		}
-	}
-	return nil
+	return m.sessionMgr.HasActiveStreaming()
 }
 
 func (m *Model) updateSizes() {
@@ -1135,11 +1037,11 @@ func (m *Model) View() tea.View {
 	// Update footer context for conditional bindings
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
-	hasPendingPermission := m.activeSession != nil && m.sessionState.GetPendingPermission(m.activeSession.ID) != nil
-	hasPendingQuestion := m.activeSession != nil && m.sessionState.GetPendingQuestion(m.activeSession.ID) != nil
-	isStreaming := m.activeSession != nil && m.sessionState.GetStreamCancel(m.activeSession.ID) != nil
+	hasPendingPermission := m.activeSession != nil && m.sessionState().GetPendingPermission(m.activeSession.ID) != nil
+	hasPendingQuestion := m.activeSession != nil && m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil
+	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
 	selectedSess := m.sidebar.SelectedSession()
-	sessionInUse := selectedSess != nil && m.sessionState.HasSessionInUseError(selectedSess.ID)
+	sessionInUse := selectedSess != nil && m.sessionState().HasSessionInUseError(selectedSess.ID)
 	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse)
 
 	header := m.header.View()

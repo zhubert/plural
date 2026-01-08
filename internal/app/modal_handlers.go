@@ -142,13 +142,8 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg) (tea.M
 			m.config.Save()
 			config.DeleteSessionMessages(sess.ID)
 			m.sidebar.SetSessions(m.config.GetSessions())
-			if runner, exists := m.claudeRunners[sess.ID]; exists {
-				logger.Log("App: Stopping runner for deleted session %s", sess.ID)
-				runner.Stop()
-				delete(m.claudeRunners, sess.ID)
-			}
-			// Clean up all per-session state (this also cancels in-progress operations)
-			m.sessionState.Delete(sess.ID)
+			// Clean up runner and all per-session state via SessionManager
+			deletedRunner := m.sessionMgr.DeleteSession(sess.ID)
 			m.sidebar.SetPendingPermission(sess.ID, false)
 			if m.activeSession != nil && m.activeSession.ID == sess.ID {
 				m.activeSession = nil
@@ -156,7 +151,11 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg) (tea.M
 				m.chat.ClearSession()
 				m.header.SetSessionName("")
 			}
-			logger.Log("App: Session deleted successfully: %s", sess.ID)
+			if deletedRunner != nil {
+				logger.Log("App: Session deleted successfully (runner stopped): %s", sess.ID)
+			} else {
+				logger.Log("App: Session deleted successfully: %s", sess.ID)
+			}
 		}
 		m.modal.Hide()
 		return m, nil
@@ -182,7 +181,7 @@ func (m *Model) handleMergeModal(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Check if this session already has a merge in progress
-		if m.sessionState.IsMerging(sess.ID) {
+		if m.sessionState().IsMerging(sess.ID) {
 			logger.Log("App: Merge already in progress for session %s", sess.ID)
 			return m, nil
 		}
@@ -217,11 +216,11 @@ func (m *Model) handleMergeModal(key string) (tea.Model, tea.Cmd) {
 		if mergeType == MergeTypePR {
 			logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState.StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePR)
 		} else {
 			logger.Log("App: Merging branch %s to main (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-			m.sessionState.StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+			m.sessionState().StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}
@@ -323,11 +322,11 @@ func (m *Model) handleEditCommitModal(key string) (tea.Model, tea.Cmd) {
 		if mergeType == MergeTypePR {
 			logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState.StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePR)
 		} else {
 			logger.Log("App: Merging branch %s to main with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-			m.sessionState.StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+			m.sessionState().StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}

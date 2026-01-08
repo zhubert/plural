@@ -60,6 +60,11 @@ tail -f /tmp/plural-mcp-*.log
 
 - **main.go** - Entry point, sets up Bubble Tea program with alt screen; also handles `mcp-server` subcommand
 - **internal/app** - Main Bubble Tea model coordinating all UI components and Claude runners
+  - `app.go` - Main Bubble Tea model, Update/View methods, key handling
+  - `session_manager.go` - SessionManager handles session lifecycle: runner creation/caching, selection, force resume, message persistence
+  - `session_state.go` - SessionStateManager for thread-safe per-session state (permissions, merge ops, streaming, UI state)
+  - `modal_handlers.go` - Modal key event handlers (add repo, new session, delete, merge, MCP servers)
+  - `types.go` - Shared types (MergeType enum)
 - **internal/claude** - Wrapper around Claude Code CLI (`claude --print --output-format stream-json`), manages streaming responses via stdout pipe
   - `doc.go` - Package documentation
   - `claude.go` - Runner implementation with message streaming, tool status parsing, and permission handling
