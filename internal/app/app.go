@@ -331,7 +331,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "d":
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				m.modal.Show(ui.NewConfirmDeleteState())
+				sess := m.sidebar.SelectedSession()
+				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+				m.modal.Show(ui.NewConfirmDeleteState(displayName))
 			}
 		case "v":
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
@@ -375,7 +377,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						changesSummary += ": " + strings.Join(status.Files, ", ")
 					}
 				}
-				m.modal.Show(ui.NewMergeState(hasRemote, changesSummary))
+				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary))
 			}
 		case "f":
 			// Force-resume: kill orphaned processes and clear the error state
