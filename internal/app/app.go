@@ -251,8 +251,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleFocus()
 		case "n":
 			if !m.chat.IsFocused() {
-				m.modal.SetRepoOptions(m.config.GetRepos())
-				m.modal.Show(ui.ModalNewSession)
+				m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
 			}
 		case "r":
 			if !m.chat.IsFocused() {
@@ -267,12 +266,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
-				m.modal.SetSuggestedRepo(currentRepo)
-				m.modal.Show(ui.ModalAddRepo)
+				m.modal.Show(ui.NewAddRepoState(currentRepo))
 			}
 		case "d":
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				m.modal.Show(ui.ModalConfirmDelete)
+				m.modal.Show(ui.NewConfirmDeleteState())
 			}
 		case "v":
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
@@ -318,8 +316,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						changesSummary += ": " + strings.Join(status.Files, ", ")
 					}
 				}
-				m.modal.SetMergeOptions(hasRemote, changesSummary)
-				m.modal.Show(ui.ModalMerge)
+				m.modal.Show(ui.NewMergeState(hasRemote, changesSummary))
 			}
 		case "f":
 			// Force-resume: kill orphaned processes and clear the error state
@@ -539,8 +536,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Show the edit commit modal with the generated message
-		m.modal.SetCommitMessage(msg.Message, m.pendingCommitType.String())
-		m.modal.Show(ui.ModalEditCommit)
+		m.modal.Show(ui.NewEditCommitState(msg.Message, m.pendingCommitType.String()))
 		return m, nil
 
 	case MergeResultMsg:
@@ -698,7 +694,7 @@ func (m *Model) showMCPServersModal() {
 		}
 	}
 
-	m.modal.ShowMCPServers(globalServers, perRepoServers, repos)
+	m.modal.Show(ui.NewMCPServersState(globalServers, perRepoServers, repos))
 }
 
 func (m *Model) selectSession(sess *config.Session) {

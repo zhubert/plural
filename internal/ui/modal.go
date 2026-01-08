@@ -7,64 +7,22 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// ModalType represents the type of modal
-type ModalType int
+// ModalState is a discriminated union interface for modal-specific state.
+// Each modal type implements this interface with its own state struct,
+// ensuring type-safe access to modal-specific fields.
+type ModalState interface {
+	modalState() // marker method to restrict implementations
+	Title() string
+	Help() string
+	Render() string
+	Update(msg tea.Msg) (ModalState, tea.Cmd)
+}
 
-const (
-	ModalNone ModalType = iota
-	ModalAddRepo
-	ModalNewSession
-	ModalConfirmDelete
-	ModalMerge
-	ModalEditCommit
-	ModalMCPServers
-	ModalAddMCPServer
-)
-
-// Modal represents a popup dialog
+// Modal represents a popup dialog with type-safe state management.
+// The State field is nil when no modal is visible.
 type Modal struct {
-	Type        ModalType
-	input       textinput.Model
-	title       string
-	help        string
-	error       string
-	width       int
-	height      int
-	repoOptions []string // For session creation, list of repos
-	repoIndex   int      // Selected repo index
-
-	// Merge modal fields
-	mergeOptions   []string // Available merge options
-	mergeIndex     int      // Selected option index
-	hasRemote      bool     // Whether remote origin exists
-	changesSummary string   // Summary of uncommitted changes
-
-	// Add repo modal fields
-	suggestedRepo    string // Current directory if it's a git repo and not already added
-	useSuggestedRepo bool   // Whether the suggestion is selected (vs text input)
-
-	// Delete modal fields
-	deleteOptions []string // Delete options (keep/delete worktree)
-	deleteIndex   int      // Selected delete option index
-
-	// New session modal fields
-	branchInput      textinput.Model // Optional branch name input
-	newSessionFocus  int             // 0=repo list, 1=branch input
-
-	// MCP server modal fields
-	mcpServers     []MCPServerDisplay // Flattened list of all servers for display
-	mcpServerIndex int                // Selected server index
-	mcpIsGlobal    bool               // Add modal: true for global, false for per-repo
-	mcpRepos       []string           // Available repos for per-repo selection
-	mcpRepoIndex   int                // Selected repo index in add modal
-	mcpNameInput   textinput.Model    // Name input field
-	mcpCmdInput    textinput.Model    // Command input field
-	mcpArgsInput   textinput.Model    // Args input field
-	mcpInputIndex  int                // Which input is focused (0=scope, 1=repo, 2=name, 3=cmd, 4=args)
-
-	// Edit commit message modal fields
-	commitTextarea  textarea.Model // Multi-line commit message editor
-	commitMergeType string         // "merge" or "pr" - what operation follows after commit
+	State ModalState
+	error string
 }
 
 // MCPServerDisplay represents an MCP server for display in the modal
@@ -78,127 +36,24 @@ type MCPServerDisplay struct {
 
 // NewModal creates a new modal
 func NewModal() *Modal {
-	ti := textinput.New()
-	ti.Placeholder = "Enter path..."
-	ti.CharLimit = ModalInputCharLimit
-	ti.SetWidth(ModalInputWidth)
-
-	// MCP name input
-	nameInput := textinput.New()
-	nameInput.Placeholder = "server-name"
-	nameInput.CharLimit = 50
-	nameInput.SetWidth(ModalInputWidth)
-
-	// MCP command input
-	cmdInput := textinput.New()
-	cmdInput.Placeholder = "npx"
-	cmdInput.CharLimit = 100
-	cmdInput.SetWidth(ModalInputWidth)
-
-	// MCP args input
-	argsInput := textinput.New()
-	argsInput.Placeholder = "@modelcontextprotocol/server-github"
-	argsInput.CharLimit = 200
-	argsInput.SetWidth(ModalInputWidth)
-
-	// Branch name input
-	branchInput := textinput.New()
-	branchInput.Placeholder = "optional branch name (leave empty for auto)"
-	branchInput.CharLimit = 100
-	branchInput.SetWidth(ModalInputWidth)
-
-	// Commit message textarea
-	commitTA := textarea.New()
-	commitTA.Placeholder = "Enter commit message..."
-	commitTA.CharLimit = 0
-	commitTA.SetHeight(10)
-	commitTA.SetWidth(ModalInputWidth)
-	commitTA.ShowLineNumbers = false
-	commitTA.Prompt = ""
-
-	return &Modal{
-		Type:           ModalNone,
-		input:          ti,
-		branchInput:    branchInput,
-		mcpNameInput:   nameInput,
-		mcpCmdInput:    cmdInput,
-		mcpArgsInput:   argsInput,
-		commitTextarea: commitTA,
-	}
+	return &Modal{}
 }
 
-// SetSuggestedRepo sets the suggested repo for the add repo modal
-func (m *Modal) SetSuggestedRepo(path string) {
-	m.suggestedRepo = path
-	m.useSuggestedRepo = path != ""
-}
-
-// Show shows a modal of the specified type
-func (m *Modal) Show(t ModalType) {
-	m.Type = t
+// Show displays a modal with the given state
+func (m *Modal) Show(state ModalState) {
+	m.State = state
 	m.error = ""
-	m.input.Reset()
-
-	switch t {
-	case ModalAddRepo:
-		m.title = "Add Repository"
-		m.input.Placeholder = "/path/to/repo"
-		if m.suggestedRepo != "" {
-			m.useSuggestedRepo = true
-			m.input.Blur()
-			m.help = "↑/↓ to switch, Enter to confirm, Esc to cancel"
-		} else {
-			m.useSuggestedRepo = false
-			m.input.Focus()
-			m.help = "Enter the full path to a git repository"
-		}
-	case ModalNewSession:
-		m.title = "New Session"
-		m.help = "↑/↓ select repo  Tab: branch name  Enter: create"
-		m.repoIndex = 0
-		m.newSessionFocus = 0
-		m.branchInput.Reset()
-		m.branchInput.Blur()
-	case ModalConfirmDelete:
-		m.title = "Delete Session?"
-		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
-		m.deleteOptions = []string{"Keep worktree", "Delete worktree"}
-		m.deleteIndex = 0
-	case ModalMerge:
-		m.title = "Merge/PR"
-		m.help = "↑/↓ to select, Enter to confirm, Esc to cancel"
-		m.mergeIndex = 0
-	case ModalEditCommit:
-		m.title = "Edit Commit Message"
-		m.help = "Ctrl+s: commit  Esc: cancel"
-		m.commitTextarea.Focus()
-	case ModalMCPServers:
-		m.title = "MCP Servers"
-		m.help = "↑/↓ navigate  a: add  d: delete  Esc: close"
-		m.mcpServerIndex = 0
-	case ModalAddMCPServer:
-		m.title = "Add MCP Server"
-		m.help = "Tab: next  Enter: save  Esc: cancel"
-		m.mcpIsGlobal = true
-		m.mcpRepoIndex = 0
-		m.mcpInputIndex = 0
-		m.mcpNameInput.Reset()
-		m.mcpCmdInput.Reset()
-		m.mcpArgsInput.Reset()
-		m.mcpNameInput.Focus()
-	}
 }
 
 // Hide hides the modal
 func (m *Modal) Hide() {
-	m.Type = ModalNone
+	m.State = nil
 	m.error = ""
-	m.input.Blur()
 }
 
 // IsVisible returns whether the modal is visible
 func (m *Modal) IsVisible() bool {
-	return m.Type != ModalNone
+	return m.State != nil
 }
 
 // SetError sets an error message
@@ -206,297 +61,35 @@ func (m *Modal) SetError(err string) {
 	m.error = err
 }
 
-// GetInput returns the current input value
-func (m *Modal) GetInput() string {
-	return m.input.Value()
+// GetError returns the current error message
+func (m *Modal) GetError() string {
+	return m.error
 }
 
-// SetRepoOptions sets the available repos for session creation
-func (m *Modal) SetRepoOptions(repos []string) {
-	m.repoOptions = repos
-	m.repoIndex = 0
-}
-
-// GetSelectedRepo returns the selected repo for session creation
-func (m *Modal) GetSelectedRepo() string {
-	if len(m.repoOptions) == 0 {
-		return ""
-	}
-	if m.repoIndex >= len(m.repoOptions) {
-		m.repoIndex = 0
-	}
-	return m.repoOptions[m.repoIndex]
-}
-
-// GetBranchName returns the custom branch name entered by user (empty if not specified)
-func (m *Modal) GetBranchName() string {
-	return m.branchInput.Value()
-}
-
-// SetMergeOptions sets the available merge options based on remote availability
-func (m *Modal) SetMergeOptions(hasRemote bool, changesSummary string) {
-	m.hasRemote = hasRemote
-	m.changesSummary = changesSummary
-	m.mergeOptions = []string{"Merge to main"}
-	if hasRemote {
-		m.mergeOptions = append(m.mergeOptions, "Create PR")
-	}
-	m.mergeIndex = 0
-}
-
-// GetSelectedMergeOption returns the selected merge option
-func (m *Modal) GetSelectedMergeOption() string {
-	if len(m.mergeOptions) == 0 {
-		return ""
-	}
-	if m.mergeIndex >= len(m.mergeOptions) {
-		m.mergeIndex = 0
-	}
-	return m.mergeOptions[m.mergeIndex]
-}
-
-// ShouldDeleteWorktree returns true if user selected to delete the worktree
-func (m *Modal) ShouldDeleteWorktree() bool {
-	return m.deleteIndex == 1 // "Delete worktree" is index 1
-}
-
-// SetCommitMessage sets the commit message for editing and the operation type
-func (m *Modal) SetCommitMessage(message, mergeType string) {
-	m.commitTextarea.SetValue(message)
-	m.commitMergeType = mergeType
-}
-
-// GetCommitMessage returns the edited commit message
-func (m *Modal) GetCommitMessage() string {
-	return m.commitTextarea.Value()
-}
-
-// GetCommitMergeType returns the merge type ("merge" or "pr") for after commit
-func (m *Modal) GetCommitMergeType() string {
-	return m.commitMergeType
-}
-
-// ShowMCPServers shows the MCP server list modal
-func (m *Modal) ShowMCPServers(globalServers []MCPServerDisplay, perRepoServers map[string][]MCPServerDisplay, repos []string) {
-	m.Show(ModalMCPServers)
-
-	// Build flattened list for navigation
-	m.mcpServers = nil
-	for _, s := range globalServers {
-		m.mcpServers = append(m.mcpServers, s)
-	}
-	for _, repo := range repos {
-		for _, s := range perRepoServers[repo] {
-			m.mcpServers = append(m.mcpServers, s)
-		}
-	}
-	m.mcpRepos = repos
-	m.mcpServerIndex = 0
-}
-
-// ShowAddMCPServer shows the add MCP server modal
-func (m *Modal) ShowAddMCPServer(repos []string) {
-	m.Show(ModalAddMCPServer)
-	m.mcpRepos = repos
-}
-
-// GetNewMCPServer returns the MCP server info from add modal
-// Returns: name, command, args, repoPath (empty if global), isGlobal
-func (m *Modal) GetNewMCPServer() (name, command, args, repoPath string, isGlobal bool) {
-	name = m.mcpNameInput.Value()
-	command = m.mcpCmdInput.Value()
-	args = m.mcpArgsInput.Value()
-	isGlobal = m.mcpIsGlobal
-	if !isGlobal && len(m.mcpRepos) > 0 && m.mcpRepoIndex < len(m.mcpRepos) {
-		repoPath = m.mcpRepos[m.mcpRepoIndex]
-	}
-	return
-}
-
-// GetSelectedMCPServer returns the selected server for deletion
-func (m *Modal) GetSelectedMCPServer() *MCPServerDisplay {
-	if len(m.mcpServers) == 0 || m.mcpServerIndex >= len(m.mcpServers) {
-		return nil
-	}
-	return &m.mcpServers[m.mcpServerIndex]
-}
-
-// Update handles messages
+// Update handles messages by delegating to the current state
 func (m *Modal) Update(msg tea.Msg) (*Modal, tea.Cmd) {
-	if !m.IsVisible() {
+	if m.State == nil {
 		return m, nil
 	}
-
-	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
-		switch m.Type {
-		case ModalNewSession:
-			switch msg.String() {
-			case "up", "k":
-				if m.newSessionFocus == 0 && m.repoIndex > 0 {
-					m.repoIndex--
-				}
-			case "down", "j":
-				if m.newSessionFocus == 0 && m.repoIndex < len(m.repoOptions)-1 {
-					m.repoIndex++
-				}
-			case "tab":
-				// Toggle between repo list and branch input
-				if m.newSessionFocus == 0 {
-					m.newSessionFocus = 1
-					m.branchInput.Focus()
-				} else {
-					m.newSessionFocus = 0
-					m.branchInput.Blur()
-				}
-				return m, nil
-			case "shift+tab":
-				// Toggle back
-				if m.newSessionFocus == 1 {
-					m.newSessionFocus = 0
-					m.branchInput.Blur()
-				}
-				return m, nil
-			}
-		case ModalConfirmDelete:
-			switch msg.String() {
-			case "up", "k":
-				if m.deleteIndex > 0 {
-					m.deleteIndex--
-				}
-			case "down", "j":
-				if m.deleteIndex < len(m.deleteOptions)-1 {
-					m.deleteIndex++
-				}
-			}
-		case ModalMerge:
-			switch msg.String() {
-			case "up", "k":
-				if m.mergeIndex > 0 {
-					m.mergeIndex--
-				}
-			case "down", "j":
-				if m.mergeIndex < len(m.mergeOptions)-1 {
-					m.mergeIndex++
-				}
-			}
-		case ModalMCPServers:
-			switch msg.String() {
-			case "up", "k":
-				if m.mcpServerIndex > 0 {
-					m.mcpServerIndex--
-				}
-			case "down", "j":
-				if m.mcpServerIndex < len(m.mcpServers)-1 {
-					m.mcpServerIndex++
-				}
-			}
-		case ModalAddMCPServer:
-			switch msg.String() {
-			case "tab", "down":
-				m.advanceMCPInput()
-				return m, nil
-			case "shift+tab", "up":
-				m.retreatMCPInput()
-				return m, nil
-			}
-		}
-	}
-
-	// Handle MCP add modal text input updates
-	if m.Type == ModalAddMCPServer && m.mcpInputIndex >= 2 {
-		var cmd tea.Cmd
-		switch m.mcpInputIndex {
-		case 2:
-			m.mcpNameInput, cmd = m.mcpNameInput.Update(msg)
-		case 3:
-			m.mcpCmdInput, cmd = m.mcpCmdInput.Update(msg)
-		case 4:
-			m.mcpArgsInput, cmd = m.mcpArgsInput.Update(msg)
-		}
-		return m, cmd
-	}
-
-	// Handle New Session modal branch input updates
-	if m.Type == ModalNewSession && m.newSessionFocus == 1 {
-		var cmd tea.Cmd
-		m.branchInput, cmd = m.branchInput.Update(msg)
-		return m, cmd
-	}
-
-	if m.Type == ModalAddRepo {
-		// Handle navigation between suggestion and text input
-		if keyMsg, ok := msg.(tea.KeyPressMsg); ok && m.suggestedRepo != "" {
-			switch keyMsg.String() {
-			case "up", "down", "tab":
-				m.useSuggestedRepo = !m.useSuggestedRepo
-				if m.useSuggestedRepo {
-					m.input.Blur()
-				} else {
-					m.input.Focus()
-				}
-				return m, nil
-			}
-		}
-
-		// Only update text input when it's focused
-		if !m.useSuggestedRepo {
-			var cmd tea.Cmd
-			m.input, cmd = m.input.Update(msg)
-			return m, cmd
-		}
-	}
-
-	// Handle commit message textarea updates
-	if m.Type == ModalEditCommit {
-		var cmd tea.Cmd
-		m.commitTextarea, cmd = m.commitTextarea.Update(msg)
-		return m, cmd
-	}
-
-	return m, nil
+	var cmd tea.Cmd
+	m.State, cmd = m.State.Update(msg)
+	return m, cmd
 }
 
 // View renders the modal
 func (m *Modal) View(screenWidth, screenHeight int) string {
-	if !m.IsVisible() {
+	if m.State == nil {
 		return ""
 	}
 
-	var content string
+	content := m.State.Render()
 
-	switch m.Type {
-	case ModalAddRepo:
-		content = m.renderAddRepo()
-	case ModalNewSession:
-		content = m.renderNewSession()
-	case ModalConfirmDelete:
-		content = m.renderConfirmDelete()
-	case ModalMerge:
-		content = m.renderMerge()
-	case ModalEditCommit:
-		content = m.renderEditCommit()
-	case ModalMCPServers:
-		content = m.renderMCPServers()
-	case ModalAddMCPServer:
-		content = m.renderAddMCPServer()
+	// Add error if present
+	if m.error != "" {
+		content += "\n" + StatusErrorStyle.Render(m.error)
 	}
 
 	modal := ModalStyle.Render(content)
-
-	// Center the modal
-	modalWidth := lipgloss.Width(modal)
-	modalHeight := lipgloss.Height(modal)
-
-	x := (screenWidth - modalWidth) / 2
-	y := (screenHeight - modalHeight) / 2
-
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
 
 	return lipgloss.Place(
 		screenWidth, screenHeight,
@@ -505,24 +98,44 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 	)
 }
 
-func (m *Modal) renderAddRepo() string {
-	title := ModalTitleStyle.Render(m.title)
+// =============================================================================
+// AddRepoState - State for the Add Repository modal
+// =============================================================================
+
+type AddRepoState struct {
+	Input          textinput.Model
+	SuggestedRepo  string
+	UseSuggested   bool
+}
+
+func (AddRepoState) modalState() {}
+
+func (s *AddRepoState) Title() string { return "Add Repository" }
+
+func (s *AddRepoState) Help() string {
+	if s.SuggestedRepo != "" {
+		return "↑/↓ to switch, Enter to confirm, Esc to cancel"
+	}
+	return "Enter the full path to a git repository"
+}
+
+func (s *AddRepoState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	var content string
 
-	// Show suggested repo if available
-	if m.suggestedRepo != "" {
+	if s.SuggestedRepo != "" {
 		suggestionLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Render("Current directory:")
 
 		style := SidebarItemStyle
 		prefix := "  "
-		if m.useSuggestedRepo {
+		if s.UseSuggested {
 			style = SidebarSelectedStyle
 			prefix = "> "
 		}
-		suggestionItem := style.Render(prefix + m.suggestedRepo)
+		suggestionItem := style.Render(prefix + s.SuggestedRepo)
 
 		otherLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
@@ -530,38 +143,96 @@ func (m *Modal) renderAddRepo() string {
 			Render("Or enter a different path:")
 
 		inputStyle := lipgloss.NewStyle()
-		if !m.useSuggestedRepo {
+		if !s.UseSuggested {
 			inputStyle = inputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			inputStyle = inputStyle.PaddingLeft(2)
 		}
-		inputView := inputStyle.Render(m.input.View())
+		inputView := inputStyle.Render(s.Input.View())
 
 		content = lipgloss.JoinVertical(lipgloss.Left, suggestionLabel, suggestionItem, otherLabel, inputView)
 	} else {
-		content = m.input.View()
+		content = s.Input.View()
 	}
 
-	var errView string
-	if m.error != "" {
-		errView = "\n" + StatusErrorStyle.Render(m.error)
-	}
+	help := ModalHelpStyle.Render(s.Help())
 
-	help := ModalHelpStyle.Render(m.help)
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, content, errView, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
 }
 
-// GetAddRepoPath returns the path to add (either suggested or from input)
-func (m *Modal) GetAddRepoPath() string {
-	if m.suggestedRepo != "" && m.useSuggestedRepo {
-		return m.suggestedRepo
+func (s *AddRepoState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok && s.SuggestedRepo != "" {
+		switch keyMsg.String() {
+		case "up", "down", "tab":
+			s.UseSuggested = !s.UseSuggested
+			if s.UseSuggested {
+				s.Input.Blur()
+			} else {
+				s.Input.Focus()
+			}
+			return s, nil
+		}
 	}
-	return m.input.Value()
+
+	// Only update text input when it's focused
+	if !s.UseSuggested {
+		var cmd tea.Cmd
+		s.Input, cmd = s.Input.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
 }
 
-func (m *Modal) renderNewSession() string {
-	title := ModalTitleStyle.Render(m.title)
+// GetPath returns the path to add (either suggested or from input)
+func (s *AddRepoState) GetPath() string {
+	if s.SuggestedRepo != "" && s.UseSuggested {
+		return s.SuggestedRepo
+	}
+	return s.Input.Value()
+}
+
+// NewAddRepoState creates a new AddRepoState with proper initialization
+func NewAddRepoState(suggestedRepo string) *AddRepoState {
+	ti := textinput.New()
+	ti.Placeholder = "/path/to/repo"
+	ti.CharLimit = ModalInputCharLimit
+	ti.SetWidth(ModalInputWidth)
+
+	state := &AddRepoState{
+		Input:         ti,
+		SuggestedRepo: suggestedRepo,
+		UseSuggested:  suggestedRepo != "",
+	}
+
+	if suggestedRepo == "" {
+		state.Input.Focus()
+	}
+
+	return state
+}
+
+// =============================================================================
+// NewSessionState - State for the New Session modal
+// =============================================================================
+
+type NewSessionState struct {
+	RepoOptions []string
+	RepoIndex   int
+	BranchInput textinput.Model
+	Focus       int // 0=repo list, 1=branch input
+}
+
+func (NewSessionState) modalState() {}
+
+func (s *NewSessionState) Title() string { return "New Session" }
+
+func (s *NewSessionState) Help() string {
+	return "↑/↓ select repo  Tab: branch name  Enter: create"
+}
+
+func (s *NewSessionState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	// Repository selection section
 	repoLabel := lipgloss.NewStyle().
@@ -569,19 +240,19 @@ func (m *Modal) renderNewSession() string {
 		Render("Repository:")
 
 	var repoList string
-	if len(m.repoOptions) == 0 {
+	if len(s.RepoOptions) == 0 {
 		repoList = lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Render("No repositories added. Press 'r' to add one first.")
 	} else {
-		for i, repo := range m.repoOptions {
+		for i, repo := range s.RepoOptions {
 			style := SidebarItemStyle
 			prefix := "  "
-			if m.newSessionFocus == 0 && i == m.repoIndex {
+			if s.Focus == 0 && i == s.RepoIndex {
 				style = SidebarSelectedStyle
 				prefix = "> "
-			} else if i == m.repoIndex {
+			} else if i == s.RepoIndex {
 				prefix = "● "
 			}
 			repoList += style.Render(prefix+repo) + "\n"
@@ -595,25 +266,104 @@ func (m *Modal) renderNewSession() string {
 		Render("Branch name:")
 
 	branchInputStyle := lipgloss.NewStyle()
-	if m.newSessionFocus == 1 {
+	if s.Focus == 1 {
 		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 	} else {
 		branchInputStyle = branchInputStyle.PaddingLeft(2)
 	}
-	branchView := branchInputStyle.Render(m.branchInput.View())
+	branchView := branchInputStyle.Render(s.BranchInput.View())
 
-	var errView string
-	if m.error != "" {
-		errView = "\n" + StatusErrorStyle.Render(m.error)
-	}
+	help := ModalHelpStyle.Render(s.Help())
 
-	help := ModalHelpStyle.Render(m.help)
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, branchLabel, branchView, errView, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, branchLabel, branchView, help)
 }
 
-func (m *Modal) renderConfirmDelete() string {
-	title := ModalTitleStyle.Render(m.title)
+func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.Focus == 0 && s.RepoIndex > 0 {
+				s.RepoIndex--
+			}
+		case "down", "j":
+			if s.Focus == 0 && s.RepoIndex < len(s.RepoOptions)-1 {
+				s.RepoIndex++
+			}
+		case "tab":
+			if s.Focus == 0 {
+				s.Focus = 1
+				s.BranchInput.Focus()
+			} else {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		case "shift+tab":
+			if s.Focus == 1 {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		}
+	}
+
+	// Handle branch input updates when focused
+	if s.Focus == 1 {
+		var cmd tea.Cmd
+		s.BranchInput, cmd = s.BranchInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetSelectedRepo returns the selected repository path
+func (s *NewSessionState) GetSelectedRepo() string {
+	if len(s.RepoOptions) == 0 || s.RepoIndex >= len(s.RepoOptions) {
+		return ""
+	}
+	return s.RepoOptions[s.RepoIndex]
+}
+
+// GetBranchName returns the custom branch name
+func (s *NewSessionState) GetBranchName() string {
+	return s.BranchInput.Value()
+}
+
+// NewNewSessionState creates a new NewSessionState with proper initialization
+func NewNewSessionState(repos []string) *NewSessionState {
+	branchInput := textinput.New()
+	branchInput.Placeholder = "optional branch name (leave empty for auto)"
+	branchInput.CharLimit = 100
+	branchInput.SetWidth(ModalInputWidth)
+
+	return &NewSessionState{
+		RepoOptions: repos,
+		RepoIndex:   0,
+		BranchInput: branchInput,
+		Focus:       0,
+	}
+}
+
+// =============================================================================
+// ConfirmDeleteState - State for the Confirm Delete modal
+// =============================================================================
+
+type ConfirmDeleteState struct {
+	Options       []string
+	SelectedIndex int
+}
+
+func (ConfirmDeleteState) modalState() {}
+
+func (s *ConfirmDeleteState) Title() string { return "Delete Session?" }
+
+func (s *ConfirmDeleteState) Help() string {
+	return "↑/↓ to select, Enter to confirm, Esc to cancel"
+}
+
+func (s *ConfirmDeleteState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	message := lipgloss.NewStyle().
 		Foreground(ColorText).
@@ -621,31 +371,79 @@ func (m *Modal) renderConfirmDelete() string {
 		Render("This will remove the session from the list.")
 
 	var optionList string
-	for i, opt := range m.deleteOptions {
+	for i, opt := range s.Options {
 		style := SidebarItemStyle
 		prefix := "  "
-		if i == m.deleteIndex {
+		if i == s.SelectedIndex {
 			style = SidebarSelectedStyle
 			prefix = "> "
 		}
 		optionList += style.Render(prefix+opt) + "\n"
 	}
 
-	help := ModalHelpStyle.Render(m.help)
+	help := ModalHelpStyle.Render(s.Help())
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, message, optionList, help)
 }
 
-func (m *Modal) renderMerge() string {
-	title := ModalTitleStyle.Render(m.title)
+func (s *ConfirmDeleteState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.SelectedIndex > 0 {
+				s.SelectedIndex--
+			}
+		case "down", "j":
+			if s.SelectedIndex < len(s.Options)-1 {
+				s.SelectedIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// ShouldDeleteWorktree returns true if user selected to delete the worktree
+func (s *ConfirmDeleteState) ShouldDeleteWorktree() bool {
+	return s.SelectedIndex == 1 // "Delete worktree" is index 1
+}
+
+// NewConfirmDeleteState creates a new ConfirmDeleteState
+func NewConfirmDeleteState() *ConfirmDeleteState {
+	return &ConfirmDeleteState{
+		Options:       []string{"Keep worktree", "Delete worktree"},
+		SelectedIndex: 0,
+	}
+}
+
+// =============================================================================
+// MergeState - State for the Merge/PR modal
+// =============================================================================
+
+type MergeState struct {
+	Options        []string
+	SelectedIndex  int
+	HasRemote      bool
+	ChangesSummary string
+}
+
+func (MergeState) modalState() {}
+
+func (s *MergeState) Title() string { return "Merge/PR" }
+
+func (s *MergeState) Help() string {
+	return "↑/↓ to select, Enter to confirm, Esc to cancel"
+}
+
+func (s *MergeState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	// Show changes summary
 	var summarySection string
-	if m.changesSummary != "" {
+	if s.ChangesSummary != "" {
 		summaryStyle := lipgloss.NewStyle().
 			Foreground(ColorSecondary).
 			MarginBottom(1)
-		summarySection = summaryStyle.Render("Changes: " + m.changesSummary)
+		summarySection = summaryStyle.Render("Changes: " + s.ChangesSummary)
 	} else {
 		noChangesStyle := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
@@ -655,17 +453,17 @@ func (m *Modal) renderMerge() string {
 	}
 
 	var optionList string
-	for i, opt := range m.mergeOptions {
+	for i, opt := range s.Options {
 		style := SidebarItemStyle
 		prefix := "  "
-		if i == m.mergeIndex {
+		if i == s.SelectedIndex {
 			style = SidebarSelectedStyle
 			prefix = "> "
 		}
 		optionList += style.Render(prefix+opt) + "\n"
 	}
 
-	if !m.hasRemote {
+	if !s.HasRemote {
 		note := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
@@ -673,17 +471,73 @@ func (m *Modal) renderMerge() string {
 		optionList += "\n" + note
 	}
 
-	help := ModalHelpStyle.Render(m.help)
+	help := ModalHelpStyle.Render(s.Help())
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, summarySection, optionList, help)
 }
 
-func (m *Modal) renderEditCommit() string {
-	title := ModalTitleStyle.Render(m.title)
+func (s *MergeState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.SelectedIndex > 0 {
+				s.SelectedIndex--
+			}
+		case "down", "j":
+			if s.SelectedIndex < len(s.Options)-1 {
+				s.SelectedIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// GetSelectedOption returns the selected merge option
+func (s *MergeState) GetSelectedOption() string {
+	if len(s.Options) == 0 || s.SelectedIndex >= len(s.Options) {
+		return ""
+	}
+	return s.Options[s.SelectedIndex]
+}
+
+// NewMergeState creates a new MergeState
+func NewMergeState(hasRemote bool, changesSummary string) *MergeState {
+	options := []string{"Merge to main"}
+	if hasRemote {
+		options = append(options, "Create PR")
+	}
+
+	return &MergeState{
+		Options:        options,
+		SelectedIndex:  0,
+		HasRemote:      hasRemote,
+		ChangesSummary: changesSummary,
+	}
+}
+
+// =============================================================================
+// EditCommitState - State for the Edit Commit Message modal
+// =============================================================================
+
+type EditCommitState struct {
+	Textarea  textarea.Model
+	MergeType string // "merge" or "pr"
+}
+
+func (EditCommitState) modalState() {}
+
+func (s *EditCommitState) Title() string { return "Edit Commit Message" }
+
+func (s *EditCommitState) Help() string {
+	return "Ctrl+s: commit  Esc: cancel"
+}
+
+func (s *EditCommitState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	// Show what operation will follow
 	operationLabel := "Merge to main"
-	if m.commitMergeType == "pr" {
+	if s.MergeType == "pr" {
 		operationLabel = "Create PR"
 	}
 	operationStyle := lipgloss.NewStyle().
@@ -691,19 +545,65 @@ func (m *Modal) renderEditCommit() string {
 		MarginBottom(1)
 	operationSection := operationStyle.Render("After commit: " + operationLabel)
 
-	// Textarea for commit message
-	textareaView := m.commitTextarea.View()
+	textareaView := s.Textarea.View()
 
-	help := ModalHelpStyle.Render(m.help)
+	help := ModalHelpStyle.Render(s.Help())
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, operationSection, textareaView, help)
 }
 
-func (m *Modal) renderMCPServers() string {
-	title := ModalTitleStyle.Render(m.title)
+func (s *EditCommitState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	var cmd tea.Cmd
+	s.Textarea, cmd = s.Textarea.Update(msg)
+	return s, cmd
+}
+
+// GetMessage returns the commit message
+func (s *EditCommitState) GetMessage() string {
+	return s.Textarea.Value()
+}
+
+// NewEditCommitState creates a new EditCommitState
+func NewEditCommitState(message, mergeType string) *EditCommitState {
+	ta := textarea.New()
+	ta.Placeholder = "Enter commit message..."
+	ta.CharLimit = 0
+	ta.SetHeight(10)
+	ta.SetWidth(ModalInputWidth)
+	ta.ShowLineNumbers = false
+	ta.Prompt = ""
+	ta.SetValue(message)
+	ta.Focus()
+
+	return &EditCommitState{
+		Textarea:  ta,
+		MergeType: mergeType,
+	}
+}
+
+// =============================================================================
+// MCPServersState - State for the MCP Servers list modal
+// =============================================================================
+
+type MCPServersState struct {
+	Servers       []MCPServerDisplay
+	SelectedIndex int
+	Repos         []string
+}
+
+func (MCPServersState) modalState() {}
+
+func (s *MCPServersState) Title() string { return "MCP Servers" }
+
+func (s *MCPServersState) Help() string {
+	return "↑/↓ navigate  a: add  d: delete  Esc: close"
+}
+
+func (s *MCPServersState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	var content string
-	if len(m.mcpServers) == 0 {
+	if len(s.Servers) == 0 {
 		content = lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
@@ -714,7 +614,7 @@ func (m *Modal) renderMCPServers() string {
 		globalShown := false
 		idx := 0
 
-		for _, server := range m.mcpServers {
+		for _, server := range s.Servers {
 			// Show section headers
 			if server.IsGlobal && !globalShown {
 				if idx > 0 {
@@ -737,7 +637,7 @@ func (m *Modal) renderMCPServers() string {
 			// Render server entry
 			style := SidebarItemStyle
 			prefix := "  "
-			if idx == m.mcpServerIndex {
+			if idx == s.SelectedIndex {
 				style = SidebarSelectedStyle
 				prefix = "> "
 			}
@@ -750,13 +650,79 @@ func (m *Modal) renderMCPServers() string {
 		}
 	}
 
-	help := ModalHelpStyle.Render(m.help)
+	help := ModalHelpStyle.Render(s.Help())
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
 }
 
-func (m *Modal) renderAddMCPServer() string {
-	title := ModalTitleStyle.Render(m.title)
+func (s *MCPServersState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.SelectedIndex > 0 {
+				s.SelectedIndex--
+			}
+		case "down", "j":
+			if s.SelectedIndex < len(s.Servers)-1 {
+				s.SelectedIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// GetSelectedServer returns the selected server for deletion
+func (s *MCPServersState) GetSelectedServer() *MCPServerDisplay {
+	if len(s.Servers) == 0 || s.SelectedIndex >= len(s.Servers) {
+		return nil
+	}
+	return &s.Servers[s.SelectedIndex]
+}
+
+// NewMCPServersState creates a new MCPServersState
+func NewMCPServersState(globalServers []MCPServerDisplay, perRepoServers map[string][]MCPServerDisplay, repos []string) *MCPServersState {
+	// Build flattened list for navigation
+	var servers []MCPServerDisplay
+	for _, s := range globalServers {
+		servers = append(servers, s)
+	}
+	for _, repo := range repos {
+		for _, s := range perRepoServers[repo] {
+			servers = append(servers, s)
+		}
+	}
+
+	return &MCPServersState{
+		Servers:       servers,
+		SelectedIndex: 0,
+		Repos:         repos,
+	}
+}
+
+// =============================================================================
+// AddMCPServerState - State for the Add MCP Server modal
+// =============================================================================
+
+type AddMCPServerState struct {
+	IsGlobal   bool
+	Repos      []string
+	RepoIndex  int
+	NameInput  textinput.Model
+	CmdInput   textinput.Model
+	ArgsInput  textinput.Model
+	InputIndex int // 0=scope, 1=repo, 2=name, 3=cmd, 4=args
+}
+
+func (AddMCPServerState) modalState() {}
+
+func (s *AddMCPServerState) Title() string { return "Add MCP Server" }
+
+func (s *AddMCPServerState) Help() string {
+	return "Tab: next  Space: toggle scope  Enter: save  Esc: cancel"
+}
+
+func (s *AddMCPServerState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
 
 	// Scope selector
 	scopeLabel := lipgloss.NewStyle().
@@ -765,20 +731,20 @@ func (m *Modal) renderAddMCPServer() string {
 
 	globalStyle := SidebarItemStyle
 	globalPrefix := "  "
-	if m.mcpInputIndex == 0 && m.mcpIsGlobal {
+	if s.InputIndex == 0 && s.IsGlobal {
 		globalStyle = SidebarSelectedStyle
 		globalPrefix = "> "
-	} else if m.mcpIsGlobal {
+	} else if s.IsGlobal {
 		globalPrefix = "● "
 	}
 	globalOpt := globalStyle.Render(globalPrefix + "Global")
 
 	repoStyle := SidebarItemStyle
 	repoPrefix := "  "
-	if m.mcpInputIndex == 0 && !m.mcpIsGlobal {
+	if s.InputIndex == 0 && !s.IsGlobal {
 		repoStyle = SidebarSelectedStyle
 		repoPrefix = "> "
-	} else if !m.mcpIsGlobal {
+	} else if !s.IsGlobal {
 		repoPrefix = "● "
 	}
 	repoOpt := repoStyle.Render(repoPrefix + "Per-repository")
@@ -787,20 +753,20 @@ func (m *Modal) renderAddMCPServer() string {
 
 	// Repo selector (only if per-repo)
 	var repoSection string
-	if !m.mcpIsGlobal && len(m.mcpRepos) > 0 {
+	if !s.IsGlobal && len(s.Repos) > 0 {
 		repoLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			MarginTop(1).
 			Render("Repository:")
 
 		var repoList string
-		for i, repo := range m.mcpRepos {
+		for i, repo := range s.Repos {
 			style := SidebarItemStyle
 			prefix := "  "
-			if m.mcpInputIndex == 1 && i == m.mcpRepoIndex {
+			if s.InputIndex == 1 && i == s.RepoIndex {
 				style = SidebarSelectedStyle
 				prefix = "> "
-			} else if i == m.mcpRepoIndex {
+			} else if i == s.RepoIndex {
 				prefix = "● "
 			}
 			repoList += style.Render(prefix+truncatePath(repo, 40)) + "\n"
@@ -817,14 +783,14 @@ func (m *Modal) renderAddMCPServer() string {
 		return style.Render(label)
 	}
 
-	nameLabel := inputLabel("Name:", m.mcpInputIndex == 2)
-	nameInput := m.mcpNameInput.View()
+	nameLabel := inputLabel("Name:", s.InputIndex == 2)
+	nameInput := s.NameInput.View()
 
-	cmdLabel := inputLabel("Command:", m.mcpInputIndex == 3)
-	cmdInput := m.mcpCmdInput.View()
+	cmdLabel := inputLabel("Command:", s.InputIndex == 3)
+	cmdInput := s.CmdInput.View()
 
-	argsLabel := inputLabel("Args:", m.mcpInputIndex == 4)
-	argsInput := m.mcpArgsInput.View()
+	argsLabel := inputLabel("Args:", s.InputIndex == 4)
+	argsInput := s.ArgsInput.View()
 
 	inputSection := lipgloss.JoinVertical(lipgloss.Left,
 		nameLabel, nameInput,
@@ -832,7 +798,7 @@ func (m *Modal) renderAddMCPServer() string {
 		argsLabel, argsInput,
 	)
 
-	help := ModalHelpStyle.Render(m.help)
+	help := ModalHelpStyle.Render(s.Help())
 
 	if repoSection != "" {
 		return lipgloss.JoinVertical(lipgloss.Left, title, scopeSection, repoSection, inputSection, help)
@@ -840,80 +806,141 @@ func (m *Modal) renderAddMCPServer() string {
 	return lipgloss.JoinVertical(lipgloss.Left, title, scopeSection, inputSection, help)
 }
 
-// advanceMCPInput moves to the next input field
-func (m *Modal) advanceMCPInput() {
-	m.blurAllMCPInputs()
+func (s *AddMCPServerState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "tab", "down":
+			s.advanceInput()
+			return s, nil
+		case "shift+tab", "up":
+			s.retreatInput()
+			return s, nil
+		case " ":
+			// Space toggles scope when on scope selector
+			if s.InputIndex == 0 {
+				s.IsGlobal = !s.IsGlobal
+			}
+			return s, nil
+		}
+	}
+
+	// Handle text input updates
+	if s.InputIndex >= 2 {
+		var cmd tea.Cmd
+		switch s.InputIndex {
+		case 2:
+			s.NameInput, cmd = s.NameInput.Update(msg)
+		case 3:
+			s.CmdInput, cmd = s.CmdInput.Update(msg)
+		case 4:
+			s.ArgsInput, cmd = s.ArgsInput.Update(msg)
+		}
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+func (s *AddMCPServerState) advanceInput() {
+	s.blurAllInputs()
 
 	maxIndex := 4
-	if m.mcpIsGlobal {
+	if s.IsGlobal {
 		// Skip repo selection (index 1) if global
-		if m.mcpInputIndex == 0 {
-			m.mcpInputIndex = 2
-		} else if m.mcpInputIndex < maxIndex {
-			m.mcpInputIndex++
+		if s.InputIndex == 0 {
+			s.InputIndex = 2
+		} else if s.InputIndex < maxIndex {
+			s.InputIndex++
 		}
 	} else {
-		if m.mcpInputIndex < maxIndex {
-			m.mcpInputIndex++
+		if s.InputIndex < maxIndex {
+			s.InputIndex++
 		}
 	}
 
-	m.focusMCPInput()
+	s.focusInput()
 }
 
-// retreatMCPInput moves to the previous input field
-func (m *Modal) retreatMCPInput() {
-	m.blurAllMCPInputs()
+func (s *AddMCPServerState) retreatInput() {
+	s.blurAllInputs()
 
-	if m.mcpIsGlobal {
+	if s.IsGlobal {
 		// Skip repo selection (index 1) if global
-		if m.mcpInputIndex == 2 {
-			m.mcpInputIndex = 0
-		} else if m.mcpInputIndex > 0 {
-			m.mcpInputIndex--
+		if s.InputIndex == 2 {
+			s.InputIndex = 0
+		} else if s.InputIndex > 0 {
+			s.InputIndex--
 		}
 	} else {
-		if m.mcpInputIndex > 0 {
-			m.mcpInputIndex--
+		if s.InputIndex > 0 {
+			s.InputIndex--
 		}
 	}
 
-	m.focusMCPInput()
+	s.focusInput()
 }
 
-func (m *Modal) blurAllMCPInputs() {
-	m.mcpNameInput.Blur()
-	m.mcpCmdInput.Blur()
-	m.mcpArgsInput.Blur()
+func (s *AddMCPServerState) blurAllInputs() {
+	s.NameInput.Blur()
+	s.CmdInput.Blur()
+	s.ArgsInput.Blur()
 }
 
-func (m *Modal) focusMCPInput() {
-	switch m.mcpInputIndex {
+func (s *AddMCPServerState) focusInput() {
+	switch s.InputIndex {
 	case 2:
-		m.mcpNameInput.Focus()
+		s.NameInput.Focus()
 	case 3:
-		m.mcpCmdInput.Focus()
+		s.CmdInput.Focus()
 	case 4:
-		m.mcpArgsInput.Focus()
+		s.ArgsInput.Focus()
 	}
 }
 
-// ToggleMCPScope toggles between global and per-repo in add modal
-func (m *Modal) ToggleMCPScope() {
-	if m.mcpInputIndex == 0 {
-		m.mcpIsGlobal = !m.mcpIsGlobal
+// GetValues returns the server configuration values
+func (s *AddMCPServerState) GetValues() (name, command, args, repoPath string, isGlobal bool) {
+	name = s.NameInput.Value()
+	command = s.CmdInput.Value()
+	args = s.ArgsInput.Value()
+	isGlobal = s.IsGlobal
+	if !isGlobal && len(s.Repos) > 0 && s.RepoIndex < len(s.Repos) {
+		repoPath = s.Repos[s.RepoIndex]
+	}
+	return
+}
+
+// NewAddMCPServerState creates a new AddMCPServerState
+func NewAddMCPServerState(repos []string) *AddMCPServerState {
+	nameInput := textinput.New()
+	nameInput.Placeholder = "server-name"
+	nameInput.CharLimit = 50
+	nameInput.SetWidth(ModalInputWidth)
+	nameInput.Focus()
+
+	cmdInput := textinput.New()
+	cmdInput.Placeholder = "npx"
+	cmdInput.CharLimit = 100
+	cmdInput.SetWidth(ModalInputWidth)
+
+	argsInput := textinput.New()
+	argsInput.Placeholder = "@modelcontextprotocol/server-github"
+	argsInput.CharLimit = 200
+	argsInput.SetWidth(ModalInputWidth)
+
+	return &AddMCPServerState{
+		IsGlobal:   true,
+		Repos:      repos,
+		RepoIndex:  0,
+		NameInput:  nameInput,
+		CmdInput:   cmdInput,
+		ArgsInput:  argsInput,
+		InputIndex: 0,
 	}
 }
 
-// MoveMCPRepoSelection moves repo selection up or down
-func (m *Modal) MoveMCPRepoSelection(delta int) {
-	if m.mcpInputIndex == 1 {
-		newIdx := m.mcpRepoIndex + delta
-		if newIdx >= 0 && newIdx < len(m.mcpRepos) {
-			m.mcpRepoIndex = newIdx
-		}
-	}
-}
+// =============================================================================
+// Helper functions
+// =============================================================================
 
 func truncatePath(path string, maxLen int) string {
 	if len(path) <= maxLen {

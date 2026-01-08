@@ -13,26 +13,26 @@ import (
 	"github.com/zhubert/plural/internal/ui"
 )
 
-// handleModalKey routes modal key events to the appropriate handler based on modal type.
+// handleModalKey routes modal key events to the appropriate handler based on modal state type.
 // This reduces the size of the main Update function by delegating modal handling.
 func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	switch m.modal.Type {
-	case ui.ModalAddRepo:
-		return m.handleAddRepoModal(key)
-	case ui.ModalNewSession:
-		return m.handleNewSessionModal(key, msg)
-	case ui.ModalConfirmDelete:
-		return m.handleConfirmDeleteModal(key, msg)
-	case ui.ModalMerge:
-		return m.handleMergeModal(key)
-	case ui.ModalMCPServers:
-		return m.handleMCPServersModal(key)
-	case ui.ModalAddMCPServer:
-		return m.handleAddMCPServerModal(key)
-	case ui.ModalEditCommit:
-		return m.handleEditCommitModal(key)
+	switch s := m.modal.State.(type) {
+	case *ui.AddRepoState:
+		return m.handleAddRepoModal(key, s)
+	case *ui.NewSessionState:
+		return m.handleNewSessionModal(key, msg, s)
+	case *ui.ConfirmDeleteState:
+		return m.handleConfirmDeleteModal(key, msg, s)
+	case *ui.MergeState:
+		return m.handleMergeModal(key, s)
+	case *ui.MCPServersState:
+		return m.handleMCPServersModal(key, s)
+	case *ui.AddMCPServerState:
+		return m.handleAddMCPServerModal(key, s)
+	case *ui.EditCommitState:
+		return m.handleEditCommitModal(key, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -42,13 +42,13 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleAddRepoModal handles key events for the Add Repository modal.
-func (m *Model) handleAddRepoModal(key string) (tea.Model, tea.Cmd) {
+func (m *Model) handleAddRepoModal(key string, state *ui.AddRepoState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
 		return m, nil
 	case "enter":
-		path := m.modal.GetAddRepoPath()
+		path := state.GetPath()
 		if path == "" {
 			m.modal.SetError("Please enter a path")
 			return m, nil
@@ -72,17 +72,17 @@ func (m *Model) handleAddRepoModal(key string) (tea.Model, tea.Cmd) {
 }
 
 // handleNewSessionModal handles key events for the New Session modal.
-func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui.NewSessionState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
 		return m, nil
 	case "enter":
-		repoPath := m.modal.GetSelectedRepo()
+		repoPath := state.GetSelectedRepo()
 		if repoPath == "" {
 			return m, nil
 		}
-		branchName := m.modal.GetBranchName()
+		branchName := state.GetBranchName()
 		// Validate branch name
 		if err := session.ValidateBranchName(branchName); err != nil {
 			m.modal.SetError(err.Error())
@@ -120,14 +120,14 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg) (tea.Mode
 }
 
 // handleConfirmDeleteModal handles key events for the Confirm Delete modal.
-func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmDeleteState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
 		return m, nil
 	case "enter":
 		if sess := m.sidebar.SelectedSession(); sess != nil {
-			deleteWorktree := m.modal.ShouldDeleteWorktree()
+			deleteWorktree := state.ShouldDeleteWorktree()
 			logger.Log("App: Deleting session: id=%s, name=%s, deleteWorktree=%v", sess.ID, sess.Name, deleteWorktree)
 
 			// Delete worktree if requested
@@ -169,13 +169,13 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg) (tea.M
 }
 
 // handleMergeModal handles key events for the Merge/PR modal.
-func (m *Model) handleMergeModal(key string) (tea.Model, tea.Cmd) {
+func (m *Model) handleMergeModal(key string, state *ui.MergeState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
 		return m, nil
 	case "enter":
-		option := m.modal.GetSelectedMergeOption()
+		option := state.GetSelectedOption()
 		sess := m.sidebar.SelectedSession()
 		if option == "" || sess == nil {
 			return m, nil
@@ -228,16 +228,16 @@ func (m *Model) handleMergeModal(key string) (tea.Model, tea.Cmd) {
 }
 
 // handleMCPServersModal handles key events for the MCP Servers modal.
-func (m *Model) handleMCPServersModal(key string) (tea.Model, tea.Cmd) {
+func (m *Model) handleMCPServersModal(key string, state *ui.MCPServersState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
 		return m, nil
 	case "a":
-		m.modal.ShowAddMCPServer(m.config.GetRepos())
+		m.modal.Show(ui.NewAddMCPServerState(m.config.GetRepos()))
 		return m, nil
 	case "d":
-		if server := m.modal.GetSelectedMCPServer(); server != nil {
+		if server := state.GetSelectedServer(); server != nil {
 			if server.IsGlobal {
 				m.config.RemoveGlobalMCPServer(server.Name)
 			} else {
@@ -252,13 +252,13 @@ func (m *Model) handleMCPServersModal(key string) (tea.Model, tea.Cmd) {
 }
 
 // handleAddMCPServerModal handles key events for the Add MCP Server modal.
-func (m *Model) handleAddMCPServerModal(key string) (tea.Model, tea.Cmd) {
+func (m *Model) handleAddMCPServerModal(key string, state *ui.AddMCPServerState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.showMCPServersModal() // Go back to list
 		return m, nil
 	case "enter":
-		name, command, args, repoPath, isGlobal := m.modal.GetNewMCPServer()
+		name, command, args, repoPath, isGlobal := state.GetValues()
 		if name == "" || command == "" {
 			return m, nil
 		}
@@ -280,16 +280,12 @@ func (m *Model) handleAddMCPServerModal(key string) (tea.Model, tea.Cmd) {
 		m.config.Save()
 		m.modal.Hide()
 		return m, nil
-	case " ":
-		// Space toggles scope when on scope selector
-		m.modal.ToggleMCPScope()
-		return m, nil
 	}
 	return m.updateModalInput()
 }
 
 // handleEditCommitModal handles key events for the Edit Commit modal.
-func (m *Model) handleEditCommitModal(key string) (tea.Model, tea.Cmd) {
+func (m *Model) handleEditCommitModal(key string, state *ui.EditCommitState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		// Cancel commit message editing
@@ -300,7 +296,7 @@ func (m *Model) handleEditCommitModal(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+s":
 		// Confirm commit and proceed with merge/PR
-		commitMsg := m.modal.GetCommitMessage()
+		commitMsg := state.GetMessage()
 		if commitMsg == "" {
 			return m, nil // Don't allow empty commit messages
 		}
