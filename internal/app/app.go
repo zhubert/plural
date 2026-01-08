@@ -175,6 +175,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.updateSizes()
 
+	case tea.PasteStartMsg:
+		// Handle paste events - check for images in clipboard when paste starts
+		// Terminals intercept Ctrl+V and send paste events instead of key presses
+		logger.Log("App: PasteStartMsg received, focus=%v, hasActiveSession=%v", m.focus, m.activeSession != nil)
+		if m.focus == FocusChat && m.activeSession != nil {
+			model, cmd := m.handleImagePaste()
+			if m.chat.HasPendingImage() {
+				// Image was attached, don't process text paste
+				return model, cmd
+			}
+			// No image found, let text paste proceed normally
+		}
+
 	case tea.KeyPressMsg:
 		// Handle modal first if visible
 		if m.modal.IsVisible() {
@@ -241,6 +254,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle Ctrl+V for image pasting when chat is focused
+		// Note: Most terminals intercept Ctrl+V and send PasteStartMsg instead,
+		// but we keep this as a fallback for terminals that send raw key presses.
 		if msg.String() == "ctrl+v" && m.focus == FocusChat && m.activeSession != nil {
 			return m.handleImagePaste()
 		}
