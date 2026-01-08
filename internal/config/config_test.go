@@ -551,3 +551,317 @@ func TestConfig_SaveAndLoad(t *testing.T) {
 		t.Errorf("Expected 1 repo allowed tool, got %d", len(loaded.RepoAllowedTools["/path/to/repo1"]))
 	}
 }
+
+func TestConfig_MarkSessionMerged(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1", Merged: false},
+		},
+	}
+
+	// Test marking existing session as merged
+	if !cfg.MarkSessionMerged("session-1") {
+		t.Error("MarkSessionMerged should return true for existing session")
+	}
+
+	sess := cfg.GetSession("session-1")
+	if !sess.Merged {
+		t.Error("Session should be marked as merged")
+	}
+
+	// Test marking non-existent session
+	if cfg.MarkSessionMerged("nonexistent") {
+		t.Error("MarkSessionMerged should return false for non-existent session")
+	}
+}
+
+func TestConfig_MarkSessionPRCreated(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1", PRCreated: false},
+		},
+	}
+
+	// Test marking existing session as having PR created
+	if !cfg.MarkSessionPRCreated("session-1") {
+		t.Error("MarkSessionPRCreated should return true for existing session")
+	}
+
+	sess := cfg.GetSession("session-1")
+	if !sess.PRCreated {
+		t.Error("Session should be marked as having PR created")
+	}
+
+	// Test marking non-existent session
+	if cfg.MarkSessionPRCreated("nonexistent") {
+		t.Error("MarkSessionPRCreated should return false for non-existent session")
+	}
+}
+
+func TestConfig_GlobalMCPServers(t *testing.T) {
+	cfg := &Config{
+		Repos:      []string{"/path/to/repo"},
+		Sessions:   []Session{},
+		MCPServers: []MCPServer{},
+	}
+
+	server1 := MCPServer{
+		Name:    "github",
+		Command: "npx",
+		Args:    []string{"@modelcontextprotocol/server-github"},
+	}
+
+	// Test adding a global MCP server
+	if !cfg.AddGlobalMCPServer(server1) {
+		t.Error("AddGlobalMCPServer should return true for new server")
+	}
+
+	servers := cfg.GetGlobalMCPServers()
+	if len(servers) != 1 {
+		t.Errorf("Expected 1 global MCP server, got %d", len(servers))
+	}
+
+	if servers[0].Name != "github" {
+		t.Errorf("Expected server name 'github', got '%s'", servers[0].Name)
+	}
+
+	// Test adding duplicate server (same name)
+	if cfg.AddGlobalMCPServer(server1) {
+		t.Error("AddGlobalMCPServer should return false for duplicate server name")
+	}
+
+	// Test adding different server
+	server2 := MCPServer{
+		Name:    "postgres",
+		Command: "npx",
+		Args:    []string{"@modelcontextprotocol/server-postgres"},
+	}
+	if !cfg.AddGlobalMCPServer(server2) {
+		t.Error("AddGlobalMCPServer should return true for new server")
+	}
+
+	servers = cfg.GetGlobalMCPServers()
+	if len(servers) != 2 {
+		t.Errorf("Expected 2 global MCP servers, got %d", len(servers))
+	}
+
+	// Verify copy is returned
+	servers[0].Name = "modified"
+	original := cfg.GetGlobalMCPServers()
+	if original[0].Name == "modified" {
+		t.Error("GetGlobalMCPServers should return a copy")
+	}
+}
+
+func TestConfig_RemoveGlobalMCPServer(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+		MCPServers: []MCPServer{
+			{Name: "github", Command: "npx", Args: []string{"@mcp/github"}},
+			{Name: "postgres", Command: "npx", Args: []string{"@mcp/postgres"}},
+		},
+	}
+
+	// Test removing existing server
+	if !cfg.RemoveGlobalMCPServer("github") {
+		t.Error("RemoveGlobalMCPServer should return true for existing server")
+	}
+
+	servers := cfg.GetGlobalMCPServers()
+	if len(servers) != 1 {
+		t.Errorf("Expected 1 server after removal, got %d", len(servers))
+	}
+
+	if servers[0].Name != "postgres" {
+		t.Errorf("Expected remaining server 'postgres', got '%s'", servers[0].Name)
+	}
+
+	// Test removing non-existent server
+	if cfg.RemoveGlobalMCPServer("nonexistent") {
+		t.Error("RemoveGlobalMCPServer should return false for non-existent server")
+	}
+}
+
+func TestConfig_RepoMCPServers(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{"/path/to/repo"},
+		Sessions: []Session{},
+		RepoMCP:  nil, // Start with nil to test initialization
+	}
+
+	repoPath := "/path/to/repo"
+	server := MCPServer{
+		Name:    "github",
+		Command: "npx",
+		Args:    []string{"@mcp/github"},
+	}
+
+	// Test adding repo-specific server (with nil map)
+	if !cfg.AddRepoMCPServer(repoPath, server) {
+		t.Error("AddRepoMCPServer should return true for new server")
+	}
+
+	servers := cfg.GetRepoMCPServers(repoPath)
+	if len(servers) != 1 {
+		t.Errorf("Expected 1 repo MCP server, got %d", len(servers))
+	}
+
+	// Test adding duplicate
+	if cfg.AddRepoMCPServer(repoPath, server) {
+		t.Error("AddRepoMCPServer should return false for duplicate server name")
+	}
+
+	// Test getting servers for non-existent repo
+	noServers := cfg.GetRepoMCPServers("/different/repo")
+	if len(noServers) != 0 {
+		t.Errorf("Expected 0 servers for non-existent repo, got %d", len(noServers))
+	}
+
+	// Verify copy is returned
+	servers[0].Name = "modified"
+	original := cfg.GetRepoMCPServers(repoPath)
+	if original[0].Name == "modified" {
+		t.Error("GetRepoMCPServers should return a copy")
+	}
+}
+
+func TestConfig_RemoveRepoMCPServer(t *testing.T) {
+	repoPath := "/path/to/repo"
+	cfg := &Config{
+		Repos:    []string{repoPath},
+		Sessions: []Session{},
+		RepoMCP: map[string][]MCPServer{
+			repoPath: {
+				{Name: "github", Command: "npx", Args: []string{"@mcp/github"}},
+				{Name: "postgres", Command: "npx", Args: []string{"@mcp/postgres"}},
+			},
+		},
+	}
+
+	// Test removing existing server
+	if !cfg.RemoveRepoMCPServer(repoPath, "github") {
+		t.Error("RemoveRepoMCPServer should return true for existing server")
+	}
+
+	servers := cfg.GetRepoMCPServers(repoPath)
+	if len(servers) != 1 {
+		t.Errorf("Expected 1 server after removal, got %d", len(servers))
+	}
+
+	// Test removing from non-existent repo
+	if cfg.RemoveRepoMCPServer("/other/repo", "github") {
+		t.Error("RemoveRepoMCPServer should return false for non-existent repo")
+	}
+
+	// Test removing non-existent server
+	if cfg.RemoveRepoMCPServer(repoPath, "nonexistent") {
+		t.Error("RemoveRepoMCPServer should return false for non-existent server")
+	}
+
+	// Remove last server - map entry should be cleaned up
+	cfg.RemoveRepoMCPServer(repoPath, "postgres")
+	if _, exists := cfg.RepoMCP[repoPath]; exists {
+		t.Error("RepoMCP entry should be removed when empty")
+	}
+}
+
+func TestConfig_GetMCPServersForRepo(t *testing.T) {
+	repoPath := "/path/to/repo"
+	cfg := &Config{
+		Repos:    []string{repoPath},
+		Sessions: []Session{},
+		MCPServers: []MCPServer{
+			{Name: "global-github", Command: "npx", Args: []string{"@mcp/github"}},
+			{Name: "shared", Command: "npx", Args: []string{"@mcp/shared"}},
+		},
+		RepoMCP: map[string][]MCPServer{
+			repoPath: {
+				{Name: "repo-postgres", Command: "npx", Args: []string{"@mcp/postgres"}},
+				{Name: "shared", Command: "custom", Args: []string{"--custom-args"}}, // Override global
+			},
+		},
+	}
+
+	servers := cfg.GetMCPServersForRepo(repoPath)
+
+	// Should have 3 servers: global-github, repo-postgres, and shared (overridden)
+	if len(servers) != 3 {
+		t.Errorf("Expected 3 merged servers, got %d", len(servers))
+	}
+
+	// Build a map for easier checking
+	serverMap := make(map[string]MCPServer)
+	for _, s := range servers {
+		serverMap[s.Name] = s
+	}
+
+	// Check global-github is present
+	if _, ok := serverMap["global-github"]; !ok {
+		t.Error("Expected global-github server to be present")
+	}
+
+	// Check repo-postgres is present
+	if _, ok := serverMap["repo-postgres"]; !ok {
+		t.Error("Expected repo-postgres server to be present")
+	}
+
+	// Check shared is overridden with repo-specific version
+	if shared, ok := serverMap["shared"]; ok {
+		if shared.Command != "custom" {
+			t.Errorf("Expected 'shared' server to be overridden with repo version, got command=%s", shared.Command)
+		}
+	} else {
+		t.Error("Expected shared server to be present")
+	}
+}
+
+func TestConfig_GetMCPServersForRepo_EmptyRepo(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+		MCPServers: []MCPServer{
+			{Name: "global-github", Command: "npx", Args: []string{"@mcp/github"}},
+		},
+		RepoMCP: make(map[string][]MCPServer),
+	}
+
+	// Should return only global servers for repo with no specific config
+	servers := cfg.GetMCPServersForRepo("/some/repo")
+	if len(servers) != 1 {
+		t.Errorf("Expected 1 global server, got %d", len(servers))
+	}
+}
+
+func TestConfig_EnsureInitialized(t *testing.T) {
+	cfg := &Config{}
+
+	// All fields should be nil initially
+	if cfg.Repos != nil || cfg.Sessions != nil {
+		t.Error("Expected nil slices initially")
+	}
+
+	cfg.ensureInitialized()
+
+	// All fields should be initialized
+	if cfg.Repos == nil {
+		t.Error("Repos should be initialized")
+	}
+	if cfg.Sessions == nil {
+		t.Error("Sessions should be initialized")
+	}
+	if cfg.MCPServers == nil {
+		t.Error("MCPServers should be initialized")
+	}
+	if cfg.RepoMCP == nil {
+		t.Error("RepoMCP should be initialized")
+	}
+	if cfg.AllowedTools == nil {
+		t.Error("AllowedTools should be initialized")
+	}
+	if cfg.RepoAllowedTools == nil {
+		t.Error("RepoAllowedTools should be initialized")
+	}
+}

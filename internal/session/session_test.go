@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zhubert/plural/internal/config"
 )
 
 // createTestRepo creates a temporary git repository for testing
@@ -423,5 +425,228 @@ func TestBranchExists(t *testing.T) {
 	// A random branch should not exist
 	if BranchExists(repoPath, "nonexistent-branch-12345") {
 		t.Error("Expected nonexistent branch to not exist")
+	}
+}
+
+func TestDelete(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a session first
+	session, err := Create(repoPath, "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify worktree exists
+	if _, err := os.Stat(session.WorkTree); os.IsNotExist(err) {
+		t.Fatal("Worktree should exist before delete")
+	}
+
+	// Verify branch exists
+	if !BranchExists(repoPath, session.Branch) {
+		t.Fatal("Branch should exist before delete")
+	}
+
+	// Delete the session
+	err = Delete(session)
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// Verify worktree no longer exists
+	if _, err := os.Stat(session.WorkTree); !os.IsNotExist(err) {
+		t.Error("Worktree should be deleted")
+	}
+
+	// Verify branch is deleted
+	if BranchExists(repoPath, session.Branch) {
+		t.Error("Branch should be deleted")
+	}
+}
+
+func TestDelete_NonexistentWorktree(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a fake session pointing to nonexistent worktree
+	session := &config.Session{
+		ID:       "fake-session-id",
+		RepoPath: repoPath,
+		WorkTree: "/nonexistent/worktree/path",
+		Branch:   "nonexistent-branch",
+	}
+
+	// Delete should return an error but not panic
+	err := Delete(session)
+	if err == nil {
+		t.Error("Expected error when deleting nonexistent worktree")
+	}
+}
+
+func TestDelete_AlreadyDeletedBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a session
+	session, err := Create(repoPath, "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Manually delete the branch first
+	cmd := exec.Command("git", "worktree", "remove", session.WorkTree, "--force")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "branch", "-D", session.Branch)
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Delete should handle this gracefully (branch deletion is best-effort)
+	err = Delete(session)
+	// Error is expected since worktree is already gone
+	// But it shouldn't panic
+}
+
+func TestFindOrphanedWorktrees(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a session
+	session, err := Create(repoPath, "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Create a config that knows about this session
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{*session},
+	}
+
+	// Find orphans - there should be none since the session is in config
+	orphans, err := FindOrphanedWorktrees(cfg)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	if len(orphans) != 0 {
+		t.Errorf("Expected 0 orphans, got %d", len(orphans))
+	}
+
+	// Now create a config without this session (simulating orphan)
+	emptyConfig := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{},
+	}
+
+	orphans, err = FindOrphanedWorktrees(emptyConfig)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	if len(orphans) != 1 {
+		t.Errorf("Expected 1 orphan, got %d", len(orphans))
+	}
+
+	if len(orphans) > 0 && orphans[0].ID != session.ID {
+		t.Errorf("Orphan ID = %q, want %q", orphans[0].ID, session.ID)
+	}
+}
+
+func TestFindOrphanedWorktrees_NoWorktrees(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{},
+	}
+
+	orphans, err := FindOrphanedWorktrees(cfg)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	// No worktrees directory exists, so no orphans
+	if len(orphans) != 0 {
+		t.Errorf("Expected 0 orphans, got %d", len(orphans))
+	}
+}
+
+func TestPruneOrphanedWorktrees(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a session
+	session, err := Create(repoPath, "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Create a config without this session (making it an orphan)
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{},
+	}
+
+	// Verify worktree exists before prune
+	if _, err := os.Stat(session.WorkTree); os.IsNotExist(err) {
+		t.Fatal("Worktree should exist before prune")
+	}
+
+	// Prune orphans
+	pruned, err := PruneOrphanedWorktrees(cfg)
+	if err != nil {
+		t.Fatalf("PruneOrphanedWorktrees failed: %v", err)
+	}
+
+	if pruned != 1 {
+		t.Errorf("Expected 1 pruned, got %d", pruned)
+	}
+
+	// Verify worktree is gone
+	if _, err := os.Stat(session.WorkTree); !os.IsNotExist(err) {
+		t.Error("Worktree should be removed after prune")
+	}
+}
+
+func TestOrphanedWorktree_Fields(t *testing.T) {
+	orphan := OrphanedWorktree{
+		Path:     "/path/to/worktree",
+		RepoPath: "/path/to/repo",
+		ID:       "session-id-123",
+	}
+
+	if orphan.Path != "/path/to/worktree" {
+		t.Error("Path mismatch")
+	}
+	if orphan.RepoPath != "/path/to/repo" {
+		t.Error("RepoPath mismatch")
+	}
+	if orphan.ID != "session-id-123" {
+		t.Error("ID mismatch")
+	}
+}
+
+func TestCreate_CustomBranchDisplayName(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	customBranch := "feature/my-feature"
+	session, err := Create(repoPath, customBranch)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Name should include the custom branch, not the short UUID
+	if !strings.Contains(session.Name, customBranch) {
+		t.Errorf("Session name %q should contain branch name %q", session.Name, customBranch)
 	}
 }
