@@ -750,22 +750,6 @@ func highlightCode(code, language string) string {
 	return buf.String()
 }
 
-// Diff coloring styles
-var (
-	DiffAddedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4ADE80")) // Green for additions
-
-	DiffRemovedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#F87171")) // Red for deletions
-
-	DiffHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#60A5FA")). // Blue for diff headers
-			Bold(true)
-
-	DiffHunkStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#C084FC")) // Purple for @@ hunk markers
-)
-
 // HighlightDiff applies coloring to git diff output
 func HighlightDiff(diff string) string {
 	if diff == "" {

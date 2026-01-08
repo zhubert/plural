@@ -1118,6 +1118,95 @@ func NewChangelogState(entries []ChangelogEntry) *ChangelogState {
 }
 
 // =============================================================================
+// ThemeState - State for the Theme picker modal
+// =============================================================================
+
+type ThemeState struct {
+	Themes        []ThemeName
+	SelectedIndex int
+	CurrentTheme  ThemeName
+}
+
+func (*ThemeState) modalState() {}
+
+func (s *ThemeState) Title() string { return "Select Theme" }
+
+func (s *ThemeState) Help() string {
+	return "↑/↓ to select, Enter to apply, Esc to cancel"
+}
+
+func (s *ThemeState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	var content string
+	for i, themeName := range s.Themes {
+		theme := GetTheme(themeName)
+		style := SidebarItemStyle
+		prefix := "  "
+		suffix := ""
+
+		if i == s.SelectedIndex {
+			style = SidebarSelectedStyle
+			prefix = "> "
+		}
+
+		if themeName == s.CurrentTheme {
+			suffix = " (current)"
+		}
+
+		content += style.Render(prefix+theme.Name+suffix) + "\n"
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
+}
+
+func (s *ThemeState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.SelectedIndex > 0 {
+				s.SelectedIndex--
+			}
+		case "down", "j":
+			if s.SelectedIndex < len(s.Themes)-1 {
+				s.SelectedIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// GetSelectedTheme returns the selected theme name
+func (s *ThemeState) GetSelectedTheme() ThemeName {
+	if len(s.Themes) == 0 || s.SelectedIndex >= len(s.Themes) {
+		return DefaultTheme
+	}
+	return s.Themes[s.SelectedIndex]
+}
+
+// NewThemeState creates a new ThemeState
+func NewThemeState(currentTheme ThemeName) *ThemeState {
+	themes := ThemeNames()
+
+	// Find the index of the current theme
+	selectedIndex := 0
+	for i, t := range themes {
+		if t == currentTheme {
+			selectedIndex = i
+			break
+		}
+	}
+
+	return &ThemeState{
+		Themes:        themes,
+		SelectedIndex: selectedIndex,
+		CurrentTheme:  currentTheme,
+	}
+}
+
+// =============================================================================
 // Helper functions
 // =============================================================================
 

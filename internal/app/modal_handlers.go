@@ -37,6 +37,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleWelcomeModal(key, msg, s)
 	case *ui.ChangelogState:
 		return m.handleChangelogModal(key, msg, s)
+	case *ui.ThemeState:
+		return m.handleThemeModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -373,6 +375,28 @@ func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.
 		return m, nil
 	case "up", "k", "down", "j":
 		// Forward scroll keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
+
+// handleThemeModal handles key events for the Theme picker modal.
+func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.ThemeState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selectedTheme := state.GetSelectedTheme()
+		ui.SetTheme(selectedTheme)
+		m.config.SetTheme(string(selectedTheme))
+		m.config.Save()
+		m.modal.Hide()
+		return m, nil
+	case "up", "k", "down", "j":
+		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
 		return m, cmd
