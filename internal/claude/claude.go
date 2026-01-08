@@ -954,7 +954,19 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			return
 		}
 
-		logger.Log("Claude: Writing message to stdin: %s", string(msgJSON))
+		// Log message without base64 image data (which can be huge)
+		hasImage := false
+		for _, block := range content {
+			if block.Type == ContentTypeImage {
+				hasImage = true
+				break
+			}
+		}
+		if hasImage {
+			logger.Log("Claude: Writing message to stdin: [message with image, %d bytes]", len(msgJSON))
+		} else {
+			logger.Log("Claude: Writing message to stdin: %s", string(msgJSON))
+		}
 		if _, err := stdin.Write(append(msgJSON, '\n')); err != nil {
 			logger.Log("Claude: Failed to write to stdin: %v", err)
 			ch <- ResponseChunk{Error: fmt.Errorf("failed to write to process: %v", err), Done: true}

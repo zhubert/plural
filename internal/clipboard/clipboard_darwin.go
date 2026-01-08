@@ -9,21 +9,60 @@ package clipboard
 #import <Cocoa/Cocoa.h>
 #include <stdlib.h>
 
+// Helper function to check if a file path points to an image file
+int isImageFile(NSString *path) {
+    NSArray *imageExtensions = @[@"png", @"jpg", @"jpeg", @"gif", @"webp", @"tiff", @"tif", @"bmp"];
+    NSString *ext = [[path pathExtension] lowercaseString];
+    return [imageExtensions containsObject:ext];
+}
+
 // readImageFromPasteboard reads image data from the macOS pasteboard.
 // It tries multiple formats (PNG, TIFF, etc.) and returns PNG-encoded data.
+// If a file URL pointing to an image is in the clipboard, it reads that file.
 // Returns the data length, or 0 if no image is available.
 unsigned long readImageFromPasteboard(void **outData) {
     @autoreleasepool {
         NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
 
-        // Try to get image data - NSImage can read from multiple pasteboard types
-        // including PNG, TIFF, PDF, and others
-        NSArray *imageTypes = @[NSPasteboardTypePNG, NSPasteboardTypeTIFF];
-
         NSData *imageData = nil;
         NSBitmapImageRep *bitmapRep = nil;
 
-        // First, try to read PNG directly
+        // First, check if clipboard contains a file URL pointing to an image
+        // This happens when user copies an image file in Finder
+        NSArray *fileURLs = [pasteboard readObjectsForClasses:@[[NSURL class]]
+                                                      options:@{NSPasteboardURLReadingFileURLsOnlyKey: @YES}];
+        if (fileURLs != nil && [fileURLs count] > 0) {
+            NSURL *fileURL = fileURLs[0];
+            NSString *path = [fileURL path];
+            if (isImageFile(path)) {
+                // Read the actual image file contents
+                NSData *fileData = [NSData dataWithContentsOfURL:fileURL];
+                if (fileData != nil) {
+                    // Load as NSImage to convert to PNG
+                    NSImage *image = [[NSImage alloc] initWithData:fileData];
+                    if (image != nil) {
+                        NSData *tiffData = [image TIFFRepresentation];
+                        if (tiffData != nil) {
+                            bitmapRep = [NSBitmapImageRep imageRepWithData:tiffData];
+                            if (bitmapRep != nil) {
+                                NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                                if (pngData != nil) {
+                                    unsigned long len = [pngData length];
+                                    *outData = malloc(len);
+                                    if (*outData == NULL) {
+                                        return 0;
+                                    }
+                                    memcpy(*outData, [pngData bytes], len);
+                                    return len;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Try to read PNG directly (from actual image copy, not file copy)
         imageData = [pasteboard dataForType:NSPasteboardTypePNG];
         if (imageData != nil) {
             // Already PNG, return as-is
@@ -36,44 +75,47 @@ unsigned long readImageFromPasteboard(void **outData) {
             return len;
         }
 
-        // Try TIFF (what macOS screenshots use)
-        imageData = [pasteboard dataForType:NSPasteboardTypeTIFF];
-        if (imageData != nil) {
-            // Convert TIFF to PNG
-            bitmapRep = [NSBitmapImageRep imageRepWithData:imageData];
-            if (bitmapRep != nil) {
-                NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-                if (pngData != nil) {
-                    unsigned long len = [pngData length];
-                    *outData = malloc(len);
-                    if (*outData == NULL) {
-                        return 0;
+        // Try TIFF (what macOS screenshots use when copied directly)
+        // But only if we didn't already find a file URL (to avoid getting file icons)
+        if (fileURLs == nil || [fileURLs count] == 0) {
+            imageData = [pasteboard dataForType:NSPasteboardTypeTIFF];
+            if (imageData != nil) {
+                // Convert TIFF to PNG
+                bitmapRep = [NSBitmapImageRep imageRepWithData:imageData];
+                if (bitmapRep != nil) {
+                    NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                    if (pngData != nil) {
+                        unsigned long len = [pngData length];
+                        *outData = malloc(len);
+                        if (*outData == NULL) {
+                            return 0;
+                        }
+                        memcpy(*outData, [pngData bytes], len);
+                        return len;
                     }
-                    memcpy(*outData, [pngData bytes], len);
-                    return len;
                 }
             }
-        }
 
-        // Try to create NSImage from any available image type
-        // This handles formats like PDF, EPS, etc.
-        if ([pasteboard canReadObjectForClasses:@[[NSImage class]] options:nil]) {
-            NSArray *images = [pasteboard readObjectsForClasses:@[[NSImage class]] options:nil];
-            if (images != nil && [images count] > 0) {
-                NSImage *image = images[0];
-                NSData *tiffData = [image TIFFRepresentation];
-                if (tiffData != nil) {
-                    bitmapRep = [NSBitmapImageRep imageRepWithData:tiffData];
-                    if (bitmapRep != nil) {
-                        NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
-                        if (pngData != nil) {
-                            unsigned long len = [pngData length];
-                            *outData = malloc(len);
-                            if (*outData == NULL) {
-                                return 0;
+            // Try to create NSImage from any available image type
+            // This handles formats like PDF, EPS, etc.
+            if ([pasteboard canReadObjectForClasses:@[[NSImage class]] options:nil]) {
+                NSArray *images = [pasteboard readObjectsForClasses:@[[NSImage class]] options:nil];
+                if (images != nil && [images count] > 0) {
+                    NSImage *image = images[0];
+                    NSData *tiffData = [image TIFFRepresentation];
+                    if (tiffData != nil) {
+                        bitmapRep = [NSBitmapImageRep imageRepWithData:tiffData];
+                        if (bitmapRep != nil) {
+                            NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                            if (pngData != nil) {
+                                unsigned long len = [pngData length];
+                                *outData = malloc(len);
+                                if (*outData == NULL) {
+                                    return 0;
+                                }
+                                memcpy(*outData, [pngData bytes], len);
+                                return len;
                             }
-                            memcpy(*outData, [pngData bytes], len);
-                            return len;
                         }
                     }
                 }
