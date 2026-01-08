@@ -115,6 +115,11 @@ type CommitMessageGeneratedMsg struct {
 
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
+	// Load saved theme from config, or use default
+	if savedTheme := cfg.GetTheme(); savedTheme != "" {
+		ui.SetThemeByName(savedTheme)
+	}
+
 	m := &Model{
 		config:     cfg,
 		version:    version,
@@ -387,6 +392,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			if !m.chat.IsFocused() && !m.sidebar.IsSearchMode() {
 				m.sidebar.EnterSearchMode()
+			}
+		case "t":
+			if !m.chat.IsFocused() {
+				m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
 			}
 		case "enter":
 			if m.focus == FocusSidebar {

@@ -45,6 +45,7 @@ type Config struct {
 	RepoAllowedTools map[string][]string    `json:"repo_allowed_tools,omitempty"` // Per-repo allowed tools
 	WelcomeShown     bool                   `json:"welcome_shown,omitempty"`      // Whether welcome modal has been shown
 	LastSeenVersion  string                 `json:"last_seen_version,omitempty"`  // Last version user has seen changelog for
+	Theme            string                 `json:"theme,omitempty"`              // UI theme name (e.g., "dark-purple", "nord")
 
 	mu       sync.RWMutex
 	filePath string
@@ -615,4 +616,18 @@ func (c *Config) SetLastSeenVersion(version string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.LastSeenVersion = version
+}
+
+// GetTheme returns the current theme name
+func (c *Config) GetTheme() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Theme
+}
+
+// SetTheme sets the current theme name
+func (c *Config) SetTheme(theme string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Theme = theme
 }

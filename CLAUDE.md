@@ -104,16 +104,17 @@ tail -f /tmp/plural-mcp-*.log
   - `doc.go` - Package documentation with layout diagrams
   - `constants.go` - Layout constants (heights, widths, buffer sizes)
   - `context.go` - Singleton ViewContext for centralized layout calculations
-  - `styles.go` - All lipgloss styles and color palette
+  - `theme.go` - Theme system with built-in themes (Dark Purple, Nord, Dracula, Gruvbox, Tokyo Night, Catppuccin, Light)
+  - `styles.go` - All lipgloss styles and color palette (regenerated when theme changes)
   - `sidebar.go` - Session list grouped by repository with custom rendering and permission indicators
   - `chat.go` - Conversation view with soft-wrapping, waiting indicator, and inline permission prompts
-  - `modal.go` - Various modals (add repo, new session, delete, merge, welcome, changelog)
+  - `modal.go` - Various modals (add repo, new session, delete, merge, welcome, changelog, theme picker)
   - `header.go` - Header with gradient background
   - `footer.go` - Context-aware keyboard shortcuts
 
 ### Data Storage
 
-- **~/.plural/config.json** - Repos, sessions, allowed tools (global and per-repo), MCP servers (global and per-repo), welcome/version tracking
+- **~/.plural/config.json** - Repos, sessions, allowed tools (global and per-repo), MCP servers (global and per-repo), theme, welcome/version tracking
 - **~/.plural/sessions/<session-id>.json** - Conversation history (last 100 lines per session)
 
 ### Key Patterns
@@ -356,9 +357,33 @@ Plural supports configuring external MCP (Model Context Protocol) servers to ext
 }
 ```
 
+### Themes
+
+Plural supports multiple color themes to customize the UI appearance. Press `t` from the sidebar to open the theme picker.
+
+**Available themes:**
+- **Dark Purple** (default): Purple & cyan on dark gray
+- **Nord**: Blue-tinted muted palette
+- **Dracula**: Purple, cyan, pink on dark background
+- **Gruvbox Dark**: Warm browns and oranges
+- **Tokyo Night**: Blue and purple neon
+- **Catppuccin Mocha**: Pastel colors on dark
+- **Light**: Light background with indigo accents
+
+**How it works:**
+- Themes are defined in `internal/ui/theme.go` with a `Theme` struct containing all color values
+- When a theme is selected, `SetTheme()` updates the global color variables and regenerates all lipgloss styles
+- The selected theme is persisted in config (`"theme": "nord"`) and loaded on startup
+- Theme changes take effect immediately without restart
+
+**Adding a new theme:**
+1. Add a new `ThemeName` constant in `theme.go`
+2. Add the theme definition to `BuiltinThemes` map
+3. Add the theme to `ThemeNames()` return list
+
 ### UI Layout
 - Header (1 line) + Content (sidebar 1/3 width | chat 2/3 width) + Footer (1 line)
-- Panels use lipgloss rounded borders with purple highlight when focused
+- Panels use lipgloss rounded borders with accent color highlight when focused
 
 ### Constants and Configuration
 
