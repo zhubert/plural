@@ -127,6 +127,7 @@ func NewChat() *Chat {
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
 	vp.MouseWheelDelta = 3
+	vp.SoftWrap = true // Wrap text instead of allowing horizontal scrolling
 
 	c := &Chat{
 		viewport:       vp,
@@ -312,6 +313,7 @@ func (c *Chat) EnterViewChangesMode(content string) {
 	c.viewChangesViewport = viewport.New()
 	c.viewChangesViewport.MouseWheelEnabled = true
 	c.viewChangesViewport.MouseWheelDelta = 3
+	c.viewChangesViewport.SoftWrap = true // Wrap text instead of allowing horizontal scrolling
 
 	// Size it to match the main viewport
 	c.viewChangesViewport.SetWidth(c.viewport.Width())
