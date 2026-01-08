@@ -1,0 +1,169 @@
+//go:build darwin
+
+package clipboard
+
+/*
+#cgo CFLAGS: -x objective-c
+#cgo LDFLAGS: -framework Cocoa
+
+#import <Cocoa/Cocoa.h>
+#include <stdlib.h>
+
+// readImageFromPasteboard reads image data from the macOS pasteboard.
+// It tries multiple formats (PNG, TIFF, etc.) and returns PNG-encoded data.
+// Returns the data length, or 0 if no image is available.
+unsigned long readImageFromPasteboard(void **outData) {
+    @autoreleasepool {
+        NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+
+        // Try to get image data - NSImage can read from multiple pasteboard types
+        // including PNG, TIFF, PDF, and others
+        NSArray *imageTypes = @[NSPasteboardTypePNG, NSPasteboardTypeTIFF];
+
+        NSData *imageData = nil;
+        NSBitmapImageRep *bitmapRep = nil;
+
+        // First, try to read PNG directly
+        imageData = [pasteboard dataForType:NSPasteboardTypePNG];
+        if (imageData != nil) {
+            // Already PNG, return as-is
+            unsigned long len = [imageData length];
+            *outData = malloc(len);
+            if (*outData == NULL) {
+                return 0;
+            }
+            memcpy(*outData, [imageData bytes], len);
+            return len;
+        }
+
+        // Try TIFF (what macOS screenshots use)
+        imageData = [pasteboard dataForType:NSPasteboardTypeTIFF];
+        if (imageData != nil) {
+            // Convert TIFF to PNG
+            bitmapRep = [NSBitmapImageRep imageRepWithData:imageData];
+            if (bitmapRep != nil) {
+                NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                if (pngData != nil) {
+                    unsigned long len = [pngData length];
+                    *outData = malloc(len);
+                    if (*outData == NULL) {
+                        return 0;
+                    }
+                    memcpy(*outData, [pngData bytes], len);
+                    return len;
+                }
+            }
+        }
+
+        // Try to create NSImage from any available image type
+        // This handles formats like PDF, EPS, etc.
+        if ([pasteboard canReadObjectForClasses:@[[NSImage class]] options:nil]) {
+            NSArray *images = [pasteboard readObjectsForClasses:@[[NSImage class]] options:nil];
+            if (images != nil && [images count] > 0) {
+                NSImage *image = images[0];
+                NSData *tiffData = [image TIFFRepresentation];
+                if (tiffData != nil) {
+                    bitmapRep = [NSBitmapImageRep imageRepWithData:tiffData];
+                    if (bitmapRep != nil) {
+                        NSData *pngData = [bitmapRep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+                        if (pngData != nil) {
+                            unsigned long len = [pngData length];
+                            *outData = malloc(len);
+                            if (*outData == NULL) {
+                                return 0;
+                            }
+                            memcpy(*outData, [pngData bytes], len);
+                            return len;
+                        }
+                    }
+                }
+            }
+        }
+
+        *outData = NULL;
+        return 0;
+    }
+}
+
+void freeImageData(void *data) {
+    free(data);
+}
+*/
+import "C"
+
+import (
+	"bytes"
+	"fmt"
+	"image"
+	"image/png"
+	"unsafe"
+
+	"github.com/zhubert/plural/internal/logger"
+)
+
+// readNativeImage reads image data from the macOS pasteboard using native APIs.
+// This handles TIFF (used by screenshots), PNG, and other image formats.
+func readNativeImage() ([]byte, error) {
+	var dataPtr unsafe.Pointer
+	length := C.readImageFromPasteboard(&dataPtr)
+
+	if length == 0 || dataPtr == nil {
+		return nil, nil // No image data
+	}
+
+	// Copy data to Go slice and free C memory
+	data := C.GoBytes(dataPtr, C.int(length))
+	C.freeImageData(dataPtr)
+
+	return data, nil
+}
+
+// ReadImage attempts to read an image from the clipboard.
+// Returns nil if clipboard doesn't contain an image.
+func ReadImage() (*ImageData, error) {
+	logger.Log("Clipboard: Reading image using native macOS API")
+
+	// Use native macOS implementation that handles TIFF, PNG, etc.
+	imgBytes, err := readNativeImage()
+	if err != nil {
+		logger.Log("Clipboard: Native read error: %v", err)
+		return nil, err
+	}
+
+	if len(imgBytes) == 0 {
+		logger.Log("Clipboard: No image data found in pasteboard")
+		return nil, nil
+	}
+
+	logger.Log("Clipboard: Read %d bytes of PNG image data from pasteboard", len(imgBytes))
+
+	// Decode the PNG to get dimensions and validate
+	img, format, err := image.Decode(bytes.NewReader(imgBytes))
+	if err != nil {
+		logger.Log("Clipboard: Failed to decode image: %v", err)
+		return nil, fmt.Errorf("failed to decode clipboard image: %w", err)
+	}
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	logger.Log("Clipboard: Image decoded: %dx%d, format=%s", width, height, format)
+
+	// Re-encode to ensure consistent PNG format
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		logger.Log("Clipboard: Failed to re-encode as PNG: %v", err)
+		return nil, fmt.Errorf("failed to encode image as PNG: %w", err)
+	}
+
+	pngBytes := pngBuf.Bytes()
+	logger.Log("Clipboard: Final PNG: %d bytes", len(pngBytes))
+
+	return &ImageData{
+		Data:      pngBytes,
+		MediaType: "image/png",
+		Width:     width,
+		Height:    height,
+	}, nil
+}

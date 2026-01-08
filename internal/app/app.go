@@ -188,6 +188,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// No image found, let text paste proceed normally
 		}
 
+	case tea.PasteMsg:
+		// Debug: log paste content to understand what's being pasted
+		content := msg.Content
+		preview := content
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		logger.Log("App: PasteMsg received: len=%d, preview=%q", len(content), preview)
+
 	case tea.KeyPressMsg:
 		// Handle modal first if visible
 		if m.modal.IsVisible() {
