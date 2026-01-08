@@ -20,19 +20,19 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch s := m.modal.State.(type) {
 	case *ui.AddRepoState:
-		return m.handleAddRepoModal(key, s)
+		return m.handleAddRepoModal(key, msg, s)
 	case *ui.NewSessionState:
 		return m.handleNewSessionModal(key, msg, s)
 	case *ui.ConfirmDeleteState:
 		return m.handleConfirmDeleteModal(key, msg, s)
 	case *ui.MergeState:
-		return m.handleMergeModal(key, s)
+		return m.handleMergeModal(key, msg, s)
 	case *ui.MCPServersState:
-		return m.handleMCPServersModal(key, s)
+		return m.handleMCPServersModal(key, msg, s)
 	case *ui.AddMCPServerState:
-		return m.handleAddMCPServerModal(key, s)
+		return m.handleAddMCPServerModal(key, msg, s)
 	case *ui.EditCommitState:
-		return m.handleEditCommitModal(key, s)
+		return m.handleEditCommitModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -42,7 +42,7 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleAddRepoModal handles key events for the Add Repository modal.
-func (m *Model) handleAddRepoModal(key string, state *ui.AddRepoState) (tea.Model, tea.Cmd) {
+func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.AddRepoState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
@@ -68,7 +68,10 @@ func (m *Model) handleAddRepoModal(key string, state *ui.AddRepoState) (tea.Mode
 		m.modal.Hide()
 		return m, nil
 	}
-	return m.updateModalInput()
+	// Forward other keys to the modal for text input handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
 // handleNewSessionModal handles key events for the New Session modal.
@@ -169,7 +172,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 }
 
 // handleMergeModal handles key events for the Merge/PR modal.
-func (m *Model) handleMergeModal(key string, state *ui.MergeState) (tea.Model, tea.Cmd) {
+func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.MergeState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
@@ -224,11 +227,14 @@ func (m *Model) handleMergeModal(key string, state *ui.MergeState) (tea.Model, t
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}
-	return m.updateModalInput()
+	// Forward other keys to the modal for navigation handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
 // handleMCPServersModal handles key events for the MCP Servers modal.
-func (m *Model) handleMCPServersModal(key string, state *ui.MCPServersState) (tea.Model, tea.Cmd) {
+func (m *Model) handleMCPServersModal(key string, msg tea.KeyPressMsg, state *ui.MCPServersState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.modal.Hide()
@@ -248,11 +254,14 @@ func (m *Model) handleMCPServersModal(key string, state *ui.MCPServersState) (te
 		}
 		return m, nil
 	}
-	return m.updateModalInput()
+	// Forward other keys to the modal for navigation handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
 // handleAddMCPServerModal handles key events for the Add MCP Server modal.
-func (m *Model) handleAddMCPServerModal(key string, state *ui.AddMCPServerState) (tea.Model, tea.Cmd) {
+func (m *Model) handleAddMCPServerModal(key string, msg tea.KeyPressMsg, state *ui.AddMCPServerState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.showMCPServersModal() // Go back to list
@@ -281,11 +290,14 @@ func (m *Model) handleAddMCPServerModal(key string, state *ui.AddMCPServerState)
 		m.modal.Hide()
 		return m, nil
 	}
-	return m.updateModalInput()
+	// Forward other keys to the modal for text input handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
 // handleEditCommitModal handles key events for the Edit Commit modal.
-func (m *Model) handleEditCommitModal(key string, state *ui.EditCommitState) (tea.Model, tea.Cmd) {
+func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui.EditCommitState) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		// Cancel commit message editing
@@ -326,12 +338,9 @@ func (m *Model) handleEditCommitModal(key string, state *ui.EditCommitState) (te
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}
-	return m.updateModalInput()
+	// Forward other keys to the modal for textarea handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
-// updateModalInput is a helper that updates modal input for text-based modals.
-func (m *Model) updateModalInput() (tea.Model, tea.Cmd) {
-	// We need to pass through the original message for text input updates
-	// This is a no-op fallback - actual input updates happen via Modal.Update
-	return m, nil
-}
