@@ -248,26 +248,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle Escape to interrupt streaming
-		if msg.String() == "esc" && m.activeSession != nil {
-			if cancel := m.sessionState().GetStreamCancel(m.activeSession.ID); cancel != nil {
-				logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
-				cancel()
-				m.sessionState().StopWaiting(m.activeSession.ID)
-				m.sidebar.SetStreaming(m.activeSession.ID, false)
-				m.chat.SetWaiting(false)
-				// Save partial response to runner before finishing
-				if content := m.chat.GetStreaming(); content != "" {
-					m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
-					m.sessionMgr.SaveRunnerMessages(m.activeSession.ID, m.claudeRunner)
-				}
-				m.chat.AppendStreaming("\n[Interrupted]\n")
-				m.chat.FinishStreaming()
-				// Check if any sessions are still streaming
-				if !m.hasAnyStreamingSessions() {
-					m.setState(StateIdle)
-				}
+		// Handle Escape to exit search mode or interrupt streaming
+		if msg.String() == "esc" {
+			// First check if sidebar is in search mode
+			if m.sidebar.IsSearchMode() {
+				m.sidebar.ExitSearchMode()
 				return m, nil
+			}
+			// Then check for streaming interruption
+			if m.activeSession != nil {
+				if cancel := m.sessionState().GetStreamCancel(m.activeSession.ID); cancel != nil {
+					logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
+					cancel()
+					m.sessionState().StopWaiting(m.activeSession.ID)
+					m.sidebar.SetStreaming(m.activeSession.ID, false)
+					m.chat.SetWaiting(false)
+					// Save partial response to runner before finishing
+					if content := m.chat.GetStreaming(); content != "" {
+						m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
+						m.sessionMgr.SaveRunnerMessages(m.activeSession.ID, m.claudeRunner)
+					}
+					m.chat.AppendStreaming("\n[Interrupted]\n")
+					m.chat.FinishStreaming()
+					// Check if any sessions are still streaming
+					if !m.hasAnyStreamingSessions() {
+						m.setState(StateIdle)
+					}
+					return m, nil
+				}
 			}
 		}
 
@@ -375,6 +383,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if !m.chat.IsFocused() {
 				m.showMCPServersModal()
+			}
+		case "/":
+			if !m.chat.IsFocused() && !m.sidebar.IsSearchMode() {
+				m.sidebar.EnterSearchMode()
 			}
 		case "enter":
 			if m.focus == FocusSidebar {
@@ -1204,7 +1216,8 @@ func (m *Model) View() tea.View {
 	selectedSess := m.sidebar.SelectedSession()
 	sessionInUse := selectedSess != nil && m.sessionState().HasSessionInUseError(selectedSess.ID)
 	viewChangesMode := m.chat.IsInViewChangesMode()
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse, viewChangesMode)
+	searchMode := m.sidebar.IsSearchMode()
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse, viewChangesMode, searchMode)
 
 	header := m.header.View()
 	footer := m.footer.View()

@@ -23,6 +23,7 @@ type Footer struct {
 	streaming         bool // Whether active session is streaming
 	sessionInUse      bool // Whether selected session has "session in use" error
 	viewChangesMode   bool // Whether showing view changes overlay
+	searchMode        bool // Whether sidebar is in search mode
 }
 
 // NewFooter creates a new footer
@@ -30,6 +31,7 @@ func NewFooter() *Footer {
 	return &Footer{
 		bindings: []KeyBinding{
 			{Key: "tab", Desc: "switch pane"},
+			{Key: "/", Desc: "search"},
 			{Key: "n", Desc: "new session"},
 			{Key: "r", Desc: "add repo"},
 			{Key: "s", Desc: "mcp servers"},
@@ -43,7 +45,7 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse, viewChangesMode bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, sessionInUse, viewChangesMode, searchMode bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
@@ -51,6 +53,7 @@ func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendi
 	f.streaming = streaming
 	f.sessionInUse = sessionInUse
 	f.viewChangesMode = viewChangesMode
+	f.searchMode = searchMode
 }
 
 // SetWidth sets the footer width
@@ -75,6 +78,22 @@ func (f *Footer) View() string {
 			{Key: "pgup/dn", Desc: "page"},
 		}
 		for _, b := range viewChangesBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
+		content := strings.Join(parts, "  "+lipgloss.NewStyle().Foreground(ColorBorder).Render("|")+"  ")
+		return FooterStyle.Width(f.width).Render(content)
+	}
+
+	// Show search-specific shortcuts when in search mode
+	if f.searchMode {
+		searchBindings := []KeyBinding{
+			{Key: "esc", Desc: "cancel"},
+			{Key: "enter", Desc: "select"},
+			{Key: "↑/↓", Desc: "navigate"},
+		}
+		for _, b := range searchBindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)

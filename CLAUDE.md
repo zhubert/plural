@@ -241,6 +241,25 @@ Plural supports pasting images from the clipboard to include in messages to Clau
 - Images are base64-encoded and sent as content blocks alongside text
 - The Runner maintains a persistent Claude CLI process for lower latency
 
+### Session Search
+
+When you have many sessions, use the search feature to quickly find and select a session:
+
+**How to use:**
+1. Focus the sidebar (press `Tab` if needed)
+2. Press `/` to enter search mode
+3. Type to filter sessions by branch name, session name, or repository name
+4. Use `↑`/`↓` (or `Ctrl+P`/`Ctrl+N`) to navigate results
+5. Press `Enter` to select the highlighted session
+6. Press `Esc` to cancel and clear the filter
+
+**Features:**
+- Case-insensitive search
+- Matches against branch name, session name, and repository name
+- Results shown as a flat list (no repo grouping during search)
+- "No matches." shown if no sessions match the query
+- Footer shows search-specific shortcuts while in search mode
+
 ### Welcome and Changelog Modals
 
 Plural shows contextual modals on startup to help users get started and stay informed:

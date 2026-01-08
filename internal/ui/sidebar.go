@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/config"
@@ -32,6 +33,7 @@ type repoGroup struct {
 type Sidebar struct {
 	groups             []repoGroup
 	sessions           []config.Session // flat list for index tracking
+	filteredSessions   []config.Session // sessions matching current search filter
 	selectedIdx        int
 	width              int
 	height             int
@@ -42,15 +44,24 @@ type Sidebar struct {
 	sessionsInUse      map[string]bool // Map of session IDs that have "session in use" errors
 	spinnerFrame       int             // Current spinner animation frame
 	spinnerTick        int             // Tick counter for frame hold timing
+
+	// Search mode
+	searchMode  bool
+	searchInput textinput.Model
 }
 
 // NewSidebar creates a new sidebar
 func NewSidebar() *Sidebar {
+	ti := textinput.New()
+	ti.Placeholder = "search..."
+	ti.CharLimit = 50
+
 	return &Sidebar{
 		selectedIdx:        0,
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
 		sessionsInUse:      make(map[string]bool),
+		searchInput:        ti,
 	}
 }
 
@@ -119,10 +130,11 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 
 // SelectedSession returns the currently selected session
 func (s *Sidebar) SelectedSession() *config.Session {
-	if len(s.sessions) == 0 || s.selectedIdx >= len(s.sessions) {
+	displaySessions := s.getDisplaySessions()
+	if len(displaySessions) == 0 || s.selectedIdx >= len(displaySessions) {
 		return nil
 	}
-	return &s.sessions[s.selectedIdx]
+	return &displaySessions[s.selectedIdx]
 }
 
 // SelectSession selects a session by ID
@@ -189,6 +201,88 @@ func SidebarTick() tea.Cmd {
 	})
 }
 
+// EnterSearchMode activates search mode
+func (s *Sidebar) EnterSearchMode() tea.Cmd {
+	s.searchMode = true
+	s.searchInput.SetValue("")
+	s.searchInput.Focus()
+	s.applyFilter("")
+	return nil
+}
+
+// ExitSearchMode deactivates search mode and clears the filter
+func (s *Sidebar) ExitSearchMode() {
+	s.searchMode = false
+	s.searchInput.Blur()
+	s.searchInput.SetValue("")
+	s.filteredSessions = nil
+	// Reset selection to stay within bounds
+	if s.selectedIdx >= len(s.sessions) {
+		s.selectedIdx = len(s.sessions) - 1
+	}
+	if s.selectedIdx < 0 {
+		s.selectedIdx = 0
+	}
+}
+
+// IsSearchMode returns whether search mode is active
+func (s *Sidebar) IsSearchMode() bool {
+	return s.searchMode
+}
+
+// GetSearchQuery returns the current search query
+func (s *Sidebar) GetSearchQuery() string {
+	return s.searchInput.Value()
+}
+
+// applyFilter filters sessions based on the search query
+func (s *Sidebar) applyFilter(query string) {
+	if query == "" {
+		s.filteredSessions = nil
+		return
+	}
+
+	query = strings.ToLower(query)
+	s.filteredSessions = nil
+
+	for _, sess := range s.sessions {
+		// Search in branch name
+		if sess.Branch != "" && strings.Contains(strings.ToLower(sess.Branch), query) {
+			s.filteredSessions = append(s.filteredSessions, sess)
+			continue
+		}
+		// Search in session name
+		if strings.Contains(strings.ToLower(sess.Name), query) {
+			s.filteredSessions = append(s.filteredSessions, sess)
+			continue
+		}
+		// Search in repo path (just the base name)
+		repoName := filepath.Base(sess.RepoPath)
+		if strings.Contains(strings.ToLower(repoName), query) {
+			s.filteredSessions = append(s.filteredSessions, sess)
+			continue
+		}
+	}
+
+	// Reset selection to stay within bounds of filtered list
+	if len(s.filteredSessions) > 0 {
+		if s.selectedIdx >= len(s.filteredSessions) {
+			s.selectedIdx = len(s.filteredSessions) - 1
+		}
+	} else {
+		s.selectedIdx = 0
+	}
+	s.scrollOffset = 0
+}
+
+// getDisplaySessions returns the sessions to display (filtered or all)
+func (s *Sidebar) getDisplaySessions() []config.Session {
+	if s.searchMode && s.filteredSessions != nil {
+		return s.filteredSessions
+	}
+	return s.sessions
+}
+
 // Update handles messages
 func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -209,6 +303,43 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 		if !s.focused {
 			return s, nil
 		}
+
+		// Handle search mode input
+		if s.searchMode {
+			switch msg.String() {
+			case "esc":
+				s.ExitSearchMode()
+				return s, nil
+			case "enter":
+				// Exit search mode but keep filter applied (user selected)
+				s.searchMode = false
+				s.searchInput.Blur()
+				return s, nil
+			case "up", "ctrl+p":
+				displaySessions := s.getDisplaySessions()
+				if s.selectedIdx > 0 {
+					s.selectedIdx--
+					s.ensureVisibleFiltered(displaySessions)
+				}
+				return s, nil
+			case "down", "ctrl+n":
+				displaySessions := s.getDisplaySessions()
+				if s.selectedIdx < len(displaySessions)-1 {
+					s.selectedIdx++
+					s.ensureVisibleFiltered(displaySessions)
+				}
+				return s, nil
+			default:
+				// Forward to text input
+				var cmd tea.Cmd
+				s.searchInput, cmd = s.searchInput.Update(msg)
+				// Apply filter based on new query
+				s.applyFilter(s.searchInput.Value())
+				return s, cmd
+			}
+		}
+
+		// Normal mode navigation
 		switch msg.String() {
 		case "up", "k":
 			if s.selectedIdx > 0 {
@@ -233,6 +364,30 @@ func (s *Sidebar) ensureVisible() {
 
 	// Calculate the line number of the selected session in the rendered view
 	selectedLine := s.getSelectedLine()
+
+	if selectedLine < s.scrollOffset {
+		s.scrollOffset = selectedLine
+	} else if selectedLine >= s.scrollOffset+visibleHeight {
+		s.scrollOffset = selectedLine - visibleHeight + 1
+	}
+}
+
+// ensureVisibleFiltered adjusts scroll offset for filtered list (no repo headers)
+func (s *Sidebar) ensureVisibleFiltered(displaySessions []config.Session) {
+	ctx := GetViewContext()
+	// Account for search input line when in search mode
+	visibleHeight := ctx.InnerHeight(s.height)
+	if s.searchMode {
+		visibleHeight-- // Reserve one line for search input
+	}
+
+	// In filtered mode, each session is one line (no repo headers)
+	selectedLine := s.selectedIdx
+
+	// Ensure we don't go past the end of the list
+	if selectedLine >= len(displaySessions) {
+		selectedLine = len(displaySessions) - 1
+	}
 
 	if selectedLine < s.scrollOffset {
 		s.scrollOffset = selectedLine
@@ -272,14 +427,60 @@ func (s *Sidebar) View() string {
 	innerHeight := ctx.InnerHeight(s.height)
 
 	var content string
-	if len(s.sessions) == 0 {
-		emptyMsg := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Render("No sessions.")
+
+	// Render search input if in search mode
+	var searchLine string
+	if s.searchMode {
+		// Style the search input
+		searchStyle := lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true)
+		s.searchInput.SetWidth(ctx.InnerWidth(s.width) - 3) // Leave room for "/ "
+		searchLine = searchStyle.Render("/") + " " + s.searchInput.View()
+		innerHeight-- // Reserve one line for search
+	}
+
+	displaySessions := s.getDisplaySessions()
+
+	if len(displaySessions) == 0 {
+		var emptyMsg string
+		if s.searchMode && s.searchInput.Value() != "" {
+			emptyMsg = lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Render("No matches.")
+		} else {
+			emptyMsg = lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Render("No sessions.")
+		}
 		content = emptyMsg
+	} else if s.searchMode && s.filteredSessions != nil {
+		// Render flat filtered list (no repo grouping)
+		var lines []string
+		for idx, sess := range s.filteredSessions {
+			displayName := s.renderSessionName(sess, idx)
+			itemStyle := SidebarItemStyle
+			if idx == s.selectedIdx {
+				itemStyle = SidebarSelectedStyle
+				displayName = "> " + strings.TrimPrefix(displayName, "  ")
+			}
+			lines = append(lines, itemStyle.Render(displayName))
+		}
+
+		// Apply scrolling
+		if len(lines) > innerHeight && s.scrollOffset > 0 {
+			if s.scrollOffset < len(lines) {
+				lines = lines[s.scrollOffset:]
+			}
+		}
+		if len(lines) > innerHeight {
+			lines = lines[:innerHeight]
+		}
+		content = strings.Join(lines, "\n")
 	} else {
-		// Build the grouped list
+		// Build the grouped list (normal mode)
 		var lines []string
 
 		sessionIdx := 0
@@ -292,73 +493,12 @@ func (s *Sidebar) View() string {
 
 			// Sessions in this group
 			for _, sess := range group.Sessions {
-				// Use branch name if it's a custom branch, otherwise use the short ID from name
-				var displayName string
-				if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
-					// Custom branch name - show it
-					displayName = "  " + sess.Branch
-				} else if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
-					// Extract short ID from name
-					displayName = "  " + parts[len(parts)-1]
-				} else {
-					displayName = "  " + sess.Name
-				}
+				displayName := s.renderSessionName(sess, sessionIdx)
 
 				itemStyle := SidebarItemStyle
 				if sessionIdx == s.selectedIdx {
 					itemStyle = SidebarSelectedStyle
 					displayName = "> " + strings.TrimPrefix(displayName, "  ")
-				}
-
-				// Add indicators for streaming and pending permissions
-				if s.IsSessionStreaming(sess.ID) {
-					spinner := sidebarSpinnerFrames[s.spinnerFrame]
-					// Use white for selected (purple bg), purple for unselected
-					spinnerColor := ColorPrimary
-					if sessionIdx == s.selectedIdx {
-						spinnerColor = ColorText // White on purple background
-					}
-					spinnerStyle := lipgloss.NewStyle().Foreground(spinnerColor)
-					displayName = displayName + " " + spinnerStyle.Render(spinner)
-				}
-
-				// Add permission indicator
-				if s.HasPendingPermission(sess.ID) {
-					// Use white for selected (purple bg), warning color for unselected
-					indicatorColor := ColorWarning
-					if sessionIdx == s.selectedIdx {
-						indicatorColor = ColorText // White on purple background
-					}
-					indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
-					displayName = displayName + " " + indicatorStyle.Render("⚠")
-				}
-
-				// Add "session in use" indicator
-				if s.HasSessionInUse(sess.ID) {
-					// Use white for selected (purple bg), error color for unselected
-					indicatorColor := ColorError
-					if sessionIdx == s.selectedIdx {
-						indicatorColor = ColorText // White on purple background
-					}
-					indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
-					displayName = displayName + " " + indicatorStyle.Render("⛔")
-				}
-
-				// Add merged/PR status labels
-				if sess.Merged {
-					labelColor := ColorSecondary // Green for merged
-					if sessionIdx == s.selectedIdx {
-						labelColor = ColorText // White on purple background
-					}
-					labelStyle := lipgloss.NewStyle().Foreground(labelColor)
-					displayName = displayName + " " + labelStyle.Render("(merged)")
-				} else if sess.PRCreated {
-					labelColor := ColorUser // Blue for PR
-					if sessionIdx == s.selectedIdx {
-						labelColor = ColorText // White on purple background
-					}
-					labelStyle := lipgloss.NewStyle().Foreground(labelColor)
-					displayName = displayName + " " + labelStyle.Render("(pr)")
 				}
 
 				lines = append(lines, itemStyle.Render(displayName))
@@ -391,6 +531,83 @@ func (s *Sidebar) View() string {
 		content = strings.Join(lines, "\n")
 	}
 
+	// Prepend search line if in search mode
+	if s.searchMode {
+		if content != "" {
+			content = searchLine + "\n" + content
+		} else {
+			content = searchLine
+		}
+	}
+
 	// In lipgloss v2, Width/Height include borders, so pass full panel size
 	return style.Width(s.width).Height(s.height).Render(content)
+}
+
+// renderSessionName builds the display name for a session with all indicators
+func (s *Sidebar) renderSessionName(sess config.Session, sessionIdx int) string {
+	// Use branch name if it's a custom branch, otherwise use the short ID from name
+	var displayName string
+	if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
+		// Custom branch name - show it
+		displayName = "  " + sess.Branch
+	} else if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
+		// Extract short ID from name
+		displayName = "  " + parts[len(parts)-1]
+	} else {
+		displayName = "  " + sess.Name
+	}
+
+	// Add indicators for streaming and pending permissions
+	if s.IsSessionStreaming(sess.ID) {
+		spinner := sidebarSpinnerFrames[s.spinnerFrame]
+		// Use white for selected (purple bg), purple for unselected
+		spinnerColor := ColorPrimary
+		if sessionIdx == s.selectedIdx {
+			spinnerColor = ColorText // White on purple background
+		}
+		spinnerStyle := lipgloss.NewStyle().Foreground(spinnerColor)
+		displayName = displayName + " " + spinnerStyle.Render(spinner)
+	}
+
+	// Add permission indicator
+	if s.HasPendingPermission(sess.ID) {
+		// Use white for selected (purple bg), warning color for unselected
+		indicatorColor := ColorWarning
+		if sessionIdx == s.selectedIdx {
+			indicatorColor = ColorText // White on purple background
+		}
+		indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
+		displayName = displayName + " " + indicatorStyle.Render("⚠")
+	}
+
+	// Add "session in use" indicator
+	if s.HasSessionInUse(sess.ID) {
+		// Use white for selected (purple bg), error color for unselected
+		indicatorColor := ColorError
+		if sessionIdx == s.selectedIdx {
+			indicatorColor = ColorText // White on purple background
+		}
+		indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
+		displayName = displayName + " " + indicatorStyle.Render("⛔")
+	}
+
+	// Add merged/PR status labels
+	if sess.Merged {
+		labelColor := ColorSecondary // Green for merged
+		if sessionIdx == s.selectedIdx {
+			labelColor = ColorText // White on purple background
+		}
+		labelStyle := lipgloss.NewStyle().Foreground(labelColor)
+		displayName = displayName + " " + labelStyle.Render("(merged)")
+	} else if sess.PRCreated {
+		labelColor := ColorUser // Blue for PR
+		if sessionIdx == s.selectedIdx {
+			labelColor = ColorText // White on purple background
+		}
+		labelStyle := lipgloss.NewStyle().Foreground(labelColor)
+		displayName = displayName + " " + labelStyle.Render("(pr)")
+	}
+
+	return displayName
 }
