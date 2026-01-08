@@ -587,7 +587,7 @@ func (m *Model) handleExploreOptionsModal(key string, msg tea.KeyPressMsg, state
 		}
 		m.modal.Hide()
 		return m.createParallelSessions(selected)
-	case "up", "k", "down", "j", " ":
+	case "up", "k", "down", "j", "space":
 		// Forward navigation and space (toggle) keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal

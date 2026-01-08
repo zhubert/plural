@@ -947,7 +947,7 @@ func (s *AddMCPServerState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case "shift+tab", "up":
 			s.retreatInput()
 			return s, nil
-		case " ":
+		case "space":
 			// Space toggles scope when on scope selector
 			if s.InputIndex == 0 {
 				s.IsGlobal = !s.IsGlobal
@@ -1428,7 +1428,7 @@ func (s *ExploreOptionsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			if s.SelectedIndex < len(s.Options)-1 {
 				s.SelectedIndex++
 			}
-		case " ":
+		case "space":
 			// Toggle selection
 			if s.SelectedIndex < len(s.Options) {
 				s.Options[s.SelectedIndex].Selected = !s.Options[s.SelectedIndex].Selected
