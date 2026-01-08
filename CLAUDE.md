@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## Project Overview
 
-Plural is a TUI (Terminal User Interface) application for managing multiple concurrent Claude Code sessions. It allows users to run multiple isolated Claude Code conversations, each in its own git worktree, from a single interface.
+Plural is a TUI application for managing multiple concurrent Claude Code sessions. Each session runs in its own git worktree, allowing isolated Claude conversations on the same codebase.
 
 ## Build and Run Commands
 
@@ -18,455 +18,110 @@ go build -o plural .
 # Run the application
 ./plural
 
-# Check CLI prerequisites
-./plural --check-prereqs
-
-# Clear all sessions
-./plural --clear
-
-# Prune orphaned worktrees (worktrees without matching sessions)
-./plural --prune
-
 # Run with go directly (requires go generate first)
 go generate ./... && go run .
 
 # Run tests
 go test ./...
+
+# CLI flags
+./plural --check-prereqs  # Validate required tools
+./plural --clear          # Clear all sessions
+./plural --prune          # Remove orphaned worktrees
 ```
 
 ## Debug Logs
 
-Debug logs are separated by process:
-- **Main app**: `/tmp/plural-debug.log` - UI events, session management, state transitions
-- **MCP sessions**: `/tmp/plural-mcp-<session-id>.log` - Permission handling for each session
-
 ```bash
-# Tail main app logs
+# Main app logs (UI events, session management, state transitions)
 tail -f /tmp/plural-debug.log
 
-# Tail MCP logs for a specific session
+# MCP permission logs (per-session)
 tail -f /tmp/plural-mcp-*.log
 ```
 
 ## Architecture
 
 ### Core Flow
+
 1. User registers git repositories via the TUI
-2. Creating a new session:
-   - Generates a UUID for the session
-   - Creates a git worktree with branch name (custom if provided, otherwise `plural-<UUID>`) in `.plural-worktrees/<UUID>` (sibling to the repo)
-   - Starts a Claude Code CLI process in that worktree using `--session-id` for first message, `--resume` for subsequent
-   - Sessions with custom branch names display the branch name in the sidebar and header instead of the UUID
-3. Each session maintains its own message history and Claude CLI session
+2. Creating a session generates a UUID, creates a git worktree in `.plural-worktrees/<UUID>` (sibling to repo), starts Claude CLI with `--session-id`
+3. Each session maintains independent message history and Claude CLI process
 
 ### Package Structure
 
-- **main.go** - Entry point, sets up Bubble Tea program with alt screen; also handles `mcp-server` subcommand
-- **internal/app** - Main Bubble Tea model coordinating all UI components and Claude runners
-  - `app.go` - Main Bubble Tea model, Update/View methods, key handling
-  - `session_manager.go` - SessionManager handles session lifecycle: runner creation/caching, selection, force resume, message persistence
-  - `session_state.go` - SessionStateManager for thread-safe per-session state (permissions, merge ops, streaming, UI state)
-  - `modal_handlers.go` - Modal key event handlers (add repo, new session, delete, merge, MCP servers)
-  - `types.go` - Shared types (MergeType enum)
-- **internal/claude** - Wrapper around Claude Code CLI (`claude --print --output-format stream-json --input-format stream-json`), manages persistent process and streaming responses
-  - `doc.go` - Package documentation
-  - `claude.go` - Runner implementation with persistent process, message streaming, tool status parsing, permission handling, and multi-modal content support
-- **internal/changelog** - Changelog parsing and version comparison
-  - `changelog.go` - Parses CHANGELOG.md and filters entries by version (uses go:generate to copy from root)
-- **internal/cli** - CLI prerequisites checking
-  - `prerequisites.go` - Validates required CLI tools (claude, git, gh) are available
-  - `prerequisites_test.go` - Test suite
+- **main.go** - Entry point, Bubble Tea program setup, `mcp-server` subcommand
+- **internal/app** - Main Bubble Tea model coordinating UI and Claude runners
+  - `app.go` - Main model, Update/View, key handling
+  - `session_manager.go` - Session lifecycle, runner caching, message persistence
+  - `session_state.go` - Thread-safe per-session state (permissions, streaming, UI)
+  - `modal_handlers.go` - Modal key handlers
+  - `types.go` - Shared types
+- **internal/claude** - Claude CLI wrapper (`--output-format stream-json --input-format stream-json`)
+  - `claude.go` - Runner with persistent process, streaming, tool status, permissions, multi-modal support
+- **internal/changelog** - Changelog parsing for version comparison
+- **internal/cli** - CLI prerequisites checking (claude, git, gh)
 - **internal/clipboard** - Cross-platform clipboard image reading
-  - `clipboard.go` - Image reading, validation, and PNG encoding using golang.design/x/clipboard
-- **internal/config** - Persists repos, sessions, allowed tools, and conversation history
-  - `config.go` - Configuration management with validation
-  - `config_test.go` - Comprehensive test suite
-- **internal/git** - Git operations for merge/PR workflow and change tracking
-  - `git.go` - Git operations: HasRemoteOrigin, GetWorktreeStatus, CommitAll, GenerateCommitMessage, MergeToMain, CreatePR
-  - `git_test.go` - Test suite
-- **internal/logger** - Simple file logger for debugging
-  - `logger.go` - Thread-safe logger with process-specific log paths
-  - `logger_test.go` - Test suite
-- **internal/mcp** - MCP (Model Context Protocol) server for handling permission prompts:
-  - `doc.go` - Package documentation with permission flow diagrams
-  - `protocol.go` - JSON-RPC message types for MCP
-  - `protocol_test.go` - Protocol test suite
-  - `server.go` - MCP server implementation (stdio transport)
-  - `socket.go` - Unix socket communication with timeouts to prevent deadlocks
-- **internal/process** - Process management utilities for Claude CLI
-  - `process.go` - Find and kill orphaned Claude processes by session ID
-  - `process_test.go` - Test suite
-- **internal/session** - Creates and manages git worktrees for isolated sessions; validates git repos
-  - `doc.go` - Package documentation
-  - `session.go` - Session creation, deletion, and orphaned worktree pruning
-  - `session_test.go` - Test suite
-- **internal/ui** - UI components using Bubble Tea + Lipgloss:
-  - `doc.go` - Package documentation with layout diagrams
-  - `constants.go` - Layout constants (heights, widths, buffer sizes)
-  - `context.go` - Singleton ViewContext for centralized layout calculations
-  - `theme.go` - Theme system with built-in themes (Dark Purple, Nord, Dracula, Gruvbox, Tokyo Night, Catppuccin, Light)
-  - `styles.go` - All lipgloss styles and color palette (regenerated when theme changes)
-  - `sidebar.go` - Session list grouped by repository with custom rendering and permission indicators
-  - `chat.go` - Conversation view with soft-wrapping, waiting indicator, and inline permission prompts
-  - `modal.go` - Various modals (add repo, new session, delete, merge, welcome, changelog, theme picker)
-  - `header.go` - Header with gradient background
-  - `footer.go` - Context-aware keyboard shortcuts
+- **internal/config** - Persists repos, sessions, tools, history to `~/.plural/`
+- **internal/git** - Git operations for merge/PR workflow
+- **internal/logger** - Thread-safe file logger
+- **internal/mcp** - MCP server for permission prompts via Unix socket IPC
+- **internal/process** - Find/kill orphaned Claude processes
+- **internal/session** - Git worktree creation/management
+- **internal/ui** - Bubble Tea UI components
+  - `constants.go` - Layout constants
+  - `context.go` - Singleton ViewContext for layout calculations
+  - `theme.go` - Theme system
+  - `styles.go` - Lipgloss styles
+  - `sidebar.go`, `chat.go`, `modal.go`, `header.go`, `footer.go` - UI components
 
 ### Data Storage
 
-- **~/.plural/config.json** - Repos, sessions, allowed tools (global and per-repo), MCP servers (global and per-repo), theme, welcome/version tracking
-- **~/.plural/sessions/<session-id>.json** - Conversation history (last 100 lines per session)
+- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, theme
+- `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
 
 ### Key Patterns
 
-- **Bubble Tea architecture**: Model-Update-View pattern with tea.Msg for events
-- **Focus system**: Tab switches focus between sidebar (session list) and chat panel
-- **Streaming responses**: Claude responses stream via channel, converted to ClaudeResponseMsg
-- **Runner caching**: Claude runners cached by session ID in `claudeRunners` map for session resumption
-- **Thread-safe config**: Config uses sync.RWMutex for concurrent access
-- **Inline permission handling**: Permission prompts appear inline in chat (non-blocking, per-session)
-- **Context-aware footer**: Shortcuts shown/hidden based on focus, selection state, and pending permissions
-- **Session grouping**: Sidebar groups sessions by repository with custom rendering
-- **Explicit state machine**: App uses `AppState` enum instead of boolean flags
-- **Per-session state**: Each session has independent state (input text, waiting status, permissions) allowing concurrent operation
-
-### Application State Machine
-
-The app uses an explicit state machine (`AppState`) to manage async operations:
-
-```
-StateIdle            - Ready for user input
-StateStreamingClaude - Receiving Claude response
-```
-
-State transitions are logged to `/tmp/plural-debug.log` for debugging. Helper methods:
-- `IsIdle()` - Check if ready for input
-- `CanSendMessage()` - Check if user can send a new message (per-session: checks `sessionWaitStart`)
-- `setState(newState)` - Transition to new state with logging
-
-**Per-session state maps:**
-- `sessionWaitStart` - Tracks which sessions are waiting for Claude responses
-- `sessionInputs` - Preserves input text when switching between sessions
-- `sessionStreaming` - Preserves in-progress streaming content when switching sessions
-- `sessionMergeChans` - Per-session merge/PR operation channels
-- `sessionMergeCancels` - Per-session merge/PR cancel functions
-- `sessionStreamCancels` - Per-session Claude streaming cancel functions (for Escape key interruption)
-- `pendingPermissions` - Per-session permission prompts
-
-This allows truly independent session operation - you can send messages to session B while session A is waiting for Claude, and merge operations don't block other sessions.
+- **Bubble Tea Model-Update-View** with tea.Msg for events
+- **Focus system**: Tab switches between sidebar and chat
+- **Streaming**: Claude responses stream via channel as `ClaudeResponseMsg`
+- **Runner caching**: Claude runners cached by session ID in `claudeRunners` map
+- **Thread-safe config**: Uses sync.RWMutex
+- **Per-session state**: Independent state maps for concurrent operation
+- **Explicit state machine**: `AppState` enum (StateIdle, StateStreamingClaude)
 
 ### Permission System
 
-When Claude needs permission for operations (file edits, bash commands, etc.), Plural handles this via:
-
-1. **MCP Server**: Claude CLI is started with `--permission-prompt-tool mcp__plural__permission` which delegates permission decisions to our MCP server
-2. **Unix Socket IPC**: The MCP server subprocess communicates with the TUI via Unix socket (`/tmp/plural-<session-id>.sock`)
-3. **Inline Permission Prompts**: Permission requests appear inline in each session's chat panel (not as blocking modals)
-   - Sessions with pending permissions show a ⚠ indicator in the sidebar
-   - When viewing a session with a pending permission, the prompt appears at the bottom of the chat
-   - Press `y` to allow, `n` to deny, or `a` to always allow
-   - Users can freely switch between sessions while permissions are pending
-4. **Per-Session Tracking**: Each session tracks its own pending permission in `pendingPermissions` map
-5. **Allowed Tools Configuration**:
-   - **Default tools**: A minimal safe set (Read, Glob, Grep, Edit, Write, ls, cat, etc.)
-   - **Global tools**: User-configured tools that apply to all sessions (`allowed_tools` in config)
-   - **Per-repo tools**: Tools specific to a repository (`repo_allowed_tools` in config)
-   - When user presses `a` (always allow), the tool is saved to the per-repo allowed list
-   - Tools are merged: defaults + global + per-repo
-
-### Streaming & Tool Status
-
-Plural uses Claude CLI's `--output-format stream-json` to provide real-time feedback on what Claude is doing:
-
-1. **JSON Streaming**: Claude CLI outputs structured JSON messages instead of plain text, which Plural parses to extract:
-   - Text content (displayed as the response)
-   - Tool use events (what tool Claude is calling)
-   - Tool results (when a tool completes)
-
-2. **Tool Status Display**: While Claude is using a tool, the chat shows a status indicator:
-   - `Reading go.mod` - Reading a file
-   - `Editing app.go` - Editing a file
-   - `Searching *.ts` - Glob/Grep search
-   - `Running go build` - Bash command
-   - `Delegating explore codebase` - Task delegation
-
-3. **Response Chunks**: The `ResponseChunk` type includes:
-   - `Type`: `text`, `tool_use`, `tool_result`, or `status`
-   - `ToolName`: Name of the tool being used
-   - `ToolInput`: Brief description (filename, pattern, command)
-   - `Content`: Text content for text chunks
-
-This provides visibility into Claude's work, especially during multi-tool operations that can take minutes.
-
-4. **Stream Interruption**: Press `Esc` while Claude is streaming to interrupt the response:
-   - Cancels the underlying Claude CLI process via context cancellation
-   - Shows "[Interrupted]" in the chat to indicate the response was stopped
-   - The footer shows "esc: stop" when streaming is active
-   - Useful for stopping runaway responses or long operations
-
-### Force Resume (Hung Sessions)
-
-If a Claude session gets stuck or Plural crashes while a session is running, the Claude CLI may leave behind a "session in use" lock. When you try to resume the session, you'll see an error and a ⛔ indicator in the sidebar.
-
-To recover from this state:
-1. Select the affected session in the sidebar
-2. Press `f` to force-resume
-3. Plural will:
-   - Find and kill any orphaned Claude processes using that session ID
-   - Clear the error state
-   - Create a fresh runner so you can continue working
-
-The `internal/process` package provides utilities for detecting and killing orphaned Claude processes by searching for processes with matching `--session-id` or `--resume` arguments.
-
-### Image Pasting
-
-Plural supports pasting images from the clipboard to include in messages to Claude. This is useful for sharing screenshots, diagrams, or other visual content.
-
-**How to use:**
-1. Copy an image to your clipboard (e.g., `Cmd+Shift+4` on macOS to capture a screenshot)
-2. Focus the chat input area (press `Tab` to switch focus if needed)
-3. Press `Ctrl+V` to paste the image
-4. An indicator will appear: `[Image attached: XXkb]`
-5. Optionally type a message describing what you want Claude to do with the image
-6. Press `Enter` to send
-
-**Features:**
-- Supports PNG, JPEG, GIF, and WebP formats
-- Images are automatically re-encoded to PNG for consistency
-- Size validation: max 3.75MB per Anthropic limits
-- Dimension validation: max 8000x8000 pixels
-- Press `Backspace` when input is empty to remove a pending image attachment
-
-**Technical details:**
-- Uses Claude CLI's `--input-format stream-json` for structured message input
-- Images are base64-encoded and sent as content blocks alongside text
-- The Runner maintains a persistent Claude CLI process for lower latency
-
-### Session Search
-
-When you have many sessions, use the search feature to quickly find and select a session:
-
-**How to use:**
-1. Focus the sidebar (press `Tab` if needed)
-2. Press `/` to enter search mode
-3. Type to filter sessions by branch name, session name, or repository name
-4. Use `↑`/`↓` (or `Ctrl+P`/`Ctrl+N`) to navigate results
-5. Press `Enter` to select the highlighted session
-6. Press `Esc` to cancel and clear the filter
-
-**Features:**
-- Case-insensitive search
-- Matches against branch name, session name, and repository name
-- Results shown as a flat list (no repo grouping during search)
-- "No matches." shown if no sessions match the query
-- Footer shows search-specific shortcuts while in search mode
-
-### Welcome and Changelog Modals
-
-Plural shows contextual modals on startup to help users get started and stay informed:
-
-**Welcome Modal (first-time users):**
-- Shown once when a user first runs Plural
-- Provides a brief introduction to the app
-- Lists key keyboard shortcuts (r, n, Tab)
-- Directs users to GitHub issues for help or bug reports
-- Press Enter or Esc to dismiss
-
-**Changelog Modal (new versions):**
-- Shown once per version when Plural is updated
-- Displays cumulative changes since the user's last seen version
-- Scrollable if there are many entries (up/down or j/k to scroll)
-- Skipped for development builds (`version="dev"`)
-- Press Enter or Esc to dismiss
-
-**Configuration:**
-- `welcome_shown` (bool): Tracks if welcome modal has been displayed
-- `last_seen_version` (string): Tracks last version user saw changelog for
-- Changelog content is embedded from `CHANGELOG.md` at repo root (copied via go:generate)
-
-### Viewing Session Changes
-
-Press `v` with a session selected to view uncommitted changes in that session's worktree:
-- Shows a summary of changed files
-- Displays the git diff (truncated if too large)
-- Useful for reviewing what Claude has modified before merging
-
-### Merge/PR Workflow
-
-Sessions work in isolated git worktrees with their own branches. To apply changes back:
-
-1. **Trigger**: Press `m` with a session selected (sidebar focused)
-2. **Options Modal**: Shows:
-   - Summary of uncommitted changes (or "No uncommitted changes")
-   - **Merge to main**: Merges the session branch directly into the default branch
-   - **Create PR**: Pushes branch to origin and creates a GitHub PR via `gh` CLI (only available if remote origin exists)
-3. **Auto-Commit**: Before merging or creating a PR, any uncommitted changes in the worktree are automatically staged and committed with a descriptive message
-4. **Streaming Output**: Command output streams to the chat panel in real-time
-5. **Result**: Success or error message displayed when operation completes
-
-### Worktree Cleanup
-
-Worktrees are created in `.plural-worktrees/<session-id>` directories (sibling to the repo). Two cleanup mechanisms exist:
-
-1. **On Session Delete**: When deleting a session (press `d`), choose between:
-   - **Keep worktree**: Removes session from config but leaves worktree and branch intact
-   - **Delete worktree**: Removes session, worktree directory, and branch
-
-2. **Prune Command**: Run `./plural --prune` to find and remove orphaned worktrees (worktrees that exist on disk but have no matching session in config). This is useful for cleaning up after crashes or manual config edits.
-
-### MCP Servers
-
-Plural supports configuring external MCP (Model Context Protocol) servers to extend Claude's capabilities. MCP servers provide additional tools and context to Claude sessions.
-
-**Configuration scopes:**
-- **Global**: MCP servers that apply to all sessions across all repositories
-- **Per-repository**: MCP servers specific to a repository (override global servers with the same name)
-
-**Managing MCP servers:**
-1. Press `s` from the sidebar to open the MCP Servers modal
-2. View existing global and per-repo servers
-3. Press `a` to add a new server (choose scope, enter name, command, and args)
-4. Press `d` to delete the selected server
-
-**Server configuration:**
-- **Name**: Unique identifier for the server (e.g., "github", "postgres")
-- **Command**: Executable to run (e.g., "npx", "node")
-- **Args**: Space-separated arguments (e.g., "@modelcontextprotocol/server-github")
-
-**How it works:**
-- When a session is selected, Plural merges global and per-repo MCP servers
-- Per-repo servers with the same name override global servers
-- The combined servers are passed to Claude via `--mcp-config`
-- Servers are launched as subprocesses when Claude invokes their tools
-
-**Example config:**
-```json
-{
-  "allowed_tools": ["Bash(git:*)", "Bash(go:*)"],
-  "repo_allowed_tools": {
-    "/path/to/repo": ["Bash(npm:*)", "Bash(docker:*)"]
-  },
-  "mcp_servers": [
-    {"name": "github", "command": "npx", "args": ["@modelcontextprotocol/server-github"]}
-  ],
-  "repo_mcp": {
-    "/path/to/repo": [
-      {"name": "postgres", "command": "npx", "args": ["@modelcontextprotocol/server-postgres"]}
-    ]
-  }
-}
-```
-
-### Themes
-
-Plural supports multiple color themes to customize the UI appearance. Press `t` from the sidebar to open the theme picker.
-
-**Available themes:**
-- **Dark Purple** (default): Purple & cyan on dark gray
-- **Nord**: Blue-tinted muted palette
-- **Dracula**: Purple, cyan, pink on dark background
-- **Gruvbox Dark**: Warm browns and oranges
-- **Tokyo Night**: Blue and purple neon
-- **Catppuccin Mocha**: Pastel colors on dark
-- **Light**: Light background with indigo accents
-
-**How it works:**
-- Themes are defined in `internal/ui/theme.go` with a `Theme` struct containing all color values
-- When a theme is selected, `SetTheme()` updates the global color variables and regenerates all lipgloss styles
-- The selected theme is persisted in config (`"theme": "nord"`) and loaded on startup
-- Theme changes take effect immediately without restart
-
-**Adding a new theme:**
-1. Add a new `ThemeName` constant in `theme.go`
-2. Add the theme definition to `BuiltinThemes` map
-3. Add the theme to `ThemeNames()` return list
-
-### UI Layout
-- Header (1 line) + Content (sidebar 1/3 width | chat 2/3 width) + Footer (1 line)
-- Panels use lipgloss rounded borders with accent color highlight when focused
-
-### Constants and Configuration
-
-Layout constants are centralized in `internal/ui/constants.go`:
-- `HeaderHeight`, `FooterHeight`: Fixed at 1 line each
-- `BorderSize`: 2 (1 on each side)
-- `SidebarWidthRatio`: 3 (sidebar gets 1/3 of width)
-- `TextareaHeight`: 3 lines for input
-- `MaxSessionMessageLines`: 10,000 lines kept in history (in config package)
-- `PermissionTimeout`: 5 minutes for permission responses
-
-### CLI Prerequisites
-
-On startup, Plural checks for required CLI tools:
-- **claude** (required): Claude Code CLI
-- **git** (required): Git version control
-- **gh** (optional): GitHub CLI for PR creation
-
-Run `./plural --check-prereqs` to see the status of all prerequisites.
+1. Claude CLI started with `--permission-prompt-tool mcp__plural__permission`
+2. MCP server subprocess communicates with TUI via Unix socket (`/tmp/plural-<session-id>.sock`)
+3. Permission prompts appear inline in chat (y/n/a responses)
+4. Allowed tools: defaults + global (`allowed_tools`) + per-repo (`repo_allowed_tools`)
 
 ### Dependencies
 
-The project uses Charm's Bubble Tea v2 stack (currently in release candidate):
-- **charm.land/bubbletea/v2** (v2.0.0-rc.2): TUI framework
-- **charm.land/bubbles/v2** (v2.0.0-rc.1): TUI components (textarea, viewport, textinput)
-- **charm.land/lipgloss/v2** (v2.0.0-beta.3): Terminal styling
-- **github.com/google/uuid** (v1.6.0): UUID generation for session IDs
+Charm's Bubble Tea v2 stack:
+- `charm.land/bubbletea/v2` (v2.0.0-rc.2)
+- `charm.land/bubbles/v2` (v2.0.0-rc.1)
+- `charm.land/lipgloss/v2` (v2.0.0-beta.3)
+- `github.com/google/uuid` (v1.6.0)
 
-Key v2 API changes from v1:
-- Imports use `charm.land/*` domain instead of `github.com/charmbracelet/*`
-- `tea.KeyMsg` is now `tea.KeyPressMsg` (key releases handled separately)
-- `tea.View` return type with declarative properties (`v.AltScreen = true`)
-- Viewport uses `SetWidth()`/`SetHeight()` methods instead of direct field assignment
-- `lipgloss.WithWhitespaceBackground()` replaced with `lipgloss.WithWhitespaceStyle()`
-- Textinput/textarea use `SetWidth()` instead of `Width` field
+Key v2 API notes:
+- Imports use `charm.land/*` instead of `github.com/charmbracelet/*`
+- `tea.KeyMsg` is now `tea.KeyPressMsg`
+- `tea.View` returns declarative view with properties
+- Viewport uses `SetWidth()`/`SetHeight()` methods
 
 ## Releasing
 
-The project uses [GoReleaser](https://goreleaser.com/) for automated releases and Homebrew distribution. A release script automates the full process including version bumping and Nix vendorHash updates.
-
-### Prerequisites
-
 ```bash
-# Install GoReleaser
-brew install goreleaser
-
-# Set up GitHub tokens
-export GITHUB_TOKEN=your_github_token
-export HOMEBREW_TAP_GITHUB_TOKEN=your_github_token
-```
-
-### Creating a Release
-
-```bash
-# Run the release script
+# Run release script (updates flake.nix, vendorHash, tags, pushes)
 ./scripts/release.sh v0.0.5
 
-# Or do a dry run to test without publishing
+# Dry run
 ./scripts/release.sh v0.0.5 --dry-run
 ```
 
-The release script:
-1. Updates version in flake.nix
-2. Auto-updates vendorHash (via `scripts/update-vendor-hash.sh`)
-3. Commits and tags the release
-4. Pushes to origin
-5. Runs GoReleaser
-
-### What GoReleaser Does
-
-1. Builds binaries for Linux and macOS (amd64 and arm64)
-2. Creates GitHub release with changelog
-3. Generates checksums
-4. Updates the Homebrew tap formula at `zhubert/homebrew-tap`
-
-### Installing via Homebrew
-
-Once released, users can install with:
-
-```bash
-brew tap zhubert/tap
-brew install plural
-```
+GoReleaser builds binaries for Linux/macOS (amd64/arm64) and updates Homebrew tap at `zhubert/homebrew-tap`.
 
 ## License
 

@@ -2,15 +2,27 @@
 
 A TUI for managing multiple concurrent Claude Code sessions, each running in its own isolated git worktree.
 
+## Why Plural?
+
+Claude Code works best with focused, single-purpose sessions. But real work often involves multiple parallel tasks: fixing a bug while prototyping a feature, reviewing code in one repo while implementing in another, or running several experimental approaches simultaneously.
+
+Plural lets you:
+- **Run multiple Claude sessions in parallel** without conflicts
+- **Keep changes isolated** in separate git branches until you're ready to merge
+- **Switch context instantly** between different tasks or repos
+- **Work on the same codebase** from multiple angles simultaneously
+
 ## Features
 
-- Run multiple Claude Code conversations simultaneously
-- Each session gets its own git branch and worktree for isolated changes
-- Sessions grouped by repository in the sidebar
-- Conversation history persists across restarts (last 10,000 lines)
-- Streaming responses from Claude Code CLI
-- Interactive permission prompts (Allow, Deny, Always Allow)
-- Merge session branches to main or create GitHub PRs
+- **Isolated Sessions**: Each session gets its own git branch and worktree, so Claude's changes never conflict
+- **Multiple Repositories**: Register any git repo and create sessions across your projects
+- **Streaming Responses**: See Claude's work in real-time with tool status indicators
+- **Inline Permissions**: Approve file edits and commands per-session without blocking modals
+- **Image Support**: Paste screenshots directly into conversations (Ctrl+V)
+- **Session Search**: Quickly find sessions with `/` search
+- **Themes**: Seven built-in color themes (press `t` to browse)
+- **MCP Servers**: Configure external tools per-repo or globally
+- **Merge Workflow**: Merge to main or create GitHub PRs when ready
 
 ## Requirements
 
@@ -29,8 +41,6 @@ brew install plural
 
 ### Nix / Devbox
 
-If you use [Nix](https://nixos.org/) or [Devbox](https://www.jetify.com/devbox):
-
 ```bash
 # Run directly without installing
 nix run github:zhubert/plural
@@ -38,10 +48,8 @@ nix run github:zhubert/plural
 # Install to your profile
 nix profile install github:zhubert/plural
 
-# Or add to your devbox.json
+# Or add to devbox
 devbox add github:zhubert/plural
-
-# Or install globally with devbox
 devbox global add github:zhubert/plural
 ```
 
@@ -49,100 +57,155 @@ devbox global add github:zhubert/plural
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
 
-## Usage
+## Quick Start
 
 ```bash
 plural
 ```
 
-### Keyboard Shortcuts
+1. Press `r` to add a git repository
+2. Press `n` to create a new session
+3. Press `Tab` or `Enter` to focus the chat
+4. Type your message and press `Enter`
+5. When Claude requests permission: `y` (allow), `n` (deny), or `a` (always allow)
 
-Shortcuts are context-aware and shown in the footer when available.
+## Keyboard Shortcuts
 
-| Key | Context | Action |
-|-----|---------|--------|
-| `Tab` | Any (with session) | Switch focus between sidebar and chat |
-| `n` | Sidebar | Create new session |
-| `r` | Sidebar | Add repository |
-| `m` | Sidebar (session selected) | Merge to main or create PR |
-| `v` | Sidebar (session selected) | View uncommitted changes |
-| `d` | Sidebar (session selected) | Delete session |
-| `s` | Sidebar | Manage MCP servers |
-| `Enter` | Sidebar | Select/open session |
-| `Enter` | Chat | Send message |
-| `Esc` | Chat (streaming) | Stop Claude response |
-| `↑/↓` or `j/k` | Sidebar | Navigate sessions |
-| `Esc` | Modal | Close modal |
-| `q` | Sidebar | Quit |
-| `Ctrl+C` | Any | Force quit |
+Shortcuts are context-aware and shown in the footer.
 
-### Workflow
+### Sidebar (Session List)
 
-1. Press `r` to add a git repository (current directory suggested if it's a git repo)
-2. Press `n` to create a new session (select from registered repos)
-3. Press `Enter` or `Tab` to focus the chat panel
-4. Type your message and press `Enter` to send
-5. When Claude requests permission, choose: `y` (Allow), `n` (Deny), or `a` (Always Allow)
-6. Create additional sessions with `n` to work on multiple tasks in parallel
-7. Press `m` to merge your changes to main or create a GitHub PR
+| Key | Action |
+|-----|--------|
+| `n` | Create new session |
+| `r` | Add repository |
+| `Enter` | Select session |
+| `↑/↓` or `j/k` | Navigate sessions |
+| `/` | Search sessions |
+| `m` | Merge or create PR |
+| `v` | View uncommitted changes |
+| `d` | Delete session |
+| `f` | Force resume (hung session) |
+| `s` | Manage MCP servers |
+| `t` | Change theme |
+| `q` | Quit |
 
-### Session Isolation
+### Chat Panel
 
-Each session creates:
-- A new git branch: `plural-<session-uuid>`
-- A worktree in `.plural-worktrees/<session-uuid>` (sibling to your repo)
+| Key | Action |
+|-----|--------|
+| `Enter` | Send message |
+| `Esc` | Stop Claude response |
+| `Ctrl+V` | Paste image from clipboard |
+| `Tab` | Switch to sidebar |
 
-This allows Claude to make changes in each session without conflicts.
+### Permission Prompts
 
-### Applying Changes
+| Key | Action |
+|-----|--------|
+| `y` | Allow this operation |
+| `n` | Deny this operation |
+| `a` | Always allow this tool |
 
-When you're ready to apply changes from a session:
+## How Sessions Work
 
-1. Select the session in the sidebar
+When you create a session, Plural:
+1. Creates a new git branch (`plural-<uuid>` or your custom name)
+2. Sets up a worktree in `.plural-worktrees/<uuid>` (sibling to your repo)
+3. Starts a persistent Claude Code process in that worktree
+
+This isolation means:
+- Claude can edit files freely without affecting your main branch
+- Multiple sessions can work on the same repo simultaneously
+- You control when changes get merged
+
+## Image Pasting
+
+Share screenshots and diagrams with Claude:
+
+1. Copy an image to your clipboard (e.g., `Cmd+Shift+4` on macOS)
+2. Focus the chat input
+3. Press `Ctrl+V` to attach
+4. You'll see `[Image attached: XXkb]`
+5. Add a message and press `Enter`
+
+Supports PNG, JPEG, GIF, and WebP (max 3.75MB).
+
+## Session Search
+
+With many sessions, use `/` to search:
+
+1. Press `/` in the sidebar
+2. Type to filter by branch name, session name, or repo
+3. Use `↑/↓` to navigate results
+4. Press `Enter` to select, `Esc` to cancel
+
+## Applying Changes
+
+When you're ready to use your session's changes:
+
+1. Select the session
 2. Press `m` to open the merge modal
 3. Choose:
-   - **Merge to main**: Directly merges the session branch into your default branch
-   - **Create PR**: Pushes the branch and creates a GitHub PR (requires `gh` CLI)
+   - **Merge to main**: Directly merges into your default branch
+   - **Create PR**: Pushes and creates a GitHub PR (requires `gh`)
+
+Uncommitted changes are auto-committed before merge/PR.
+
+## MCP Servers
+
+Extend Claude's capabilities with MCP servers:
+
+1. Press `s` from the sidebar
+2. Add servers globally or per-repository
+3. Configure name, command, and arguments
+
+Example: Add a GitHub MCP server globally, or a database server for a specific project.
+
+## Themes
+
+Press `t` to choose from:
+- Dark Purple (default)
+- Nord
+- Dracula
+- Gruvbox Dark
+- Tokyo Night
+- Catppuccin Mocha
+- Light
 
 ## Configuration
 
-Data is stored in `~/.plural/`:
-- `config.json` - Registered repositories, sessions, and permission settings
-- `sessions/<id>.json` - Conversation history for each session
+Data stored in `~/.plural/`:
+- `config.json` - Repos, sessions, tools, MCP servers, theme
+- `sessions/<id>.json` - Conversation history
 
-Clear all sessions:
+### Commands
+
 ```bash
-plural --clear
+plural --clear   # Remove all sessions
+plural --prune   # Clean up orphaned worktrees
+plural --check-prereqs  # Verify required tools
 ```
 
-Prune orphaned worktrees:
-```bash
-plural --prune
-```
+## Recovering Hung Sessions
+
+If a session shows ⛔ (stuck from a crash):
+
+1. Select the session
+2. Press `f` to force resume
+3. Plural kills orphaned processes and resets the session
 
 ## Troubleshooting
 
-### Devbox/Nix upgrade fails with "package not found"
+### Devbox/Nix upgrade fails
 
-If `devbox global update` fails with:
-```
-Failed to upgrade github:zhubert/plural using `nix profile upgrade`: github:zhubert/plural: package not found
-```
-
-This is a [known nix limitation](https://github.com/NixOS/nix/issues/10463) where `nix profile upgrade` cannot match packages by their original flake reference.
-
-**Workaround**: Remove and reinstall the package:
 ```bash
+# Workaround for nix profile upgrade limitation
 devbox global rm github:zhubert/plural
 devbox global add github:zhubert/plural
 ```
 
-Or use Homebrew instead, which handles upgrades correctly:
-```bash
-brew tap zhubert/tap
-brew install plural
-brew upgrade plural
-```
+Or use Homebrew which handles upgrades correctly.
 
 ## License
 
