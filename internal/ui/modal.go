@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
@@ -556,14 +557,22 @@ func (s *EditCommitState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
 	// Show what operation will follow
-	operationLabel := "Merge to main"
-	if s.MergeType == "pr" {
-		operationLabel = "Create PR"
+	var operationSection string
+	if s.MergeType == "conflict" {
+		operationStyle := lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			MarginBottom(1)
+		operationSection = operationStyle.Render("Committing resolved merge conflicts")
+	} else {
+		operationLabel := "Merge to main"
+		if s.MergeType == "pr" {
+			operationLabel = "Create PR"
+		}
+		operationStyle := lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			MarginBottom(1)
+		operationSection = operationStyle.Render("After commit: " + operationLabel)
 	}
-	operationStyle := lipgloss.NewStyle().
-		Foreground(ColorSecondary).
-		MarginBottom(1)
-	operationSection := operationStyle.Render("After commit: " + operationLabel)
 
 	textareaView := s.Textarea.View()
 
@@ -598,6 +607,109 @@ func NewEditCommitState(message, mergeType string) *EditCommitState {
 	return &EditCommitState{
 		Textarea:  ta,
 		MergeType: mergeType,
+	}
+}
+
+// =============================================================================
+// MergeConflictState - State for merge conflict resolution modal
+// =============================================================================
+
+type MergeConflictState struct {
+	SessionID       string
+	SessionName     string
+	ConflictedFiles []string
+	RepoPath        string
+	Options         []string
+	SelectedIndex   int
+}
+
+func (*MergeConflictState) modalState() {}
+
+func (s *MergeConflictState) Title() string { return "Merge Conflict" }
+
+func (s *MergeConflictState) Help() string {
+	return "↑/↓ to select, Enter to confirm, Esc to cancel"
+}
+
+func (s *MergeConflictState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Show session name
+	sessionLabel := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render(s.SessionName)
+
+	// Show conflicted files
+	filesLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Conflicted files:")
+
+	var filesList string
+	maxFilesToShow := 5
+	for i, file := range s.ConflictedFiles {
+		if i >= maxFilesToShow {
+			remaining := len(s.ConflictedFiles) - maxFilesToShow
+			filesList += lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Render(fmt.Sprintf("  ... and %d more\n", remaining))
+			break
+		}
+		filesList += lipgloss.NewStyle().
+			Foreground(ColorText).
+			Render("  " + file + "\n")
+	}
+
+	// Options
+	var optionList string
+	for i, opt := range s.Options {
+		style := SidebarItemStyle
+		prefix := "  "
+		if i == s.SelectedIndex {
+			style = SidebarSelectedStyle
+			prefix = "> "
+		}
+		optionList += style.Render(prefix+opt) + "\n"
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, sessionLabel, filesLabel, filesList, optionList, help)
+}
+
+func (s *MergeConflictState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.SelectedIndex > 0 {
+				s.SelectedIndex--
+			}
+		case "down", "j":
+			if s.SelectedIndex < len(s.Options)-1 {
+				s.SelectedIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// GetSelectedOption returns the index of the selected option
+// 0 = Have Claude resolve, 1 = Abort merge, 2 = Resolve manually
+func (s *MergeConflictState) GetSelectedOption() int {
+	return s.SelectedIndex
+}
+
+// NewMergeConflictState creates a new MergeConflictState
+func NewMergeConflictState(sessionID, sessionName string, conflictedFiles []string, repoPath string) *MergeConflictState {
+	return &MergeConflictState{
+		SessionID:       sessionID,
+		SessionName:     sessionName,
+		ConflictedFiles: conflictedFiles,
+		RepoPath:        repoPath,
+		Options:         []string{"Have Claude resolve", "Abort merge", "Resolve manually"},
+		SelectedIndex:   0,
 	}
 }
 

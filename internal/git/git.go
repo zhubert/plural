@@ -22,9 +22,11 @@ const (
 
 // Result represents output from a git operation
 type Result struct {
-	Output string
-	Error  error
-	Done   bool
+	Output          string
+	Error           error
+	Done            bool
+	ConflictedFiles []string // Files with merge conflicts (only set on conflict)
+	RepoPath        string   // Path to the repo where conflict occurred
 }
 
 // WorktreeStatus represents the status of changes in a worktree
@@ -366,6 +368,57 @@ func GetDefaultBranch(repoPath string) string {
 	return "master"
 }
 
+// GetConflictedFiles returns the list of files with merge conflicts in a repo
+func GetConflictedFiles(repoPath string) ([]string, error) {
+	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=U")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get conflicted files: %w", err)
+	}
+
+	outputStr := strings.TrimSpace(string(output))
+	if outputStr == "" {
+		return nil, nil
+	}
+
+	files := strings.Split(outputStr, "\n")
+	return files, nil
+}
+
+// AbortMerge aborts an in-progress merge
+func AbortMerge(repoPath string) error {
+	cmd := exec.Command("git", "merge", "--abort")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to abort merge: %s - %w", string(output), err)
+	}
+	return nil
+}
+
+// CommitConflictResolution stages all changes and commits with the given message.
+// This is used after resolving merge conflicts to complete the merge.
+func CommitConflictResolution(repoPath, message string) error {
+	logger.Log("Git: Committing conflict resolution in %s", repoPath)
+
+	// Stage all changes
+	cmd := exec.Command("git", "add", "-A")
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add failed: %s - %w", string(output), err)
+	}
+
+	// Commit
+	cmd = exec.Command("git", "commit", "-m", message)
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit failed: %s - %w", string(output), err)
+	}
+
+	return nil
+}
+
 // MergeToMain merges a branch into the default branch
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
@@ -440,14 +493,27 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		cmd.Dir = repoPath
 		output, err = cmd.CombinedOutput()
 		if err != nil {
-			// Include git output and helpful hints for resolving merge conflicts
+			// Check if this is a merge conflict
+			conflictedFiles, conflictErr := GetConflictedFiles(repoPath)
+			if conflictErr == nil && len(conflictedFiles) > 0 {
+				// This is a merge conflict - include the conflicted files in the result
+				ch <- Result{
+					Output:          string(output),
+					Error:           fmt.Errorf("merge conflict"),
+					Done:            true,
+					ConflictedFiles: conflictedFiles,
+					RepoPath:        repoPath,
+				}
+				return
+			}
+
+			// Not a conflict, some other error
 			hint := fmt.Sprintf(`
 
-To resolve this merge conflict:
+To resolve this merge issue:
   1. cd %s
-  2. Resolve conflicts in the affected files
-  3. git add <resolved-files>
-  4. git commit
+  2. Check git status for details
+  3. Fix the issue and try again
 
 Or abort the merge with: git merge --abort
 `, repoPath)

@@ -77,6 +77,10 @@ type Model struct {
 	// Pending commit message editing state (one at a time)
 	pendingCommitSession string    // Session ID waiting for commit message confirmation
 	pendingCommitType    MergeType // What operation follows after commit
+
+	// Pending conflict resolution state
+	pendingConflictSessionID string // Session ID with pending conflict resolution
+	pendingConflictRepoPath  string // Path to repo with conflicts
 }
 
 // StartupModalMsg is sent on app start to trigger welcome/changelog modals
@@ -388,6 +392,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.forceResumeSession(sess)
 				}
 			}
+		case "c":
+			// Commit resolved conflicts
+			if !m.chat.IsFocused() && m.pendingConflictRepoPath != "" {
+				return m.showCommitConflictModal()
+			}
 		case "s":
 			if !m.chat.IsFocused() {
 				m.showMCPServersModal()
@@ -612,6 +621,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case MergeResultMsg:
 		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
 		if msg.Result.Error != nil {
+			// Check if this is a merge conflict with conflicted files
+			if len(msg.Result.ConflictedFiles) > 0 {
+				// Show conflict resolution modal
+				sess := m.config.GetSession(msg.SessionID)
+				sessionName := msg.SessionID
+				if sess != nil {
+					sessionName = ui.SessionDisplayName(sess.Branch, sess.Name)
+				}
+				logger.Log("App: Merge conflict detected for session %s, files: %v", msg.SessionID, msg.Result.ConflictedFiles)
+				m.modal.Show(ui.NewMergeConflictState(msg.SessionID, sessionName, msg.Result.ConflictedFiles, msg.Result.RepoPath))
+				// Clean up merge state
+				m.sessionState().StopMerge(msg.SessionID)
+				return m, nil
+			}
+			// Regular error (not a conflict)
 			if isActiveSession {
 				m.chat.AppendStreaming("\n[Error: " + msg.Result.Error.Error() + "]\n")
 			} else {
@@ -768,6 +792,24 @@ func (m *Model) showMCPServersModal() {
 	}
 
 	m.modal.Show(ui.NewMCPServersState(globalServers, perRepoServers, repos))
+}
+
+// showCommitConflictModal shows the commit message modal for resolved merge conflicts.
+func (m *Model) showCommitConflictModal() (tea.Model, tea.Cmd) {
+	// Check if there are still conflicts
+	conflictedFiles, err := git.GetConflictedFiles(m.pendingConflictRepoPath)
+	if err != nil {
+		m.chat.AppendStreaming(fmt.Sprintf("[Error checking conflicts: %v]\n", err))
+		return m, nil
+	}
+	if len(conflictedFiles) > 0 {
+		m.chat.AppendStreaming(fmt.Sprintf("[Still have %d conflicted files. Please resolve them first.]\n", len(conflictedFiles)))
+		return m, nil
+	}
+
+	// Show commit message modal with "conflict" type to indicate this is conflict resolution
+	m.modal.Show(ui.NewEditCommitState("Resolve merge conflicts", "conflict"))
+	return m, nil
 }
 
 func (m *Model) selectSession(sess *config.Session) {
