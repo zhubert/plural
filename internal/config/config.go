@@ -26,6 +26,7 @@ type Session struct {
 	Started   bool      `json:"started,omitempty"`    // Whether session has been started with Claude CLI
 	Merged    bool      `json:"merged,omitempty"`     // Whether session has been merged to main
 	PRCreated bool      `json:"pr_created,omitempty"` // Whether a PR has been created for this session
+	ParentID  string    `json:"parent_id,omitempty"`  // ID of parent session if this is a fork
 }
 
 // MCPServer represents an MCP server configuration

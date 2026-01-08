@@ -399,6 +399,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.forceResumeSession(sess)
 				}
 			}
+		case "F":
+			// Fork session: create a new session from the selected one
+			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
+				sess := m.sidebar.SelectedSession()
+				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+				m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
+			}
 		case "c":
 			// Commit resolved conflicts
 			if !m.chat.IsFocused() && m.pendingConflictRepoPath != "" {
@@ -1256,7 +1263,9 @@ func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	m.modal.Show(ui.NewExploreOptionsState(items))
+	// Get parent session display name for consistent visual treatment
+	parentDisplayName := ui.SessionDisplayName(m.activeSession.Branch, m.activeSession.Name)
+	m.modal.Show(ui.NewExploreOptionsState(parentDisplayName, items))
 	return m, nil
 }
 

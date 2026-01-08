@@ -22,11 +22,19 @@ var sidebarSpinnerHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
 // SidebarTickMsg is sent to advance the spinner animation
 type SidebarTickMsg time.Time
 
+// sessionNode represents a session with its children (forks)
+type sessionNode struct {
+	Session  config.Session
+	Children []sessionNode
+}
+
 // repoGroup represents a group of sessions for a single repo
 type repoGroup struct {
 	RepoPath string
 	RepoName string
 	Sessions []config.Session
+	// Tree structure for hierarchical display
+	RootNodes []sessionNode
 }
 
 // Sidebar represents the left panel with session list
@@ -107,16 +115,18 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 		groupMap[sess.RepoPath].Sessions = append(groupMap[sess.RepoPath].Sessions, sess)
 	}
 
-	// Build ordered groups
+	// Build ordered groups with tree structure
 	s.groups = make([]repoGroup, 0, len(groupOrder))
 	for _, path := range groupOrder {
-		s.groups = append(s.groups, *groupMap[path])
+		group := groupMap[path]
+		group.RootNodes = buildSessionTree(group.Sessions)
+		s.groups = append(s.groups, *group)
 	}
 
-	// Rebuild flat sessions list to match grouped order
+	// Rebuild flat sessions list in tree order (parents before children)
 	s.sessions = make([]config.Session, 0, len(sessions))
 	for _, group := range s.groups {
-		s.sessions = append(s.sessions, group.Sessions...)
+		flattenSessionTree(group.RootNodes, &s.sessions)
 	}
 
 	// Adjust selection if needed
@@ -125,6 +135,58 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	}
 	if s.selectedIdx < 0 {
 		s.selectedIdx = 0
+	}
+}
+
+// buildSessionTree builds a tree structure from a flat list of sessions
+func buildSessionTree(sessions []config.Session) []sessionNode {
+	// Create a map of session ID to session for quick lookup
+	sessionMap := make(map[string]config.Session)
+	for _, sess := range sessions {
+		sessionMap[sess.ID] = sess
+	}
+
+	// Create a map of parent ID to children
+	childrenMap := make(map[string][]config.Session)
+	var rootSessions []config.Session
+
+	for _, sess := range sessions {
+		if sess.ParentID == "" {
+			// No parent - this is a root session
+			rootSessions = append(rootSessions, sess)
+		} else if _, parentExists := sessionMap[sess.ParentID]; parentExists {
+			// Parent exists in this repo group - add as child
+			childrenMap[sess.ParentID] = append(childrenMap[sess.ParentID], sess)
+		} else {
+			// Parent doesn't exist (deleted?) - treat as root
+			rootSessions = append(rootSessions, sess)
+		}
+	}
+
+	// Build tree recursively
+	var buildNode func(sess config.Session) sessionNode
+	buildNode = func(sess config.Session) sessionNode {
+		node := sessionNode{Session: sess}
+		if children, hasChildren := childrenMap[sess.ID]; hasChildren {
+			for _, child := range children {
+				node.Children = append(node.Children, buildNode(child))
+			}
+		}
+		return node
+	}
+
+	var roots []sessionNode
+	for _, sess := range rootSessions {
+		roots = append(roots, buildNode(sess))
+	}
+	return roots
+}
+
+// flattenSessionTree flattens a tree into a slice (depth-first, parent before children)
+func flattenSessionTree(nodes []sessionNode, result *[]config.Session) {
+	for _, node := range nodes {
+		*result = append(*result, node.Session)
+		flattenSessionTree(node.Children, result)
 	}
 }
 
@@ -480,7 +542,7 @@ func (s *Sidebar) View() string {
 		}
 		content = strings.Join(lines, "\n")
 	} else {
-		// Build the grouped list (normal mode)
+		// Build the grouped list (normal mode) with tree structure
 		var lines []string
 
 		sessionIdx := 0
@@ -491,18 +553,28 @@ func (s *Sidebar) View() string {
 				Bold(true)
 			lines = append(lines, repoStyle.Render(group.RepoName))
 
-			// Sessions in this group
-			for _, sess := range group.Sessions {
-				displayName := s.renderSessionName(sess, sessionIdx)
+			// Render sessions in tree order with indentation
+			var renderNode func(node sessionNode, depth int)
+			renderNode = func(node sessionNode, depth int) {
+				isSelected := sessionIdx == s.selectedIdx
+				displayName := s.renderSessionNameWithDepth(node.Session, sessionIdx, depth, isSelected)
 
 				itemStyle := SidebarItemStyle
-				if sessionIdx == s.selectedIdx {
+				if isSelected {
 					itemStyle = SidebarSelectedStyle
-					displayName = "> " + strings.TrimPrefix(displayName, "  ")
 				}
 
 				lines = append(lines, itemStyle.Render(displayName))
 				sessionIdx++
+
+				// Render children with increased depth
+				for _, child := range node.Children {
+					renderNode(child, depth+1)
+				}
+			}
+
+			for _, node := range group.RootNodes {
+				renderNode(node, 0)
 			}
 		}
 
@@ -546,16 +618,40 @@ func (s *Sidebar) View() string {
 
 // renderSessionName builds the display name for a session with all indicators
 func (s *Sidebar) renderSessionName(sess config.Session, sessionIdx int) string {
+	isSelected := sessionIdx == s.selectedIdx
+	return s.renderSessionNameWithDepth(sess, sessionIdx, 0, isSelected)
+}
+
+// renderSessionNameWithDepth builds the display name for a session with indentation based on depth
+func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int, depth int, isSelected bool) string {
+	// Build the prefix with selection indicator and tree structure
+	var prefix string
+	if isSelected {
+		// Selection indicator
+		if depth > 0 {
+			prefix = strings.Repeat("  ", depth-1) + "> └ "
+		} else {
+			prefix = "> "
+		}
+	} else {
+		// Normal indentation
+		if depth > 0 {
+			prefix = strings.Repeat("  ", depth) + "└ "
+		} else {
+			prefix = "  "
+		}
+	}
+
 	// Use branch name if it's a custom branch, otherwise use the short ID from name
 	var displayName string
 	if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
 		// Custom branch name - show it
-		displayName = "  " + sess.Branch
+		displayName = prefix + sess.Branch
 	} else if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
 		// Extract short ID from name
-		displayName = "  " + parts[len(parts)-1]
+		displayName = prefix + parts[len(parts)-1]
 	} else {
-		displayName = "  " + sess.Name
+		displayName = prefix + sess.Name
 	}
 
 	// Add indicators for streaming and pending permissions

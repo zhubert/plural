@@ -1350,25 +1350,37 @@ type OptionItem struct {
 }
 
 type ExploreOptionsState struct {
-	Options       []OptionItem
-	SelectedIndex int // Currently highlighted option
+	ParentSessionName string
+	Options           []OptionItem
+	SelectedIndex     int // Currently highlighted option
 }
 
 func (*ExploreOptionsState) modalState() {}
 
-func (s *ExploreOptionsState) Title() string { return "Explore Options" }
+func (s *ExploreOptionsState) Title() string { return "Fork Options" }
 
 func (s *ExploreOptionsState) Help() string {
-	return "↑/↓ navigate  Space: toggle  Enter: create sessions  Esc: cancel"
+	return "↑/↓ navigate  Space: toggle  Enter: create forks  Esc: cancel"
 }
 
 func (s *ExploreOptionsState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
+	// Parent session info (consistent with ForkSessionState)
+	parentLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Forking from:")
+
+	parentName := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render("  " + s.ParentSessionName)
+
 	description := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		MarginBottom(1).
-		Render("Select options to explore in parallel sessions:")
+		Render("Select options to explore in parallel forks:")
 
 	var optionList string
 	for i, opt := range s.Options {
@@ -1408,13 +1420,13 @@ func (s *ExploreOptionsState) Render() string {
 		MarginTop(1)
 	countText := fmt.Sprintf("%d option(s) selected", selectedCount)
 	if selectedCount > 0 {
-		countText += " - will create " + fmt.Sprintf("%d", selectedCount) + " new session(s)"
+		countText += " - will create " + fmt.Sprintf("%d", selectedCount) + " fork(s)"
 	}
 	countSection := countStyle.Render(countText)
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, description, optionList, countSection, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, parentLabel, parentName, description, optionList, countSection, help)
 }
 
 func (s *ExploreOptionsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
@@ -1450,10 +1462,165 @@ func (s *ExploreOptionsState) GetSelectedOptions() []OptionItem {
 }
 
 // NewExploreOptionsState creates a new ExploreOptionsState
-func NewExploreOptionsState(options []OptionItem) *ExploreOptionsState {
+func NewExploreOptionsState(parentSessionName string, options []OptionItem) *ExploreOptionsState {
 	return &ExploreOptionsState{
-		Options:       options,
-		SelectedIndex: 0,
+		ParentSessionName: parentSessionName,
+		Options:           options,
+		SelectedIndex:     0,
+	}
+}
+
+// =============================================================================
+// ForkSessionState - State for the Fork Session modal
+// =============================================================================
+
+type ForkSessionState struct {
+	ParentSessionName string
+	ParentSessionID   string
+	RepoPath          string
+	BranchInput       textinput.Model
+	CopyMessages      bool   // Whether to copy conversation history
+	Focus             int    // 0=copy messages toggle, 1=branch input
+}
+
+func (*ForkSessionState) modalState() {}
+
+func (s *ForkSessionState) Title() string { return "Fork Session" }
+
+func (s *ForkSessionState) Help() string {
+	return "Tab: switch field  Space: toggle  Enter: create fork  Esc: cancel"
+}
+
+func (s *ForkSessionState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Parent session info
+	parentLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Forking from:")
+
+	parentName := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render("  " + s.ParentSessionName)
+
+	// Copy messages toggle
+	copyLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Copy conversation history:")
+
+	copyStyle := SidebarItemStyle
+	copyPrefix := "  "
+	if s.Focus == 0 {
+		copyStyle = SidebarSelectedStyle
+		copyPrefix = "> "
+	}
+	checkbox := "[ ]"
+	if s.CopyMessages {
+		checkbox = "[x]"
+	}
+	copyOption := copyStyle.Render(copyPrefix + checkbox + " Include messages from parent session")
+
+	// Branch name input
+	branchLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Branch name:")
+
+	branchInputStyle := lipgloss.NewStyle()
+	if s.Focus == 1 {
+		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		branchInputStyle = branchInputStyle.PaddingLeft(2)
+	}
+	branchView := branchInputStyle.Render(s.BranchInput.View())
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		parentLabel,
+		parentName,
+		copyLabel,
+		copyOption,
+		branchLabel,
+		branchView,
+		help,
+	)
+}
+
+func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "tab":
+			if s.Focus == 0 {
+				s.Focus = 1
+				s.BranchInput.Focus()
+			} else {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		case "shift+tab":
+			if s.Focus == 1 {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		case "space":
+			if s.Focus == 0 {
+				s.CopyMessages = !s.CopyMessages
+			}
+			return s, nil
+		case "up", "down", "j", "k":
+			// Toggle focus between options
+			if s.Focus == 0 {
+				s.Focus = 1
+				s.BranchInput.Focus()
+			} else {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		}
+	}
+
+	// Handle branch input updates when focused
+	if s.Focus == 1 {
+		var cmd tea.Cmd
+		s.BranchInput, cmd = s.BranchInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetBranchName returns the custom branch name
+func (s *ForkSessionState) GetBranchName() string {
+	return s.BranchInput.Value()
+}
+
+// ShouldCopyMessages returns whether to copy conversation history
+func (s *ForkSessionState) ShouldCopyMessages() bool {
+	return s.CopyMessages
+}
+
+// NewForkSessionState creates a new ForkSessionState
+func NewForkSessionState(parentSessionName, parentSessionID, repoPath string) *ForkSessionState {
+	branchInput := textinput.New()
+	branchInput.Placeholder = "optional branch name (leave empty for auto)"
+	branchInput.CharLimit = 100
+	branchInput.SetWidth(ModalInputWidth)
+
+	return &ForkSessionState{
+		ParentSessionName: parentSessionName,
+		ParentSessionID:   parentSessionID,
+		RepoPath:          repoPath,
+		BranchInput:       branchInput,
+		CopyMessages:      true, // Default to copying messages
+		Focus:             0,
 	}
 }
 

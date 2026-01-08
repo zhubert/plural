@@ -44,6 +44,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleMergeConflictModal(key, msg, s)
 	case *ui.ExploreOptionsState:
 		return m.handleExploreOptionsModal(key, msg, s)
+	case *ui.ForkSessionState:
+		return m.handleForkSessionModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -602,6 +604,71 @@ type parallelSessionInfo struct {
 	OptionPrompt string
 }
 
+// handleForkSessionModal handles key events for the Fork Session modal.
+func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *ui.ForkSessionState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		branchName := state.GetBranchName()
+		// Validate branch name
+		if err := session.ValidateBranchName(branchName); err != nil {
+			m.modal.SetError(err.Error())
+			return m, nil
+		}
+		// Check if branch already exists
+		if branchName != "" && session.BranchExists(state.RepoPath, branchName) {
+			m.modal.SetError("Branch already exists: " + branchName)
+			return m, nil
+		}
+
+		logger.Log("App: Forking session %s, copyMessages=%v, branch=%q", state.ParentSessionID, state.CopyMessages, branchName)
+
+		// Create new session
+		sess, err := session.Create(state.RepoPath, branchName)
+		if err != nil {
+			logger.Log("App: Failed to create forked session: %v", err)
+			m.modal.SetError(err.Error())
+			return m, nil
+		}
+
+		// Copy messages if requested
+		if state.CopyMessages {
+			parentMsgs, err := config.LoadSessionMessages(state.ParentSessionID)
+			if err != nil {
+				logger.Log("App: Warning - failed to load parent session messages: %v", err)
+			} else if len(parentMsgs) > 0 {
+				if err := config.SaveSessionMessages(sess.ID, parentMsgs, config.MaxSessionMessageLines); err != nil {
+					logger.Log("App: Warning - failed to save forked session messages: %v", err)
+				} else {
+					logger.Log("App: Copied %d messages from parent session", len(parentMsgs))
+				}
+			}
+		}
+
+		// Set parent ID to track fork relationship
+		sess.ParentID = state.ParentSessionID
+
+		logger.Log("App: Forked session created: id=%s, name=%s, parentID=%s", sess.ID, sess.Name, sess.ParentID)
+		m.config.AddSession(*sess)
+		if err := m.config.Save(); err != nil {
+			logger.Log("App: Failed to save config: %v", err)
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+		m.sidebar.SetSessions(m.config.GetSessions())
+		m.sidebar.SelectSession(sess.ID)
+		m.selectSession(sess)
+		m.modal.Hide()
+		return m, nil
+	}
+	// Forward other keys (tab, shift+tab, space, up, down, etc.) to modal for handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
 // createParallelSessions creates new sessions for each selected option, pre-populated with history.
 func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Model, tea.Cmd) {
 	if m.activeSession == nil || m.claudeRunner == nil {
@@ -651,6 +718,9 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		if err := config.SaveSessionMessages(sess.ID, messages, config.MaxSessionMessageLines); err != nil {
 			logger.Log("App: Failed to save messages for parallel session %s: %v", sess.ID, err)
 		}
+
+		// Set parent ID to track fork relationship
+		sess.ParentID = parentSession.ID
 
 		// Add session to config
 		m.config.AddSession(*sess)
