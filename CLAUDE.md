@@ -9,6 +9,9 @@ Plural is a TUI (Terminal User Interface) application for managing multiple conc
 ## Build and Run Commands
 
 ```bash
+# Generate embedded files (copies CHANGELOG.md for embedding)
+go generate ./...
+
 # Build the application
 go build -o plural .
 
@@ -24,8 +27,8 @@ go build -o plural .
 # Prune orphaned worktrees (worktrees without matching sessions)
 ./plural --prune
 
-# Run with go directly
-go run .
+# Run with go directly (requires go generate first)
+go generate ./... && go run .
 
 # Run tests
 go test ./...
@@ -69,8 +72,7 @@ tail -f /tmp/plural-mcp-*.log
   - `doc.go` - Package documentation
   - `claude.go` - Runner implementation with persistent process, message streaming, tool status parsing, permission handling, and multi-modal content support
 - **internal/changelog** - Changelog parsing and version comparison
-  - `changelog.go` - Parses CHANGELOG.md and filters entries by version
-  - `CHANGELOG.md` - Embedded changelog content shown in "What's New" modal
+  - `changelog.go` - Parses CHANGELOG.md and filters entries by version (uses go:generate to copy from root)
 - **internal/cli** - CLI prerequisites checking
   - `prerequisites.go` - Validates required CLI tools (claude, git, gh) are available
   - `prerequisites_test.go` - Test suite
@@ -260,7 +262,7 @@ Plural shows contextual modals on startup to help users get started and stay inf
 **Configuration:**
 - `welcome_shown` (bool): Tracks if welcome modal has been displayed
 - `last_seen_version` (string): Tracks last version user saw changelog for
-- Changelog content is embedded from `internal/changelog/CHANGELOG.md`
+- Changelog content is embedded from `CHANGELOG.md` at repo root (copied via go:generate)
 
 ### Viewing Session Changes
 

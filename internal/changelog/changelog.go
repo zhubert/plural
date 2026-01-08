@@ -1,5 +1,6 @@
 // Package changelog provides parsing and filtering of changelog entries.
 // The changelog is embedded from the CHANGELOG.md file at the repo root.
+// Run `go generate ./...` to copy the file before building.
 package changelog
 
 import (
@@ -9,6 +10,7 @@ import (
 	"strings"
 )
 
+//go:generate cp ../../CHANGELOG.md CHANGELOG.md
 //go:embed CHANGELOG.md
 var Content string
 
