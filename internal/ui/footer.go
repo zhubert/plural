@@ -135,6 +135,19 @@ func (f *Footer) View() string {
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)
 		}
+	} else if !f.sidebarFocused && f.hasSession {
+		// Chat focused, not streaming - show enter and ctrl+v
+		chatBindings := []KeyBinding{
+			{Key: "enter", Desc: "send"},
+			{Key: "ctrl+v", Desc: "paste image"},
+			{Key: "tab", Desc: "switch pane"},
+			{Key: "pgup/dn", Desc: "scroll"},
+		}
+		for _, b := range chatBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
 	} else {
 		for _, b := range f.bindings {
 			// Skip tab when no session (can't switch to chat without one)

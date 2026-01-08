@@ -65,12 +65,14 @@ tail -f /tmp/plural-mcp-*.log
   - `session_state.go` - SessionStateManager for thread-safe per-session state (permissions, merge ops, streaming, UI state)
   - `modal_handlers.go` - Modal key event handlers (add repo, new session, delete, merge, MCP servers)
   - `types.go` - Shared types (MergeType enum)
-- **internal/claude** - Wrapper around Claude Code CLI (`claude --print --output-format stream-json`), manages streaming responses via stdout pipe
+- **internal/claude** - Wrapper around Claude Code CLI (`claude --print --output-format stream-json --input-format stream-json`), manages persistent process and streaming responses
   - `doc.go` - Package documentation
-  - `claude.go` - Runner implementation with message streaming, tool status parsing, and permission handling
+  - `claude.go` - Runner implementation with persistent process, message streaming, tool status parsing, permission handling, and multi-modal content support
 - **internal/cli** - CLI prerequisites checking
   - `prerequisites.go` - Validates required CLI tools (claude, git, gh) are available
   - `prerequisites_test.go` - Test suite
+- **internal/clipboard** - Cross-platform clipboard image reading
+  - `clipboard.go` - Image reading, validation, and PNG encoding using golang.design/x/clipboard
 - **internal/config** - Persists repos, sessions, allowed tools, and conversation history
   - `config.go` - Configuration management with validation
   - `config_test.go` - Comprehensive test suite
@@ -209,6 +211,30 @@ To recover from this state:
    - Create a fresh runner so you can continue working
 
 The `internal/process` package provides utilities for detecting and killing orphaned Claude processes by searching for processes with matching `--session-id` or `--resume` arguments.
+
+### Image Pasting
+
+Plural supports pasting images from the clipboard to include in messages to Claude. This is useful for sharing screenshots, diagrams, or other visual content.
+
+**How to use:**
+1. Copy an image to your clipboard (e.g., `Cmd+Shift+4` on macOS to capture a screenshot)
+2. Focus the chat input area (press `Tab` to switch focus if needed)
+3. Press `Ctrl+V` to paste the image
+4. An indicator will appear: `[Image attached: XXkb]`
+5. Optionally type a message describing what you want Claude to do with the image
+6. Press `Enter` to send
+
+**Features:**
+- Supports PNG, JPEG, GIF, and WebP formats
+- Images are automatically re-encoded to PNG for consistency
+- Size validation: max 3.75MB per Anthropic limits
+- Dimension validation: max 8000x8000 pixels
+- Press `Backspace` when input is empty to remove a pending image attachment
+
+**Technical details:**
+- Uses Claude CLI's `--input-format stream-json` for structured message input
+- Images are base64-encoded and sent as content blocks alongside text
+- The Runner maintains a persistent Claude CLI process for lower latency
 
 ### Viewing Session Changes
 

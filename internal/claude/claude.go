@@ -56,6 +56,56 @@ type Message struct {
 	Content string
 }
 
+// ContentType represents the type of content in a message block
+type ContentType string
+
+const (
+	ContentTypeText  ContentType = "text"
+	ContentTypeImage ContentType = "image"
+)
+
+// ContentBlock represents a single piece of content in a message
+type ContentBlock struct {
+	Type   ContentType  `json:"type"`
+	Text   string       `json:"text,omitempty"`
+	Source *ImageSource `json:"source,omitempty"`
+}
+
+// ImageSource represents an embedded image
+type ImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/png", "image/jpeg", etc.
+	Data      string `json:"data"`       // base64 encoded image data
+}
+
+// StreamInputMessage is the format sent to Claude CLI via stdin in stream-json mode
+type StreamInputMessage struct {
+	Type    string `json:"type"` // "user"
+	Message struct {
+		Role    string         `json:"role"`    // "user"
+		Content []ContentBlock `json:"content"` // content blocks
+	} `json:"message"`
+}
+
+// TextContent creates a text-only content block slice for convenience
+func TextContent(text string) []ContentBlock {
+	return []ContentBlock{{Type: ContentTypeText, Text: text}}
+}
+
+// GetDisplayContent returns the text representation of content blocks for display
+func GetDisplayContent(blocks []ContentBlock) string {
+	var parts []string
+	for _, block := range blocks {
+		switch block.Type {
+		case ContentTypeText:
+			parts = append(parts, block.Text)
+		case ContentTypeImage:
+			parts = append(parts, "[Image]")
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
 // Runner manages a Claude Code CLI session
 type Runner struct {
 	sessionID      string
@@ -72,6 +122,15 @@ type Runner struct {
 	questReqChan   chan mcp.QuestionRequest
 	questRespChan  chan mcp.QuestionResponse
 	stopOnce       sync.Once // Ensures Stop() is idempotent
+
+	// Persistent process management for stream-json input
+	persistentCmd     *exec.Cmd        // The running Claude CLI process
+	persistentStdin   io.WriteCloser   // Stdin pipe for sending messages
+	persistentStdout  *bufio.Reader    // Stdout reader for responses
+	persistentStderr  io.ReadCloser    // Stderr pipe for errors
+	processRunning    bool             // Whether persistent process is running
+	processMu         sync.Mutex       // Guards process lifecycle operations
+	currentResponseCh chan ResponseChunk // Current response channel for routing
 
 	// Per-session streaming state
 	isStreaming  bool                   // Whether this runner is currently streaming
@@ -498,193 +557,420 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 	return configPath, nil
 }
 
-// Send sends a message to Claude and streams the response
-func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChunk {
-	ch := make(chan ResponseChunk)
+// startPersistentProcess starts the Claude CLI process with stream-json input/output.
+// This process stays running and receives messages via stdin.
+func (r *Runner) startPersistentProcess() error {
+	r.processMu.Lock()
+	defer r.processMu.Unlock()
 
-	// Track streaming state
+	if r.processRunning {
+		return nil
+	}
+
+	logger.Log("Claude: Starting persistent process for session %s", r.sessionID)
+	startTime := time.Now()
+
+	// Build command arguments
+	r.mu.RLock()
+	sessionStarted := r.sessionStarted
+	allowedTools := make([]string, len(r.allowedTools))
+	copy(allowedTools, r.allowedTools)
+	mcpConfigPath := r.mcpConfigPath
+	r.mu.RUnlock()
+
+	var args []string
+	if sessionStarted {
+		args = []string{
+			"--print",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+			"--resume", r.sessionID,
+		}
+	} else {
+		args = []string{
+			"--print",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+			"--session-id", r.sessionID,
+		}
+	}
+
+	// Add MCP config and permission prompt tool
+	args = append(args,
+		"--mcp-config", mcpConfigPath,
+		"--permission-prompt-tool", "mcp__plural__permission",
+	)
+
+	// Add pre-allowed tools
+	for _, tool := range allowedTools {
+		args = append(args, "--allowedTools", tool)
+	}
+
+	logger.Log("Claude: Starting persistent process: claude %s", strings.Join(args, " "))
+
+	cmd := exec.Command("claude", args...)
+	cmd.Dir = r.workingDir
+
+	// Get stdin pipe for writing messages
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		logger.Log("Claude: Failed to get stdin pipe: %v", err)
+		return fmt.Errorf("failed to get stdin pipe: %v", err)
+	}
+
+	// Get stdout pipe for reading responses
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		stdin.Close()
+		logger.Log("Claude: Failed to get stdout pipe: %v", err)
+		return fmt.Errorf("failed to get stdout pipe: %v", err)
+	}
+
+	// Get stderr pipe for error messages
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		stdin.Close()
+		stdout.Close()
+		logger.Log("Claude: Failed to get stderr pipe: %v", err)
+		return fmt.Errorf("failed to get stderr pipe: %v", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		stdin.Close()
+		stdout.Close()
+		stderr.Close()
+		logger.Log("Claude: Failed to start persistent process: %v", err)
+		return fmt.Errorf("failed to start process: %v", err)
+	}
+
+	r.persistentCmd = cmd
+	r.persistentStdin = stdin
+	r.persistentStdout = bufio.NewReader(stdout)
+	r.persistentStderr = stderr
+	r.processRunning = true
+
+	logger.Log("Claude: Persistent process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
+
+	// Start goroutine to read responses
+	go r.readPersistentResponses()
+
+	// Start goroutine to monitor for process exit
+	go r.monitorProcessExit()
+
+	return nil
+}
+
+// readPersistentResponses continuously reads from stdout and routes to the current response channel
+func (r *Runner) readPersistentResponses() {
+	logger.Log("Claude: Response reader started for session %s", r.sessionID)
+
+	var fullResponse string
+	var lastWasToolUse bool
+	firstChunk := true
+	responseStartTime := time.Now()
+
+	for {
+		r.processMu.Lock()
+		running := r.processRunning
+		reader := r.persistentStdout
+		r.processMu.Unlock()
+
+		if !running || reader == nil {
+			logger.Log("Claude: Response reader exiting - process not running")
+			return
+		}
+
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				logger.Log("Claude: EOF on stdout - process exited")
+			} else {
+				logger.Log("Claude: Error reading stdout: %v", err)
+			}
+			r.handleProcessExit(err)
+			return
+		}
+
+		if len(line) == 0 {
+			continue
+		}
+
+		if firstChunk {
+			logger.Log("Claude: First response chunk received after %v", time.Since(responseStartTime))
+			firstChunk = false
+		}
+
+		// Parse the JSON message
+		chunks := parseStreamMessage(line)
+
+		// Get the current response channel
+		r.mu.RLock()
+		ch := r.currentResponseCh
+		r.mu.RUnlock()
+
+		for _, chunk := range chunks {
+			switch chunk.Type {
+			case ChunkTypeText:
+				// Add extra newline after tool use for visual separation
+				if lastWasToolUse && strings.HasSuffix(fullResponse, "\n") && !strings.HasSuffix(fullResponse, "\n\n") {
+					fullResponse += "\n"
+				}
+				fullResponse += chunk.Content
+				lastWasToolUse = false
+			case ChunkTypeToolUse:
+				// Format tool use line
+				if fullResponse != "" && !strings.HasSuffix(fullResponse, "\n") {
+					fullResponse += "\n"
+				}
+				toolLine := "● " + formatToolIcon(chunk.ToolName) + "(" + chunk.ToolName
+				if chunk.ToolInput != "" {
+					toolLine += ": " + chunk.ToolInput
+				}
+				toolLine += ")\n"
+				fullResponse += toolLine
+				lastWasToolUse = true
+			}
+
+			// Send to response channel if available
+			if ch != nil {
+				select {
+				case ch <- chunk:
+				default:
+					logger.Log("Claude: Response channel full, dropping chunk")
+				}
+			}
+		}
+
+		// Check for result message which indicates end of response
+		var msg streamMessage
+		if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
+			if msg.Type == "result" {
+				logger.Log("Claude: Result message received, response complete")
+
+				// Add assistant message to history
+				r.mu.Lock()
+				r.sessionStarted = true
+				r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse})
+				r.mu.Unlock()
+
+				// Signal completion
+				if ch != nil {
+					select {
+					case ch <- ResponseChunk{Done: true}:
+					default:
+					}
+				}
+
+				// Clear response channel and reset for next message
+				r.mu.Lock()
+				r.currentResponseCh = nil
+				r.isStreaming = false
+				r.responseChan = nil
+				r.mu.Unlock()
+
+				// Reset for next message
+				fullResponse = ""
+				lastWasToolUse = false
+				firstChunk = true
+				responseStartTime = time.Now()
+			}
+		}
+	}
+}
+
+// monitorProcessExit waits for the process to exit and handles cleanup
+func (r *Runner) monitorProcessExit() {
+	r.processMu.Lock()
+	cmd := r.persistentCmd
+	r.processMu.Unlock()
+
+	if cmd == nil {
+		return
+	}
+
+	err := cmd.Wait()
+	logger.Log("Claude: Persistent process exited: %v", err)
+	r.handleProcessExit(err)
+}
+
+// handleProcessExit handles cleanup when the persistent process exits
+func (r *Runner) handleProcessExit(err error) {
+	r.processMu.Lock()
+	defer r.processMu.Unlock()
+
+	if !r.processRunning {
+		return
+	}
+
+	logger.Log("Claude: Handling process exit for session %s", r.sessionID)
+
+	// Notify current response channel of error
 	r.mu.Lock()
-	r.isStreaming = true
-	r.responseChan = ch
-	r.streamCtx = cmdCtx
+	ch := r.currentResponseCh
+	if ch != nil {
+		select {
+		case ch <- ResponseChunk{Error: fmt.Errorf("process exited: %v", err), Done: true}:
+		default:
+		}
+		r.currentResponseCh = nil
+	}
+	r.isStreaming = false
+	r.responseChan = nil
 	r.mu.Unlock()
 
-	go func() {
-		defer close(ch)
-		defer func() {
-			r.mu.Lock()
-			r.isStreaming = false
-			r.responseChan = nil
-			r.mu.Unlock()
+	// Clean up pipes
+	if r.persistentStdin != nil {
+		r.persistentStdin.Close()
+		r.persistentStdin = nil
+	}
+	if r.persistentStderr != nil {
+		r.persistentStderr.Close()
+		r.persistentStderr = nil
+	}
+
+	r.persistentCmd = nil
+	r.persistentStdout = nil
+	r.processRunning = false
+}
+
+// stopPersistentProcess stops the persistent Claude CLI process
+func (r *Runner) stopPersistentProcess() {
+	r.processMu.Lock()
+	defer r.processMu.Unlock()
+
+	if !r.processRunning {
+		return
+	}
+
+	logger.Log("Claude: Stopping persistent process for session %s", r.sessionID)
+
+	// Close stdin to signal EOF to the process
+	if r.persistentStdin != nil {
+		r.persistentStdin.Close()
+		r.persistentStdin = nil
+	}
+
+	// Kill the process if it doesn't exit gracefully
+	if r.persistentCmd != nil && r.persistentCmd.Process != nil {
+		// Give it a moment to exit gracefully, then force kill
+		done := make(chan struct{})
+		go func() {
+			r.persistentCmd.Wait()
+			close(done)
 		}()
 
+		select {
+		case <-done:
+			logger.Log("Claude: Process exited gracefully")
+		case <-time.After(2 * time.Second):
+			logger.Log("Claude: Force killing process")
+			r.persistentCmd.Process.Kill()
+		}
+	}
+
+	if r.persistentStderr != nil {
+		r.persistentStderr.Close()
+		r.persistentStderr = nil
+	}
+
+	r.persistentCmd = nil
+	r.persistentStdout = nil
+	r.processRunning = false
+}
+
+// Send sends a message to Claude and streams the response
+func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChunk {
+	return r.SendContent(cmdCtx, TextContent(prompt))
+}
+
+// SendContent sends structured content to Claude and streams the response
+func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-chan ResponseChunk {
+	ch := make(chan ResponseChunk, 100) // Buffered to avoid blocking response reader
+
+	go func() {
 		sendStartTime := time.Now()
-		promptPreview := prompt
+
+		// Build display content for logging and history
+		displayContent := GetDisplayContent(content)
+		promptPreview := displayContent
 		if len(promptPreview) > 50 {
 			promptPreview = promptPreview[:50] + "..."
 		}
-		logger.Log("Claude: Send started: sessionID=%s, prompt=%q", r.sessionID, promptPreview)
+		logger.Log("Claude: SendContent started: sessionID=%s, content=%q", r.sessionID, promptPreview)
 
 		// Add user message to history
 		r.mu.Lock()
-		r.messages = append(r.messages, Message{Role: "user", Content: prompt})
+		r.messages = append(r.messages, Message{Role: "user", Content: displayContent})
 		r.mu.Unlock()
 
 		// Ensure MCP server is running (persistent across Send calls)
 		if err := r.ensureServerRunning(); err != nil {
 			ch <- ResponseChunk{Error: err, Done: true}
+			close(ch)
 			return
 		}
 
-		// Build the command
-		// Use --session-id for first message, --resume for subsequent
+		// Start persistent process if not running
+		if err := r.startPersistentProcess(); err != nil {
+			ch <- ResponseChunk{Error: err, Done: true}
+			close(ch)
+			return
+		}
+
+		// Set up the response channel for routing
 		r.mu.Lock()
-		sessionStarted := r.sessionStarted
-		allowedTools := r.allowedTools
-		mcpConfigPath := r.mcpConfigPath
+		r.isStreaming = true
+		r.responseChan = ch
+		r.currentResponseCh = ch
+		r.streamCtx = cmdCtx
 		r.mu.Unlock()
 
-		logger.Log("Claude: sessionStarted=%v for sessionID=%s", sessionStarted, r.sessionID)
-
-		var args []string
-		if sessionStarted {
-			args = []string{
-				"--print",
-				"--output-format", "stream-json",
-				"--verbose",
-				"--resume", r.sessionID,
-			}
-		} else {
-			args = []string{
-				"--print",
-				"--output-format", "stream-json",
-				"--verbose",
-				"--session-id", r.sessionID,
-			}
+		// Build the input message
+		inputMsg := StreamInputMessage{
+			Type: "user",
 		}
+		inputMsg.Message.Role = "user"
+		inputMsg.Message.Content = content
 
-		// Add the prompt BEFORE multi-value flags like --mcp-config and --allowedTools
-		// which consume all following arguments
-		args = append(args, prompt)
-
-		// Add MCP config and permission prompt tool
-		args = append(args,
-			"--mcp-config", mcpConfigPath,
-			"--permission-prompt-tool", "mcp__plural__permission",
-		)
-
-		// Add pre-allowed tools if any
-		for _, tool := range allowedTools {
-			args = append(args, "--allowedTools", tool)
-		}
-
-		logger.Log("Claude: Running command: claude %s", strings.Join(args, " "))
-
-		cmdStartTime := time.Now()
-		cmd := exec.CommandContext(cmdCtx, "claude", args...)
-		cmd.Dir = r.workingDir
-
-		// Get stdout pipe for streaming
-		stdout, err := cmd.StdoutPipe()
+		// Serialize to JSON
+		msgJSON, err := json.Marshal(inputMsg)
 		if err != nil {
-			logger.Log("Claude: Failed to get stdout pipe: %v", err)
-			ch <- ResponseChunk{Error: err, Done: true}
+			logger.Log("Claude: Failed to serialize message: %v", err)
+			ch <- ResponseChunk{Error: fmt.Errorf("failed to serialize message: %v", err), Done: true}
+			close(ch)
 			return
 		}
 
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			logger.Log("Claude: Failed to get stderr pipe: %v", err)
-			ch <- ResponseChunk{Error: err, Done: true}
+		// Write to stdin
+		r.processMu.Lock()
+		stdin := r.persistentStdin
+		r.processMu.Unlock()
+
+		if stdin == nil {
+			ch <- ResponseChunk{Error: fmt.Errorf("process stdin not available"), Done: true}
+			close(ch)
 			return
 		}
 
-		if err := cmd.Start(); err != nil {
-			logger.Log("Claude: Failed to start command: %v", err)
-			ch <- ResponseChunk{Error: err, Done: true}
-			return
-		}
-		logger.Log("Claude: Command started in %v, pid=%d", time.Since(cmdStartTime), cmd.Process.Pid)
-
-		// Read and stream JSON output
-		var fullResponse string
-		var lastWasToolUse bool
-		reader := bufio.NewReader(stdout)
-		firstChunk := true
-		for {
-			line, err := reader.ReadString('\n')
-			if len(line) > 0 {
-				if firstChunk {
-					logger.Log("Claude: First response chunk received after %v (time to first token)", time.Since(cmdStartTime))
-					firstChunk = false
-				}
-
-				// Parse the JSON message
-				chunks := parseStreamMessage(line)
-				for _, chunk := range chunks {
-					switch chunk.Type {
-					case ChunkTypeText:
-						// Add extra newline after tool use for visual separation
-						if lastWasToolUse && strings.HasSuffix(fullResponse, "\n") && !strings.HasSuffix(fullResponse, "\n\n") {
-							fullResponse += "\n"
-						}
-						fullResponse += chunk.Content
-						lastWasToolUse = false
-					case ChunkTypeToolUse:
-						// Format tool use line to match chat display format
-						// Add newline before if there's existing content that doesn't end with newline
-						if fullResponse != "" && !strings.HasSuffix(fullResponse, "\n") {
-							fullResponse += "\n"
-						}
-						line := "● " + formatToolIcon(chunk.ToolName) + "(" + chunk.ToolName
-						if chunk.ToolInput != "" {
-							line += ": " + chunk.ToolInput
-						}
-						line += ")\n"
-						fullResponse += line
-						lastWasToolUse = true
-					}
-					ch <- chunk
-				}
-			}
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				logger.Log("Claude: Error reading stdout: %v", err)
-				ch <- ResponseChunk{Error: err, Done: true}
-				return
-			}
-		}
-
-		// Read any stderr
-		stderrBytes, stderrErr := io.ReadAll(stderr)
-		if stderrErr != nil {
-			logger.Log("Claude: Failed to read stderr: %v", stderrErr)
-		}
-
-		if err := cmd.Wait(); err != nil {
-			errMsg := string(stderrBytes)
-			logger.Log("Claude: Command failed: err=%v, stderr=%q", err, errMsg)
-			if errMsg != "" {
-				ch <- ResponseChunk{Error: fmt.Errorf("%s", errMsg), Done: true}
-			} else {
-				ch <- ResponseChunk{Error: err, Done: true}
-			}
+		logger.Log("Claude: Writing message to stdin: %s", string(msgJSON))
+		if _, err := stdin.Write(append(msgJSON, '\n')); err != nil {
+			logger.Log("Claude: Failed to write to stdin: %v", err)
+			ch <- ResponseChunk{Error: fmt.Errorf("failed to write to process: %v", err), Done: true}
+			close(ch)
 			return
 		}
 
-		// Mark session as started and add assistant message to history
-		r.mu.Lock()
-		r.sessionStarted = true
-		r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse})
-		r.mu.Unlock()
+		logger.Log("Claude: Message sent in %v, waiting for response", time.Since(sendStartTime))
 
-		totalDuration := time.Since(sendStartTime)
-		cmdDuration := time.Since(cmdStartTime)
-		logger.Log("Claude: Command completed successfully for sessionID=%s, cmd_duration=%v, total_duration=%v, response_len=%d",
-			r.sessionID, cmdDuration, totalDuration, len(fullResponse))
-		ch <- ResponseChunk{Done: true}
+		// The response will be read by readPersistentResponses goroutine
+		// and routed to this channel. We wait for Done or context cancellation.
+		go func() {
+			<-cmdCtx.Done()
+			// Context cancelled - could interrupt here if needed
+			logger.Log("Claude: Context cancelled for session %s", r.sessionID)
+		}()
 	}()
 
 	return ch
@@ -711,10 +997,13 @@ func (r *Runner) AddAssistantMessage(content string) {
 // This method is idempotent - multiple calls are safe.
 func (r *Runner) Stop() {
 	r.stopOnce.Do(func() {
+		logger.Log("Claude: Stopping runner for session %s", r.sessionID)
+
+		// Stop the persistent Claude CLI process first (needs its own lock)
+		r.stopPersistentProcess()
+
 		r.mu.Lock()
 		defer r.mu.Unlock()
-
-		logger.Log("Claude: Stopping runner for session %s", r.sessionID)
 
 		// Close socket server if running
 		if r.socketServer != nil {

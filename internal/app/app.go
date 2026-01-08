@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
@@ -234,6 +236,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !m.hasAnyStreamingSessions() {
 					m.setState(StateIdle)
 				}
+				return m, nil
+			}
+		}
+
+		// Handle Ctrl+V for image pasting when chat is focused
+		if msg.String() == "ctrl+v" && m.focus == FocusChat && m.activeSession != nil {
+			return m.handleImagePaste()
+		}
+
+		// Handle backspace to remove pending image when input is empty
+		if msg.String() == "backspace" && m.focus == FocusChat && m.activeSession != nil {
+			if m.chat.HasPendingImage() && m.chat.GetInput() == "" {
+				m.chat.ClearImage()
 				return m, nil
 			}
 		}
@@ -791,10 +806,49 @@ func (m *Model) forceResumeSession(sess *config.Session) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleImagePaste attempts to read an image from the clipboard and attach it
+func (m *Model) handleImagePaste() (tea.Model, tea.Cmd) {
+	logger.Log("App: Handling image paste")
+
+	// Try to read image from clipboard
+	img, err := clipboard.ReadImage()
+	if err != nil {
+		logger.Log("App: Failed to read image from clipboard: %v", err)
+		// Don't show error to user - might just be text paste
+		return m, nil
+	}
+
+	if img == nil {
+		logger.Log("App: No image in clipboard")
+		// No image, let text paste happen normally
+		return m, nil
+	}
+
+	// Validate the image
+	if err := img.Validate(); err != nil {
+		logger.Log("App: Image validation failed: %v", err)
+		// Show error message in chat
+		m.chat.AppendStreaming(fmt.Sprintf("\n[Error: %s]\n", err.Error()))
+		return m, nil
+	}
+
+	// Attach the image
+	logger.Log("App: Attaching image: %dKB, %s", img.SizeKB(), img.MediaType)
+	m.chat.AttachImage(img.Data, img.MediaType)
+
+	return m, nil
+}
+
 func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	input := m.chat.GetInput()
-	logger.Log("App: sendMessage called, input=%q, len=%d, canSend=%v", input, len(input), m.CanSendMessage())
-	if input == "" || !m.CanSendMessage() {
+	hasImage := m.chat.HasPendingImage()
+	logger.Log("App: sendMessage called, input=%q, len=%d, hasImage=%v, canSend=%v", input, len(input), hasImage, m.CanSendMessage())
+
+	// Need either text or image
+	if input == "" && !hasImage {
+		return m, nil
+	}
+	if !m.CanSendMessage() {
 		return m, nil
 	}
 
@@ -802,13 +856,46 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	if len(inputPreview) > 50 {
 		inputPreview = inputPreview[:50] + "..."
 	}
-	logger.Log("App: Sending message to session %s: %q", m.activeSession.ID, inputPreview)
+	logger.Log("App: Sending message to session %s: %q, hasImage=%v", m.activeSession.ID, inputPreview, hasImage)
 
 	// Capture session info before any async operations
 	sessionID := m.activeSession.ID
 	runner := m.claudeRunner
 
-	m.chat.AddUserMessage(input)
+	// Build content blocks
+	var content []claude.ContentBlock
+
+	// Add text if present
+	if input != "" {
+		content = append(content, claude.ContentBlock{
+			Type: claude.ContentTypeText,
+			Text: input,
+		})
+	}
+
+	// Add image if present
+	if hasImage {
+		imageData, mediaType := m.chat.GetPendingImage()
+		content = append(content, claude.ContentBlock{
+			Type: claude.ContentTypeImage,
+			Source: &claude.ImageSource{
+				Type:      "base64",
+				MediaType: mediaType,
+				Data:      base64.StdEncoding.EncodeToString(imageData),
+			},
+		})
+	}
+
+	// Display message to user (text only, images shown as [Image])
+	displayMsg := input
+	if hasImage {
+		if displayMsg != "" {
+			displayMsg += "\n[Image attached]"
+		} else {
+			displayMsg = "[Image attached]"
+		}
+	}
+	m.chat.AddUserMessage(displayMsg)
 	m.chat.ClearInput()
 
 	// Create context for this request
@@ -819,8 +906,8 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	m.sidebar.SetStreaming(sessionID, true)
 	m.setState(StateStreamingClaude)
 
-	// Start Claude request - runner tracks its own response channel
-	responseChan := runner.Send(ctx, input)
+	// Start Claude request with content blocks
+	responseChan := runner.SendContent(ctx, content)
 
 	// Return commands to listen for response, permission requests, and question requests
 	// Also start the spinner and stopwatch ticks

@@ -106,6 +106,11 @@ type Chat struct {
 	viewChangesMode    bool             // Whether we're showing the diff overlay
 	viewChangesContent string           // The diff content to display
 	viewChangesViewport viewport.Model  // Separate viewport for diff scrolling
+
+	// Pending image attachment
+	pendingImageData []byte  // PNG encoded image data
+	pendingImageType string  // MIME type
+	pendingImageSize int     // Size in bytes
 }
 
 // NewChat creates a new chat panel
@@ -449,6 +454,42 @@ func (c *Chat) SelectOptionByNumber(num int) bool {
 
 	c.selectedOptionIdx = idx
 	return c.SelectCurrentOption()
+}
+
+// AttachImage attaches an image to the pending message
+func (c *Chat) AttachImage(data []byte, mediaType string) {
+	c.pendingImageData = data
+	c.pendingImageType = mediaType
+	c.pendingImageSize = len(data)
+	c.updateContent()
+}
+
+// ClearImage removes the pending image attachment
+func (c *Chat) ClearImage() {
+	c.pendingImageData = nil
+	c.pendingImageType = ""
+	c.pendingImageSize = 0
+	c.updateContent()
+}
+
+// HasPendingImage returns whether there's a pending image attachment
+func (c *Chat) HasPendingImage() bool {
+	return len(c.pendingImageData) > 0
+}
+
+// GetPendingImage returns the pending image data and clears it
+func (c *Chat) GetPendingImage() (data []byte, mediaType string) {
+	data = c.pendingImageData
+	mediaType = c.pendingImageType
+	c.pendingImageData = nil
+	c.pendingImageType = ""
+	c.pendingImageSize = 0
+	return data, mediaType
+}
+
+// GetPendingImageSizeKB returns the pending image size in KB
+func (c *Chat) GetPendingImageSizeKB() int {
+	return c.pendingImageSize / 1024
 }
 
 // renderNoSessionMessage renders the placeholder message when no session is selected
@@ -1176,7 +1217,21 @@ func (c *Chat) View() string {
 	if c.focused {
 		inputStyle = ChatInputFocusedStyle
 	}
-	inputArea := inputStyle.Width(c.width).Render(c.input.View())
+
+	// Build input area content with optional image indicator
+	var inputContent string
+	if c.HasPendingImage() {
+		// Show image attachment indicator above the textarea
+		indicatorStyle := lipgloss.NewStyle().
+			Foreground(ColorInfo).
+			Background(lipgloss.Color("#1E1E2E")).
+			Padding(0, 1)
+		indicator := indicatorStyle.Render(fmt.Sprintf("[Image attached: %dKB] (backspace to remove)", c.GetPendingImageSizeKB()))
+		inputContent = indicator + "\n" + c.input.View()
+	} else {
+		inputContent = c.input.View()
+	}
+	inputArea := inputStyle.Width(c.width).Render(inputContent)
 
 	return lipgloss.JoinVertical(lipgloss.Left, chatPanel, inputArea)
 }
