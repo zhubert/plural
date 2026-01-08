@@ -38,6 +38,36 @@ func TestDetectOptions(t *testing.T) {
 			wantNums: []int{1, 2, 3},
 		},
 		{
+			name: "markdown heading options",
+			message: `## Option 1: Add an Animated Demo
+
+**What:** Add a demo section.
+
+---
+
+## Option 2: Add Feature Comparison
+
+**What:** Show before/after.
+
+---
+
+## Option 3: Add Interactive Preview
+
+**What:** Make it interactive.`,
+			wantLen:  3,
+			wantNums: []int{1, 2, 3},
+		},
+		{
+			name: "markdown h3 heading options",
+			message: `### Option 1: First approach
+Some details here.
+
+### Option 2: Second approach
+More details.`,
+			wantLen:  2,
+			wantNums: []int{1, 2},
+		},
+		{
 			name: "only one option (not enough)",
 			message: `Here's my suggestion:
 1. Just do this one thing`,

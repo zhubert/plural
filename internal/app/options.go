@@ -17,6 +17,8 @@ var optionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)^(\d+)[.)]\s+(.+)$`),
 	// Markdown bold option: "**Option 1:** text" or "**1.** text"
 	regexp.MustCompile(`(?m)^\*\*(?:Option\s+)?(\d+)[.:]?\*\*:?\s*(.+)$`),
+	// Markdown heading option: "## Option 1: text" or "### Option 1: text"
+	regexp.MustCompile(`(?m)^#{2,3}\s+Option\s+(\d+):?\s*(.+)$`),
 }
 
 // DetectOptions scans a message for numbered options.
