@@ -110,6 +110,19 @@
             font-style: normal;
         }
 
+        /* Demo GIF */
+        .demo-container {
+            margin: 2rem 0 3rem;
+            text-align: center;
+        }
+
+        .demo-gif {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
         /* Terminal Window */
         .terminal {
             background: var(--bg-panel);
@@ -508,6 +521,10 @@
         <div class="hero-pitch fade-in">
             <p>Ever wish you could have Claude work on multiple things at once, in the same code base? Fix a bug in one session while prototyping a feature in another, or compare different approaches side by side.</p>
             <p>Plural lets you run <em>many Claude sessions at once</em>, each in an isolated git branch. Switch freely between tasks. Merge when ready. No conflicts, no context-switching overhead.</p>
+        </div>
+
+        <div class="demo-container fade-in">
+            <img src="demo.gif" alt="Plural demo showing multiple Claude sessions" class="demo-gif">
         </div>
 
         <div class="terminal fade-in">

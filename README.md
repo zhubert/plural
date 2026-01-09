@@ -2,6 +2,8 @@
 
 A TUI for managing multiple concurrent Claude Code sessions, each running in its own isolated git worktree.
 
+![Plural demo](demo.gif)
+
 ## Why Plural?
 
 Ever wish you could have Claude work on multiple things at once, in the same code base? Fix a bug in one session while prototyping a feature in another, or compare different approaches side by side.
