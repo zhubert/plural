@@ -235,11 +235,11 @@ func TestIntegration_Modal_OpenAddRepoModal(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	// Press 'r' to open add repo modal
-	m = sendKey(m, "r")
+	// Press 'a' to open add repo modal
+	m = sendKey(m, "a")
 
 	if !m.modal.IsVisible() {
-		t.Error("Modal should be visible after pressing r")
+		t.Error("Modal should be visible after pressing a")
 	}
 
 	if _, ok := m.modal.State.(*ui.AddRepoState); !ok {

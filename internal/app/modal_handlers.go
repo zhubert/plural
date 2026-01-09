@@ -845,13 +845,169 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 // handleHelpModal handles key events for the Help modal.
 func (m *Model) handleHelpModal(key string, msg tea.KeyPressMsg, state *ui.HelpState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "enter", "?", "q":
+	case "esc", "?", "q":
 		m.modal.Hide()
 		return m, nil
+	case "enter":
+		// Trigger the selected shortcut
+		shortcut := state.GetSelectedShortcut()
+		if shortcut != nil {
+			m.modal.Hide()
+			// Return a command that sends a HelpShortcutTriggeredMsg
+			return m, func() tea.Msg {
+				return ui.HelpShortcutTriggeredMsg{Key: shortcut.Key}
+			}
+		}
+		return m, nil
 	}
-	// Forward scroll keys to the modal
+	// Forward navigation keys to the modal
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleHelpShortcutTrigger handles shortcuts triggered from the help modal.
+// It maps display keys to actual actions.
+func (m *Model) handleHelpShortcutTrigger(key string) (tea.Model, tea.Cmd) {
+	// Normalize key names from help display to actual key values
+	normalizedKey := strings.ToLower(key)
+
+	// Handle special display-format keys
+	switch key {
+	case "Tab":
+		normalizedKey = "tab"
+	case "↑/↓ or j/k":
+		// Navigation keys - just toggle focus as a demonstration
+		normalizedKey = "tab"
+	case "PgUp/PgDn":
+		// Page keys - no direct action from modal
+		return m, nil
+	case "Enter":
+		normalizedKey = "enter"
+	case "/":
+		normalizedKey = "/"
+	case "Esc":
+		// Escape - no action from modal
+		return m, nil
+	case "Ctrl+V":
+		// Image paste - only works in chat context
+		return m, nil
+	case "Ctrl+P":
+		// Fork options - only works in chat context with detected options
+		return m, nil
+	case "ctrl+f":
+		// Force resume - only works with session in use
+		return m, nil
+	}
+
+	// Now handle the normalized key
+	switch normalizedKey {
+	case "tab":
+		m.toggleFocus()
+		return m, nil
+	case "n":
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+		return m, nil
+	case "a":
+		currentRepo := session.GetCurrentDirGitRoot()
+		if currentRepo != "" {
+			for _, repo := range m.config.GetRepos() {
+				if repo == currentRepo {
+					currentRepo = ""
+					break
+				}
+			}
+		}
+		m.modal.Show(ui.NewAddRepoState(currentRepo))
+		return m, nil
+	case "d":
+		if m.sidebar.SelectedSession() != nil {
+			sess := m.sidebar.SelectedSession()
+			displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+			m.modal.Show(ui.NewConfirmDeleteState(displayName))
+		}
+		return m, nil
+	case "v":
+		if m.sidebar.SelectedSession() != nil {
+			sess := m.sidebar.SelectedSession()
+			if m.activeSession == nil || m.activeSession.ID != sess.ID {
+				m.selectSession(sess)
+			}
+			status, err := git.GetWorktreeStatus(sess.WorkTree)
+			var content string
+			if err != nil {
+				content = fmt.Sprintf("[Error getting status: %v]\n", err)
+			} else if !status.HasChanges {
+				content = "No uncommitted changes in this session."
+			} else {
+				var sb strings.Builder
+				sb.WriteString(fmt.Sprintf("📝 Uncommitted changes (%s):\n\n", status.Summary))
+				for _, file := range status.Files {
+					sb.WriteString(fmt.Sprintf("  • %s\n", file))
+				}
+				if status.Diff != "" {
+					sb.WriteString("\n--- Diff ---\n")
+					sb.WriteString(ui.HighlightDiff(status.Diff))
+				}
+				content = sb.String()
+			}
+			m.chat.EnterViewChangesMode(content)
+		}
+		return m, nil
+	case "m":
+		if m.sidebar.SelectedSession() != nil {
+			sess := m.sidebar.SelectedSession()
+			hasRemote := git.HasRemoteOrigin(sess.RepoPath)
+			var changesSummary string
+			if status, err := git.GetWorktreeStatus(sess.WorkTree); err == nil && status.HasChanges {
+				changesSummary = status.Summary
+				if len(status.Files) <= 5 {
+					changesSummary += ": " + strings.Join(status.Files, ", ")
+				}
+			}
+			displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+			var parentName string
+			if sess.ParentID != "" {
+				if parent := m.config.GetSession(sess.ParentID); parent != nil {
+					parentName = ui.SessionDisplayName(parent.Branch, parent.Name)
+				}
+			}
+			m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName))
+		}
+		return m, nil
+	case "f":
+		if m.sidebar.SelectedSession() != nil {
+			sess := m.sidebar.SelectedSession()
+			displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+			m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
+		}
+		return m, nil
+	case "c":
+		if m.pendingConflictRepoPath != "" {
+			return m.showCommitConflictModal()
+		}
+		return m, nil
+	case "s":
+		m.showMCPServersModal()
+		return m, nil
+	case "/":
+		if !m.sidebar.IsSearchMode() {
+			m.sidebar.EnterSearchMode()
+		}
+		return m, nil
+	case "t":
+		m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
+		return m, nil
+	case "?":
+		m.modal.Show(ui.NewHelpState())
+		return m, nil
+	case "q":
+		return m, tea.Quit
+	case "y":
+		// Permission responses - only work in permission context
+		return m, nil
+	}
+
+	return m, nil
 }
 

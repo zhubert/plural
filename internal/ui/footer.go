@@ -34,12 +34,12 @@ func NewFooter() *Footer {
 			{Key: "tab", Desc: "switch pane"},
 			{Key: "n", Desc: "new session"},
 			{Key: "a", Desc: "add repo"},
-			{Key: "?", Desc: "help"},
 			{Key: "v", Desc: "view changes"},
 			{Key: "m", Desc: "merge/pr"},
 			{Key: "f", Desc: "fork"},
 			{Key: "d", Desc: "delete"},
 			{Key: "q", Desc: "quit"},
+			{Key: "?", Desc: "help"},
 		},
 	}
 }
@@ -176,12 +176,16 @@ func (f *Footer) View() string {
 		}
 	} else {
 		for _, b := range f.bindings {
+			// Skip "?" here - it will be added at the end when sidebar is focused
+			if b.Key == "?" {
+				continue
+			}
 			// Skip tab when no session (can't switch to chat without one)
 			if b.Key == "tab" && !f.hasSession {
 				continue
 			}
 			// Skip sidebar-only bindings when chat is focused
-			if (b.Key == "n" || b.Key == "a" || b.Key == "?" || b.Key == "v" || b.Key == "m" || b.Key == "f" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
+			if (b.Key == "n" || b.Key == "a" || b.Key == "v" || b.Key == "m" || b.Key == "f" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
 				continue
 			}
 			// Skip session-specific bindings when no session selected
@@ -192,6 +196,12 @@ func (f *Footer) View() string {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)
+		}
+		// Add "?" at the end only when sidebar is focused (can't trigger from chat textarea)
+		if f.sidebarFocused {
+			helpKey := FooterKeyStyle.Render("?")
+			helpDesc := FooterDescStyle.Render(": help")
+			parts = append(parts, helpKey+helpDesc)
 		}
 	}
 

@@ -730,6 +730,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
+
+	case ui.HelpShortcutTriggeredMsg:
+		// Handle shortcut triggered from help modal
+		return m.handleHelpShortcutTrigger(msg.Key)
 	}
 
 	// Update modal
