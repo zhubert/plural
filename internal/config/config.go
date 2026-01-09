@@ -114,8 +114,12 @@ func Load() (*Config, error) {
 
 // ensureInitialized ensures all slices and maps are initialized (not nil).
 // This is called during Load() after unmarshaling, and must be called
-// before Validate() since Validate() only reads. This method is NOT
-// thread-safe and should only be called during initialization.
+// before Validate() since Validate() only reads.
+//
+// Thread-safety: This method is NOT thread-safe and must only be called
+// during single-threaded initialization (i.e., from Load() before the Config
+// is shared across goroutines). This is safe because Load() is called once
+// at application startup before any concurrent access is possible.
 func (c *Config) ensureInitialized() {
 	if c.Repos == nil {
 		c.Repos = []string{}

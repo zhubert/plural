@@ -1015,13 +1015,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	}
 
 	// Restore queued message display if this session has a pending message
-	if m.sessionState().HasPendingMessage(sess.ID) {
-		// We need to peek at the pending message without clearing it
-		// Since GetPendingMessage clears it, we'll use a different approach
-		state := m.sessionState().GetIfExists(sess.ID)
-		if state != nil && state.PendingMessage != "" {
-			m.chat.SetQueuedMessage(state.PendingMessage)
-		}
+	if pendingMsg := m.sessionState().PeekPendingMessage(sess.ID); pendingMsg != "" {
+		m.chat.SetQueuedMessage(pendingMsg)
 	} else {
 		m.chat.ClearQueuedMessage()
 	}

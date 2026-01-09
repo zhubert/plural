@@ -8,8 +8,17 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/zhubert/plural/internal/logger"
+)
+
+// MCP server timeout constants
+const (
+	// ChannelSendTimeout is the timeout for sending to TUI channels
+	ChannelSendTimeout = 10 * time.Second
+	// ChannelReceiveTimeout is the timeout for receiving from TUI channels
+	ChannelReceiveTimeout = 5 * time.Minute
 )
 
 const (
@@ -207,13 +216,25 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 		Arguments:   arguments,
 	}
 
-	s.requestChan <- permReq
-	logger.Log("MCP: Waiting for TUI response...")
+	// Send to TUI with timeout to prevent deadlock if TUI is unresponsive
+	select {
+	case s.requestChan <- permReq:
+		logger.Log("MCP: Waiting for TUI response...")
+	case <-time.After(ChannelSendTimeout):
+		logger.Log("MCP: Timeout sending permission request to TUI")
+		s.sendPermissionResult(req.ID, false, arguments, "TUI not responding")
+		return
+	}
 
-	resp := <-s.responseChan
-	logger.Log("MCP: Received TUI response: allowed=%v, always=%v", resp.Allowed, resp.Always)
-
-	s.sendPermissionResult(req.ID, resp.Allowed, arguments, resp.Message)
+	// Wait for response with timeout
+	select {
+	case resp := <-s.responseChan:
+		logger.Log("MCP: Received TUI response: allowed=%v, always=%v", resp.Allowed, resp.Always)
+		s.sendPermissionResult(req.ID, resp.Allowed, arguments, resp.Message)
+	case <-time.After(ChannelReceiveTimeout):
+		logger.Log("MCP: Timeout waiting for TUI response")
+		s.sendPermissionResult(req.ID, false, arguments, "Permission request timed out")
+	}
 }
 
 // handleAskUserQuestion handles the AskUserQuestion tool specially
@@ -288,12 +309,26 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 		Questions: questions,
 	}
 
-	s.questionChan <- questionReq
-	logger.Log("MCP: Waiting for TUI answer...")
+	// Send to TUI with timeout to prevent deadlock if TUI is unresponsive
+	select {
+	case s.questionChan <- questionReq:
+		logger.Log("MCP: Waiting for TUI answer...")
+	case <-time.After(ChannelSendTimeout):
+		logger.Log("MCP: Timeout sending question request to TUI")
+		s.sendPermissionResult(reqID, false, arguments, "TUI not responding")
+		return
+	}
 
-	// Wait for answer
-	answer := <-s.answerChan
-	logger.Log("MCP: Received TUI answer with %d responses", len(answer.Answers))
+	// Wait for answer with timeout
+	var answer QuestionResponse
+	select {
+	case answer = <-s.answerChan:
+		logger.Log("MCP: Received TUI answer with %d responses", len(answer.Answers))
+	case <-time.After(ChannelReceiveTimeout):
+		logger.Log("MCP: Timeout waiting for TUI answer")
+		s.sendPermissionResult(reqID, false, arguments, "Question request timed out")
+		return
+	}
 
 	// Build the response with answers in updatedInput
 	updatedInput := map[string]interface{}{

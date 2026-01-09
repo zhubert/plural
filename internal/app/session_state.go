@@ -77,7 +77,7 @@ func (m *SessionStateManager) GetIfExists(sessionID string) *SessionState {
 	return m.states[sessionID]
 }
 
-// Delete removes all state for a session.
+// Delete removes all state for a session and releases all associated resources.
 func (m *SessionStateManager) Delete(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -86,10 +86,26 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		// Cancel any in-progress operations
 		if state.MergeCancel != nil {
 			state.MergeCancel()
+			state.MergeCancel = nil
 		}
 		if state.StreamCancel != nil {
 			state.StreamCancel()
+			state.StreamCancel = nil
 		}
+
+		// Clear string fields to help GC (especially for large streaming content)
+		state.InputText = ""
+		state.StreamingContent = ""
+		state.PendingMessage = ""
+
+		// Clear channel reference
+		state.MergeChan = nil
+
+		// Clear other references
+		state.PendingPermission = nil
+		state.PendingQuestion = nil
+		state.DetectedOptions = nil
+
 		delete(m.states, sessionID)
 	}
 }
@@ -396,6 +412,8 @@ func (m *SessionStateManager) HasSessionInUseError(sessionID string) bool {
 }
 
 // ReplaceToolUseMarker replaces the tool use marker in streaming content.
+// The function validates that the old marker actually exists at the given position
+// to prevent corruption if the streaming content has changed since the position was recorded.
 func (m *SessionStateManager) ReplaceToolUseMarker(sessionID, oldMarker, newMarker string, pos int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -403,11 +421,21 @@ func (m *SessionStateManager) ReplaceToolUseMarker(sessionID, oldMarker, newMark
 	if state, exists := m.states[sessionID]; exists {
 		streaming := state.StreamingContent
 		markerLen := len(oldMarker)
-		if pos >= 0 && pos+markerLen <= len(streaming) {
-			prefix := streaming[:pos]
-			suffix := streaming[pos+markerLen:]
-			state.StreamingContent = prefix + newMarker + suffix
+
+		// Validate bounds
+		if pos < 0 || pos+markerLen > len(streaming) {
+			return
 		}
+
+		// Validate that the old marker actually exists at this position
+		// This prevents corruption if the streaming content has been modified
+		if streaming[pos:pos+markerLen] != oldMarker {
+			return
+		}
+
+		prefix := streaming[:pos]
+		suffix := streaming[pos+markerLen:]
+		state.StreamingContent = prefix + newMarker + suffix
 	}
 }
 
@@ -472,6 +500,7 @@ func (m *SessionStateManager) SetPendingMessage(sessionID, message string) {
 }
 
 // GetPendingMessage returns and clears the pending message for a session.
+// Use PeekPendingMessage if you need to check the message without clearing it.
 func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -480,6 +509,18 @@ func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
 		msg := state.PendingMessage
 		state.PendingMessage = ""
 		return msg
+	}
+	return ""
+}
+
+// PeekPendingMessage returns the pending message for a session without clearing it.
+// Use this when you need to check or display the message without consuming it.
+func (m *SessionStateManager) PeekPendingMessage(sessionID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.PendingMessage
 	}
 	return ""
 }
