@@ -18,10 +18,6 @@
             --text: #F9FAFB;
             --text-muted: #9CA3AF;
             --text-dim: #6B7280;
-            --user: #60A5FA;
-            --assistant: #34D399;
-            --warning: #F59E0B;
-            --error: #EF4444;
         }
 
         * {
@@ -121,155 +117,6 @@
             border-radius: 8px;
             border: 1px solid var(--border);
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-        }
-
-        /* Terminal Window */
-        .terminal {
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            margin: 2rem 0;
-            overflow: hidden;
-        }
-
-        .terminal-header {
-            background: var(--bg);
-            padding: 0.5rem 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .terminal-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-        }
-
-        .dot-red { background: #EF4444; }
-        .dot-yellow { background: #F59E0B; }
-        .dot-green { background: #10B981; }
-
-        .terminal-title {
-            margin-left: auto;
-            color: var(--text-dim);
-            font-size: 0.75rem;
-        }
-
-        .terminal-body {
-            padding: 1rem;
-            font-size: 0.85rem;
-        }
-
-        /* TUI Mockup */
-        .tui-mockup {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 1px;
-            background: var(--border);
-            border-radius: 4px;
-            overflow: hidden;
-            min-height: 300px;
-        }
-
-        @media (max-width: 600px) {
-            .tui-mockup {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .tui-panel {
-            background: var(--bg);
-            padding: 0.75rem;
-        }
-
-        .tui-sidebar {
-            border-right: 1px solid var(--border);
-        }
-
-        .tui-panel-title {
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 0.75rem;
-            margin-bottom: 0.75rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .tui-repo {
-            color: var(--text-dim);
-            font-style: italic;
-            font-size: 0.7rem;
-            margin: 0.5rem 0 0.25rem;
-        }
-
-        .tui-session {
-            padding: 0.25rem 0.5rem;
-            font-size: 0.75rem;
-            border-radius: 3px;
-            margin: 2px 0;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .tui-session.selected {
-            background: var(--primary);
-        }
-
-        .tui-session .indicator {
-            color: var(--warning);
-        }
-
-        .tui-chat-title {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .tui-branch {
-            color: var(--secondary);
-            font-size: 0.65rem;
-        }
-
-        .tui-message {
-            margin: 0.75rem 0;
-            font-size: 0.75rem;
-        }
-
-        .tui-message .role {
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-        }
-
-        .tui-message .role.user { color: var(--user); }
-        .tui-message .role.assistant { color: var(--assistant); }
-
-        .tui-message .content {
-            color: var(--text-muted);
-            padding-left: 0.5rem;
-            border-left: 2px solid var(--border);
-        }
-
-        .tui-status {
-            color: var(--secondary);
-            font-style: italic;
-            font-size: 0.7rem;
-            margin-top: 1rem;
-        }
-
-        .tui-footer {
-            margin-top: auto;
-            padding-top: 0.75rem;
-            border-top: 1px solid var(--border);
-            font-size: 0.65rem;
-            color: var(--text-dim);
-        }
-
-        .tui-footer span {
-            color: var(--secondary);
-            font-weight: 600;
         }
 
         /* Install Section */
@@ -527,54 +374,6 @@
             <img src="demo.gif" alt="Plural demo showing multiple Claude sessions" class="demo-gif">
         </div>
 
-        <div class="terminal fade-in">
-            <div class="terminal-header">
-                <div class="terminal-dot dot-red"></div>
-                <div class="terminal-dot dot-yellow"></div>
-                <div class="terminal-dot dot-green"></div>
-                <span class="terminal-title">plural</span>
-            </div>
-            <div class="terminal-body">
-                <div class="tui-mockup">
-                    <div class="tui-panel tui-sidebar">
-                        <div class="tui-panel-title">Sessions</div>
-                        <div class="tui-repo">~/projects/api</div>
-                        <div class="tui-session selected">
-                            auth-refactor
-                        </div>
-                        <div class="tui-session" style="padding-left: 1.25rem; color: var(--text-dim);">
-                            └ Option 1: JWT
-                        </div>
-                        <div class="tui-session" style="padding-left: 1.25rem; color: var(--text-dim);">
-                            └ Option 2: OAuth
-                        </div>
-                        <div class="tui-repo">~/projects/frontend</div>
-                        <div class="tui-session">
-                            dark-mode
-                        </div>
-                    </div>
-                    <div class="tui-panel">
-                        <div class="tui-panel-title tui-chat-title">
-                            <span>auth-refactor</span>
-                            <span class="tui-branch">plural-a8f2e...</span>
-                        </div>
-                        <div class="tui-message">
-                            <div class="role user">You</div>
-                            <div class="content">refactor the auth middleware to use JWT</div>
-                        </div>
-                        <div class="tui-message">
-                            <div class="role assistant">Claude</div>
-                            <div class="content">I'll refactor the auth middleware. Let me first examine the current implementation...</div>
-                        </div>
-                        <div class="tui-status">Reading middleware/auth.go</div>
-                    </div>
-                </div>
-                <div class="tui-footer">
-                    <span>n</span> new  <span>f</span> fork  <span>m</span> merge  <span>?</span> help  <span>q</span> quit
-                </div>
-            </div>
-        </div>
-
         <section class="install fade-in">
             <h2>install via homebrew</h2>
             <div class="command-block">
@@ -637,14 +436,13 @@
                         <span class="benefit-icon">▶</span>
                         <h3>merge or PR</h3>
                     </div>
-                    <p>When a session's work is ready, merge directly to main or create a GitHub PR. Auto-commits any pending changes.</p>
+                    <p>When a session's work is ready, merge directly to main or create a GitHub PR. Claude can help resolve any merge conflicts.</p>
                 </div>
             </div>
         </section>
 
         <nav class="links fade-in">
             <a href="https://github.com/zhubert/plural" class="primary">github</a>
-            <a href="https://github.com/zhubert/plural#readme">documentation</a>
             <a href="https://github.com/zhubert/plural/issues">issues</a>
         </nav>
 

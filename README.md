@@ -171,7 +171,7 @@ When you're ready to use your session's changes:
    - **Merge to main**: Directly merges into your default branch
    - **Create PR**: Pushes and creates a GitHub PR (requires `gh`)
 
-Uncommitted changes are auto-committed before merge/PR.
+Uncommitted changes are auto-committed before merge/PR. If there are merge conflicts, Claude can help resolve them.
 
 ## MCP Servers
 
