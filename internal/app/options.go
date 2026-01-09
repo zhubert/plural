@@ -11,7 +11,12 @@ type DetectedOption struct {
 	Text   string // The option text
 }
 
-// optionPatterns are regexes that match numbered lists in Claude responses
+// optionsTagPattern matches <options>...</options> blocks in Claude's response.
+// Claude is instructed via system prompt to wrap numbered choices in these tags.
+var optionsTagPattern = regexp.MustCompile(`(?s)<options>\s*(.*?)\s*</options>`)
+
+// optionPatterns are regexes that match numbered lists in Claude responses.
+// These are used as fallback when <options> tags are not present.
 var optionPatterns = []*regexp.Regexp{
 	// Standard numbered list: "1. Option text" or "1) Option text"
 	regexp.MustCompile(`(?m)^(\d+)[.)]\s+(.+)$`),
@@ -22,14 +27,50 @@ var optionPatterns = []*regexp.Regexp{
 }
 
 // DetectOptions scans a message for numbered options.
-// It looks for the most recent numbered list (1, 2, 3...) in the message.
+// It first looks for <options> tags (most reliable), then falls back to
+// pattern matching on numbered lists.
 // Returns nil if no valid option list is found.
 func DetectOptions(message string) []DetectedOption {
-	// Try each pattern
+	// First, try to find options within <options> tags (most reliable)
+	if options := detectOptionsFromTags(message); len(options) >= 2 {
+		return options
+	}
+
+	// Fallback: try pattern matching
 	for _, pattern := range optionPatterns {
 		matches := pattern.FindAllStringSubmatch(message, -1)
 		if len(matches) >= 2 {
 			options := extractSequentialOptions(matches)
+			if len(options) >= 2 {
+				return options
+			}
+		}
+	}
+
+	return nil
+}
+
+// detectOptionsFromTags extracts options from <options>...</options> blocks.
+// Returns the options from the last block found (most recent).
+func detectOptionsFromTags(message string) []DetectedOption {
+	matches := optionsTagPattern.FindAllStringSubmatch(message, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Use the last match (most recent options block)
+	lastMatch := matches[len(matches)-1]
+	if len(lastMatch) < 2 {
+		return nil
+	}
+
+	content := lastMatch[1]
+
+	// Parse numbered options within the block
+	for _, pattern := range optionPatterns {
+		lineMatches := pattern.FindAllStringSubmatch(content, -1)
+		if len(lineMatches) >= 2 {
+			options := extractSequentialOptions(lineMatches)
 			if len(options) >= 2 {
 				return options
 			}
@@ -105,16 +146,3 @@ func extractSequentialOptions(matches [][]string) []DetectedOption {
 	return nil
 }
 
-// FindLastAssistantMessageWithOptions scans messages backwards to find
-// the most recent assistant message containing numbered options.
-// Returns the options and the index of the message containing them.
-func FindLastAssistantMessageWithOptions(messages []struct{ Role, Content string }) ([]DetectedOption, int) {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "assistant" {
-			if options := DetectOptions(messages[i].Content); len(options) >= 2 {
-				return options, i
-			}
-		}
-	}
-	return nil, -1
-}

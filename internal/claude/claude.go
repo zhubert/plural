@@ -106,6 +106,16 @@ func GetDisplayContent(blocks []ContentBlock) string {
 	return strings.Join(parts, "\n")
 }
 
+// OptionsSystemPrompt is appended to Claude's system prompt to request structured option formatting.
+// This allows Plural to reliably detect when Claude presents numbered choices to the user.
+const OptionsSystemPrompt = `When presenting the user with numbered choices or options to choose from, wrap the options in <options> tags. For example:
+<options>
+1. First option
+2. Second option
+3. Third option
+</options>
+The opening and closing tags should be on their own lines, with the numbered options between them.`
+
 // Runner manages a Claude Code CLI session
 type Runner struct {
 	sessionID      string
@@ -601,6 +611,7 @@ func (r *Runner) startPersistentProcess() error {
 	args = append(args,
 		"--mcp-config", mcpConfigPath,
 		"--permission-prompt-tool", "mcp__plural__permission",
+		"--append-system-prompt", OptionsSystemPrompt,
 	)
 
 	// Add pre-allowed tools

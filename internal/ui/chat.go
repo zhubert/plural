@@ -22,6 +22,15 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
+// optionsTagStripPattern matches <options>...</options> blocks for stripping from display.
+var optionsTagStripPattern = regexp.MustCompile(`(?s)<options>\s*\n?(.*?)\n?\s*</options>`)
+
+// stripOptionsTags removes <options> and </options> tags from content for display,
+// leaving only the numbered options inside.
+func stripOptionsTags(content string) string {
+	return optionsTagStripPattern.ReplaceAllString(content, "$1")
+}
+
 // Compiled regex patterns for markdown parsing
 var (
 	boldPattern       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
@@ -1052,8 +1061,9 @@ func (c *Chat) updateContent() {
 
 			sb.WriteString(roleStyle.Render(roleName + ":"))
 			sb.WriteString("\n")
-			// Render markdown content
-			sb.WriteString(renderMarkdown(strings.TrimSpace(msg.Content), wrapWidth))
+			// Render markdown content, stripping <options> tags for cleaner display
+			content := stripOptionsTags(strings.TrimSpace(msg.Content))
+			sb.WriteString(renderMarkdown(content, wrapWidth))
 		}
 
 		// Show streaming content or waiting indicator with stopwatch
@@ -1063,9 +1073,10 @@ func (c *Chat) updateContent() {
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			// Render markdown for streaming content
+			// Render markdown for streaming content, stripping <options> tags
 			// Tool use lines are already included in streaming content with circle markers
-			sb.WriteString(renderMarkdown(strings.TrimSpace(c.streaming), wrapWidth))
+			streamContent := stripOptionsTags(strings.TrimSpace(c.streaming))
+			sb.WriteString(renderMarkdown(streamContent, wrapWidth))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")

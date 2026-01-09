@@ -151,3 +151,114 @@ func TestDetectOptions_ExtractsText(t *testing.T) {
 		t.Errorf("Option 2 text = %q, want %q", options[1].Text, "Build a GraphQL API")
 	}
 }
+
+func TestDetectOptions_WithOptionsTags(t *testing.T) {
+	tests := []struct {
+		name     string
+		message  string
+		wantLen  int
+		wantNums []int
+	}{
+		{
+			name: "options in tags",
+			message: `Here are some approaches I'd suggest:
+
+<options>
+1. Use a webhook-based architecture
+2. Poll the API periodically
+3. Use websockets for real-time updates
+</options>
+
+Let me know which one you'd like to explore.`,
+			wantLen:  3,
+			wantNums: []int{1, 2, 3},
+		},
+		{
+			name: "options tags with surrounding whitespace",
+			message: `<options>
+
+1. First option
+2. Second option
+
+</options>`,
+			wantLen:  2,
+			wantNums: []int{1, 2},
+		},
+		{
+			name: "multiple options blocks - uses last",
+			message: `Earlier I mentioned:
+<options>
+1. Old option A
+2. Old option B
+</options>
+
+But now I think these are better:
+<options>
+1. New option X
+2. New option Y
+3. New option Z
+</options>`,
+			wantLen:  3,
+			wantNums: []int{1, 2, 3},
+		},
+		{
+			name: "options tags with parentheses style",
+			message: `<options>
+1) First approach
+2) Second approach
+</options>`,
+			wantLen:  2,
+			wantNums: []int{1, 2},
+		},
+		{
+			name: "empty options tags (fallback to pattern matching)",
+			message: `<options>
+</options>
+
+But here are actual options:
+1. Real option A
+2. Real option B`,
+			wantLen:  2,
+			wantNums: []int{1, 2},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := DetectOptions(tt.message)
+			if len(options) != tt.wantLen {
+				t.Errorf("DetectOptions() returned %d options, want %d", len(options), tt.wantLen)
+				return
+			}
+			for i, opt := range options {
+				if i < len(tt.wantNums) && opt.Number != tt.wantNums[i] {
+					t.Errorf("Option %d has number %d, want %d", i, opt.Number, tt.wantNums[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDetectOptions_TagsPriorityOverFallback(t *testing.T) {
+	// When both tagged and untagged options exist, tagged should be used
+	message := `Some numbered list:
+1. Untagged A
+2. Untagged B
+
+<options>
+1. Tagged X
+2. Tagged Y
+</options>`
+
+	options := DetectOptions(message)
+	if len(options) != 2 {
+		t.Fatalf("Expected 2 options, got %d", len(options))
+	}
+
+	if options[0].Text != "Tagged X" {
+		t.Errorf("Option 1 text = %q, want %q", options[0].Text, "Tagged X")
+	}
+	if options[1].Text != "Tagged Y" {
+		t.Errorf("Option 2 text = %q, want %q", options[1].Text, "Tagged Y")
+	}
+}
