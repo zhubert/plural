@@ -111,6 +111,9 @@ type Chat struct {
 	pendingImageData []byte  // PNG encoded image data
 	pendingImageType string  // MIME type
 	pendingImageSize int     // Size in bytes
+
+	// Queued message waiting to be sent after streaming completes
+	queuedMessage string
 }
 
 // NewChat creates a new chat panel
@@ -297,6 +300,18 @@ func (c *Chat) ClearInput() {
 // SetInput sets the input field value
 func (c *Chat) SetInput(value string) {
 	c.input.SetValue(value)
+}
+
+// SetQueuedMessage sets a message that is queued to be sent after streaming completes
+func (c *Chat) SetQueuedMessage(msg string) {
+	c.queuedMessage = msg
+	c.updateContent()
+}
+
+// ClearQueuedMessage clears the queued message display
+func (c *Chat) ClearQueuedMessage() {
+	c.queuedMessage = ""
+	c.updateContent()
 }
 
 // IsStreaming returns whether we're currently streaming a response
@@ -1058,6 +1073,17 @@ func (c *Chat) updateContent() {
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
 			sb.WriteString(renderSpinner(c.waitingVerb, c.spinnerIdx))
+		}
+
+		// Show queued message waiting to be sent
+		if c.queuedMessage != "" {
+			sb.WriteString("\n\n")
+			queuedStyle := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true)
+			sb.WriteString(queuedStyle.Render("You (queued):"))
+			sb.WriteString("\n")
+			sb.WriteString(queuedStyle.Render(c.queuedMessage))
 		}
 
 		// Show pending permission prompt
