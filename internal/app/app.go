@@ -435,6 +435,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.chat.IsFocused() {
 				m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
 			}
+		case "?":
+			if !m.chat.IsFocused() {
+				m.modal.Show(ui.NewHelpState())
+			}
 		case "enter":
 			if m.focus == FocusSidebar {
 				// Select session

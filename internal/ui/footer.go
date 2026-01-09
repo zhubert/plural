@@ -37,11 +37,11 @@ func NewFooter() *Footer {
 			{Key: "r", Desc: "add repo"},
 			{Key: "s", Desc: "mcp servers"},
 			{Key: "t", Desc: "theme"},
+			{Key: "?", Desc: "help"},
 			{Key: "v", Desc: "view changes"},
 			{Key: "m", Desc: "merge/pr"},
 			{Key: "F", Desc: "fork"},
 			{Key: "d", Desc: "delete"},
-			{Key: "pgup/dn", Desc: "scroll"},
 			{Key: "q", Desc: "quit"},
 		},
 	}
@@ -184,11 +184,11 @@ func (f *Footer) View() string {
 				continue
 			}
 			// Skip sidebar-only bindings when chat is focused
-			if (b.Key == "n" || b.Key == "r" || b.Key == "s" || b.Key == "t" || b.Key == "v" || b.Key == "m" || b.Key == "F" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
+			if (b.Key == "n" || b.Key == "r" || b.Key == "s" || b.Key == "t" || b.Key == "?" || b.Key == "v" || b.Key == "m" || b.Key == "F" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
 				continue
 			}
 			// Skip session-specific bindings when no session selected
-			if (b.Key == "v" || b.Key == "m" || b.Key == "F" || b.Key == "d" || b.Key == "pgup/dn") && !f.hasSession {
+			if (b.Key == "v" || b.Key == "m" || b.Key == "F" || b.Key == "d") && !f.hasSession {
 				continue
 			}
 

@@ -1645,6 +1645,190 @@ func NewForkSessionState(parentSessionName, parentSessionID, repoPath string) *F
 }
 
 // =============================================================================
+// HelpState - State for the Help modal with keyboard shortcuts
+// =============================================================================
+
+// HelpShortcut represents a single keyboard shortcut for display
+type HelpShortcut struct {
+	Key  string
+	Desc string
+}
+
+// HelpSection represents a group of related shortcuts
+type HelpSection struct {
+	Title     string
+	Shortcuts []HelpShortcut
+}
+
+type HelpState struct {
+	Sections      []HelpSection
+	ScrollOffset  int
+	totalLines    int
+	maxVisible    int
+}
+
+func (*HelpState) modalState() {}
+
+func (s *HelpState) Title() string { return "Keyboard Shortcuts" }
+
+func (s *HelpState) Help() string {
+	if s.totalLines > s.maxVisible {
+		return "↑/↓ scroll  Esc: close"
+	}
+	return "Press Esc to close"
+}
+
+func (s *HelpState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Build all lines first to enable scrolling
+	var allLines []string
+	for i, section := range s.Sections {
+		if i > 0 {
+			allLines = append(allLines, "") // Blank line between sections
+		}
+
+		sectionTitle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ColorSecondary).
+			Render(section.Title)
+		allLines = append(allLines, sectionTitle)
+
+		for _, shortcut := range section.Shortcuts {
+			key := lipgloss.NewStyle().
+				Foreground(ColorPrimary).
+				Bold(true).
+				Width(12).
+				Render(shortcut.Key)
+			desc := lipgloss.NewStyle().
+				Foreground(ColorText).
+				Render(shortcut.Desc)
+			allLines = append(allLines, "  "+key+desc)
+		}
+	}
+
+	s.totalLines = len(allLines)
+
+	// Apply scroll offset and limit visible lines
+	var visibleLines []string
+	for i, line := range allLines {
+		if i < s.ScrollOffset {
+			continue
+		}
+		if len(visibleLines) >= s.maxVisible {
+			break
+		}
+		visibleLines = append(visibleLines, line)
+	}
+
+	content := strings.Join(visibleLines, "\n")
+
+	// Scroll indicator
+	if s.totalLines > s.maxVisible {
+		scrollInfo := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginTop(1).
+			Render("(scroll for more)")
+		content += "\n" + scrollInfo
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
+}
+
+func (s *HelpState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.ScrollOffset > 0 {
+				s.ScrollOffset--
+			}
+		case "down", "j":
+			maxScroll := s.totalLines - s.maxVisible
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if s.ScrollOffset < maxScroll {
+				s.ScrollOffset++
+			}
+		}
+	}
+	return s, nil
+}
+
+// NewHelpState creates a new HelpState with all keyboard shortcuts
+func NewHelpState() *HelpState {
+	sections := []HelpSection{
+		{
+			Title: "Navigation",
+			Shortcuts: []HelpShortcut{
+				{Key: "Tab", Desc: "Switch between sidebar and chat"},
+				{Key: "↑/↓ or j/k", Desc: "Navigate session list"},
+				{Key: "PgUp/PgDn", Desc: "Scroll chat or session list"},
+				{Key: "Enter", Desc: "Select session / Send message"},
+				{Key: "/", Desc: "Search sessions"},
+				{Key: "Esc", Desc: "Cancel search / Stop streaming"},
+			},
+		},
+		{
+			Title: "Sessions",
+			Shortcuts: []HelpShortcut{
+				{Key: "n", Desc: "Create new session"},
+				{Key: "d", Desc: "Delete selected session"},
+				{Key: "F", Desc: "Fork selected session"},
+				{Key: "f", Desc: "Force resume (if session in use)"},
+			},
+		},
+		{
+			Title: "Git Operations",
+			Shortcuts: []HelpShortcut{
+				{Key: "v", Desc: "View changes in worktree"},
+				{Key: "m", Desc: "Merge to main / Create PR"},
+				{Key: "c", Desc: "Commit resolved conflicts"},
+			},
+		},
+		{
+			Title: "Configuration",
+			Shortcuts: []HelpShortcut{
+				{Key: "r", Desc: "Add repository"},
+				{Key: "s", Desc: "Manage MCP servers"},
+				{Key: "t", Desc: "Change theme"},
+			},
+		},
+		{
+			Title: "Chat (when focused)",
+			Shortcuts: []HelpShortcut{
+				{Key: "Ctrl+V", Desc: "Paste image"},
+				{Key: "Ctrl+P", Desc: "Fork detected options"},
+			},
+		},
+		{
+			Title: "Permissions (when prompted)",
+			Shortcuts: []HelpShortcut{
+				{Key: "y", Desc: "Allow action"},
+				{Key: "n", Desc: "Deny action"},
+				{Key: "a", Desc: "Always allow this tool"},
+			},
+		},
+		{
+			Title: "General",
+			Shortcuts: []HelpShortcut{
+				{Key: "?", Desc: "Show this help"},
+				{Key: "q", Desc: "Quit application"},
+			},
+		},
+	}
+
+	return &HelpState{
+		Sections:     sections,
+		ScrollOffset: 0,
+		maxVisible:   18,
+	}
+}
+
+// =============================================================================
 // Helper functions
 // =============================================================================
 

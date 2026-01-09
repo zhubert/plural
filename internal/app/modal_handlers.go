@@ -46,6 +46,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleExploreOptionsModal(key, msg, s)
 	case *ui.ForkSessionState:
 		return m.handleForkSessionModal(key, msg, s)
+	case *ui.HelpState:
+		return m.handleHelpModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -838,5 +840,18 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		return m, tea.Batch(cmds...)
 	}
 	return m, nil
+}
+
+// handleHelpModal handles key events for the Help modal.
+func (m *Model) handleHelpModal(key string, msg tea.KeyPressMsg, state *ui.HelpState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "enter", "?", "q":
+		m.modal.Hide()
+		return m, nil
+	}
+	// Forward scroll keys to the modal
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 
