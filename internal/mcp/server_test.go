@@ -628,3 +628,88 @@ func TestServerConstants(t *testing.T) {
 		t.Error("ToolName should not be empty")
 	}
 }
+
+func TestServer_isToolAllowed(t *testing.T) {
+	tests := []struct {
+		name         string
+		allowedTools []string
+		tool         string
+		expected     bool
+	}{
+		{
+			name:         "exact match",
+			allowedTools: []string{"Edit", "Read"},
+			tool:         "Edit",
+			expected:     true,
+		},
+		{
+			name:         "no match",
+			allowedTools: []string{"Edit", "Read"},
+			tool:         "Write",
+			expected:     false,
+		},
+		{
+			name:         "pattern match with prefix",
+			allowedTools: []string{"Bash(git:*)"},
+			tool:         "Bash",
+			expected:     true,
+		},
+		{
+			name:         "empty allowed list",
+			allowedTools: []string{},
+			tool:         "Edit",
+			expected:     false,
+		},
+		{
+			name:         "nil allowed list",
+			allowedTools: nil,
+			tool:         "Edit",
+			expected:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{allowedTools: tt.allowedTools}
+			got := s.isToolAllowed(tt.tool)
+			if got != tt.expected {
+				t.Errorf("isToolAllowed(%q) = %v, want %v", tt.tool, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestServer_addAllowedTool(t *testing.T) {
+	t.Run("adds new tool", func(t *testing.T) {
+		s := &Server{allowedTools: []string{"Edit"}}
+		s.addAllowedTool("Read")
+
+		if len(s.allowedTools) != 2 {
+			t.Errorf("expected 2 tools, got %d", len(s.allowedTools))
+		}
+		if !s.isToolAllowed("Read") {
+			t.Error("Read should be allowed after adding")
+		}
+	})
+
+	t.Run("does not duplicate existing tool", func(t *testing.T) {
+		s := &Server{allowedTools: []string{"Edit", "Read"}}
+		s.addAllowedTool("Edit")
+
+		if len(s.allowedTools) != 2 {
+			t.Errorf("expected 2 tools (no duplicate), got %d", len(s.allowedTools))
+		}
+	})
+
+	t.Run("adds to nil list", func(t *testing.T) {
+		s := &Server{allowedTools: nil}
+		s.addAllowedTool("Edit")
+
+		if len(s.allowedTools) != 1 {
+			t.Errorf("expected 1 tool, got %d", len(s.allowedTools))
+		}
+		if !s.isToolAllowed("Edit") {
+			t.Error("Edit should be allowed after adding")
+		}
+	})
+}
