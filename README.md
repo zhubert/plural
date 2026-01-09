@@ -64,7 +64,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
 plural
 ```
 
-1. Press `r` to add a git repository
+1. Press `a` to add a git repository
 2. Press `n` to create a new session
 3. Press `Tab` or `Enter` to focus the chat
 4. Type your message and press `Enter`
@@ -72,24 +72,25 @@ plural
 
 ## Keyboard Shortcuts
 
-Shortcuts are context-aware and shown in the footer.
+Shortcuts are context-aware and shown in the footer. Press `?` to see all shortcuts.
 
 ### Sidebar (Session List)
 
 | Key | Action |
 |-----|--------|
 | `n` | Create new session |
-| `r` | Add repository |
+| `a` | Add repository |
 | `Enter` | Select session |
 | `↑/↓` or `j/k` | Navigate sessions |
 | `/` | Search sessions |
-| `Ctrl+P` | Explore options in parallel |
+| `f` | Fork selected session |
 | `m` | Merge or create PR |
 | `v` | View uncommitted changes |
 | `d` | Delete session |
-| `f` | Force resume (hung session) |
+| `Ctrl+F` | Force resume (hung session) |
 | `s` | Manage MCP servers |
 | `t` | Change theme |
+| `?` | Show help |
 | `q` | Quit |
 
 ### Chat Panel
@@ -99,6 +100,7 @@ Shortcuts are context-aware and shown in the footer.
 | `Enter` | Send message |
 | `Esc` | Stop Claude response |
 | `Ctrl+V` | Paste image from clipboard |
+| `Ctrl+P` | Fork detected options |
 | `Tab` | Switch to sidebar |
 
 ### Permission Prompts

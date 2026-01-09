@@ -101,7 +101,7 @@ tail -f /tmp/plural-mcp-*.log
 
 Sessions support a git-like branching workflow:
 
-1. **Fork session** (`F`): Creates a child session with its own worktree, optionally copying conversation history
+1. **Fork session** (`f`): Creates a child session with its own worktree, optionally copying conversation history
 2. **Explore options** (`Ctrl+P`): When Claude offers multiple options, fork into parallel sessions to try each
 3. **Merge to parent** (`m`): Child sessions can merge back to their parent:
    - Git changes merged into parent's worktree
