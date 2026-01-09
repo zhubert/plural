@@ -737,7 +737,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 		logger.Log("App: Created parallel session %s for option %d", sess.ID, opt.Number)
 
-		// Build message history: parent messages + option choice
+		// Build message history: parent messages only (option prompt will be added by SendContent)
 		var messages []config.Message
 		for _, msg := range parentMessages {
 			messages = append(messages, config.Message{
@@ -746,14 +746,10 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			})
 		}
 
-		// Add the option choice as a user message
+		// Option prompt to send (will be added to history by SendContent)
 		optionPrompt := fmt.Sprintf("Let's go with option %d: %s", opt.Number, opt.Text)
-		messages = append(messages, config.Message{
-			Role:    "user",
-			Content: optionPrompt,
-		})
 
-		// Save messages to disk for this new session
+		// Save parent messages to disk for this new session
 		if err := config.SaveSessionMessages(sess.ID, messages, config.MaxSessionMessageLines); err != nil {
 			logger.Log("App: Failed to save messages for parallel session %s: %v", sess.ID, err)
 		}
