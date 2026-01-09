@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/zhubert/plural/internal/logger"
@@ -46,6 +47,8 @@ type SocketServer struct {
 	responseCh  <-chan PermissionResponse
 	questionCh  chan<- QuestionRequest
 	answerCh    <-chan QuestionResponse
+	closed      bool          // Set to true when Close() is called
+	closedMu    sync.RWMutex  // Guards closed flag
 }
 
 // NewSocketServer creates a new socket server for the given session
@@ -80,9 +83,25 @@ func (s *SocketServer) SocketPath() string {
 // Run starts accepting connections
 func (s *SocketServer) Run() {
 	for {
+		// Check if we're closed before accepting
+		s.closedMu.RLock()
+		closed := s.closed
+		s.closedMu.RUnlock()
+		if closed {
+			logger.Log("MCP Socket: Server closed, stopping accept loop")
+			return
+		}
+
 		conn, err := s.listener.Accept()
 		if err != nil {
 			// Check if the listener was closed (expected during shutdown)
+			s.closedMu.RLock()
+			closed := s.closed
+			s.closedMu.RUnlock()
+			if closed {
+				logger.Log("MCP Socket: Listener closed during shutdown, stopping")
+				return
+			}
 			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
 				logger.Log("MCP Socket: Listener closed, stopping")
 				return
@@ -136,7 +155,12 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 
 func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionRequest) {
 	if req == nil {
-		logger.Log("MCP Socket: Nil permission request")
+		logger.Log("MCP Socket: Nil permission request, sending deny response")
+		// Send a deny response to prevent client from hanging
+		s.sendPermissionResponse(conn, PermissionResponse{
+			Allowed: false,
+			Message: "Invalid permission request",
+		})
 		return
 	}
 
@@ -174,7 +198,11 @@ func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionReq
 
 func (s *SocketServer) handleQuestionMessage(conn net.Conn, req *QuestionRequest) {
 	if req == nil {
-		logger.Log("MCP Socket: Nil question request")
+		logger.Log("MCP Socket: Nil question request, sending empty response")
+		// Send an empty response to prevent client from hanging
+		s.sendQuestionResponse(conn, QuestionResponse{
+			Answers: map[string]string{},
+		})
 		return
 	}
 
@@ -245,8 +273,20 @@ func (s *SocketServer) sendQuestionResponse(conn net.Conn, resp QuestionResponse
 // Close shuts down the socket server
 func (s *SocketServer) Close() error {
 	logger.Log("MCP Socket: Closing")
+
+	// Mark as closed BEFORE closing listener to signal Run() goroutine to exit
+	s.closedMu.Lock()
+	s.closed = true
+	s.closedMu.Unlock()
+
+	// Close listener (this will unblock Accept())
 	err := s.listener.Close()
-	os.Remove(s.socketPath)
+
+	// Remove socket file, logging any errors
+	if removeErr := os.Remove(s.socketPath); removeErr != nil && !os.IsNotExist(removeErr) {
+		logger.Log("MCP Socket: Warning: failed to remove socket file %s: %v", s.socketPath, removeErr)
+	}
+
 	return err
 }
 

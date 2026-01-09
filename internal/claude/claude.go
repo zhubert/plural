@@ -132,6 +132,7 @@ type Runner struct {
 	questReqChan   chan mcp.QuestionRequest
 	questRespChan  chan mcp.QuestionResponse
 	stopOnce       sync.Once // Ensures Stop() is idempotent
+	stopped        bool      // Set to true when Stop() is called, prevents reading from closed channels
 
 	// Persistent process management for stream-json input
 	persistentCmd     *exec.Cmd        // The running Claude CLI process
@@ -229,8 +230,14 @@ func (r *Runner) SetMCPServers(servers []MCPServer) {
 	logger.Log("Claude: Set %d external MCP servers for session %s", len(servers), r.sessionID)
 }
 
-// PermissionRequestChan returns the channel for receiving permission requests
+// PermissionRequestChan returns the channel for receiving permission requests.
+// Returns nil if the runner has been stopped to prevent reading from closed channel.
 func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped {
+		return nil
+	}
 	return r.permReqChan
 }
 
@@ -239,8 +246,14 @@ func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.permRespChan <- resp
 }
 
-// QuestionRequestChan returns the channel for receiving question requests
+// QuestionRequestChan returns the channel for receiving question requests.
+// Returns nil if the runner has been stopped to prevent reading from closed channel.
 func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped {
+		return nil
+	}
 	return r.questReqChan
 }
 
@@ -744,12 +757,14 @@ func (r *Runner) readPersistentResponses() {
 				lastWasToolUse = true
 			}
 
-			// Send to response channel if available
+			// Send to response channel if available with timeout
+			// Uses a timeout to handle slow consumers without blocking forever
 			if ch != nil {
 				select {
 				case ch <- chunk:
-				default:
-					logger.Log("Claude: Response channel full, dropping chunk")
+					// Sent successfully
+				case <-time.After(5 * time.Second):
+					logger.Log("Claude: Response channel full after 5s timeout, chunk may be lost")
 				}
 			}
 		}
@@ -999,13 +1014,18 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 	return ch
 }
 
-// GetMessages returns a copy of the message history
+// GetMessages returns a copy of the message history.
+// Thread-safe: takes a snapshot of messages under lock to prevent
+// race conditions with concurrent appends from readPersistentResponses
+// and SendContent goroutines.
 func (r *Runner) GetMessages() []Message {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	messages := make([]Message, len(r.messages))
+	// Create a new slice with exact capacity to prevent any aliasing
+	// issues during concurrent appends to the original slice
+	msgLen := len(r.messages)
+	messages := make([]Message, msgLen)
 	copy(messages, r.messages)
+	r.mu.RUnlock()
 	return messages
 }
 
@@ -1028,6 +1048,10 @@ func (r *Runner) Stop() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 
+		// Mark as stopped BEFORE closing channels to prevent reads from closed channels
+		// PermissionRequestChan() and QuestionRequestChan() check this flag
+		r.stopped = true
+
 		// Close socket server if running
 		if r.socketServer != nil {
 			logger.Log("Claude: Closing persistent socket server for session %s", r.sessionID)
@@ -1035,10 +1059,12 @@ func (r *Runner) Stop() {
 			r.socketServer = nil
 		}
 
-		// Remove MCP config file
+		// Remove MCP config file and log any errors
 		if r.mcpConfigPath != "" {
 			logger.Log("Claude: Removing MCP config file: %s", r.mcpConfigPath)
-			os.Remove(r.mcpConfigPath)
+			if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
+				logger.Log("Claude: Warning: failed to remove MCP config file %s: %v", r.mcpConfigPath, err)
+			}
 			r.mcpConfigPath = ""
 		}
 
