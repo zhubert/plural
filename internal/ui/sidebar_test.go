@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/zhubert/plural/internal/config"
@@ -348,6 +349,7 @@ func TestSidebar_View_WithIndicators(t *testing.T) {
 		{ID: "session-1", Name: "repo/session1", RepoPath: "/repo", Branch: "b1"},
 		{ID: "session-2", Name: "repo/session2", RepoPath: "/repo", Branch: "b2", Merged: true},
 		{ID: "session-3", Name: "repo/session3", RepoPath: "/repo", Branch: "b3", PRCreated: true},
+		{ID: "session-4", Name: "repo/session4", RepoPath: "/repo", Branch: "b4", ParentID: "session-1", MergedToParent: true},
 	}
 	sidebar.SetSessions(sessions)
 	sidebar.SetStreaming("session-1", true)
@@ -358,6 +360,11 @@ func TestSidebar_View_WithIndicators(t *testing.T) {
 	view := sidebar.View()
 	if view == "" {
 		t.Error("View should not be empty")
+	}
+
+	// Verify MergedToParent indicator is shown
+	if !strings.Contains(view, "merged to parent") {
+		t.Error("View should contain 'merged to parent' indicator for session-4")
 	}
 }
 

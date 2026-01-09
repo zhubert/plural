@@ -77,6 +77,7 @@ type Model struct {
 	// Pending commit message editing state (one at a time)
 	pendingCommitSession string    // Session ID waiting for commit message confirmation
 	pendingCommitType    MergeType // What operation follows after commit
+	pendingParentSession string    // Parent session ID for merge-to-parent operations
 
 	// Pending conflict resolution state
 	pendingConflictSessionID string // Session ID with pending conflict resolution
@@ -154,6 +155,10 @@ func (m *Model) IsIdle() bool {
 // CanSendMessage returns true if the user can send a new message
 func (m *Model) CanSendMessage() bool {
 	if m.claudeRunner == nil || m.activeSession == nil {
+		return false
+	}
+	// Sessions merged to parent are locked and cannot accept new messages
+	if m.activeSession.MergedToParent {
 		return false
 	}
 	// Check if the active session is currently waiting for a response or has a merge in progress
@@ -389,7 +394,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
-				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary))
+				// Get parent name if this is a child session
+				var parentName string
+				if sess.ParentID != "" {
+					if parent := m.config.GetSession(sess.ParentID); parent != nil {
+						parentName = ui.SessionDisplayName(parent.Branch, parent.Name)
+					}
+				}
+				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName))
 			}
 		case "f":
 			// Force-resume: kill orphaned processes and clear the error state
@@ -674,12 +686,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Mark session as merged or PR created based on operation type
 			mergeType := m.sessionState().GetMergeType(msg.SessionID)
-			if mergeType == MergeTypePR {
+			switch mergeType {
+			case MergeTypePR:
 				m.config.MarkSessionPRCreated(msg.SessionID)
 				logger.Log("App: Marked session %s as PR created", msg.SessionID)
-			} else if mergeType == MergeTypeMerge {
+			case MergeTypeMerge:
 				m.config.MarkSessionMerged(msg.SessionID)
 				logger.Log("App: Marked session %s as merged", msg.SessionID)
+			case MergeTypeParent:
+				// Get child session to find parent
+				childSess := m.config.GetSession(msg.SessionID)
+				if childSess != nil && childSess.ParentID != "" {
+					// Merge conversation history from child to parent
+					if err := m.mergeConversationHistory(msg.SessionID, childSess.ParentID); err != nil {
+						logger.Log("App: Failed to merge conversation history: %v", err)
+						if isActiveSession {
+							m.chat.AppendStreaming(fmt.Sprintf("\n[Warning: Failed to merge conversation history: %v]\n", err))
+						}
+					} else {
+						logger.Log("App: Merged conversation history from %s to parent %s", msg.SessionID, childSess.ParentID)
+					}
+				}
+				m.config.MarkSessionMergedToParent(msg.SessionID)
+				logger.Log("App: Marked session %s as merged to parent", msg.SessionID)
 			}
 			m.config.Save()
 			// Update sidebar with new session status
@@ -1190,6 +1219,38 @@ func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
 		}
 		return MergeResultMsg{SessionID: sessionID, Result: result}
 	}
+}
+
+// mergeConversationHistory appends child session's conversation history to parent's
+func (m *Model) mergeConversationHistory(childSessionID, parentSessionID string) error {
+	// Load child messages
+	childMessages, err := config.LoadSessionMessages(childSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to load child messages: %w", err)
+	}
+
+	// Load parent messages
+	parentMessages, err := config.LoadSessionMessages(parentSessionID)
+	if err != nil {
+		return fmt.Errorf("failed to load parent messages: %w", err)
+	}
+
+	// Add a separator message to indicate the merge
+	separatorMsg := config.Message{
+		Role:    "assistant",
+		Content: "\n---\n[Merged from child session]\n---\n",
+	}
+
+	// Combine: parent messages + separator + child messages
+	combined := append(parentMessages, separatorMsg)
+	combined = append(combined, childMessages...)
+
+	// Save back to parent
+	if err := config.SaveSessionMessages(parentSessionID, combined, config.MaxSessionMessageLines); err != nil {
+		return fmt.Errorf("failed to save merged messages: %w", err)
+	}
+
+	return nil
 }
 
 // generateCommitMessage creates a command to generate a commit message asynchronously

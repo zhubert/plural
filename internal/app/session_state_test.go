@@ -335,6 +335,7 @@ func TestMergeType_String(t *testing.T) {
 		{MergeTypeNone, "none"},
 		{MergeTypeMerge, "merge"},
 		{MergeTypePR, "pr"},
+		{MergeTypeParent, "parent"},
 		{MergeType(99), "unknown"},
 	}
 

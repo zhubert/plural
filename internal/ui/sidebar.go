@@ -689,7 +689,14 @@ func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int
 	}
 
 	// Add merged/PR status labels
-	if sess.Merged {
+	if sess.MergedToParent {
+		labelColor := ColorSecondary // Green for merged to parent
+		if sessionIdx == s.selectedIdx {
+			labelColor = ColorText // White on purple background
+		}
+		labelStyle := lipgloss.NewStyle().Foreground(labelColor)
+		displayName = displayName + " " + labelStyle.Render("(merged to parent)")
+	} else if sess.Merged {
 		labelColor := ColorSecondary // Green for merged
 		if sessionIdx == s.selectedIdx {
 			labelColor = ColorText // White on purple background

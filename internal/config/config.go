@@ -24,9 +24,10 @@ type Session struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	Started   bool      `json:"started,omitempty"`    // Whether session has been started with Claude CLI
-	Merged    bool      `json:"merged,omitempty"`     // Whether session has been merged to main
-	PRCreated bool      `json:"pr_created,omitempty"` // Whether a PR has been created for this session
-	ParentID  string    `json:"parent_id,omitempty"`  // ID of parent session if this is a fork
+	Merged         bool      `json:"merged,omitempty"`           // Whether session has been merged to main
+	PRCreated      bool      `json:"pr_created,omitempty"`       // Whether a PR has been created for this session
+	ParentID       string    `json:"parent_id,omitempty"`        // ID of parent session if this is a fork
+	MergedToParent bool      `json:"merged_to_parent,omitempty"` // Whether session has been merged back to its parent (locks the session)
 }
 
 // MCPServer represents an MCP server configuration
@@ -316,6 +317,20 @@ func (c *Config) MarkSessionPRCreated(sessionID string) bool {
 	for i := range c.Sessions {
 		if c.Sessions[i].ID == sessionID {
 			c.Sessions[i].PRCreated = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionMergedToParent marks a session as merged to its parent (locks the session)
+func (c *Config) MarkSessionMergedToParent(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].MergedToParent = true
 			return true
 		}
 	}

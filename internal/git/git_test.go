@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -789,5 +790,300 @@ func TestGenerateCommitMessage_MultipleFiles(t *testing.T) {
 		if !contains(msg, name) {
 			t.Errorf("Expected message to contain %s, got: %s", name, msg)
 		}
+	}
+}
+
+// createTestRepoWithWorktree creates a repo and two worktrees for testing parent-child merges
+func createTestRepoWithWorktree(t *testing.T) (repoPath, parentWorktree, childWorktree, parentBranch, childBranch string, cleanup func()) {
+	t.Helper()
+
+	// Create the main repo
+	repoPath = createTestRepo(t)
+
+	// Get current (default) branch name first
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	output, _ := cmd.Output()
+	defaultBranch := strings.TrimSpace(string(output))
+	if defaultBranch == "" {
+		defaultBranch = "master" // fallback
+	}
+
+	// Create parent branch (in main repo)
+	parentBranch = "parent-branch"
+	cmd = exec.Command("git", "checkout", "-b", parentBranch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to create parent branch: %v", err)
+	}
+
+	// Add a file on parent branch
+	parentFile := filepath.Join(repoPath, "parent.txt")
+	if err := os.WriteFile(parentFile, []byte("parent content"), 0644); err != nil {
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to create parent file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Parent commit")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Create child branch from parent (still in main repo)
+	childBranch = "child-branch"
+	cmd = exec.Command("git", "checkout", "-b", childBranch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to create child branch: %v", err)
+	}
+
+	// Go back to default branch so we can create worktrees for both branches
+	cmd = exec.Command("git", "checkout", defaultBranch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to checkout default branch: %v", err)
+	}
+
+	// Create parent worktree - git worktree add needs the path to not exist
+	parentWorktree, _ = os.MkdirTemp("", "plural-parent-wt-*")
+	os.RemoveAll(parentWorktree) // Remove it so git worktree add can create it
+	cmd = exec.Command("git", "worktree", "add", parentWorktree, parentBranch)
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to create parent worktree: %v\nOutput: %s", err, output)
+	}
+
+	// Create child worktree - git worktree add needs the path to not exist
+	childWorktree, _ = os.MkdirTemp("", "plural-child-wt-*")
+	os.RemoveAll(childWorktree) // Remove it so git worktree add can create it
+	cmd = exec.Command("git", "worktree", "add", childWorktree, childBranch)
+	cmd.Dir = repoPath
+	if output, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(repoPath)
+		os.RemoveAll(parentWorktree)
+		t.Fatalf("Failed to create child worktree: %v\nOutput: %s", err, output)
+	}
+
+	cleanup = func() {
+		// Remove worktrees first (from main repo)
+		cmd := exec.Command("git", "worktree", "remove", "--force", parentWorktree)
+		cmd.Dir = repoPath
+		cmd.Run()
+		cmd = exec.Command("git", "worktree", "remove", "--force", childWorktree)
+		cmd.Dir = repoPath
+		cmd.Run()
+		os.RemoveAll(repoPath)
+		os.RemoveAll(parentWorktree)
+		os.RemoveAll(childWorktree)
+	}
+
+	return
+}
+
+func TestMergeToParent_Success(t *testing.T) {
+	repoPath, parentWorktree, childWorktree, parentBranch, childBranch, cleanup := createTestRepoWithWorktree(t)
+	defer cleanup()
+	_ = repoPath // unused but part of the setup
+
+	// Make a change on child branch
+	childFile := filepath.Join(childWorktree, "child.txt")
+	if err := os.WriteFile(childFile, []byte("child content"), 0644); err != nil {
+		t.Fatalf("Failed to create child file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = childWorktree
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Child commit")
+	cmd.Dir = childWorktree
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit child changes: %v", err)
+	}
+
+	// Merge child to parent
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+
+	var lastResult Result
+	for result := range ch {
+		lastResult = result
+		if result.Error != nil {
+			t.Errorf("Merge error: %v (output: %s)", result.Error, result.Output)
+		}
+	}
+
+	if !lastResult.Done {
+		t.Error("Merge should complete with Done=true")
+	}
+
+	// Verify child file exists in parent worktree after merge
+	if _, err := os.Stat(filepath.Join(parentWorktree, "child.txt")); os.IsNotExist(err) {
+		t.Error("child.txt should exist in parent worktree after merge")
+	}
+}
+
+func TestMergeToParent_WithUncommittedChanges(t *testing.T) {
+	repoPath, parentWorktree, childWorktree, parentBranch, childBranch, cleanup := createTestRepoWithWorktree(t)
+	defer cleanup()
+	_ = repoPath
+
+	// Make an uncommitted change on child branch
+	childFile := filepath.Join(childWorktree, "uncommitted.txt")
+	if err := os.WriteFile(childFile, []byte("uncommitted content"), 0644); err != nil {
+		t.Fatalf("Failed to create child file: %v", err)
+	}
+
+	// Merge to parent with custom commit message (since we have uncommitted changes)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "Custom child commit")
+
+	var sawUncommittedMsg bool
+	var lastResult Result
+	for result := range ch {
+		lastResult = result
+		if contains(result.Output, "uncommitted changes") {
+			sawUncommittedMsg = true
+		}
+		if result.Error != nil {
+			t.Errorf("Merge error: %v (output: %s)", result.Error, result.Output)
+		}
+	}
+
+	if !sawUncommittedMsg {
+		t.Error("Expected message about uncommitted changes")
+	}
+
+	if !lastResult.Done {
+		t.Error("Merge should complete with Done=true")
+	}
+
+	// Verify file exists in parent
+	if _, err := os.Stat(filepath.Join(parentWorktree, "uncommitted.txt")); os.IsNotExist(err) {
+		t.Error("uncommitted.txt should exist in parent worktree after merge")
+	}
+}
+
+func TestMergeToParent_Conflict(t *testing.T) {
+	repoPath, parentWorktree, childWorktree, parentBranch, childBranch, cleanup := createTestRepoWithWorktree(t)
+	defer cleanup()
+	_ = repoPath
+
+	// Make a change on child
+	conflictFile := filepath.Join(childWorktree, "conflict.txt")
+	if err := os.WriteFile(conflictFile, []byte("child version"), 0644); err != nil {
+		t.Fatalf("Failed to create file in child: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = childWorktree
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Child conflict commit")
+	cmd.Dir = childWorktree
+	cmd.Run()
+
+	// Make a conflicting change on parent
+	conflictFile = filepath.Join(parentWorktree, "conflict.txt")
+	if err := os.WriteFile(conflictFile, []byte("parent version"), 0644); err != nil {
+		t.Fatalf("Failed to create file in parent: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = parentWorktree
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Parent conflict commit")
+	cmd.Dir = parentWorktree
+	cmd.Run()
+
+	// Try to merge - should fail with conflict
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+
+	var hadConflict bool
+	var conflictedFiles []string
+	for result := range ch {
+		if result.Error != nil && len(result.ConflictedFiles) > 0 {
+			hadConflict = true
+			conflictedFiles = result.ConflictedFiles
+		}
+	}
+
+	if !hadConflict {
+		t.Error("Expected merge to fail with conflict")
+	}
+
+	if len(conflictedFiles) == 0 {
+		t.Error("Expected conflicted files list to be populated")
+	}
+}
+
+func TestMergeToParent_Cancelled(t *testing.T) {
+	repoPath, parentWorktree, childWorktree, parentBranch, childBranch, cleanup := createTestRepoWithWorktree(t)
+	defer cleanup()
+	_ = repoPath
+
+	// Cancel immediately
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+
+	// Drain channel - should not hang
+	for range ch {
+	}
+}
+
+func TestMergeToParent_NoChangesToCommit(t *testing.T) {
+	repoPath, parentWorktree, childWorktree, parentBranch, childBranch, cleanup := createTestRepoWithWorktree(t)
+	defer cleanup()
+	_ = repoPath
+
+	// Make a change on child and commit it (no uncommitted changes)
+	childFile := filepath.Join(childWorktree, "committed.txt")
+	if err := os.WriteFile(childFile, []byte("committed content"), 0644); err != nil {
+		t.Fatalf("Failed to create child file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = childWorktree
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Child commit")
+	cmd.Dir = childWorktree
+	cmd.Run()
+
+	// Merge to parent
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+
+	var sawNoChangesMsg bool
+	for result := range ch {
+		if contains(result.Output, "No uncommitted changes") {
+			sawNoChangesMsg = true
+		}
+		if result.Error != nil {
+			t.Errorf("Unexpected error: %v", result.Error)
+		}
+	}
+
+	if !sawNoChangesMsg {
+		t.Error("Expected 'No uncommitted changes' message")
 	}
 }

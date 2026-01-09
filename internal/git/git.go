@@ -670,3 +670,104 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 
 	return ch
 }
+
+// MergeToParent merges a child session's branch into its parent session's branch.
+// This operates on the parent's worktree, merging the child's changes into it.
+// childWorktreePath is where the child's changes are - we commit uncommitted changes first
+// parentWorktreePath is where we perform the merge
+// If commitMsg is provided and non-empty, it will be used directly instead of generating one
+func MergeToParent(ctx context.Context, childWorktreePath, childBranch, parentWorktreePath, parentBranch, commitMsg string) <-chan Result {
+	ch := make(chan Result)
+
+	go func() {
+		defer close(ch)
+
+		logger.Log("Git: Merging child %s into parent %s (child worktree: %s, parent worktree: %s)",
+			childBranch, parentBranch, childWorktreePath, parentWorktreePath)
+
+		// First, check for uncommitted changes in the child worktree and commit them
+		status, err := GetWorktreeStatus(childWorktreePath)
+		if err != nil {
+			ch <- Result{Error: fmt.Errorf("failed to get child worktree status: %w", err), Done: true}
+			return
+		}
+
+		if status.HasChanges {
+			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes in child (%s)\n", status.Summary)}
+
+			// Use provided commit message or generate one
+			if commitMsg == "" {
+				ch <- Result{Output: "Generating commit message with Claude...\n"}
+
+				// Try to generate commit message with Claude, fall back to simple message
+				commitMsg, err = GenerateCommitMessageWithClaude(ctx, childWorktreePath)
+				if err != nil {
+					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
+					commitMsg, err = GenerateCommitMessage(childWorktreePath)
+					if err != nil {
+						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
+						return
+					}
+				} else {
+					// Show the generated commit message
+					firstLine := strings.Split(commitMsg, "\n")[0]
+					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
+				}
+			} else {
+				// Show the user-provided commit message
+				firstLine := strings.Split(commitMsg, "\n")[0]
+				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
+			}
+
+			ch <- Result{Output: "Committing changes in child...\n"}
+			if err := CommitAll(childWorktreePath, commitMsg); err != nil {
+				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
+				return
+			}
+			ch <- Result{Output: "Changes committed successfully\n\n"}
+		} else {
+			ch <- Result{Output: "No uncommitted changes in child worktree\n\n"}
+		}
+
+		// Now merge the child branch into the parent worktree
+		// The parent worktree should already be on the parent branch
+		ch <- Result{Output: fmt.Sprintf("Merging %s into parent...\n", childBranch)}
+		cmd := exec.CommandContext(ctx, "git", "merge", childBranch, "--no-edit")
+		cmd.Dir = parentWorktreePath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Check if this is a merge conflict
+			conflictedFiles, conflictErr := GetConflictedFiles(parentWorktreePath)
+			if conflictErr == nil && len(conflictedFiles) > 0 {
+				// This is a merge conflict - include the conflicted files in the result
+				ch <- Result{
+					Output:          string(output),
+					Error:           fmt.Errorf("merge conflict"),
+					Done:            true,
+					ConflictedFiles: conflictedFiles,
+					RepoPath:        parentWorktreePath,
+				}
+				return
+			}
+
+			// Not a conflict, some other error
+			hint := fmt.Sprintf(`
+
+To resolve this merge issue:
+  1. cd %s
+  2. Check git status for details
+  3. Fix the issue and try again
+
+Or abort the merge with: git merge --abort
+`, parentWorktreePath)
+			ch <- Result{Output: string(output) + hint, Error: fmt.Errorf("merge failed: %w", err), Done: true}
+			return
+		}
+		ch <- Result{Output: string(output)}
+
+		ch <- Result{Output: fmt.Sprintf("\nSuccessfully merged %s into %s\n", childBranch, parentBranch), Done: true}
+	}()
+
+	return ch
+}

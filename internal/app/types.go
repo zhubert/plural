@@ -14,6 +14,9 @@ const (
 
 	// MergeTypePR indicates creating a pull request.
 	MergeTypePR
+
+	// MergeTypeParent indicates merging a child session back to its parent.
+	MergeTypeParent
 )
 
 // String returns a human-readable name for the merge type.
@@ -25,6 +28,8 @@ func (t MergeType) String() string {
 		return "merge"
 	case MergeTypePR:
 		return "pr"
+	case MergeTypeParent:
+		return "parent"
 	default:
 		return "unknown"
 	}

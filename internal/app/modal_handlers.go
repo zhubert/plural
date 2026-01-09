@@ -214,9 +214,30 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			return m, nil
 		}
 
-		mergeType := MergeTypeMerge
-		if option == "Create PR" {
+		// Determine merge type
+		var mergeType MergeType
+		switch option {
+		case "Merge to parent":
+			mergeType = MergeTypeParent
+		case "Create PR":
 			mergeType = MergeTypePR
+		default:
+			mergeType = MergeTypeMerge
+		}
+
+		// For merge-to-parent, validate parent exists
+		var parentSess *config.Session
+		if mergeType == MergeTypeParent {
+			if sess.ParentID == "" {
+				m.chat.AppendStreaming("Error: Session has no parent to merge to\n")
+				return m, nil
+			}
+			parentSess = m.config.GetSession(sess.ParentID)
+			if parentSess == nil {
+				m.chat.AppendStreaming("Error: Parent session not found\n")
+				return m, nil
+			}
+			m.pendingParentSession = parentSess.ID
 		}
 
 		if status.HasChanges {
@@ -229,11 +250,16 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 
 		// No changes - proceed directly with merge/PR
 		ctx, cancel := context.WithCancel(context.Background())
-		if mergeType == MergeTypePR {
+		switch mergeType {
+		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePR)
-		} else {
+		case MergeTypeParent:
+			logger.Log("App: Merging branch %s to parent %s (no uncommitted changes)", sess.Branch, parentSess.Branch)
+			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
+			m.sessionState().StartMerge(sess.ID, git.MergeToParent(ctx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, MergeTypeParent)
+		default:
 			logger.Log("App: Merging branch %s to main (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
 			m.sessionState().StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
@@ -346,16 +372,29 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		}
 
 		mergeType := m.pendingCommitType
+		parentSessionID := m.pendingParentSession
 		m.pendingCommitSession = ""
 		m.pendingCommitType = MergeTypeNone
+		m.pendingParentSession = ""
 
 		// Proceed with merge/PR using the edited commit message
 		ctx, cancel := context.WithCancel(context.Background())
-		if mergeType == MergeTypePR {
+		switch mergeType {
+		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePR)
-		} else {
+		case MergeTypeParent:
+			parentSess := m.config.GetSession(parentSessionID)
+			if parentSess == nil {
+				m.chat.AppendStreaming("Error: Parent session not found\n")
+				cancel()
+				return m, nil
+			}
+			logger.Log("App: Merging branch %s to parent %s with user-edited commit message", sess.Branch, parentSess.Branch)
+			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
+			m.sessionState().StartMerge(sess.ID, git.MergeToParent(ctx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, MergeTypeParent)
+		default:
 			logger.Log("App: Merging branch %s to main with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
 			m.sessionState().StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)

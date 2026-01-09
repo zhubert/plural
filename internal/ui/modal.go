@@ -436,6 +436,8 @@ type MergeState struct {
 	Options        []string
 	SelectedIndex  int
 	HasRemote      bool
+	HasParent      bool   // Whether session has a parent it can merge to
+	ParentName     string // Name of parent session (for display)
 	ChangesSummary string
 }
 
@@ -521,8 +523,17 @@ func (s *MergeState) GetSelectedOption() string {
 }
 
 // NewMergeState creates a new MergeState
-func NewMergeState(sessionName string, hasRemote bool, changesSummary string) *MergeState {
-	options := []string{"Merge to main"}
+// parentName should be non-empty if this session has a parent it can merge to
+func NewMergeState(sessionName string, hasRemote bool, changesSummary string, parentName string) *MergeState {
+	var options []string
+
+	// If session has a parent, offer merge to parent first
+	hasParent := parentName != ""
+	if hasParent {
+		options = append(options, "Merge to parent")
+	}
+
+	options = append(options, "Merge to main")
 	if hasRemote {
 		options = append(options, "Create PR")
 	}
@@ -532,6 +543,8 @@ func NewMergeState(sessionName string, hasRemote bool, changesSummary string) *M
 		Options:        options,
 		SelectedIndex:  0,
 		HasRemote:      hasRemote,
+		HasParent:      hasParent,
+		ParentName:     parentName,
 		ChangesSummary: changesSummary,
 	}
 }

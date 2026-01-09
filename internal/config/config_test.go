@@ -478,6 +478,84 @@ func TestSaveSessionMessages_MaxLines(t *testing.T) {
 	}
 }
 
+func TestMergeConversationHistory(t *testing.T) {
+	// Test merging child session messages into parent
+	parentID := "test-parent-merge"
+	childID := "test-child-merge"
+
+	// Setup parent messages
+	parentMessages := []Message{
+		{Role: "user", Content: "Parent message 1"},
+		{Role: "assistant", Content: "Parent response 1"},
+	}
+	err := SaveSessionMessages(parentID, parentMessages, MaxSessionMessageLines)
+	if err != nil {
+		t.Fatalf("Failed to save parent messages: %v", err)
+	}
+	defer DeleteSessionMessages(parentID)
+
+	// Setup child messages
+	childMessages := []Message{
+		{Role: "user", Content: "Child message 1"},
+		{Role: "assistant", Content: "Child response 1"},
+		{Role: "user", Content: "Child message 2"},
+		{Role: "assistant", Content: "Child response 2"},
+	}
+	err = SaveSessionMessages(childID, childMessages, MaxSessionMessageLines)
+	if err != nil {
+		t.Fatalf("Failed to save child messages: %v", err)
+	}
+	defer DeleteSessionMessages(childID)
+
+	// Simulate the merge operation (what app.mergeConversationHistory does)
+	parentMsgs, err := LoadSessionMessages(parentID)
+	if err != nil {
+		t.Fatalf("Failed to load parent messages: %v", err)
+	}
+
+	childMsgs, err := LoadSessionMessages(childID)
+	if err != nil {
+		t.Fatalf("Failed to load child messages: %v", err)
+	}
+
+	// Add separator and combine
+	separator := Message{Role: "assistant", Content: "\n---\n[Merged from child session]\n---\n"}
+	combined := append(parentMsgs, separator)
+	combined = append(combined, childMsgs...)
+
+	err = SaveSessionMessages(parentID, combined, MaxSessionMessageLines)
+	if err != nil {
+		t.Fatalf("Failed to save merged messages: %v", err)
+	}
+
+	// Verify merged result
+	merged, err := LoadSessionMessages(parentID)
+	if err != nil {
+		t.Fatalf("Failed to load merged messages: %v", err)
+	}
+
+	// Should have: 2 parent + 1 separator + 4 child = 7 messages
+	expectedCount := 2 + 1 + 4
+	if len(merged) != expectedCount {
+		t.Errorf("Expected %d merged messages, got %d", expectedCount, len(merged))
+	}
+
+	// First two should be parent messages
+	if merged[0].Content != "Parent message 1" {
+		t.Errorf("First message should be parent message 1, got %q", merged[0].Content)
+	}
+
+	// Third should be separator
+	if merged[2].Role != "assistant" || merged[2].Content != "\n---\n[Merged from child session]\n---\n" {
+		t.Errorf("Third message should be separator, got %+v", merged[2])
+	}
+
+	// Fourth onwards should be child messages
+	if merged[3].Content != "Child message 1" {
+		t.Errorf("Fourth message should be child message 1, got %q", merged[3].Content)
+	}
+}
+
 func TestConfig_SaveAndLoad(t *testing.T) {
 	// Create a temporary directory for test
 	tmpDir, err := os.MkdirTemp("", "plural-config-test-*")
@@ -597,6 +675,31 @@ func TestConfig_MarkSessionPRCreated(t *testing.T) {
 	// Test marking non-existent session
 	if cfg.MarkSessionPRCreated("nonexistent") {
 		t.Error("MarkSessionPRCreated should return false for non-existent session")
+	}
+}
+
+func TestConfig_MarkSessionMergedToParent(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "child-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1", ParentID: "parent-1", MergedToParent: false},
+			{ID: "parent-1", RepoPath: "/path", WorkTree: "/wt2", Branch: "b2"},
+		},
+	}
+
+	// Test marking existing session as merged to parent
+	if !cfg.MarkSessionMergedToParent("child-1") {
+		t.Error("MarkSessionMergedToParent should return true for existing session")
+	}
+
+	sess := cfg.GetSession("child-1")
+	if !sess.MergedToParent {
+		t.Error("Session should be marked as merged to parent")
+	}
+
+	// Test marking non-existent session
+	if cfg.MarkSessionMergedToParent("nonexistent") {
+		t.Error("MarkSessionMergedToParent should return false for non-existent session")
 	}
 }
 
