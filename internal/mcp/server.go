@@ -213,6 +213,11 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	resp := <-s.responseChan
 	logger.Log("MCP: Received TUI response: allowed=%v, always=%v", resp.Allowed, resp.Always)
 
+	// If user selected "always allow", remember this tool for future requests
+	if resp.Always {
+		s.addAllowedTool(tool)
+	}
+
 	s.sendPermissionResult(req.ID, resp.Allowed, arguments, resp.Message)
 }
 
@@ -318,6 +323,20 @@ func (s *Server) isToolAllowed(tool string) bool {
 		}
 	}
 	return false
+}
+
+// addAllowedTool adds a tool to the allowed list (called when user selects "always allow").
+// This is used internally by the MCP server to remember tools that were allowed during the session.
+func (s *Server) addAllowedTool(tool string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, t := range s.allowedTools {
+		if t == tool {
+			return
+		}
+	}
+	s.allowedTools = append(s.allowedTools, tool)
 }
 
 func (s *Server) sendPermissionResult(id interface{}, allowed bool, args map[string]interface{}, message string) {
