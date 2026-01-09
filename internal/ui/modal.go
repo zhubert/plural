@@ -452,11 +452,15 @@ func (s *MergeState) Help() string {
 func (s *MergeState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
+	// Content width for text wrapping (modal width minus padding)
+	contentWidth := ModalWidth - 4
+
 	// Show session name prominently
 	sessionLabel := lipgloss.NewStyle().
 		Foreground(ColorSecondary).
 		Bold(true).
 		MarginBottom(1).
+		Width(contentWidth).
 		Render(s.SessionName)
 
 	// Show changes summary
@@ -464,13 +468,15 @@ func (s *MergeState) Render() string {
 	if s.ChangesSummary != "" {
 		summaryStyle := lipgloss.NewStyle().
 			Foreground(ColorSecondary).
-			MarginBottom(1)
+			MarginBottom(1).
+			Width(contentWidth)
 		summarySection = summaryStyle.Render("Changes: " + s.ChangesSummary)
 	} else {
 		noChangesStyle := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			MarginBottom(1)
+			MarginBottom(1).
+			Width(contentWidth)
 		summarySection = noChangesStyle.Render("No uncommitted changes")
 	}
 
@@ -489,6 +495,7 @@ func (s *MergeState) Render() string {
 		note := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
+			Width(contentWidth).
 			Render("(No remote origin - PR option unavailable)")
 		optionList += "\n" + note
 	}
