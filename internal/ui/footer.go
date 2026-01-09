@@ -32,15 +32,12 @@ func NewFooter() *Footer {
 	return &Footer{
 		bindings: []KeyBinding{
 			{Key: "tab", Desc: "switch pane"},
-			{Key: "/", Desc: "search"},
 			{Key: "n", Desc: "new session"},
-			{Key: "r", Desc: "add repo"},
-			{Key: "s", Desc: "mcp servers"},
-			{Key: "t", Desc: "theme"},
+			{Key: "a", Desc: "add repo"},
 			{Key: "?", Desc: "help"},
 			{Key: "v", Desc: "view changes"},
 			{Key: "m", Desc: "merge/pr"},
-			{Key: "F", Desc: "fork"},
+			{Key: "f", Desc: "fork"},
 			{Key: "d", Desc: "delete"},
 			{Key: "q", Desc: "quit"},
 		},
@@ -147,7 +144,7 @@ func (f *Footer) View() string {
 	} else if f.sessionInUse && f.sidebarFocused {
 		// Show force-resume option when session has "in use" error
 		inUseBindings := []KeyBinding{
-			{Key: "f", Desc: "force resume"},
+			{Key: "ctrl+f", Desc: "force resume"},
 			{Key: "tab", Desc: "switch pane"},
 			{Key: "n", Desc: "new session"},
 			{Key: "d", Desc: "delete"},
@@ -184,11 +181,11 @@ func (f *Footer) View() string {
 				continue
 			}
 			// Skip sidebar-only bindings when chat is focused
-			if (b.Key == "n" || b.Key == "r" || b.Key == "s" || b.Key == "t" || b.Key == "?" || b.Key == "v" || b.Key == "m" || b.Key == "F" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
+			if (b.Key == "n" || b.Key == "a" || b.Key == "?" || b.Key == "v" || b.Key == "m" || b.Key == "f" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
 				continue
 			}
 			// Skip session-specific bindings when no session selected
-			if (b.Key == "v" || b.Key == "m" || b.Key == "F" || b.Key == "d") && !f.hasSession {
+			if (b.Key == "v" || b.Key == "m" || b.Key == "f" || b.Key == "d") && !f.hasSession {
 				continue
 			}
 

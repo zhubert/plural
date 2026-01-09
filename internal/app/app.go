@@ -307,6 +307,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Handle Ctrl+F for force resume when session has "in use" error
+		if msg.String() == "ctrl+f" && !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
+			sess := m.sidebar.SelectedSession()
+			if m.sessionState().HasSessionInUseError(sess.ID) {
+				return m.forceResumeSession(sess)
+			}
+		}
+
 		// Handle backspace to remove pending image when input is empty
 		if msg.String() == "backspace" && m.focus == FocusChat && m.activeSession != nil {
 			if m.chat.HasPendingImage() && m.chat.GetInput() == "" {
@@ -330,7 +338,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.chat.IsFocused() {
 				m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
 			}
-		case "r":
+		case "a":
 			if !m.chat.IsFocused() {
 				// Check if current directory is a git repo and not already added
 				currentRepo := session.GetCurrentDirGitRoot()
@@ -404,14 +412,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName))
 			}
 		case "f":
-			// Force-resume: kill orphaned processes and clear the error state
-			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				sess := m.sidebar.SelectedSession()
-				if m.sessionState().HasSessionInUseError(sess.ID) {
-					return m.forceResumeSession(sess)
-				}
-			}
-		case "F":
 			// Fork session: create a new session from the selected one
 			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
 				sess := m.sidebar.SelectedSession()

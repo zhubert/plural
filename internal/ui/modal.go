@@ -1777,8 +1777,8 @@ func NewHelpState() *HelpState {
 			Shortcuts: []HelpShortcut{
 				{Key: "n", Desc: "Create new session"},
 				{Key: "d", Desc: "Delete selected session"},
-				{Key: "F", Desc: "Fork selected session"},
-				{Key: "f", Desc: "Force resume (if session in use)"},
+				{Key: "f", Desc: "Fork selected session"},
+				{Key: "ctrl+f", Desc: "Force resume (if session in use)"},
 			},
 		},
 		{
@@ -1792,7 +1792,7 @@ func NewHelpState() *HelpState {
 		{
 			Title: "Configuration",
 			Shortcuts: []HelpShortcut{
-				{Key: "r", Desc: "Add repository"},
+				{Key: "a", Desc: "Add repository"},
 				{Key: "s", Desc: "Manage MCP servers"},
 				{Key: "t", Desc: "Change theme"},
 			},
