@@ -1,0 +1,117 @@
+name: Deadcode Check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  deadcode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install X11 dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev
+
+      - name: Install deadcode
+        run: go install golang.org/x/tools/cmd/deadcode@latest
+
+      - name: Run deadcode analysis
+        id: deadcode
+        run: |
+          # Run deadcode with test files included in analysis
+          # Capture output and exit code
+          set +e
+          OUTPUT=$(deadcode -test ./... 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          # Save output for the comment step
+          echo "output<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Count dead code entries (non-empty lines)
+          if [ -n "$OUTPUT" ]; then
+            COUNT=$(echo "$OUTPUT" | grep -c '^' || true)
+            echo "count=$COUNT" >> $GITHUB_OUTPUT
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "count=0" >> $GITHUB_OUTPUT
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const found = '${{ steps.deadcode.outputs.found }}' === 'true';
+            const count = '${{ steps.deadcode.outputs.count }}';
+            const output = `${{ steps.deadcode.outputs.output }}`;
+
+            let body;
+            if (found) {
+              body = `## 🔍 Deadcode Analysis
+
+            Found **${count}** potentially unreachable function(s):
+
+            \`\`\`
+            ${output}
+            \`\`\`
+
+            <details>
+            <summary>What is this?</summary>
+
+            The \`deadcode\` tool uses whole-program analysis to find functions that are never called.
+
+            **Common reasons for false positives:**
+            - Exported functions intended for external use
+            - Functions called via reflection
+            - Interface implementations
+            - Build tags excluding certain files
+
+            If these are intentional, no action needed. Otherwise, consider removing unused code to keep the codebase lean.
+
+            </details>`;
+            } else {
+              body = `## 🔍 Deadcode Analysis
+
+            ✅ No unreachable functions detected. Nice work keeping the codebase clean!`;
+            }
+
+            // Find existing comment to update
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Deadcode Analysis')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
