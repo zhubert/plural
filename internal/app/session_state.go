@@ -37,6 +37,9 @@ type SessionState struct {
 
 	// Parallel options state
 	DetectedOptions []DetectedOption // Options detected in last assistant message
+
+	// Queued message to send when streaming completes
+	PendingMessage string
 }
 
 // SessionStateManager provides thread-safe access to per-session state.
@@ -455,6 +458,39 @@ func (m *SessionStateManager) HasDetectedOptions(sessionID string) bool {
 
 	if state, exists := m.states[sessionID]; exists {
 		return len(state.DetectedOptions) >= 2
+	}
+	return false
+}
+
+// SetPendingMessage queues a message to be sent when streaming completes.
+func (m *SessionStateManager) SetPendingMessage(sessionID, message string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := m.getOrCreate(sessionID)
+	state.PendingMessage = message
+}
+
+// GetPendingMessage returns and clears the pending message for a session.
+func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		msg := state.PendingMessage
+		state.PendingMessage = ""
+		return msg
+	}
+	return ""
+}
+
+// HasPendingMessage returns whether a session has a pending message.
+func (m *SessionStateManager) HasPendingMessage(sessionID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.PendingMessage != ""
 	}
 	return false
 }

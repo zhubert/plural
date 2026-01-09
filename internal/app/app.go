@@ -118,6 +118,11 @@ type CommitMessageGeneratedMsg struct {
 	Error     error
 }
 
+// SendPendingMessageMsg triggers sending a queued message for a session
+type SendPendingMessageMsg struct {
+	SessionID string
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -445,9 +450,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if sess := m.sidebar.SelectedSession(); sess != nil {
 					m.selectSession(sess)
 				}
-			} else if m.focus == FocusChat && m.CanSendMessage() {
-				// Send message
-				return m.sendMessage()
+			} else if m.focus == FocusChat {
+				if m.CanSendMessage() {
+					// Send message immediately
+					return m.sendMessage()
+				} else if m.activeSession != nil && m.sessionState().IsWaiting(m.activeSession.ID) {
+					// Queue message to be sent when streaming completes
+					input := m.chat.GetInput()
+					if input != "" {
+						m.sessionState().SetPendingMessage(m.activeSession.ID, input)
+						m.chat.ClearInput()
+						m.chat.SetQueuedMessage(input)
+						logger.Log("App: Queued message for session %s while streaming", m.activeSession.ID)
+					}
+				}
 			}
 		}
 
@@ -515,6 +531,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
 				m.setState(StateIdle)
+			}
+			// Check for pending message queued during streaming
+			if m.sessionState().HasPendingMessage(msg.SessionID) {
+				return m, func() tea.Msg {
+					return SendPendingMessageMsg{SessionID: msg.SessionID}
+				}
 			}
 		} else {
 			// Streaming content - clear wait time since response has started
@@ -649,6 +671,65 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show the edit commit modal with the generated message
 		m.modal.Show(ui.NewEditCommitState(msg.Message, m.pendingCommitType.String()))
 		return m, nil
+
+	case SendPendingMessageMsg:
+		// Process a queued message that was submitted while streaming
+		pendingMsg := m.sessionState().GetPendingMessage(msg.SessionID)
+		if pendingMsg == "" {
+			return m, nil
+		}
+
+		// Only send if this session is still valid and can accept messages
+		sess := m.sessionMgr.GetSession(msg.SessionID)
+		if sess == nil || sess.MergedToParent {
+			logger.Log("App: Cannot send pending message for session %s (invalid or merged)", msg.SessionID)
+			return m, nil
+		}
+
+		// Check if session is currently busy (e.g., merge in progress or already streaming again)
+		if m.sessionState().IsWaiting(msg.SessionID) || m.sessionState().IsMerging(msg.SessionID) {
+			// Re-queue the message to try again later
+			m.sessionState().SetPendingMessage(msg.SessionID, pendingMsg)
+			return m, nil
+		}
+
+		// Get the runner for this session
+		runner := m.sessionMgr.GetRunner(msg.SessionID)
+		if runner == nil {
+			logger.Log("App: No runner for session %s to send pending message", msg.SessionID)
+			return m, nil
+		}
+
+		logger.Log("App: Sending pending message for session %s: %s", msg.SessionID, pendingMsg)
+
+		// If this is the active session, add to chat and clear queued display
+		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
+		if isActiveSession {
+			m.chat.ClearQueuedMessage()
+			m.chat.AddUserMessage(pendingMsg)
+		}
+
+		// Create context and start streaming
+		ctx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartWaiting(msg.SessionID, cancel)
+		startTime, _ := m.sessionState().GetWaitStart(msg.SessionID)
+		if isActiveSession {
+			m.chat.SetWaitingWithStart(true, startTime)
+		}
+		m.sidebar.SetStreaming(msg.SessionID, true)
+		m.setState(StateStreamingClaude)
+
+		// Send the message
+		content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: pendingMsg}}
+		responseChan := runner.SendContent(ctx, content)
+
+		return m, tea.Batch(
+			m.listenForSessionResponse(msg.SessionID, responseChan),
+			m.listenForSessionPermission(msg.SessionID, runner),
+			m.listenForSessionQuestion(msg.SessionID, runner),
+			ui.SidebarTick(),
+			ui.StopwatchTick(),
+		)
 
 	case MergeResultMsg:
 		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
@@ -927,6 +1008,18 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.SetInput(result.SavedInput)
 	} else {
 		m.chat.ClearInput()
+	}
+
+	// Restore queued message display if this session has a pending message
+	if m.sessionState().HasPendingMessage(sess.ID) {
+		// We need to peek at the pending message without clearing it
+		// Since GetPendingMessage clears it, we'll use a different approach
+		state := m.sessionState().GetIfExists(sess.ID)
+		if state != nil && state.PendingMessage != "" {
+			m.chat.SetQueuedMessage(state.PendingMessage)
+		}
+	} else {
+		m.chat.ClearQueuedMessage()
 	}
 
 	logger.Log("App: Session selected and focused: %s", sess.ID)
