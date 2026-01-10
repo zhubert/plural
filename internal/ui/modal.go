@@ -2607,8 +2607,9 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.BranchPrefixInput.Blur()
 			}
 			return s, nil
-		case " ":
+		case "space":
 			// Toggle checkbox when focused on notifications
+			// NOTE: In Bubble Tea v2, space key is "space" not " "
 			if s.Focus == 1 {
 				s.NotificationsEnabled = !s.NotificationsEnabled
 			}
