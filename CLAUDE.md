@@ -199,6 +199,7 @@ Key v2 API notes:
 - `tea.KeyMsg` is now `tea.KeyPressMsg`
 - `tea.View` returns declarative view with properties
 - Viewport uses `SetWidth()`/`SetHeight()` methods
+- **Key strings**: Special keys use string names, not literals. Use `"space"` not `" "`, `"tab"` not `"\t"`, etc.
 
 ## Releasing
 
