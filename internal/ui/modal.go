@@ -1447,6 +1447,63 @@ func NewThemeState(currentTheme ThemeName) *ThemeState {
 }
 
 // =============================================================================
+// NotificationToggleState - State for notification toggle confirmation
+// =============================================================================
+
+type NotificationToggleState struct {
+	Status string // "enabled" or "disabled"
+}
+
+func (*NotificationToggleState) modalState() {}
+
+func (s *NotificationToggleState) Title() string { return "Desktop Notifications" }
+
+func (s *NotificationToggleState) Help() string {
+	return "Press any key to close"
+}
+
+func (s *NotificationToggleState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Show status with appropriate styling
+	var statusStyle lipgloss.Style
+	var statusText string
+	if s.Status == "enabled" {
+		statusStyle = lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true)
+		statusText = "Notifications are now enabled"
+	} else {
+		statusStyle = lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Bold(true)
+		statusText = "Notifications are now disabled"
+	}
+	status := statusStyle.Render(statusText)
+
+	description := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Width(40).
+		Render("You'll receive desktop notifications when Claude finishes responding while Plural is in the background.")
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, status, description, help)
+}
+
+func (s *NotificationToggleState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	return s, nil
+}
+
+// NewNotificationToggleState creates a new NotificationToggleState
+func NewNotificationToggleState(status string) *NotificationToggleState {
+	return &NotificationToggleState{
+		Status: status,
+	}
+}
+
+// =============================================================================
 // ExploreOptionsState - State for the Explore Options modal (parallel sessions)
 // =============================================================================
 

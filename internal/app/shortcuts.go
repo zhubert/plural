@@ -157,6 +157,13 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSidebar: true,
 		Handler:         shortcutTheme,
 	},
+	{
+		Key:             "o",
+		Description:     "Toggle notifications",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutToggleNotifications,
+	},
 
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
@@ -414,6 +421,20 @@ func shortcutMCPServers(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutTheme(m *Model) (tea.Model, tea.Cmd) {
 	m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
+	return m, nil
+}
+
+func shortcutToggleNotifications(m *Model) (tea.Model, tea.Cmd) {
+	enabled := !m.config.GetNotificationsEnabled()
+	m.config.SetNotificationsEnabled(enabled)
+	m.config.Save()
+
+	// Show brief confirmation in footer via a temporary message
+	status := "enabled"
+	if !enabled {
+		status = "disabled"
+	}
+	m.modal.Show(ui.NewNotificationToggleState(status))
 	return m, nil
 }
 

@@ -67,6 +67,7 @@ tail -f /tmp/plural-mcp-*.log
 - **internal/git** - Git operations for merge/PR workflow
 - **internal/logger** - Thread-safe file logger
 - **internal/mcp** - MCP server for permission prompts via Unix socket IPC
+- **internal/notification** - Cross-platform desktop notifications (uses beeep library)
 - **internal/process** - Find/kill orphaned Claude processes
 - **internal/session** - Git worktree creation/management
 - **internal/ui** - Bubble Tea UI components
@@ -146,6 +147,20 @@ Import GitHub issues directly into new sessions:
 
 Each issue becomes a session with branch name `issue-{number}`. The issue number is stored in the session and when a PR is created, "Fixes #N" is automatically added to the PR body, which will close the issue when the PR is merged.
 
+### Desktop Notifications
+
+Plural can send desktop notifications when Claude finishes responding while the application is in the background:
+
+1. **Toggle notifications** (`o`): Press `o` to enable/disable desktop notifications
+2. **When triggered**: Notifications appear when Claude completes streaming and the terminal window is not focused
+3. **Notification content**: Shows "Plural" as title and "[session name] is ready" as the message
+4. **Platform support**: Uses the beeep library for cross-platform notifications:
+   - macOS: terminal-notifier or AppleScript
+   - Linux: D-Bus or notify-send
+   - Windows: Windows Runtime COM API
+
+The setting is persisted in `~/.plural/config.json` as `notifications_enabled`.
+
 ### Dependencies
 
 Charm's Bubble Tea v2 stack:
@@ -153,6 +168,7 @@ Charm's Bubble Tea v2 stack:
 - `charm.land/bubbles/v2` (v2.0.0-rc.1)
 - `charm.land/lipgloss/v2` (v2.0.0-beta.3)
 - `github.com/google/uuid` (v1.6.0)
+- `github.com/gen2brain/beeep` (v0.11.2) - Cross-platform desktop notifications
 
 Key v2 API notes:
 - Imports use `charm.land/*` instead of `github.com/charmbracelet/*`

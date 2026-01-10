@@ -48,7 +48,8 @@ type Config struct {
 	RepoAllowedTools map[string][]string    `json:"repo_allowed_tools,omitempty"` // Per-repo allowed tools
 	WelcomeShown     bool                   `json:"welcome_shown,omitempty"`      // Whether welcome modal has been shown
 	LastSeenVersion  string                 `json:"last_seen_version,omitempty"`  // Last version user has seen changelog for
-	Theme            string                 `json:"theme,omitempty"`              // UI theme name (e.g., "dark-purple", "nord")
+	Theme                string                 `json:"theme,omitempty"`                // UI theme name (e.g., "dark-purple", "nord")
+	NotificationsEnabled bool                   `json:"notifications_enabled,omitempty"` // Desktop notifications when Claude completes
 
 	mu       sync.RWMutex
 	filePath string
@@ -651,4 +652,18 @@ func (c *Config) SetTheme(theme string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Theme = theme
+}
+
+// GetNotificationsEnabled returns whether desktop notifications are enabled
+func (c *Config) GetNotificationsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.NotificationsEnabled
+}
+
+// SetNotificationsEnabled sets whether desktop notifications are enabled
+func (c *Config) SetNotificationsEnabled(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.NotificationsEnabled = enabled
 }
