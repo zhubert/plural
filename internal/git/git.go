@@ -855,6 +855,110 @@ func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 	return ch
 }
 
+// GenerateBranchNamesFromOptions uses Claude to generate short, descriptive git branch names
+// from a list of option texts. Returns a map from option number to branch name.
+// This batches all options into a single Claude call for efficiency.
+func GenerateBranchNamesFromOptions(ctx context.Context, options []struct {
+	Number int
+	Text   string
+}) (map[int]string, error) {
+	if len(options) == 0 {
+		return nil, nil
+	}
+
+	logger.Log("Git: Generating branch names for %d options", len(options))
+
+	// Build the options list for the prompt
+	var optionsList strings.Builder
+	for _, opt := range options {
+		fmt.Fprintf(&optionsList, "%d. %s\n", opt.Number, opt.Text)
+	}
+
+	prompt := fmt.Sprintf(`Generate short git branch names for each of these options/features:
+
+%s
+Rules:
+1. Use lowercase letters and hyphens only (no spaces, underscores, or special characters)
+2. Keep each name concise: 2-4 words maximum, under 30 characters total
+3. Make each name descriptive of what that option/feature does
+4. Output ONLY the branch names, one per line, in the format: "N. branch-name" where N is the option number
+5. Do NOT include any preamble or explanation
+
+Example output format:
+1. add-dark-mode
+2. use-redis-cache
+3. sqlite-backend`, optionsList.String())
+
+	args := []string{"--print", "-p", prompt}
+	cmd := exec.CommandContext(ctx, "claude", args...)
+
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Log("Git: Claude branch name generation failed: %v", err)
+		return nil, fmt.Errorf("failed to generate branch names with Claude: %w", err)
+	}
+
+	// Parse the output - expect lines like "1. branch-name"
+	result := make(map[int]string)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse "N. branch-name" or "N) branch-name"
+		var num int
+		var name string
+		if _, err := fmt.Sscanf(line, "%d. %s", &num, &name); err != nil {
+			if _, err := fmt.Sscanf(line, "%d) %s", &num, &name); err != nil {
+				continue
+			}
+		}
+
+		if num > 0 && name != "" {
+			result[num] = sanitizeBranchName(name)
+		}
+	}
+
+	logger.Log("Git: Generated %d branch names", len(result))
+	return result, nil
+}
+
+// sanitizeBranchName ensures a branch name is valid for git
+func sanitizeBranchName(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+
+	// Replace spaces and underscores with hyphens
+	name = strings.ReplaceAll(name, " ", "-")
+	name = strings.ReplaceAll(name, "_", "-")
+
+	// Remove any characters that aren't alphanumeric or hyphens
+	var result strings.Builder
+	for _, c := range name {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' {
+			result.WriteRune(c)
+		}
+	}
+	name = result.String()
+
+	// Remove leading/trailing hyphens and collapse multiple hyphens
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "-")
+
+	// Truncate if too long
+	if len(name) > 50 {
+		name = name[:50]
+		// Don't end with a hyphen
+		name = strings.TrimRight(name, "-")
+	}
+
+	return name
+}
+
 // GitHubIssue represents a GitHub issue fetched via the gh CLI
 type GitHubIssue struct {
 	Number int    `json:"number"`
