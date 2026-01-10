@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -110,6 +112,14 @@ var ShortcutRegistry = []Shortcut{
 	},
 
 	// Git Operations
+	{
+		Key:             "e",
+		Description:     "Open terminal in worktree",
+		Category:        CategoryGit,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutOpenTerminal,
+	},
 	{
 		Key:             "v",
 		Description:     "View changes in worktree",
@@ -345,6 +355,11 @@ func shortcutForceResume(m *Model) (tea.Model, tea.Cmd) {
 	return m.forceResumeSession(sess)
 }
 
+func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	return m, openTerminalAtPath(sess.WorkTree)
+}
+
 func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	// Select the session first so we can display in its chat panel
@@ -458,4 +473,51 @@ func shortcutSearchMessages(m *Model) (tea.Model, tea.Cmd) {
 
 	m.modal.Show(ui.NewSearchMessagesState(searchMessages))
 	return m, nil
+}
+
+// openTerminalAtPath returns a command that opens a new terminal window at the given path.
+// Supports macOS (Terminal.app) and Linux (common terminal emulators).
+func openTerminalAtPath(path string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+
+		switch runtime.GOOS {
+		case "darwin":
+			// macOS: use 'open' command with Terminal.app
+			script := fmt.Sprintf(`tell application "Terminal"
+				do script "cd %q"
+				activate
+			end tell`, path)
+			cmd = exec.Command("osascript", "-e", script)
+		case "linux":
+			// Linux: try common terminal emulators in order of preference
+			terminals := []struct {
+				name string
+				args []string
+			}{
+				{"gnome-terminal", []string{"--working-directory=" + path}},
+				{"konsole", []string{"--workdir", path}},
+				{"xfce4-terminal", []string{"--working-directory=" + path}},
+				{"xterm", []string{"-e", fmt.Sprintf("cd %q && $SHELL", path)}},
+			}
+
+			for _, term := range terminals {
+				if _, err := exec.LookPath(term.name); err == nil {
+					cmd = exec.Command(term.name, term.args...)
+					break
+				}
+			}
+
+			if cmd == nil {
+				// Fallback: try x-terminal-emulator (Debian/Ubuntu alternative)
+				cmd = exec.Command("x-terminal-emulator", "--working-directory="+path)
+			}
+		default:
+			// Unsupported OS
+			return nil
+		}
+
+		cmd.Start() // Fire and forget - don't wait for terminal to close
+		return nil
+	}
 }
