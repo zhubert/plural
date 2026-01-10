@@ -364,12 +364,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Try executing from shortcut registry
 		if result, cmd, handled := m.ExecuteShortcut(key); handled {
-			if cmd != nil {
-				return result, cmd
-			}
-			// Shortcut was handled but returned no command (e.g., guard failed or no-op)
-			// For shortcuts that modify model state (like tab), we need to continue
-			// to let the component update handlers run
+			return result, cmd
 		}
 
 		// Handle special cases not in the registry
