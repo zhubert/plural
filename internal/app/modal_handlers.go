@@ -952,11 +952,12 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			m.sidebar.SelectSession(firstSession.ID)
 			m.selectSession(firstSession)
 
-			// Update UI for the active session
+			// Update UI for the active session - the user message is already in the runner's
+			// message history (added by SendContent) and selectSession sets the chat messages
+			// from the runner, so we don't need to add it again here
 			if m.claudeRunner != nil {
 				startTime, _ := m.sessionState().GetWaitStart(firstSession.ID)
 				m.chat.SetWaitingWithStart(true, startTime)
-				m.chat.AddUserMessage(createdSessions[0].OptionPrompt)
 			}
 		}
 
