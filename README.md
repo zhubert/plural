@@ -86,6 +86,7 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 | `Ctrl+F` | Force resume (hung session) |
 | `s` | Manage MCP servers |
 | `t` | Change theme |
+| `o` | Toggle notifications |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -203,6 +204,19 @@ Press `t` to choose from:
 - Tokyo Night
 - Catppuccin Mocha
 - Light
+
+## Desktop Notifications
+
+Get notified when Claude finishes responding while Plural is in the background:
+
+1. Press `o` to enable notifications
+2. Switch to another app while Claude is working
+3. You'll receive a desktop notification when the response is ready
+
+**Platform notes:**
+- **macOS**: Works out of the box. For better notifications, install `terminal-notifier` (`brew install terminal-notifier`)
+- **Linux**: Requires a notification daemon (most desktop environments have one) or `notify-send`
+- **Windows 10+**: Works out of the box
 
 ## Configuration
 

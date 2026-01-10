@@ -46,10 +46,11 @@ type Config struct {
 	RepoMCP          map[string][]MCPServer `json:"repo_mcp,omitempty"`           // Per-repo MCP servers
 	AllowedTools     []string               `json:"allowed_tools,omitempty"`      // Global allowed tools
 	RepoAllowedTools map[string][]string    `json:"repo_allowed_tools,omitempty"` // Per-repo allowed tools
-	WelcomeShown        bool                   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
-	LastSeenVersion     string                 `json:"last_seen_version,omitempty"`     // Last version user has seen changelog for
-	Theme               string                 `json:"theme,omitempty"`                 // UI theme name (e.g., "dark-purple", "nord")
-	DefaultBranchPrefix string                 `json:"default_branch_prefix,omitempty"` // Prefix for auto-generated branch names (e.g., "zhubert/")
+	WelcomeShown         bool   `json:"welcome_shown,omitempty"`          // Whether welcome modal has been shown
+	LastSeenVersion      string `json:"last_seen_version,omitempty"`      // Last version user has seen changelog for
+	Theme                string `json:"theme,omitempty"`                  // UI theme name (e.g., "dark-purple", "nord")
+	DefaultBranchPrefix  string `json:"default_branch_prefix,omitempty"`  // Prefix for auto-generated branch names (e.g., "zhubert/")
+	NotificationsEnabled bool   `json:"notifications_enabled,omitempty"` // Desktop notifications when Claude completes
 
 	mu       sync.RWMutex
 	filePath string
@@ -666,4 +667,18 @@ func (c *Config) SetDefaultBranchPrefix(prefix string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.DefaultBranchPrefix = prefix
+}
+
+// GetNotificationsEnabled returns whether desktop notifications are enabled
+func (c *Config) GetNotificationsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.NotificationsEnabled
+}
+
+// SetNotificationsEnabled sets whether desktop notifications are enabled
+func (c *Config) SetNotificationsEnabled(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.NotificationsEnabled = enabled
 }

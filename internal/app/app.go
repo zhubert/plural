@@ -16,6 +16,7 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/notification"
 	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -72,6 +73,9 @@ type Model struct {
 
 	// State machine
 	state AppState // Current application state
+
+	// Window focus state for notifications
+	windowFocused bool // Whether the terminal window is focused
 
 	// Pending commit message editing state (one at a time)
 	pendingCommitSession string    // Session ID waiting for commit message confirmation
@@ -137,16 +141,17 @@ func New(cfg *config.Config, version string) *Model {
 	}
 
 	m := &Model{
-		config:     cfg,
-		version:    version,
-		header:     ui.NewHeader(),
-		footer:     ui.NewFooter(),
-		sidebar:    ui.NewSidebar(),
-		chat:       ui.NewChat(),
-		modal:      ui.NewModal(),
-		focus:      FocusSidebar,
-		sessionMgr: NewSessionManager(cfg),
-		state:      StateIdle,
+		config:        cfg,
+		version:       version,
+		header:        ui.NewHeader(),
+		footer:        ui.NewFooter(),
+		sidebar:       ui.NewSidebar(),
+		chat:          ui.NewChat(),
+		modal:         ui.NewModal(),
+		focus:         FocusSidebar,
+		sessionMgr:    NewSessionManager(cfg),
+		state:         StateIdle,
+		windowFocused: true, // Assume window is focused on startup
 	}
 
 	// Load sessions into sidebar
@@ -215,6 +220,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateSizes()
+
+	case tea.FocusMsg:
+		m.windowFocused = true
+		logger.Log("App: Window focused")
+
+	case tea.BlurMsg:
+		m.windowFocused = false
+		logger.Log("App: Window blurred")
 
 	case tea.PasteStartMsg:
 		// Handle paste events - check for images in clipboard when paste starts
@@ -452,6 +465,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Detect options in the last assistant message for parallel exploration
 			m.detectOptionsInSession(msg.SessionID, runner)
+			// Send desktop notification if window is not focused and notifications are enabled
+			if !m.windowFocused && m.config.GetNotificationsEnabled() {
+				sessionName := msg.SessionID
+				if sess != nil {
+					sessionName = ui.SessionDisplayName(sess.Branch, sess.Name)
+				}
+				go notification.SessionCompleted(sessionName)
+			}
 			// Check if any sessions are still streaming
 			if !m.hasAnyStreamingSessions() {
 				m.setState(StateIdle)
