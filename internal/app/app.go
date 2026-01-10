@@ -156,6 +156,13 @@ func New(cfg *config.Config, version string) *Model {
 	return m
 }
 
+// Close gracefully shuts down all Claude sessions and releases resources.
+// This should be called when the application is exiting.
+func (m *Model) Close() {
+	logger.Log("App: Closing and shutting down all sessions")
+	m.sessionMgr.Shutdown()
+}
+
 // State helper methods
 
 // IsIdle returns true if the app is ready for user input
