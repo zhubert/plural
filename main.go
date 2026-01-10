@@ -131,6 +131,7 @@ For more information, visit: https://github.com/zhubert/plural
 
 	// Create and run the app
 	m := app.New(cfg, version)
+	defer m.Close() // Gracefully shut down all Claude sessions on exit
 	p := tea.NewProgram(m)
 
 	if _, err := p.Run(); err != nil {

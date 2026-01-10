@@ -310,3 +310,16 @@ func (sm *SessionManager) AddAllowedTool(sessionID string, tool string) {
 func (sm *SessionManager) SetRunner(sessionID string, runner *claude.Runner) {
 	sm.runners[sessionID] = runner
 }
+
+// Shutdown stops all runners gracefully. This should be called when the
+// application is exiting to ensure all Claude CLI processes are terminated
+// and resources are cleaned up.
+func (sm *SessionManager) Shutdown() {
+	logger.Log("SessionManager: Shutting down all runners (%d total)", len(sm.runners))
+	for sessionID, runner := range sm.runners {
+		logger.Log("SessionManager: Stopping runner for session %s", sessionID)
+		runner.Stop()
+	}
+	sm.runners = make(map[string]*claude.Runner)
+	logger.Log("SessionManager: Shutdown complete")
+}
