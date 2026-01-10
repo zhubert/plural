@@ -52,11 +52,11 @@ const (
 // Modal dimensions
 const (
 	// ModalWidth is the default width of modals
-	ModalWidth = 60
+	ModalWidth = 80
 
 	// ModalInputCharLimit is the character limit for modal text inputs
 	ModalInputCharLimit = 256
 
 	// ModalInputWidth is the width of modal text inputs
-	ModalInputWidth = 50
+	ModalInputWidth = 72
 )
