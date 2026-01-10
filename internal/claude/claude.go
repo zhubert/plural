@@ -114,7 +114,19 @@ const OptionsSystemPrompt = `When presenting the user with numbered choices or o
 2. Second option
 3. Third option
 </options>
-The opening and closing tags should be on their own lines, with the numbered options between them.`
+The opening and closing tags should be on their own lines, with the numbered options between them.
+
+If you have multiple groups of options (e.g., high priority and low priority items), use <optgroup> tags within the <options> block:
+<options>
+<optgroup>
+1. High priority option A
+2. High priority option B
+</optgroup>
+<optgroup>
+1. Lower priority option X
+2. Lower priority option Y
+</optgroup>
+</options>`
 
 // Runner manages a Claude Code CLI session
 type Runner struct {

@@ -7,13 +7,17 @@ import (
 
 // DetectedOption represents a numbered option found in Claude's response
 type DetectedOption struct {
-	Number int    // The option number (1, 2, 3, etc.)
-	Text   string // The option text
+	Number     int    // The option number (1, 2, 3, etc.)
+	Text       string // The option text
+	GroupIndex int    // Which group this option belongs to (0-indexed)
 }
 
 // optionsTagPattern matches <options>...</options> blocks in Claude's response.
 // Claude is instructed via system prompt to wrap numbered choices in these tags.
 var optionsTagPattern = regexp.MustCompile(`(?s)<options>\s*(.*?)\s*</options>`)
+
+// optgroupTagPattern matches <optgroup>...</optgroup> blocks within options.
+var optgroupTagPattern = regexp.MustCompile(`(?s)<optgroup>\s*(.*?)\s*</optgroup>`)
 
 // optionPatterns are regexes that match numbered lists in Claude responses.
 // These are used as fallback when <options> tags are not present.
@@ -51,7 +55,8 @@ func DetectOptions(message string) []DetectedOption {
 }
 
 // detectOptionsFromTags extracts options from <options>...</options> blocks.
-// Returns the options from the last block found (most recent).
+// Supports <optgroup> tags for explicit grouping. Returns the options from
+// the last block found (most recent).
 func detectOptionsFromTags(message string) []DetectedOption {
 	matches := optionsTagPattern.FindAllStringSubmatch(message, -1)
 	if len(matches) == 0 {
@@ -66,7 +71,24 @@ func detectOptionsFromTags(message string) []DetectedOption {
 
 	content := lastMatch[1]
 
-	// Parse numbered options within the block
+	// Check for <optgroup> tags first (explicit grouping)
+	optgroupMatches := optgroupTagPattern.FindAllStringSubmatch(content, -1)
+	if len(optgroupMatches) > 0 {
+		var result []DetectedOption
+		for groupIdx, optgroupMatch := range optgroupMatches {
+			if len(optgroupMatch) < 2 {
+				continue
+			}
+			groupContent := optgroupMatch[1]
+			groupOptions := parseOptionsFromContent(groupContent, groupIdx)
+			result = append(result, groupOptions...)
+		}
+		if len(result) >= 2 {
+			return result
+		}
+	}
+
+	// No optgroups, parse the content directly
 	for _, pattern := range optionPatterns {
 		lineMatches := pattern.FindAllStringSubmatch(content, -1)
 		if len(lineMatches) >= 2 {
@@ -80,8 +102,42 @@ func detectOptionsFromTags(message string) []DetectedOption {
 	return nil
 }
 
-// extractSequentialOptions finds the last sequential run of numbered options
-// starting from 1 (or continuing a sequence).
+// parseOptionsFromContent parses numbered options from content, assigning the given group index.
+func parseOptionsFromContent(content string, groupIndex int) []DetectedOption {
+	for _, pattern := range optionPatterns {
+		lineMatches := pattern.FindAllStringSubmatch(content, -1)
+		if len(lineMatches) >= 2 {
+			var options []DetectedOption
+			for _, match := range lineMatches {
+				if len(match) < 3 {
+					continue
+				}
+				num := 0
+				for _, c := range match[1] {
+					if c >= '0' && c <= '9' {
+						num = num*10 + int(c-'0')
+					}
+				}
+				text := strings.TrimSpace(match[2])
+				if text == "" {
+					continue
+				}
+				options = append(options, DetectedOption{
+					Number:     num,
+					Text:       text,
+					GroupIndex: groupIndex,
+				})
+			}
+			if len(options) >= 2 {
+				return options
+			}
+		}
+	}
+	return nil
+}
+
+// extractSequentialOptions finds all sequential runs of numbered options
+// starting from 1. Returns all groups flattened with GroupIndex set.
 func extractSequentialOptions(matches [][]string) []DetectedOption {
 	if len(matches) == 0 {
 		return nil
@@ -138,11 +194,15 @@ func extractSequentialOptions(matches [][]string) []DetectedOption {
 		allGroups = append(allGroups, currentGroup)
 	}
 
-	// Return the last valid group (most recent in the message)
-	if len(allGroups) > 0 {
-		return allGroups[len(allGroups)-1]
+	// Flatten all groups with GroupIndex set
+	var result []DetectedOption
+	for groupIdx, group := range allGroups {
+		for _, opt := range group {
+			opt.GroupIndex = groupIdx
+			result = append(result, opt)
+		}
 	}
 
-	return nil
+	return result
 }
 

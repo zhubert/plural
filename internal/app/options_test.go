@@ -104,7 +104,7 @@ Each has its pros and cons.`,
 			wantNums: nil,
 		},
 		{
-			name: "multiple lists - returns last",
+			name: "multiple lists - returns all groups",
 			message: `First set:
 1. A
 2. B
@@ -113,8 +113,8 @@ Second set:
 1. X
 2. Y
 3. Z`,
-			wantLen:  3,
-			wantNums: []int{1, 2, 3},
+			wantLen:  5,
+			wantNums: []int{1, 2, 1, 2, 3},
 		},
 	}
 
@@ -260,5 +260,91 @@ func TestDetectOptions_TagsPriorityOverFallback(t *testing.T) {
 	}
 	if options[1].Text != "Tagged Y" {
 		t.Errorf("Option 2 text = %q, want %q", options[1].Text, "Tagged Y")
+	}
+}
+
+func TestDetectOptions_Optgroups(t *testing.T) {
+	message := `<options>
+<optgroup>
+1. High priority A
+2. High priority B
+3. High priority C
+</optgroup>
+<optgroup>
+1. Medium priority X
+2. Medium priority Y
+</optgroup>
+<optgroup>
+1. Low priority Z
+2. Low priority W
+</optgroup>
+</options>`
+
+	options := DetectOptions(message)
+	if len(options) != 7 {
+		t.Fatalf("Expected 7 options, got %d", len(options))
+	}
+
+	// Check first group (indices 0-2)
+	for i := 0; i < 3; i++ {
+		if options[i].GroupIndex != 0 {
+			t.Errorf("Option %d GroupIndex = %d, want 0", i, options[i].GroupIndex)
+		}
+	}
+
+	// Check second group (indices 3-4)
+	for i := 3; i < 5; i++ {
+		if options[i].GroupIndex != 1 {
+			t.Errorf("Option %d GroupIndex = %d, want 1", i, options[i].GroupIndex)
+		}
+	}
+
+	// Check third group (indices 5-6)
+	for i := 5; i < 7; i++ {
+		if options[i].GroupIndex != 2 {
+			t.Errorf("Option %d GroupIndex = %d, want 2", i, options[i].GroupIndex)
+		}
+	}
+
+	// Verify option text
+	if options[0].Text != "High priority A" {
+		t.Errorf("Option 0 text = %q, want %q", options[0].Text, "High priority A")
+	}
+	if options[3].Text != "Medium priority X" {
+		t.Errorf("Option 3 text = %q, want %q", options[3].Text, "Medium priority X")
+	}
+	if options[5].Text != "Low priority Z" {
+		t.Errorf("Option 5 text = %q, want %q", options[5].Text, "Low priority Z")
+	}
+}
+
+func TestDetectOptions_MultipleGroupsWithGroupIndex(t *testing.T) {
+	// Test that multiple lists without optgroup tags get proper GroupIndex values
+	message := `Priority features:
+1. Feature A
+2. Feature B
+3. Feature C
+
+Nice to have:
+1. Extra X
+2. Extra Y`
+
+	options := DetectOptions(message)
+	if len(options) != 5 {
+		t.Fatalf("Expected 5 options, got %d", len(options))
+	}
+
+	// First 3 should be group 0
+	for i := 0; i < 3; i++ {
+		if options[i].GroupIndex != 0 {
+			t.Errorf("Option %d GroupIndex = %d, want 0", i, options[i].GroupIndex)
+		}
+	}
+
+	// Last 2 should be group 1
+	for i := 3; i < 5; i++ {
+		if options[i].GroupIndex != 1 {
+			t.Errorf("Option %d GroupIndex = %d, want 1", i, options[i].GroupIndex)
+		}
 	}
 }

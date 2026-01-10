@@ -1452,9 +1452,10 @@ func NewThemeState(currentTheme ThemeName) *ThemeState {
 
 // OptionItem represents a detected option for display
 type OptionItem struct {
-	Number   int
-	Text     string
-	Selected bool
+	Number     int
+	Text       string
+	Selected   bool
+	GroupIndex int // Which group this option belongs to (for visual separation)
 }
 
 type ExploreOptionsState struct {
@@ -1491,7 +1492,16 @@ func (s *ExploreOptionsState) Render() string {
 		Render("Select options to explore in parallel forks:")
 
 	var optionList string
+	lastGroupIndex := -1
 	for i, opt := range s.Options {
+		// Add separator between groups
+		if lastGroupIndex != -1 && opt.GroupIndex != lastGroupIndex {
+			separatorStyle := lipgloss.NewStyle().
+				Foreground(ColorTextMuted)
+			optionList += separatorStyle.Render("    ───────────────────────────────────────") + "\n"
+		}
+		lastGroupIndex = opt.GroupIndex
+
 		style := SidebarItemStyle
 		prefix := "  "
 		checkbox := "[ ]"
