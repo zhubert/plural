@@ -28,6 +28,7 @@ type Session struct {
 	PRCreated      bool      `json:"pr_created,omitempty"`       // Whether a PR has been created for this session
 	ParentID       string    `json:"parent_id,omitempty"`        // ID of parent session if this is a fork
 	MergedToParent bool      `json:"merged_to_parent,omitempty"` // Whether session has been merged back to its parent (locks the session)
+	IssueNumber    int       `json:"issue_number,omitempty"`     // GitHub issue number if session was created from an issue
 }
 
 // MCPServer represents an MCP server configuration
