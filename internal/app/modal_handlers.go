@@ -53,6 +53,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleImportIssuesModal(key, msg, s)
 	case *ui.SelectRepoForIssuesState:
 		return m.handleSelectRepoForIssuesModal(key, msg, s)
+	case *ui.SearchMessagesState:
+		return m.handleSearchMessagesModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -1020,7 +1022,7 @@ func normalizeHelpDisplayKey(displayKey string) string {
 	case "↑/↓ or j/k", "PgUp/PgDn", "Enter", "Esc":
 		return ""
 	// Chat-context only shortcuts (not executable from help modal)
-	case "Ctrl+V", "Ctrl+P":
+	case "Ctrl+V", "Ctrl+P", "ctrl+/":
 		return ""
 	// Permission shortcuts (context-sensitive)
 	case "y", "n", "a":
@@ -1031,5 +1033,29 @@ func normalizeHelpDisplayKey(displayKey string) string {
 	default:
 		return strings.ToLower(displayKey)
 	}
+}
+
+// handleSearchMessagesModal handles key events for the Search Messages modal.
+func (m *Model) handleSearchMessagesModal(key string, msg tea.KeyPressMsg, state *ui.SearchMessagesState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		// Go to the selected search result
+		result := state.GetSelectedResult()
+		if result != nil {
+			// Close modal first
+			m.modal.Hide()
+			// Scroll to message - for now we just close the modal
+			// Future enhancement: could scroll the chat viewport to the message
+			logger.Log("App: Search - selected message %d (%s)", result.MessageIndex+1, result.Role)
+		}
+		return m, nil
+	}
+	// Forward other keys to the modal for text input and navigation
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
 }
 

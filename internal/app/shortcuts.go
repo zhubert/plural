@@ -158,6 +158,17 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutTheme,
 	},
 
+	// Chat
+	{
+		Key:             "ctrl+/",
+		DisplayKey:      "ctrl+/",
+		Description:     "Search messages",
+		Category:        CategoryChat,
+		RequiresSession: true,
+		Handler:         shortcutSearchMessages,
+		Condition:       func(m *Model) bool { return m.chat.IsFocused() },
+	},
+
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
 	{
@@ -427,4 +438,24 @@ func shortcutHelp(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutQuit(m *Model) (tea.Model, tea.Cmd) {
 	return m, tea.Quit
+}
+
+func shortcutSearchMessages(m *Model) (tea.Model, tea.Cmd) {
+	// Get messages from the current session
+	messages := m.chat.GetMessages()
+	if len(messages) == 0 {
+		return m, nil
+	}
+
+	// Convert to the format expected by NewSearchMessagesState
+	var searchMessages []struct{ Role, Content string }
+	for _, msg := range messages {
+		searchMessages = append(searchMessages, struct{ Role, Content string }{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+
+	m.modal.Show(ui.NewSearchMessagesState(searchMessages))
+	return m, nil
 }

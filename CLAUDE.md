@@ -146,6 +146,18 @@ Import GitHub issues directly into new sessions:
 
 Each issue becomes a session with branch name `issue-{number}`. The issue number is stored in the session and when a PR is created, "Fixes #N" is automatically added to the PR body, which will close the issue when the PR is merged.
 
+### Message Search
+
+Search within conversation history:
+
+1. **Press `Ctrl+/`** when the chat panel is focused
+2. **Type to search**: Real-time filtering as you type
+3. **Navigate results**: Use ↑/↓ to move through matches
+4. **View match context**: Each result shows a snippet with the match highlighted
+5. **Press Enter** to close the modal
+
+The search is case-insensitive and matches any substring within messages. Results show the message number, role (You/Claude), and a snippet around the match.
+
 ### Dependencies
 
 Charm's Bubble Tea v2 stack:

@@ -367,6 +367,11 @@ func (c *Chat) GetStreaming() string {
 	return c.streaming
 }
 
+// GetMessages returns the conversation messages
+func (c *Chat) GetMessages() []claude.Message {
+	return c.messages
+}
+
 // SetStreaming sets the streaming content (used when restoring session state)
 func (c *Chat) SetStreaming(content string) {
 	c.streaming = content
