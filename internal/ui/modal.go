@@ -2187,6 +2187,24 @@ func NewHelpState() *HelpState {
 	}
 }
 
+// NewHelpStateFromSections creates a HelpState from pre-built sections.
+// This allows the shortcut registry to generate sections programmatically.
+func NewHelpStateFromSections(sections []HelpSection) *HelpState {
+	// Build flattened list of shortcuts for navigation
+	var flatShortcuts []HelpShortcut
+	for _, section := range sections {
+		flatShortcuts = append(flatShortcuts, section.Shortcuts...)
+	}
+
+	return &HelpState{
+		Sections:      sections,
+		FlatShortcuts: flatShortcuts,
+		ScrollOffset:  0,
+		SelectedIndex: 0,
+		maxVisible:    18,
+	}
+}
+
 // =============================================================================
 // Helper functions
 // =============================================================================

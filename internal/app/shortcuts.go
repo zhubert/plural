@@ -1,0 +1,430 @@
+package app
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural/internal/ui"
+)
+
+// Shortcut represents a keyboard shortcut with its metadata and handler.
+// This is the single source of truth for all shortcuts in the application.
+type Shortcut struct {
+	Key             string                              // The key binding (e.g., "n", "ctrl+f")
+	DisplayKey      string                              // Display name in help (e.g., "Ctrl+F"); defaults to Key
+	Description     string                              // Human-readable description
+	Category        string                              // Section for help modal grouping
+	RequiresSession bool                                // Must have session selected
+	RequiresSidebar bool                                // Must not be in chat focus
+	Handler         func(m *Model) (tea.Model, tea.Cmd) // Action to perform
+	Condition       func(m *Model) bool                 // Optional extra condition
+}
+
+// Categories for organizing shortcuts in the help modal
+const (
+	CategoryNavigation    = "Navigation"
+	CategorySessions      = "Sessions"
+	CategoryGit           = "Git Operations"
+	CategoryConfiguration = "Configuration"
+	CategoryChat          = "Chat (when focused)"
+	CategoryPermissions   = "Permissions (when prompted)"
+	CategoryGeneral       = "General"
+)
+
+// categoryOrder defines the display order of categories in the help modal
+var categoryOrder = []string{
+	CategoryNavigation,
+	CategorySessions,
+	CategoryGit,
+	CategoryConfiguration,
+	CategoryChat,
+	CategoryPermissions,
+	CategoryGeneral,
+}
+
+// ShortcutRegistry is the central registry of all keyboard shortcuts.
+// Add new shortcuts here and they will automatically appear in the help modal
+// and be executable from both direct key presses and the help modal.
+var ShortcutRegistry = []Shortcut{
+	// Navigation
+	{
+		Key:         "tab",
+		DisplayKey:  "Tab",
+		Description: "Switch between sidebar and chat",
+		Category:    CategoryNavigation,
+		Handler:     shortcutToggleFocus,
+	},
+	{
+		Key:             "/",
+		Description:     "Search sessions",
+		Category:        CategoryNavigation,
+		RequiresSidebar: true,
+		Handler:         shortcutSearch,
+		Condition:       func(m *Model) bool { return !m.sidebar.IsSearchMode() },
+	},
+
+	// Sessions
+	{
+		Key:             "n",
+		Description:     "Create new session",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		Handler:         shortcutNewSession,
+	},
+	{
+		Key:             "d",
+		Description:     "Delete selected session",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutDeleteSession,
+	},
+	{
+		Key:             "f",
+		Description:     "Fork selected session",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutForkSession,
+	},
+	{
+		Key:             "i",
+		Description:     "Import GitHub issues",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		Handler:         shortcutImportIssues,
+	},
+	{
+		Key:             "ctrl+f",
+		DisplayKey:      "ctrl+f",
+		Description:     "Force resume (if session in use)",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutForceResume,
+		Condition:       func(m *Model) bool { return m.hasSessionInUseError() },
+	},
+
+	// Git Operations
+	{
+		Key:             "v",
+		Description:     "View changes in worktree",
+		Category:        CategoryGit,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutViewChanges,
+	},
+	{
+		Key:             "m",
+		Description:     "Merge to main / Create PR",
+		Category:        CategoryGit,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutMerge,
+	},
+	{
+		Key:             "c",
+		Description:     "Commit resolved conflicts",
+		Category:        CategoryGit,
+		RequiresSidebar: true,
+		Handler:         shortcutCommitConflicts,
+		Condition:       func(m *Model) bool { return m.pendingConflictRepoPath != "" },
+	},
+
+	// Configuration
+	{
+		Key:             "a",
+		Description:     "Add repository",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutAddRepo,
+	},
+	{
+		Key:             "s",
+		Description:     "Manage MCP servers",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutMCPServers,
+	},
+	{
+		Key:             "t",
+		Description:     "Change theme",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutTheme,
+	},
+
+	// General
+	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
+	{
+		Key:             "q",
+		Description:     "Quit application",
+		Category:        CategoryGeneral,
+		RequiresSidebar: true,
+		Handler:         shortcutQuit,
+	},
+}
+
+// helpShortcut is defined separately to avoid initialization cycle.
+// It references ShortcutRegistry, so it can't be in the registry itself.
+var helpShortcut = Shortcut{
+	Key:             "?",
+	Description:     "Show this help",
+	Category:        CategoryGeneral,
+	RequiresSidebar: true,
+}
+
+// DisplayOnlyShortcuts are shown in help but not executable from the help modal.
+// These are context-sensitive or informational entries.
+var DisplayOnlyShortcuts = []Shortcut{
+	// Navigation (display-only)
+	{DisplayKey: "↑/↓ or j/k", Description: "Navigate session list", Category: CategoryNavigation},
+	{DisplayKey: "PgUp/PgDn", Description: "Scroll chat or session list", Category: CategoryNavigation},
+	{DisplayKey: "Enter", Description: "Select session / Send message", Category: CategoryNavigation},
+	{DisplayKey: "Esc", Description: "Cancel search / Stop streaming", Category: CategoryNavigation},
+
+	// Chat (display-only, context-sensitive)
+	{DisplayKey: "Ctrl+V", Description: "Paste image", Category: CategoryChat},
+	{DisplayKey: "Ctrl+P", Description: "Fork detected options", Category: CategoryChat},
+
+	// Permissions (display-only, context-sensitive)
+	{DisplayKey: "y", Description: "Allow action", Category: CategoryPermissions},
+	{DisplayKey: "n", Description: "Deny action", Category: CategoryPermissions},
+	{DisplayKey: "a", Description: "Always allow this tool", Category: CategoryPermissions},
+}
+
+// ExecuteShortcut finds and executes a shortcut by key.
+// It checks all guards (RequiresSidebar, RequiresSession, Condition) before executing.
+// Returns (model, cmd, true) if the shortcut was found and executed.
+// Returns (model, nil, false) if the shortcut was not found or guards failed.
+func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
+	// Handle help shortcut specially (defined outside registry to avoid init cycle)
+	if key == "?" {
+		if m.chat.IsFocused() {
+			return m, nil, true // Found but guard failed
+		}
+		result, cmd := shortcutHelp(m)
+		return result, cmd, true
+	}
+
+	for _, s := range ShortcutRegistry {
+		if s.Key == key {
+			// Check guards
+			if s.RequiresSidebar && m.chat.IsFocused() {
+				return m, nil, true // Found but guard failed
+			}
+			if s.RequiresSession && m.sidebar.SelectedSession() == nil {
+				return m, nil, true // Found but guard failed
+			}
+			if s.Condition != nil && !s.Condition(m) {
+				return m, nil, true // Found but guard failed
+			}
+			result, cmd := s.Handler(m)
+			return result, cmd, true
+		}
+	}
+	return m, nil, false
+}
+
+// getHelpSections generates help modal sections from the given shortcut slices.
+// This is called at runtime to avoid initialization cycles.
+func getHelpSections(registry []Shortcut, displayOnly []Shortcut) []ui.HelpSection {
+	// Collect shortcuts by category
+	categories := make(map[string][]ui.HelpShortcut)
+
+	// Add executable shortcuts
+	for _, s := range registry {
+		displayKey := s.DisplayKey
+		if displayKey == "" {
+			displayKey = s.Key
+		}
+		categories[s.Category] = append(categories[s.Category], ui.HelpShortcut{
+			Key:  displayKey,
+			Desc: s.Description,
+		})
+	}
+
+	// Add display-only shortcuts
+	for _, s := range displayOnly {
+		displayKey := s.DisplayKey
+		if displayKey == "" {
+			displayKey = s.Key
+		}
+		categories[s.Category] = append(categories[s.Category], ui.HelpShortcut{
+			Key:  displayKey,
+			Desc: s.Description,
+		})
+	}
+
+	// Build sections in the correct order
+	var sections []ui.HelpSection
+	for _, cat := range categoryOrder {
+		if shortcuts, ok := categories[cat]; ok && len(shortcuts) > 0 {
+			sections = append(sections, ui.HelpSection{
+				Title:     cat,
+				Shortcuts: shortcuts,
+			})
+		}
+	}
+
+	return sections
+}
+
+// hasSessionInUseError checks if the selected session has an "in use" error
+func (m *Model) hasSessionInUseError() bool {
+	sess := m.sidebar.SelectedSession()
+	if sess == nil {
+		return false
+	}
+	return m.sessionState().HasSessionInUseError(sess.ID)
+}
+
+// =============================================================================
+// Shortcut Handlers
+// =============================================================================
+
+func shortcutToggleFocus(m *Model) (tea.Model, tea.Cmd) {
+	m.toggleFocus()
+	return m, nil
+}
+
+func shortcutSearch(m *Model) (tea.Model, tea.Cmd) {
+	m.sidebar.EnterSearchMode()
+	return m, nil
+}
+
+func shortcutNewSession(m *Model) (tea.Model, tea.Cmd) {
+	m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+	return m, nil
+}
+
+func shortcutDeleteSession(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+	m.modal.Show(ui.NewConfirmDeleteState(displayName))
+	return m, nil
+}
+
+func shortcutForkSession(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+	m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
+	return m, nil
+}
+
+func shortcutImportIssues(m *Model) (tea.Model, tea.Cmd) {
+	if sess := m.sidebar.SelectedSession(); sess != nil {
+		// Session selected - use its repo
+		repoName := filepath.Base(sess.RepoPath)
+		m.modal.Show(ui.NewImportIssuesState(sess.RepoPath, repoName))
+		return m, m.fetchGitHubIssues(sess.RepoPath)
+	}
+	// No session - show repo picker
+	repos := m.config.GetRepos()
+	m.modal.Show(ui.NewSelectRepoForIssuesState(repos))
+	return m, nil
+}
+
+func shortcutForceResume(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	return m.forceResumeSession(sess)
+}
+
+func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	// Select the session first so we can display in its chat panel
+	if m.activeSession == nil || m.activeSession.ID != sess.ID {
+		m.selectSession(sess)
+	}
+	// Get worktree status and display it in view changes overlay
+	status, err := git.GetWorktreeStatus(sess.WorkTree)
+	var content string
+	if err != nil {
+		content = fmt.Sprintf("[Error getting status: %v]\n", err)
+	} else if !status.HasChanges {
+		content = "No uncommitted changes in this session."
+	} else {
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Uncommitted changes (%s):\n\n", status.Summary)
+		for _, file := range status.Files {
+			fmt.Fprintf(&sb, "  - %s\n", file)
+		}
+		if status.Diff != "" {
+			sb.WriteString("\n--- Diff ---\n")
+			sb.WriteString(ui.HighlightDiff(status.Diff))
+		}
+		content = sb.String()
+	}
+	m.chat.EnterViewChangesMode(content)
+	return m, nil
+}
+
+func shortcutMerge(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	hasRemote := git.HasRemoteOrigin(sess.RepoPath)
+	// Get changes summary to display in modal
+	var changesSummary string
+	if status, err := git.GetWorktreeStatus(sess.WorkTree); err == nil && status.HasChanges {
+		changesSummary = status.Summary
+		// Add file list if not too many files
+		if len(status.Files) <= 5 {
+			changesSummary += ": " + strings.Join(status.Files, ", ")
+		}
+	}
+	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
+	// Get parent name if this is a child session
+	var parentName string
+	if sess.ParentID != "" {
+		if parent := m.config.GetSession(sess.ParentID); parent != nil {
+			parentName = ui.SessionDisplayName(parent.Branch, parent.Name)
+		}
+	}
+	m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName, sess.PRCreated))
+	return m, nil
+}
+
+func shortcutCommitConflicts(m *Model) (tea.Model, tea.Cmd) {
+	return m.showCommitConflictModal()
+}
+
+func shortcutAddRepo(m *Model) (tea.Model, tea.Cmd) {
+	// Check if current directory is a git repo and not already added
+	currentRepo := session.GetCurrentDirGitRoot()
+	if currentRepo != "" {
+		// Check if already added
+		for _, repo := range m.config.GetRepos() {
+			if repo == currentRepo {
+				currentRepo = "" // Already added, don't suggest
+				break
+			}
+		}
+	}
+	m.modal.Show(ui.NewAddRepoState(currentRepo))
+	return m, nil
+}
+
+func shortcutMCPServers(m *Model) (tea.Model, tea.Cmd) {
+	m.showMCPServersModal()
+	return m, nil
+}
+
+func shortcutTheme(m *Model) (tea.Model, tea.Cmd) {
+	m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
+	return m, nil
+}
+
+func shortcutHelp(m *Model) (tea.Model, tea.Cmd) {
+	// Include help shortcut in the registry for display purposes
+	allShortcuts := append(ShortcutRegistry, helpShortcut)
+	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+	m.modal.Show(ui.NewHelpStateFromSections(sections))
+	return m, nil
+}
+
+func shortcutQuit(m *Model) (tea.Model, tea.Cmd) {
+	return m, tea.Quit
+}

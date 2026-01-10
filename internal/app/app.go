@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/process"
-	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -337,135 +335,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Global keys
-		switch msg.String() {
-		case "ctrl+c":
+		key := msg.String()
+
+		// Handle ctrl+c specially - always quits
+		if key == "ctrl+c" {
 			return m, tea.Quit
-		case "q":
-			// Only quit on 'q' when sidebar is focused (so user can type 'q' in chat)
-			if !m.chat.IsFocused() {
-				return m, tea.Quit
+		}
+
+		// Try executing from shortcut registry
+		if result, cmd, handled := m.ExecuteShortcut(key); handled {
+			if cmd != nil {
+				return result, cmd
 			}
-		case "tab":
-			m.toggleFocus()
-		case "n":
-			if !m.chat.IsFocused() {
-				m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
-			}
-		case "a":
-			if !m.chat.IsFocused() {
-				// Check if current directory is a git repo and not already added
-				currentRepo := session.GetCurrentDirGitRoot()
-				if currentRepo != "" {
-					// Check if already added
-					for _, repo := range m.config.GetRepos() {
-						if repo == currentRepo {
-							currentRepo = "" // Already added, don't suggest
-							break
-						}
-					}
-				}
-				m.modal.Show(ui.NewAddRepoState(currentRepo))
-			}
-		case "d":
-			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				sess := m.sidebar.SelectedSession()
-				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
-				m.modal.Show(ui.NewConfirmDeleteState(displayName))
-			}
-		case "v":
-			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				sess := m.sidebar.SelectedSession()
-				// Select the session first so we can display in its chat panel
-				if m.activeSession == nil || m.activeSession.ID != sess.ID {
-					m.selectSession(sess)
-				}
-				// Get worktree status and display it in view changes overlay
-				status, err := git.GetWorktreeStatus(sess.WorkTree)
-				var content string
-				if err != nil {
-					content = fmt.Sprintf("[Error getting status: %v]\n", err)
-				} else if !status.HasChanges {
-					content = "No uncommitted changes in this session."
-				} else {
-					var sb strings.Builder
-					sb.WriteString(fmt.Sprintf("📝 Uncommitted changes (%s):\n\n", status.Summary))
-					for _, file := range status.Files {
-						sb.WriteString(fmt.Sprintf("  • %s\n", file))
-					}
-					if status.Diff != "" {
-						sb.WriteString("\n--- Diff ---\n")
-						sb.WriteString(ui.HighlightDiff(status.Diff))
-					}
-					content = sb.String()
-				}
-				m.chat.EnterViewChangesMode(content)
-				return m, nil
-			}
-		case "m":
-			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				sess := m.sidebar.SelectedSession()
-				hasRemote := git.HasRemoteOrigin(sess.RepoPath)
-				// Get changes summary to display in modal
-				var changesSummary string
-				if status, err := git.GetWorktreeStatus(sess.WorkTree); err == nil && status.HasChanges {
-					changesSummary = status.Summary
-					// Add file list if not too many files
-					if len(status.Files) <= 5 {
-						changesSummary += ": " + strings.Join(status.Files, ", ")
-					}
-				}
-				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
-				// Get parent name if this is a child session
-				var parentName string
-				if sess.ParentID != "" {
-					if parent := m.config.GetSession(sess.ParentID); parent != nil {
-						parentName = ui.SessionDisplayName(parent.Branch, parent.Name)
-					}
-				}
-				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName, sess.PRCreated))
-			}
-		case "f":
-			// Fork session: create a new session from the selected one
-			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				sess := m.sidebar.SelectedSession()
-				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
-				m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
-			}
-		case "i":
-			// Import GitHub issues as sessions
-			if !m.chat.IsFocused() {
-				if sess := m.sidebar.SelectedSession(); sess != nil {
-					// Session selected - use its repo
-					repoName := filepath.Base(sess.RepoPath)
-					m.modal.Show(ui.NewImportIssuesState(sess.RepoPath, repoName))
-					return m, m.fetchGitHubIssues(sess.RepoPath)
-				} else {
-					// No session - show repo picker
-					repos := m.config.GetRepos()
-					m.modal.Show(ui.NewSelectRepoForIssuesState(repos))
-				}
-			}
-		case "c":
-			// Commit resolved conflicts
-			if !m.chat.IsFocused() && m.pendingConflictRepoPath != "" {
-				return m.showCommitConflictModal()
-			}
-		case "s":
-			if !m.chat.IsFocused() {
-				m.showMCPServersModal()
-			}
-		case "/":
-			if !m.chat.IsFocused() && !m.sidebar.IsSearchMode() {
-				m.sidebar.EnterSearchMode()
-			}
-		case "t":
-			if !m.chat.IsFocused() {
-				m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
-			}
-		case "?":
-			if !m.chat.IsFocused() {
-				m.modal.Show(ui.NewHelpState())
-			}
+			// Shortcut was handled but returned no command (e.g., guard failed or no-op)
+			// For shortcuts that modify model state (like tab), we need to continue
+			// to let the component update handlers run
+		}
+
+		// Handle special cases not in the registry
+		switch key {
 		case "enter":
 			if m.focus == FocusSidebar {
 				// Select session

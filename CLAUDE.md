@@ -53,6 +53,7 @@ tail -f /tmp/plural-mcp-*.log
 - **main.go** - Entry point, Bubble Tea program setup, `mcp-server` subcommand
 - **internal/app** - Main Bubble Tea model coordinating UI and Claude runners
   - `app.go` - Main model, Update/View, key handling
+  - `shortcuts.go` - Central keyboard shortcut registry (single source of truth)
   - `session_manager.go` - Session lifecycle, runner caching, message persistence
   - `session_state.go` - Thread-safe per-session state (permissions, streaming, UI)
   - `modal_handlers.go` - Modal key handlers
@@ -89,6 +90,19 @@ tail -f /tmp/plural-mcp-*.log
 - **Thread-safe config**: Uses sync.RWMutex
 - **Per-session state**: Independent state maps for concurrent operation
 - **Explicit state machine**: `AppState` enum (StateIdle, StateStreamingClaude)
+
+### Keyboard Shortcuts
+
+Shortcuts are defined in a central registry (`shortcuts.go`) with:
+- `ShortcutRegistry` - All executable shortcuts with handlers
+- `DisplayOnlyShortcuts` - Informational entries shown in help modal
+- Guards: `RequiresSidebar`, `RequiresSession`, `Condition` functions
+- `ExecuteShortcut()` - Unified execution with automatic guard checking
+
+To add a new shortcut:
+1. Add entry to `ShortcutRegistry` in `shortcuts.go`
+2. Create handler function (e.g., `shortcutNewFeature`)
+3. The shortcut automatically appears in help modal and works from both direct key press and help modal selection
 
 ### Permission System
 
