@@ -439,6 +439,7 @@ type MergeState struct {
 	HasParent      bool   // Whether session has a parent it can merge to
 	ParentName     string // Name of parent session (for display)
 	ChangesSummary string
+	PRCreated      bool   // Whether a PR has already been created for this session
 }
 
 func (*MergeState) modalState() {}
@@ -531,7 +532,8 @@ func (s *MergeState) GetSelectedOption() string {
 
 // NewMergeState creates a new MergeState
 // parentName should be non-empty if this session has a parent it can merge to
-func NewMergeState(sessionName string, hasRemote bool, changesSummary string, parentName string) *MergeState {
+// prCreated should be true if a PR has already been created for this session
+func NewMergeState(sessionName string, hasRemote bool, changesSummary string, parentName string, prCreated bool) *MergeState {
 	var options []string
 
 	// If session has a parent, offer merge to parent first
@@ -542,7 +544,12 @@ func NewMergeState(sessionName string, hasRemote bool, changesSummary string, pa
 
 	options = append(options, "Merge to main")
 	if hasRemote {
-		options = append(options, "Create PR")
+		if prCreated {
+			// PR already exists - offer to push updates instead
+			options = append(options, "Push updates to PR")
+		} else {
+			options = append(options, "Create PR")
+		}
 	}
 
 	return &MergeState{
@@ -553,6 +560,7 @@ func NewMergeState(sessionName string, hasRemote bool, changesSummary string, pa
 		HasParent:      hasParent,
 		ParentName:     parentName,
 		ChangesSummary: changesSummary,
+		PRCreated:      prCreated,
 	}
 }
 

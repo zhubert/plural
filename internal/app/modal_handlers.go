@@ -225,6 +225,8 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			mergeType = MergeTypeParent
 		case "Create PR":
 			mergeType = MergeTypePR
+		case "Push updates to PR":
+			mergeType = MergeTypePush
 		default:
 			mergeType = MergeTypeMerge
 		}
@@ -252,13 +254,17 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			return m, m.generateCommitMessage(sess.ID, sess.WorkTree)
 		}
 
-		// No changes - proceed directly with merge/PR
+		// No changes - proceed directly with merge/PR/push
 		ctx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePR)
+		case MergeTypePush:
+			logger.Log("App: Pushing updates for branch %s (no uncommitted changes)", sess.Branch)
+			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
+			m.sessionState().StartMerge(sess.ID, git.PushUpdates(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePush)
 		case MergeTypeParent:
 			logger.Log("App: Merging branch %s to parent %s (no uncommitted changes)", sess.Branch, parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
@@ -381,13 +387,17 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		m.pendingCommitType = MergeTypeNone
 		m.pendingParentSession = ""
 
-		// Proceed with merge/PR using the edited commit message
+		// Proceed with merge/PR/push using the edited commit message
 		ctx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePR)
+		case MergeTypePush:
+			logger.Log("App: Pushing updates for branch %s with user-edited commit message", sess.Branch)
+			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
+			m.sessionState().StartMerge(sess.ID, git.PushUpdates(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePush)
 		case MergeTypeParent:
 			parentSess := m.config.GetSession(parentSessionID)
 			if parentSess == nil {
@@ -1058,7 +1068,7 @@ func (m *Model) handleHelpShortcutTrigger(key string) (tea.Model, tea.Cmd) {
 					parentName = ui.SessionDisplayName(parent.Branch, parent.Name)
 				}
 			}
-			m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName))
+			m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName, sess.PRCreated))
 		}
 		return m, nil
 	case "f":

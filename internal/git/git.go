@@ -773,6 +773,79 @@ Or abort the merge with: git merge --abort
 	return ch
 }
 
+// PushUpdates commits any uncommitted changes and pushes to the remote branch.
+// This is used after a PR has been created to push additional commits based on feedback.
+// If commitMsg is provided and non-empty, it will be used directly instead of generating one.
+func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
+	ch := make(chan Result)
+
+	go func() {
+		defer close(ch)
+
+		logger.Log("Git: Pushing updates for branch %s (worktree: %s)", branch, worktreePath)
+
+		// First, check for uncommitted changes in the worktree and commit them
+		status, err := GetWorktreeStatus(worktreePath)
+		if err != nil {
+			ch <- Result{Error: fmt.Errorf("failed to get worktree status: %w", err), Done: true}
+			return
+		}
+
+		if status.HasChanges {
+			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
+
+			// Use provided commit message or generate one
+			if commitMsg == "" {
+				ch <- Result{Output: "Generating commit message with Claude...\n"}
+
+				// Try to generate commit message with Claude, fall back to simple message
+				commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
+				if err != nil {
+					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
+					commitMsg, err = GenerateCommitMessage(worktreePath)
+					if err != nil {
+						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
+						return
+					}
+				} else {
+					// Show the generated commit message
+					firstLine := strings.Split(commitMsg, "\n")[0]
+					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
+				}
+			} else {
+				// Show the user-provided commit message
+				firstLine := strings.Split(commitMsg, "\n")[0]
+				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
+			}
+
+			ch <- Result{Output: "Committing changes...\n"}
+			if err := CommitAll(worktreePath, commitMsg); err != nil {
+				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
+				return
+			}
+			ch <- Result{Output: "Changes committed successfully\n\n"}
+		} else {
+			ch <- Result{Output: "No uncommitted changes in worktree\n\n"}
+		}
+
+		// Push the updates to the existing remote branch
+		ch <- Result{Output: fmt.Sprintf("Pushing updates to %s...\n", branch)}
+		cmd := exec.CommandContext(ctx, "git", "push", "origin", branch)
+		cmd.Dir = repoPath
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to push: %w", err), Done: true}
+			return
+		}
+		ch <- Result{Output: string(output)}
+
+		ch <- Result{Output: "\nUpdates pushed successfully! The PR will be updated automatically.\n", Done: true}
+	}()
+
+	return ch
+}
+
 // GitHubIssue represents a GitHub issue fetched via the gh CLI
 type GitHubIssue struct {
 	Number int    `json:"number"`
