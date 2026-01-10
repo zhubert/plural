@@ -3,6 +3,7 @@ package git
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -770,4 +771,37 @@ Or abort the merge with: git merge --abort
 	}()
 
 	return ch
+}
+
+// GitHubIssue represents a GitHub issue fetched via the gh CLI
+type GitHubIssue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	URL    string `json:"url"`
+}
+
+// FetchGitHubIssues fetches open issues from a GitHub repository using the gh CLI.
+// The repoPath is used as the working directory to determine which repo to query.
+func FetchGitHubIssues(repoPath string) ([]GitHubIssue, error) {
+	cmd := exec.Command("gh", "issue", "list",
+		"--json", "number,title,body,url",
+		"--state", "open",
+	)
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("gh issue list failed: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("gh issue list failed: %w", err)
+	}
+
+	var issues []GitHubIssue
+	if err := json.Unmarshal(output, &issues); err != nil {
+		return nil, fmt.Errorf("failed to parse issues: %w", err)
+	}
+
+	return issues, nil
 }

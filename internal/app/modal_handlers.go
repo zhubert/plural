@@ -48,6 +48,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleForkSessionModal(key, msg, s)
 	case *ui.HelpState:
 		return m.handleHelpModal(key, msg, s)
+	case *ui.ImportIssuesState:
+		return m.handleImportIssuesModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -636,6 +638,90 @@ func (m *Model) handleExploreOptionsModal(key string, msg tea.KeyPressMsg, state
 		m.modal = modal
 		return m, cmd
 	}
+	return m, nil
+}
+
+// handleImportIssuesModal handles key events for the Import Issues modal.
+func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *ui.ImportIssuesState) (tea.Model, tea.Cmd) {
+	// Don't handle keys while loading
+	if state.Loading {
+		return m, nil
+	}
+
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selected := state.GetSelectedIssues()
+		if len(selected) == 0 {
+			return m, nil
+		}
+		m.modal.Hide()
+		return m.createSessionsFromIssues(state.RepoPath, selected)
+	case "up", "k", "down", "j", "space":
+		// Forward navigation and space (toggle) keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
+
+// createSessionsFromIssues creates new sessions for each selected GitHub issue.
+func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem) (tea.Model, tea.Cmd) {
+	var firstSession *config.Session
+
+	for _, issue := range issues {
+		// Create branch name from issue number
+		branchName := fmt.Sprintf("issue-%d", issue.Number)
+
+		// Check if branch already exists and skip if so
+		if session.BranchExists(repoPath, branchName) {
+			logger.Log("App: Skipping issue #%d, branch %s already exists", issue.Number, branchName)
+			continue
+		}
+
+		// Create new session
+		sess, err := session.Create(repoPath, branchName)
+		if err != nil {
+			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
+			continue
+		}
+
+		// Create initial message with issue context
+		initialMsg := fmt.Sprintf("GitHub Issue #%d: %s\n\n%s\n\n---\nPlease help me work on this issue.",
+			issue.Number, issue.Title, issue.Body)
+
+		// Save initial message as user message
+		messages := []config.Message{
+			{Role: "user", Content: initialMsg},
+		}
+		if err := config.SaveSessionMessages(sess.ID, messages, config.MaxSessionMessageLines); err != nil {
+			logger.Log("App: Warning - failed to save initial message for issue #%d: %v", issue.Number, err)
+		}
+
+		// No parent ID - these are top-level sessions
+		logger.Log("App: Created session for issue #%d: id=%s, name=%s", issue.Number, sess.ID, sess.Name)
+
+		m.config.AddSession(*sess)
+		if firstSession == nil {
+			firstSession = sess
+		}
+	}
+
+	// Save config and update sidebar
+	if err := m.config.Save(); err != nil {
+		logger.Log("App: Failed to save config: %v", err)
+	}
+	m.sidebar.SetSessions(m.config.GetSessions())
+
+	// Select the first created session
+	if firstSession != nil {
+		m.sidebar.SelectSession(firstSession.ID)
+		m.selectSession(firstSession)
+	}
+
 	return m, nil
 }
 

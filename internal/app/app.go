@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -121,6 +122,13 @@ type CommitMessageGeneratedMsg struct {
 // SendPendingMessageMsg triggers sending a queued message for a session
 type SendPendingMessageMsg struct {
 	SessionID string
+}
+
+// GitHubIssuesFetchedMsg is sent when GitHub issues have been fetched
+type GitHubIssuesFetchedMsg struct {
+	RepoPath string
+	Issues   []git.GitHubIssue
+	Error    error
 }
 
 // New creates a new app model
@@ -422,6 +430,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				sess := m.sidebar.SelectedSession()
 				displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
 				m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
+			}
+		case "i":
+			// Import GitHub issues as sessions
+			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
+				sess := m.sidebar.SelectedSession()
+				repoName := filepath.Base(sess.RepoPath)
+				m.modal.Show(ui.NewImportIssuesState(sess.RepoPath, repoName))
+				return m, m.fetchGitHubIssues(sess.RepoPath)
 			}
 		case "c":
 			// Commit resolved conflicts
@@ -807,6 +823,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sessionState().AppendStreaming(msg.SessionID, msg.Result.Output)
 			}
 			return m, m.listenForMergeResult(msg.SessionID)
+		}
+
+	case GitHubIssuesFetchedMsg:
+		// Handle fetched GitHub issues - update the modal if it's still visible
+		if state, ok := m.modal.State.(*ui.ImportIssuesState); ok {
+			if msg.Error != nil {
+				state.SetError(msg.Error.Error())
+			} else {
+				// Convert to UI issue items
+				items := make([]ui.IssueItem, len(msg.Issues))
+				for i, issue := range msg.Issues {
+					items[i] = ui.IssueItem{
+						Number: issue.Number,
+						Title:  issue.Title,
+						Body:   issue.Body,
+						URL:    issue.URL,
+					}
+				}
+				state.SetIssues(items)
+			}
 		}
 
 	case StartupModalMsg:
@@ -1535,4 +1571,16 @@ func (m *Model) View() tea.View {
 
 	v.SetContent(view)
 	return v
+}
+
+// fetchGitHubIssues creates a command to fetch GitHub issues asynchronously
+func (m *Model) fetchGitHubIssues(repoPath string) tea.Cmd {
+	return func() tea.Msg {
+		issues, err := git.FetchGitHubIssues(repoPath)
+		return GitHubIssuesFetchedMsg{
+			RepoPath: repoPath,
+			Issues:   issues,
+			Error:    err,
+		}
+	}
 }
