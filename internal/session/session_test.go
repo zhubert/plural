@@ -73,7 +73,7 @@ func TestCreate(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -122,12 +122,12 @@ func TestCreate_MultipleSessions(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create multiple sessions
-	session1, err := Create(repoPath, "")
+	session1, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create session1 failed: %v", err)
 	}
 
-	session2, err := Create(repoPath, "")
+	session2, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create session2 failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestCreate_InvalidRepo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Try to create session in non-git directory
-	_, err = Create(tmpDir, "")
+	_, err = Create(tmpDir, "", "")
 	if err == nil {
 		t.Error("Create should fail for non-git directory")
 	}
@@ -290,7 +290,7 @@ func TestSessionName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestBranchName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestWorktreePath_Location(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestCreate_CustomBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	customBranch := "feature/my-cool-feature"
-	session, err := Create(repoPath, customBranch)
+	session, err := Create(repoPath, customBranch, "")
 	if err != nil {
 		t.Fatalf("Create with custom branch failed: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestDelete(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session first
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestDelete_AlreadyDeletedBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestFindOrphanedWorktrees(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestPruneOrphanedWorktrees(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "")
+	session, err := Create(repoPath, "", "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestCreate_CustomBranchDisplayName(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	customBranch := "feature/my-feature"
-	session, err := Create(repoPath, customBranch)
+	session, err := Create(repoPath, customBranch, "")
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -648,5 +648,57 @@ func TestCreate_CustomBranchDisplayName(t *testing.T) {
 	// Name should include the custom branch, not the short UUID
 	if !strings.Contains(session.Name, customBranch) {
 		t.Errorf("Session name %q should contain branch name %q", session.Name, customBranch)
+	}
+}
+
+func TestCreate_BranchPrefix(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	branchPrefix := "zhubert/"
+	session, err := Create(repoPath, "", branchPrefix)
+	if err != nil {
+		t.Fatalf("Create with branch prefix failed: %v", err)
+	}
+
+	// Branch should start with prefix
+	if !strings.HasPrefix(session.Branch, branchPrefix) {
+		t.Errorf("Branch %q should start with prefix %q", session.Branch, branchPrefix)
+	}
+
+	// Branch should still have plural- after prefix
+	expectedPrefix := branchPrefix + "plural-"
+	if !strings.HasPrefix(session.Branch, expectedPrefix) {
+		t.Errorf("Branch %q should start with %q", session.Branch, expectedPrefix)
+	}
+
+	// Display name should include the prefix
+	if !strings.Contains(session.Name, branchPrefix) {
+		t.Errorf("Session name %q should contain prefix %q", session.Name, branchPrefix)
+	}
+}
+
+func TestCreate_BranchPrefixWithCustomBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	branchPrefix := "zhubert/"
+	customBranch := "issue-42"
+	session, err := Create(repoPath, customBranch, branchPrefix)
+	if err != nil {
+		t.Fatalf("Create with branch prefix and custom branch failed: %v", err)
+	}
+
+	// Branch should be prefix + custom branch
+	expectedBranch := branchPrefix + customBranch
+	if session.Branch != expectedBranch {
+		t.Errorf("Branch = %q, want %q", session.Branch, expectedBranch)
+	}
+
+	// Display name should include the full branch name with prefix
+	if !strings.Contains(session.Name, expectedBranch) {
+		t.Errorf("Session name %q should contain %q", session.Name, expectedBranch)
 	}
 }

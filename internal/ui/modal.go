@@ -2522,6 +2522,90 @@ func NewSearchMessagesState(messages []struct{ Role, Content string }) *SearchMe
 }
 
 // =============================================================================
+// SettingsState - State for the Settings modal
+// =============================================================================
+
+type SettingsState struct {
+	BranchPrefixInput textinput.Model
+	Focus             int // Currently only 0 for branch prefix (extensible for more settings)
+}
+
+func (*SettingsState) modalState() {}
+
+func (s *SettingsState) Title() string { return "Settings" }
+
+func (s *SettingsState) Help() string {
+	return "Tab: next field  Enter: save  Esc: cancel"
+}
+
+func (s *SettingsState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Branch prefix field
+	prefixLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Default branch prefix:")
+
+	prefixDesc := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Italic(true).
+		Width(50).
+		Render("Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")")
+
+	prefixInputStyle := lipgloss.NewStyle()
+	if s.Focus == 0 {
+		prefixInputStyle = prefixInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		prefixInputStyle = prefixInputStyle.PaddingLeft(2)
+	}
+	prefixView := prefixInputStyle.Render(s.BranchPrefixInput.View())
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, help)
+}
+
+func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "tab", "shift+tab":
+			// For now, only one field, so tab does nothing
+			// This will be useful when we add more settings
+			return s, nil
+		}
+	}
+
+	// Handle text input updates when focused
+	if s.Focus == 0 {
+		var cmd tea.Cmd
+		s.BranchPrefixInput, cmd = s.BranchPrefixInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetBranchPrefix returns the branch prefix value
+func (s *SettingsState) GetBranchPrefix() string {
+	return s.BranchPrefixInput.Value()
+}
+
+// NewSettingsState creates a new SettingsState with the current settings values
+func NewSettingsState(currentBranchPrefix string) *SettingsState {
+	prefixInput := textinput.New()
+	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
+	prefixInput.CharLimit = 50
+	prefixInput.SetWidth(ModalInputWidth)
+	prefixInput.SetValue(currentBranchPrefix)
+	prefixInput.Focus()
+
+	return &SettingsState{
+		BranchPrefixInput: prefixInput,
+		Focus:             0,
+	}
+}
+
+// =============================================================================
 // Helper functions
 // =============================================================================
 

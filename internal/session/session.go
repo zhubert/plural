@@ -58,9 +58,10 @@ func BranchExists(repoPath, branch string) bool {
 // Create creates a new session with a git worktree for the given repo path.
 // If customBranch is provided, it will be used as the branch name; otherwise
 // a branch named "plural-<UUID>" will be created.
-func Create(repoPath string, customBranch string) (*config.Session, error) {
+// The branchPrefix is prepended to auto-generated branch names (e.g., "zhubert/").
+func Create(repoPath string, customBranch string, branchPrefix string) (*config.Session, error) {
 	startTime := time.Now()
-	logger.Log("Session: Creating new session for repo=%s, customBranch=%q", repoPath, customBranch)
+	logger.Log("Session: Creating new session for repo=%s, customBranch=%q, branchPrefix=%q", repoPath, customBranch, branchPrefix)
 
 	// Generate UUID for this session
 	id := uuid.New().String()
@@ -70,11 +71,12 @@ func Create(repoPath string, customBranch string) (*config.Session, error) {
 	repoName := filepath.Base(repoPath)
 
 	// Branch name: use custom if provided, otherwise plural-<UUID>
+	// Apply branchPrefix to auto-generated branch names
 	var branch string
 	if customBranch != "" {
-		branch = customBranch
+		branch = branchPrefix + customBranch
 	} else {
-		branch = fmt.Sprintf("plural-%s", id)
+		branch = branchPrefix + fmt.Sprintf("plural-%s", id)
 	}
 
 	// Worktree path: sibling to repo in .plural-worktrees directory
@@ -94,12 +96,17 @@ func Create(repoPath string, customBranch string) (*config.Session, error) {
 	}
 	logger.Log("Session: Git worktree created in %v", time.Since(worktreeStart))
 
-	// Display name: use custom branch if provided, otherwise use short UUID
+	// Display name: use the full branch name for clarity
 	var displayName string
 	if customBranch != "" {
-		displayName = customBranch
+		displayName = branchPrefix + customBranch
 	} else {
-		displayName = shortID
+		// For auto-generated branches, just show the short ID (prefix is visible in branch name)
+		if branchPrefix != "" {
+			displayName = branchPrefix + shortID
+		} else {
+			displayName = shortID
+		}
 	}
 
 	session := &config.Session{

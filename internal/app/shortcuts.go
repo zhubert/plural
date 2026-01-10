@@ -167,6 +167,13 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSidebar: true,
 		Handler:         shortcutTheme,
 	},
+	{
+		Key:             ",",
+		Description:     "Settings (branch prefix, etc.)",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutSettings,
+	},
 
 	// Chat
 	{
@@ -472,6 +479,11 @@ func shortcutSearchMessages(m *Model) (tea.Model, tea.Cmd) {
 	}
 
 	m.modal.Show(ui.NewSearchMessagesState(searchMessages))
+	return m, nil
+}
+
+func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
+	m.modal.Show(ui.NewSettingsState(m.config.GetDefaultBranchPrefix()))
 	return m, nil
 }
 

@@ -78,8 +78,20 @@ tail -f /tmp/plural-mcp-*.log
 
 ### Data Storage
 
-- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, theme
+- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, theme, branch prefix
 - `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
+
+### Branch Prefix Configuration
+
+A default branch prefix can be configured to prepend to all auto-generated branch names:
+
+- **Settings modal** (`,`): Open the Settings modal to configure the branch prefix
+- **Config field**: `default_branch_prefix` in `~/.plural/config.json`
+- **Example**: Setting `"default_branch_prefix": "zhubert/"` will create branches like:
+  - `zhubert/plural-<uuid>` for new sessions
+  - `zhubert/issue-42` for GitHub issue imports
+  - `zhubert/option-1` for parallel option exploration
+  - `zhubert/my-feature` for manually named branches
 
 ### Key Patterns
 
