@@ -1,18 +1,10 @@
 # Plural
 
-A TUI for managing multiple concurrent Claude Code sessions, each running in its own isolated git worktree.
+**Do more, faster.** Parallel Claude Code sessions.
+
+Run multiple Claude sessions on the same codebase—each in its own git branch. When Claude offers different approaches, fork the session and try them all in parallel. Switch freely. Merge the winner.
 
 ![Plural demo](demo.gif)
-
-## Why Plural?
-
-Ever wish you could have Claude work on multiple things at once, in the same code base? Fix a bug in one session while prototyping a feature in another, or compare different approaches side by side.
-
-Plural lets you:
-- **Run multiple Claude sessions in parallel** without conflicts
-- **Keep changes isolated** in separate git branches until you're ready to merge
-- **Switch context instantly** between different tasks or repos
-- **Work on the same codebase** from multiple angles simultaneously
 
 ## Features
 
