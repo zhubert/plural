@@ -53,6 +53,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleImportIssuesModal(key, msg, s)
 	case *ui.SelectRepoForIssuesState:
 		return m.handleSelectRepoForIssuesModal(key, msg, s)
+	case *ui.SettingsState:
+		return m.handleSettingsModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -111,13 +113,19 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			m.modal.SetError(err.Error())
 			return m, nil
 		}
+		// Get branch prefix and build full branch name for existence check
+		branchPrefix := m.config.GetDefaultBranchPrefix()
+		fullBranchName := branchPrefix + branchName
+		if branchName == "" {
+			fullBranchName = "" // Will be auto-generated
+		}
 		// Check if branch already exists
-		if branchName != "" && session.BranchExists(repoPath, branchName) {
-			m.modal.SetError("Branch already exists: " + branchName)
+		if fullBranchName != "" && session.BranchExists(repoPath, fullBranchName) {
+			m.modal.SetError("Branch already exists: " + fullBranchName)
 			return m, nil
 		}
-		logger.Log("App: Creating new session for repo=%s, branch=%q", repoPath, branchName)
-		sess, err := session.Create(repoPath, branchName)
+		logger.Log("App: Creating new session for repo=%s, branch=%q, prefix=%q", repoPath, branchName, branchPrefix)
+		sess, err := session.Create(repoPath, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create session: %v", err)
 			m.modal.SetError(err.Error())
@@ -509,6 +517,30 @@ func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.Them
 	return m, nil
 }
 
+// handleSettingsModal handles key events for the Settings modal.
+func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.SettingsState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		// Save the branch prefix
+		branchPrefix := state.GetBranchPrefix()
+		m.config.SetDefaultBranchPrefix(branchPrefix)
+		if err := m.config.Save(); err != nil {
+			logger.Log("App: Failed to save settings: %v", err)
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+		m.modal.Hide()
+		return m, nil
+	}
+	// Forward other keys to modal for text input handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
 // handleMergeConflictModal handles key events for the Merge Conflict modal.
 func (m *Model) handleMergeConflictModal(key string, msg tea.KeyPressMsg, state *ui.MergeConflictState) (tea.Model, tea.Cmd) {
 	switch key {
@@ -709,18 +741,21 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 	var firstSession *config.Session
 	var firstSessionInitialMsg string
 
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+
 	for _, issue := range issues {
 		// Create branch name from issue number
 		branchName := fmt.Sprintf("issue-%d", issue.Number)
+		fullBranchName := branchPrefix + branchName
 
 		// Check if branch already exists and skip if so
-		if session.BranchExists(repoPath, branchName) {
-			logger.Log("App: Skipping issue #%d, branch %s already exists", issue.Number, branchName)
+		if session.BranchExists(repoPath, fullBranchName) {
+			logger.Log("App: Skipping issue #%d, branch %s already exists", issue.Number, fullBranchName)
 			continue
 		}
 
 		// Create new session
-		sess, err := session.Create(repoPath, branchName)
+		sess, err := session.Create(repoPath, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
 			continue
@@ -789,16 +824,22 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			m.modal.SetError(err.Error())
 			return m, nil
 		}
+		// Get branch prefix and build full branch name for existence check
+		branchPrefix := m.config.GetDefaultBranchPrefix()
+		fullBranchName := branchPrefix + branchName
+		if branchName == "" {
+			fullBranchName = "" // Will be auto-generated
+		}
 		// Check if branch already exists
-		if branchName != "" && session.BranchExists(state.RepoPath, branchName) {
-			m.modal.SetError("Branch already exists: " + branchName)
+		if fullBranchName != "" && session.BranchExists(state.RepoPath, fullBranchName) {
+			m.modal.SetError("Branch already exists: " + fullBranchName)
 			return m, nil
 		}
 
-		logger.Log("App: Forking session %s, copyMessages=%v, branch=%q", state.ParentSessionID, state.CopyMessages, branchName)
+		logger.Log("App: Forking session %s, copyMessages=%v, branch=%q, prefix=%q", state.ParentSessionID, state.CopyMessages, branchName, branchPrefix)
 
 		// Create new session
-		sess, err := session.Create(state.RepoPath, branchName)
+		sess, err := session.Create(state.RepoPath, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create forked session: %v", err)
 			m.modal.SetError(err.Error())
@@ -852,6 +893,8 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 	logger.Log("App: Creating %d parallel sessions from session %s", len(selectedOptions), parentSession.ID)
 
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+
 	var cmds []tea.Cmd
 	var createdSessions []parallelSessionInfo
 	var firstSession *config.Session
@@ -861,7 +904,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		branchName := fmt.Sprintf("option-%d", opt.Number)
 
 		// Create new session
-		sess, err := session.Create(parentSession.RepoPath, branchName)
+		sess, err := session.Create(parentSession.RepoPath, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create parallel session for option %d: %v", opt.Number, err)
 			m.chat.AppendStreaming(fmt.Sprintf("[Error creating session for option %d: %v]\n", opt.Number, err))

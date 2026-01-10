@@ -157,6 +157,13 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSidebar: true,
 		Handler:         shortcutTheme,
 	},
+	{
+		Key:             ",",
+		Description:     "Settings (branch prefix, etc.)",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutSettings,
+	},
 
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
@@ -427,4 +434,9 @@ func shortcutHelp(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutQuit(m *Model) (tea.Model, tea.Cmd) {
 	return m, tea.Quit
+}
+
+func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
+	m.modal.Show(ui.NewSettingsState(m.config.GetDefaultBranchPrefix()))
+	return m, nil
 }
