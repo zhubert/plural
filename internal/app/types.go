@@ -17,6 +17,9 @@ const (
 
 	// MergeTypeParent indicates merging a child session back to its parent.
 	MergeTypeParent
+
+	// MergeTypePush indicates pushing updates to an existing PR.
+	MergeTypePush
 )
 
 // String returns a human-readable name for the merge type.
@@ -30,6 +33,8 @@ func (t MergeType) String() string {
 		return "pr"
 	case MergeTypeParent:
 		return "parent"
+	case MergeTypePush:
+		return "push"
 	default:
 		return "unknown"
 	}

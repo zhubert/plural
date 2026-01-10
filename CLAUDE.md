@@ -108,7 +108,16 @@ Sessions support a git-like branching workflow:
    - Conversation history appended to parent's history
    - Conflict resolution uses same flow as merge-to-main (Claude resolve / manual)
    - Child session locked after merge (marked "merged to parent")
-4. **Merge types**: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent)
+4. **Merge types**: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent), `MergeTypePush` (push updates to existing PR)
+
+### PR Updates Workflow
+
+After creating a PR, the session remains active for continued development:
+
+1. **Continue working**: Send messages to Claude, make additional changes in the session
+2. **Push updates** (`m`): When ready, press `m` to open merge modal - shows "Push updates to PR" instead of "Create PR"
+3. **Commit and push**: Uncommitted changes are committed with Claude-generated message, then pushed to the PR branch
+4. **Iterate**: Continue making changes and pushing updates as needed based on PR feedback
 
 ### Dependencies
 

@@ -422,7 +422,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						parentName = ui.SessionDisplayName(parent.Branch, parent.Name)
 					}
 				}
-				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName))
+				m.modal.Show(ui.NewMergeState(displayName, hasRemote, changesSummary, parentName, sess.PRCreated))
 			}
 		case "f":
 			// Fork session: create a new session from the selected one

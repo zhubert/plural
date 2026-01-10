@@ -309,8 +309,8 @@ func TestConfirmDeleteState_Render(t *testing.T) {
 // MergeState tests
 
 func TestNewMergeState(t *testing.T) {
-	// Without remote, without parent
-	state := NewMergeState("my-feature", false, "3 files changed", "")
+	// Without remote, without parent, no PR created
+	state := NewMergeState("my-feature", false, "3 files changed", "", false)
 
 	if state.SessionName != "my-feature" {
 		t.Errorf("Expected SessionName 'my-feature', got %q", state.SessionName)
@@ -332,8 +332,8 @@ func TestNewMergeState(t *testing.T) {
 		t.Errorf("Expected changes summary, got %q", state.ChangesSummary)
 	}
 
-	// With remote, without parent
-	state = NewMergeState("another-branch", true, "1 file changed", "")
+	// With remote, without parent, no PR created
+	state = NewMergeState("another-branch", true, "1 file changed", "", false)
 
 	if len(state.Options) != 2 {
 		t.Errorf("Expected 2 options with remote, got %d", len(state.Options))
@@ -348,7 +348,7 @@ func TestNewMergeState(t *testing.T) {
 	}
 
 	// With parent, with remote - should have 3 options
-	state = NewMergeState("child-branch", true, "", "parent-branch")
+	state = NewMergeState("child-branch", true, "", "parent-branch", false)
 
 	if len(state.Options) != 3 {
 		t.Errorf("Expected 3 options with parent and remote, got %d", len(state.Options))
@@ -366,10 +366,25 @@ func TestNewMergeState(t *testing.T) {
 	if state.Options[0] != "Merge to parent" {
 		t.Errorf("Expected first option 'Merge to parent', got %q", state.Options[0])
 	}
+
+	// With remote, PR already created - should show "Push updates to PR" instead of "Create PR"
+	state = NewMergeState("pr-branch", true, "2 files changed", "", true)
+
+	if len(state.Options) != 2 {
+		t.Errorf("Expected 2 options with PR created, got %d", len(state.Options))
+	}
+
+	if state.Options[1] != "Push updates to PR" {
+		t.Errorf("Expected 'Push updates to PR', got %q", state.Options[1])
+	}
+
+	if !state.PRCreated {
+		t.Error("PRCreated should be true")
+	}
 }
 
 func TestMergeState_GetSelectedOption(t *testing.T) {
-	state := NewMergeState("test-session", true, "", "")
+	state := NewMergeState("test-session", true, "", "", false)
 
 	// First option
 	if state.GetSelectedOption() != "Merge to main" {
@@ -397,14 +412,14 @@ func TestMergeState_GetSelectedOption(t *testing.T) {
 
 func TestMergeState_Render(t *testing.T) {
 	// With changes summary
-	state := NewMergeState("test-session", true, "5 files changed", "")
+	state := NewMergeState("test-session", true, "5 files changed", "", false)
 	render := state.Render()
 	if render == "" {
 		t.Error("Render should not be empty")
 	}
 
 	// Without changes summary
-	state = NewMergeState("test-session", false, "", "")
+	state = NewMergeState("test-session", false, "", "", false)
 	render = state.Render()
 	if render == "" {
 		t.Error("Render without changes should not be empty")
