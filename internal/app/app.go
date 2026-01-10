@@ -433,11 +433,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "i":
 			// Import GitHub issues as sessions
-			if !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-				sess := m.sidebar.SelectedSession()
-				repoName := filepath.Base(sess.RepoPath)
-				m.modal.Show(ui.NewImportIssuesState(sess.RepoPath, repoName))
-				return m, m.fetchGitHubIssues(sess.RepoPath)
+			if !m.chat.IsFocused() {
+				if sess := m.sidebar.SelectedSession(); sess != nil {
+					// Session selected - use its repo
+					repoName := filepath.Base(sess.RepoPath)
+					m.modal.Show(ui.NewImportIssuesState(sess.RepoPath, repoName))
+					return m, m.fetchGitHubIssues(sess.RepoPath)
+				} else {
+					// No session - show repo picker
+					repos := m.config.GetRepos()
+					m.modal.Show(ui.NewSelectRepoForIssuesState(repos))
+				}
 			}
 		case "c":
 			// Commit resolved conflicts

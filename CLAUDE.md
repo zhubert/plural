@@ -119,6 +119,19 @@ After creating a PR, the session remains active for continued development:
 3. **Commit and push**: Uncommitted changes are committed with Claude-generated message, then pushed to the PR branch
 4. **Iterate**: Continue making changes and pushing updates as needed based on PR feedback
 
+### GitHub Issue Import
+
+Import GitHub issues directly into new sessions:
+
+1. **Press `i`** from anywhere (sidebar or with/without a session selected)
+2. **Repo selection**: If a session is selected, uses that session's repo. Otherwise, shows a repo picker modal
+3. **Issue list**: Shows open issues from the selected repo (fetched via `gh issue list`)
+4. **Select issues**: Use space to toggle selection, up/down to navigate
+5. **Create sessions**: Press Enter to create a new session for each selected issue
+6. **Auto-start**: Claude automatically receives the issue context and begins working
+
+Each issue becomes a session with branch name `issue-{number}`.
+
 ### Dependencies
 
 Charm's Bubble Tea v2 stack:

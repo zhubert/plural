@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -50,6 +51,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleHelpModal(key, msg, s)
 	case *ui.ImportIssuesState:
 		return m.handleImportIssuesModal(key, msg, s)
+	case *ui.SelectRepoForIssuesState:
+		return m.handleSelectRepoForIssuesModal(key, msg, s)
 	}
 
 	// Default: update modal input (for text-based modals)
@@ -644,6 +647,29 @@ func (m *Model) handleExploreOptionsModal(key string, msg tea.KeyPressMsg, state
 		return m.createParallelSessions(selected)
 	case "up", "k", "down", "j", "space":
 		// Forward navigation and space (toggle) keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
+
+// handleSelectRepoForIssuesModal handles key events for the Select Repo for Issues modal.
+func (m *Model) handleSelectRepoForIssuesModal(key string, msg tea.KeyPressMsg, state *ui.SelectRepoForIssuesState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		repoPath := state.GetSelectedRepo()
+		if repoPath == "" {
+			return m, nil
+		}
+		repoName := filepath.Base(repoPath)
+		m.modal.Show(ui.NewImportIssuesState(repoPath, repoName))
+		return m, m.fetchGitHubIssues(repoPath)
+	case "up", "k", "down", "j":
+		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
 		return m, cmd

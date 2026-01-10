@@ -349,6 +349,86 @@ func NewNewSessionState(repos []string) *NewSessionState {
 }
 
 // =============================================================================
+// SelectRepoForIssuesState - State for selecting a repo to import issues from
+// =============================================================================
+
+type SelectRepoForIssuesState struct {
+	RepoOptions []string
+	RepoIndex   int
+}
+
+func (*SelectRepoForIssuesState) modalState() {}
+
+func (s *SelectRepoForIssuesState) Title() string { return "Select Repository" }
+
+func (s *SelectRepoForIssuesState) Help() string {
+	return "↑/↓ select repo  Enter: import issues  Esc: cancel"
+}
+
+func (s *SelectRepoForIssuesState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Repository selection section
+	repoLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Select a repository to import GitHub issues from:")
+
+	var repoList string
+	if len(s.RepoOptions) == 0 {
+		repoList = lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render("No repositories added. Press 'a' to add one first.")
+	} else {
+		for i, repo := range s.RepoOptions {
+			style := SidebarItemStyle
+			prefix := "  "
+			if i == s.RepoIndex {
+				style = SidebarSelectedStyle
+				prefix = "> "
+			}
+			repoList += style.Render(prefix+repo) + "\n"
+		}
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, help)
+}
+
+func (s *SelectRepoForIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.RepoIndex > 0 {
+				s.RepoIndex--
+			}
+		case "down", "j":
+			if s.RepoIndex < len(s.RepoOptions)-1 {
+				s.RepoIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// GetSelectedRepo returns the selected repository path
+func (s *SelectRepoForIssuesState) GetSelectedRepo() string {
+	if len(s.RepoOptions) == 0 || s.RepoIndex >= len(s.RepoOptions) {
+		return ""
+	}
+	return s.RepoOptions[s.RepoIndex]
+}
+
+// NewSelectRepoForIssuesState creates a new SelectRepoForIssuesState
+func NewSelectRepoForIssuesState(repos []string) *SelectRepoForIssuesState {
+	return &SelectRepoForIssuesState{
+		RepoOptions: repos,
+		RepoIndex:   0,
+	}
+}
+
+// =============================================================================
 // ConfirmDeleteState - State for the Confirm Delete modal
 // =============================================================================
 
