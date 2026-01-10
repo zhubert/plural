@@ -565,8 +565,8 @@ Please resolve these merge conflicts by:
 2. Understanding both versions (between <<<<<<< and >>>>>>> markers)
 3. Editing the file to combine the changes appropriately
 4. Removing the conflict markers
-
-Do NOT run git add or git commit - I will handle that after reviewing your changes.`, filesList.String())
+5. Stage the resolved files with git add
+6. Commit the merge with a descriptive commit message explaining the resolution`, filesList.String())
 
 	logger.Log("App: Sending conflict resolution prompt to Claude for session %s", sess.ID)
 	m.chat.AddUserMessage(prompt)
