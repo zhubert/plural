@@ -1447,63 +1447,6 @@ func NewThemeState(currentTheme ThemeName) *ThemeState {
 }
 
 // =============================================================================
-// NotificationToggleState - State for notification toggle confirmation
-// =============================================================================
-
-type NotificationToggleState struct {
-	Status string // "enabled" or "disabled"
-}
-
-func (*NotificationToggleState) modalState() {}
-
-func (s *NotificationToggleState) Title() string { return "Desktop Notifications" }
-
-func (s *NotificationToggleState) Help() string {
-	return "Press any key to close"
-}
-
-func (s *NotificationToggleState) Render() string {
-	title := ModalTitleStyle.Render(s.Title())
-
-	// Show status with appropriate styling
-	var statusStyle lipgloss.Style
-	var statusText string
-	if s.Status == "enabled" {
-		statusStyle = lipgloss.NewStyle().
-			Foreground(ColorSecondary).
-			Bold(true)
-		statusText = "Notifications are now enabled"
-	} else {
-		statusStyle = lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Bold(true)
-		statusText = "Notifications are now disabled"
-	}
-	status := statusStyle.Render(statusText)
-
-	description := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Width(40).
-		Render("You'll receive desktop notifications when Claude finishes responding while Plural is in the background.")
-
-	help := ModalHelpStyle.Render(s.Help())
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, status, description, help)
-}
-
-func (s *NotificationToggleState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	return s, nil
-}
-
-// NewNotificationToggleState creates a new NotificationToggleState
-func NewNotificationToggleState(status string) *NotificationToggleState {
-	return &NotificationToggleState{
-		Status: status,
-	}
-}
-
-// =============================================================================
 // ExploreOptionsState - State for the Explore Options modal (parallel sessions)
 // =============================================================================
 
@@ -2583,8 +2526,9 @@ func NewSearchMessagesState(messages []struct{ Role, Content string }) *SearchMe
 // =============================================================================
 
 type SettingsState struct {
-	BranchPrefixInput textinput.Model
-	Focus             int // Currently only 0 for branch prefix (extensible for more settings)
+	BranchPrefixInput    textinput.Model
+	NotificationsEnabled bool
+	Focus                int // 0 = branch prefix, 1 = notifications checkbox
 }
 
 func (*SettingsState) modalState() {}
@@ -2592,7 +2536,7 @@ func (*SettingsState) modalState() {}
 func (s *SettingsState) Title() string { return "Settings" }
 
 func (s *SettingsState) Help() string {
-	return "Tab: next field  Enter: save  Esc: cancel"
+	return "Tab: next field  Space: toggle checkbox  Enter: save  Esc: cancel"
 }
 
 func (s *SettingsState) Render() string {
@@ -2617,22 +2561,62 @@ func (s *SettingsState) Render() string {
 	}
 	prefixView := prefixInputStyle.Render(s.BranchPrefixInput.View())
 
+	// Notifications checkbox
+	notifLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Desktop notifications:")
+
+	checkbox := "[ ]"
+	if s.NotificationsEnabled {
+		checkbox = "[x]"
+	}
+	notifCheckboxStyle := lipgloss.NewStyle()
+	if s.Focus == 1 {
+		notifCheckboxStyle = notifCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		notifCheckboxStyle = notifCheckboxStyle.PaddingLeft(2)
+	}
+	notifDesc := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Italic(true).
+		Render("Notify when Claude finishes while app is in background")
+	notifView := notifCheckboxStyle.Render(checkbox + " " + notifDesc)
+
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, help)
 }
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "tab", "shift+tab":
-			// For now, only one field, so tab does nothing
-			// This will be useful when we add more settings
+		case "tab":
+			s.Focus = (s.Focus + 1) % 2
+			if s.Focus == 0 {
+				s.BranchPrefixInput.Focus()
+			} else {
+				s.BranchPrefixInput.Blur()
+			}
+			return s, nil
+		case "shift+tab":
+			s.Focus = (s.Focus + 1) % 2
+			if s.Focus == 0 {
+				s.BranchPrefixInput.Focus()
+			} else {
+				s.BranchPrefixInput.Blur()
+			}
+			return s, nil
+		case " ":
+			// Toggle checkbox when focused on notifications
+			if s.Focus == 1 {
+				s.NotificationsEnabled = !s.NotificationsEnabled
+			}
 			return s, nil
 		}
 	}
 
-	// Handle text input updates when focused
+	// Handle text input updates when focused on branch prefix
 	if s.Focus == 0 {
 		var cmd tea.Cmd
 		s.BranchPrefixInput, cmd = s.BranchPrefixInput.Update(msg)
@@ -2647,8 +2631,13 @@ func (s *SettingsState) GetBranchPrefix() string {
 	return s.BranchPrefixInput.Value()
 }
 
+// GetNotificationsEnabled returns whether notifications are enabled
+func (s *SettingsState) GetNotificationsEnabled() bool {
+	return s.NotificationsEnabled
+}
+
 // NewSettingsState creates a new SettingsState with the current settings values
-func NewSettingsState(currentBranchPrefix string) *SettingsState {
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool) *SettingsState {
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = 50
@@ -2657,8 +2646,9 @@ func NewSettingsState(currentBranchPrefix string) *SettingsState {
 	prefixInput.Focus()
 
 	return &SettingsState{
-		BranchPrefixInput: prefixInput,
-		Focus:             0,
+		BranchPrefixInput:    prefixInput,
+		NotificationsEnabled: notificationsEnabled,
+		Focus:                0,
 	}
 }
 

@@ -526,9 +526,10 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.modal.Hide()
 		return m, nil
 	case "enter":
-		// Save the branch prefix
+		// Save all settings
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
+		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		if err := m.config.Save(); err != nil {
 			logger.Log("App: Failed to save settings: %v", err)
 			m.modal.SetError("Failed to save: " + err.Error())

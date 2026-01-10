@@ -175,7 +175,7 @@ The search is case-insensitive and matches any substring within messages. Result
 
 Plural can send desktop notifications when Claude finishes responding while the application is in the background:
 
-1. **Toggle notifications** (`o`): Press `o` to enable/disable desktop notifications
+1. **Enable via Settings** (`,`): Open Settings modal and toggle the "Desktop notifications" checkbox
 2. **When triggered**: Notifications appear when Claude completes streaming and the terminal window is not focused
 3. **Notification content**: Shows "Plural" as title and "[session name] is ready" as the message
 4. **Platform support**: Uses the beeep library for cross-platform notifications:

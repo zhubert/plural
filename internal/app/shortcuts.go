@@ -168,15 +168,8 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutTheme,
 	},
 	{
-		Key:             "o",
-		Description:     "Toggle notifications",
-		Category:        CategoryConfiguration,
-		RequiresSidebar: true,
-		Handler:         shortcutToggleNotifications,
-	},
-	{
 		Key:             ",",
-		Description:     "Settings (branch prefix, etc.)",
+		Description:     "Settings",
 		Category:        CategoryConfiguration,
 		RequiresSidebar: true,
 		Handler:         shortcutSettings,
@@ -457,20 +450,6 @@ func shortcutTheme(m *Model) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func shortcutToggleNotifications(m *Model) (tea.Model, tea.Cmd) {
-	enabled := !m.config.GetNotificationsEnabled()
-	m.config.SetNotificationsEnabled(enabled)
-	m.config.Save()
-
-	// Show brief confirmation in footer via a temporary message
-	status := "enabled"
-	if !enabled {
-		status = "disabled"
-	}
-	m.modal.Show(ui.NewNotificationToggleState(status))
-	return m, nil
-}
-
 func shortcutHelp(m *Model) (tea.Model, tea.Cmd) {
 	// Include help shortcut in the registry for display purposes
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
@@ -504,7 +483,7 @@ func shortcutSearchMessages(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
-	m.modal.Show(ui.NewSettingsState(m.config.GetDefaultBranchPrefix()))
+	m.modal.Show(ui.NewSettingsState(m.config.GetDefaultBranchPrefix(), m.config.GetNotificationsEnabled()))
 	return m, nil
 }
 
