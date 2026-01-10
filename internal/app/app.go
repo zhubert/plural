@@ -465,6 +465,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Select session
 				if sess := m.sidebar.SelectedSession(); sess != nil {
 					m.selectSession(sess)
+					// Check if this session has an unsent initial message (from issue import)
+					if initialMsg := m.sessionState().GetInitialMessage(sess.ID); initialMsg != "" {
+						m.sessionState().SetPendingMessage(sess.ID, initialMsg)
+						return m, func() tea.Msg {
+							return SendPendingMessageMsg{SessionID: sess.ID}
+						}
+					}
 				}
 			} else if m.focus == FocusChat {
 				if m.CanSendMessage() {

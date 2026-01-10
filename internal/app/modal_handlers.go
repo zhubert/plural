@@ -681,6 +681,7 @@ func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *
 // createSessionsFromIssues creates new sessions for each selected GitHub issue.
 func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem) (tea.Model, tea.Cmd) {
 	var firstSession *config.Session
+	var firstSessionInitialMsg string
 
 	for _, issue := range issues {
 		// Create branch name from issue number
@@ -703,13 +704,8 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 		initialMsg := fmt.Sprintf("GitHub Issue #%d: %s\n\n%s\n\n---\nPlease help me work on this issue.",
 			issue.Number, issue.Title, issue.Body)
 
-		// Save initial message as user message
-		messages := []config.Message{
-			{Role: "user", Content: initialMsg},
-		}
-		if err := config.SaveSessionMessages(sess.ID, messages, config.MaxSessionMessageLines); err != nil {
-			logger.Log("App: Warning - failed to save initial message for issue #%d: %v", issue.Number, err)
-		}
+		// Store the initial message in session state - it will be sent when the session is selected
+		m.sessionState().SetInitialMessage(sess.ID, initialMsg)
 
 		// No parent ID - these are top-level sessions
 		logger.Log("App: Created session for issue #%d: id=%s, name=%s", issue.Number, sess.ID, sess.Name)
@@ -717,6 +713,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 		m.config.AddSession(*sess)
 		if firstSession == nil {
 			firstSession = sess
+			firstSessionInitialMsg = initialMsg
 		}
 	}
 
@@ -726,10 +723,19 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 	}
 	m.sidebar.SetSessions(m.config.GetSessions())
 
-	// Select the first created session
+	// Select the first created session and trigger sending the initial message
 	if firstSession != nil {
 		m.sidebar.SelectSession(firstSession.ID)
 		m.selectSession(firstSession)
+
+		// Set as pending message and return command to send it
+		// Clear the initial message since we're about to send it
+		m.sessionState().GetInitialMessage(firstSession.ID)
+		m.sessionState().SetPendingMessage(firstSession.ID, firstSessionInitialMsg)
+
+		return m, func() tea.Msg {
+			return SendPendingMessageMsg{SessionID: firstSession.ID}
+		}
 	}
 
 	return m, nil

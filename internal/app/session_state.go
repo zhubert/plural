@@ -40,6 +40,9 @@ type SessionState struct {
 
 	// Queued message to send when streaming completes
 	PendingMessage string
+
+	// Initial message to send when session is first selected (for issue imports)
+	InitialMessage string
 }
 
 // SessionStateManager provides thread-safe access to per-session state.
@@ -97,6 +100,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		state.InputText = ""
 		state.StreamingContent = ""
 		state.PendingMessage = ""
+		state.InitialMessage = ""
 
 		// Clear channel reference
 		state.MergeChan = nil
@@ -532,6 +536,40 @@ func (m *SessionStateManager) HasPendingMessage(sessionID string) bool {
 
 	if state, exists := m.states[sessionID]; exists {
 		return state.PendingMessage != ""
+	}
+	return false
+}
+
+// SetInitialMessage sets the initial message to send when session is first selected.
+// This is used for sessions created from GitHub issues.
+func (m *SessionStateManager) SetInitialMessage(sessionID, message string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := m.getOrCreate(sessionID)
+	state.InitialMessage = message
+}
+
+// GetInitialMessage returns and clears the initial message for a session.
+func (m *SessionStateManager) GetInitialMessage(sessionID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		msg := state.InitialMessage
+		state.InitialMessage = ""
+		return msg
+	}
+	return ""
+}
+
+// HasInitialMessage returns whether a session has an initial message to send.
+func (m *SessionStateManager) HasInitialMessage(sessionID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.InitialMessage != ""
 	}
 	return false
 }
