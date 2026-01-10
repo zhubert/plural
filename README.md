@@ -17,6 +17,7 @@ Plural lets you:
 ## Features
 
 - **Isolated Sessions**: Each session gets its own git branch and worktree, so Claude's changes never conflict
+- **GitHub Issue Import**: Press `i` to import issues from your repo - each becomes a session where Claude automatically starts fixing the issue
 - **Branching Options**: When Claude offers multiple approaches, explore them all in parallel with forked sessions (Ctrl+P)
 - **Multiple Repositories**: Register any git repo and create sessions across your projects
 - **Streaming Responses**: See Claude's work in real-time with tool status indicators
@@ -82,6 +83,7 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 |-----|--------|
 | `n` | Create new session |
 | `a` | Add repository |
+| `i` | Import GitHub issues |
 | `Enter` | Select session |
 | `↑/↓` or `j/k` | Navigate sessions |
 | `/` | Search sessions |
@@ -145,6 +147,22 @@ With many sessions, use `/` to search:
 2. Type to filter by branch name, session name, or repo
 3. Use `↑/↓` to navigate results
 4. Press `Enter` to select, `Esc` to cancel
+
+## GitHub Issue Import
+
+Import issues directly from your GitHub repository and let Claude work on them automatically:
+
+1. Press `i` from the sidebar
+2. If no session is selected, choose a repository from the picker
+3. Browse open issues with `↑/↓` and toggle selection with `Space`
+4. Press `Enter` to create sessions for selected issues
+
+Each issue becomes a new session with:
+- Branch named `issue-{number}` (e.g., `issue-42`)
+- Full issue context (title, body, labels) sent to Claude
+- Claude automatically begins working on the fix
+
+When you create a PR from an issue session, "Fixes #{number}" is automatically added to the PR description, which closes the issue when merged.
 
 ## Branching Options
 
