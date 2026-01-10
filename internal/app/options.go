@@ -55,23 +55,33 @@ func DetectOptions(message string) []DetectedOption {
 }
 
 // detectOptionsFromTags extracts options from <options>...</options> blocks.
-// Supports <optgroup> tags for explicit grouping. Returns the options from
-// the last block found (most recent).
+// Supports both:
+// 1. Multiple <options> blocks (each block becomes a group)
+// 2. Single <options> with <optgroup> tags inside (each optgroup becomes a group)
 func detectOptionsFromTags(message string) []DetectedOption {
 	matches := optionsTagPattern.FindAllStringSubmatch(message, -1)
 	if len(matches) == 0 {
 		return nil
 	}
 
-	// Use the last match (most recent options block)
-	lastMatch := matches[len(matches)-1]
-	if len(lastMatch) < 2 {
-		return nil
+	// If there are multiple <options> blocks, treat each as a group
+	if len(matches) > 1 {
+		var result []DetectedOption
+		for groupIdx, match := range matches {
+			if len(match) < 2 {
+				continue
+			}
+			groupOptions := parseOptionsFromContent(match[1], groupIdx)
+			result = append(result, groupOptions...)
+		}
+		if len(result) >= 2 {
+			return result
+		}
 	}
 
-	content := lastMatch[1]
+	// Single <options> block - check for <optgroup> tags inside
+	content := matches[0][1]
 
-	// Check for <optgroup> tags first (explicit grouping)
 	optgroupMatches := optgroupTagPattern.FindAllStringSubmatch(content, -1)
 	if len(optgroupMatches) > 0 {
 		var result []DetectedOption

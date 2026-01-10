@@ -185,7 +185,7 @@ Let me know which one you'd like to explore.`,
 			wantNums: []int{1, 2},
 		},
 		{
-			name: "multiple options blocks - uses last",
+			name: "multiple options blocks - returns all groups",
 			message: `Earlier I mentioned:
 <options>
 1. Old option A
@@ -198,8 +198,8 @@ But now I think these are better:
 2. New option Y
 3. New option Z
 </options>`,
-			wantLen:  3,
-			wantNums: []int{1, 2, 3},
+			wantLen:  5,
+			wantNums: []int{1, 2, 1, 2, 3},
 		},
 		{
 			name: "options tags with parentheses style",
@@ -346,5 +346,71 @@ Nice to have:
 		if options[i].GroupIndex != 1 {
 			t.Errorf("Option %d GroupIndex = %d, want 1", i, options[i].GroupIndex)
 		}
+	}
+}
+
+func TestDetectOptions_MultipleOptionsBlocks(t *testing.T) {
+	// Test from actual production logs: multiple <options> blocks should all be included
+	// Previously only the last block was returned
+	message := `### Missing Features That Would Matter to Professional Developers
+
+**High Value / Lower Effort:**
+<options>
+1. Session search within conversations
+2. Session export to markdown
+3. Desktop notifications
+4. Session pinning/favorites
+5. Token/cost tracking (if Claude CLI exposes it)
+</options>
+
+**High Value / Higher Effort:**
+<options>
+1. Session templates
+2. Team sharing/collaboration
+3. External tool integrations (webhooks)
+4. Session archiving with restore
+</options>
+
+**Nice to Have:**
+<options>
+1. Custom shortcuts
+2. Session tagging
+3. Batch operations
+4. Analytics dashboard
+</options>`
+
+	options := DetectOptions(message)
+	if len(options) != 13 {
+		t.Fatalf("Expected 13 options (5+4+4), got %d", len(options))
+	}
+
+	// First group (5 options, group index 0)
+	for i := 0; i < 5; i++ {
+		if options[i].GroupIndex != 0 {
+			t.Errorf("Option %d GroupIndex = %d, want 0", i, options[i].GroupIndex)
+		}
+	}
+	if options[0].Text != "Session search within conversations" {
+		t.Errorf("Option 0 text = %q, want %q", options[0].Text, "Session search within conversations")
+	}
+
+	// Second group (4 options, group index 1)
+	for i := 5; i < 9; i++ {
+		if options[i].GroupIndex != 1 {
+			t.Errorf("Option %d GroupIndex = %d, want 1", i, options[i].GroupIndex)
+		}
+	}
+	if options[5].Text != "Session templates" {
+		t.Errorf("Option 5 text = %q, want %q", options[5].Text, "Session templates")
+	}
+
+	// Third group (4 options, group index 2)
+	for i := 9; i < 13; i++ {
+		if options[i].GroupIndex != 2 {
+			t.Errorf("Option %d GroupIndex = %d, want 2", i, options[i].GroupIndex)
+		}
+	}
+	if options[9].Text != "Custom shortcuts" {
+		t.Errorf("Option 9 text = %q, want %q", options[9].Text, "Custom shortcuts")
 	}
 }
