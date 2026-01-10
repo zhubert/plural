@@ -263,7 +263,7 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
 		case MergeTypePush:
 			logger.Log("App: Pushing updates for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
@@ -396,7 +396,7 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg, sess.IssueNumber), cancel, MergeTypePR)
 		case MergeTypePush:
 			logger.Log("App: Pushing updates for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
@@ -725,6 +725,9 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
 			continue
 		}
+
+		// Store the issue number so we can reference it in the PR
+		sess.IssueNumber = issue.Number
 
 		// Create initial message with issue context
 		initialMsg := fmt.Sprintf("GitHub Issue #%d: %s\n\n%s\n\n---\nPlease help me work on this issue.",

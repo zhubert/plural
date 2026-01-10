@@ -235,9 +235,10 @@ Diff:
 	return commitMsg, nil
 }
 
-// GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes
-func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string) (title, body string, err error) {
-	logger.Log("Git: Generating PR title and body with Claude for branch %s", branch)
+// GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
+// If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
+func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
+	logger.Log("Git: Generating PR title and body with Claude for branch %s (issue: %d)", branch, issueNumber)
 
 	defaultBranch := GetDefaultBranch(repoPath)
 
@@ -330,6 +331,13 @@ Diff:
 
 	if title == "" {
 		return "", "", fmt.Errorf("Claude returned empty PR title")
+	}
+
+	// Add "Fixes #N" to the body if this PR is for a GitHub issue
+	if issueNumber > 0 {
+		fixesLine := fmt.Sprintf("\n\nFixes #%d", issueNumber)
+		body = body + fixesLine
+		logger.Log("Git: Added issue reference: Fixes #%d", issueNumber)
 	}
 
 	logger.Log("Git: Generated PR title: %s", title)
@@ -532,7 +540,8 @@ Or abort the merge with: git merge --abort
 // CreatePR pushes the branch and creates a pull request using gh CLI
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
-func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
+// If issueNumber is provided (non-zero), "Fixes #N" will be added to the PR body
+func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string, issueNumber int) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -605,7 +614,7 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 
 		// Generate PR title and body with Claude
 		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
-		prTitle, prBody, err := GeneratePRTitleAndBody(ctx, repoPath, branch)
+		prTitle, prBody, err := GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
 		if err != nil {
 			logger.Log("Git: Claude PR generation failed, using --fill: %v", err)
 			ch <- Result{Output: "Claude unavailable, using commit info for PR...\n"}

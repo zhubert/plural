@@ -283,7 +283,7 @@ func TestCreatePR_NoGh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := CreatePR(ctx, repoPath, repoPath, "test-branch", "")
+	ch := CreatePR(ctx, repoPath, repoPath, "test-branch", "", 0)
 
 	var hadError bool
 	for result := range ch {
@@ -590,7 +590,7 @@ func TestCreatePR_WithProvidedCommitMessage(t *testing.T) {
 	defer cancel()
 
 	// CreatePR will fail without a real remote, but we can verify it tries
-	ch := CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "Custom PR commit")
+	ch := CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "Custom PR commit", 0)
 
 	// Drain channel - expect an error since no remote
 	for range ch {
@@ -717,7 +717,7 @@ func TestCreatePR_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "")
+	ch := CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", 0)
 
 	// Drain channel - should not hang
 	for range ch {

@@ -144,7 +144,7 @@ Import GitHub issues directly into new sessions:
 5. **Create sessions**: Press Enter to create a new session for each selected issue
 6. **Auto-start**: Claude automatically receives the issue context and begins working
 
-Each issue becomes a session with branch name `issue-{number}`.
+Each issue becomes a session with branch name `issue-{number}`. The issue number is stored in the session and when a PR is created, "Fixes #N" is automatically added to the PR body, which will close the issue when the PR is merged.
 
 ### Dependencies
 
