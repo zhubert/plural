@@ -852,13 +852,34 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 	logger.Log("App: Creating %d parallel sessions from session %s", len(selectedOptions), parentSession.ID)
 
+	// Generate branch names for all options in a single Claude call
+	ctx := context.Background()
+	optionsForClaude := make([]struct {
+		Number int
+		Text   string
+	}, len(selectedOptions))
+	for i, opt := range selectedOptions {
+		optionsForClaude[i] = struct {
+			Number int
+			Text   string
+		}{Number: opt.Number, Text: opt.Text}
+	}
+	branchNames, err := git.GenerateBranchNamesFromOptions(ctx, optionsForClaude)
+	if err != nil {
+		logger.Log("App: Failed to generate branch names with Claude: %v", err)
+		branchNames = make(map[int]string) // Will use fallback names
+	}
+
 	var cmds []tea.Cmd
 	var createdSessions []parallelSessionInfo
 	var firstSession *config.Session
 
 	for _, opt := range selectedOptions {
-		// Create a branch name based on the option
-		branchName := fmt.Sprintf("option-%d", opt.Number)
+		// Use generated branch name or fallback
+		branchName, ok := branchNames[opt.Number]
+		if !ok || branchName == "" {
+			branchName = fmt.Sprintf("option-%d", opt.Number)
+		}
 
 		// Create new session
 		sess, err := session.Create(parentSession.RepoPath, branchName)
