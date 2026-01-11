@@ -68,7 +68,7 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 }
 
 // handleClaudeDone handles completion of Claude streaming.
-func (m *Model) handleClaudeDone(sessionID string, runner *claude.Runner, isActiveSession bool) (tea.Model, tea.Cmd) {
+func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
 	logger.Log("App: Session %s completed streaming", sessionID)
 	m.sidebar.SetStreaming(sessionID, false)
 	m.sessionState().StopWaiting(sessionID)
@@ -133,7 +133,7 @@ func (m *Model) handleClaudeDone(sessionID string, runner *claude.Runner, isActi
 }
 
 // handleClaudeStreaming handles streaming content chunks from Claude.
-func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChunk, runner *claude.Runner, isActiveSession bool) (tea.Model, tea.Cmd) {
+func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChunk, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
 	// Streaming content - clear wait time since response has started
 	m.sessionState().ClearWaitStart(sessionID)
 
