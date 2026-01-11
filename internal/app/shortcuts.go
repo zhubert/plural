@@ -316,8 +316,8 @@ func (m *Model) hasSessionInUseError() bool {
 // =============================================================================
 
 func shortcutToggleFocus(m *Model) (tea.Model, tea.Cmd) {
-	m.toggleFocus()
-	return m, nil
+	cmd := m.toggleFocus()
+	return m, cmd
 }
 
 func shortcutSearch(m *Model) (tea.Model, tea.Cmd) {

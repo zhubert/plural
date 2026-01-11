@@ -73,9 +73,12 @@ func (m *Model) handleClaudeDone(sessionID string, runner *claude.Runner, isActi
 	m.sidebar.SetStreaming(sessionID, false)
 	m.sessionState().StopWaiting(sessionID)
 
+	var completionCmd tea.Cmd
 	if isActiveSession {
 		m.chat.SetWaiting(false)
 		m.chat.FinishStreaming()
+		// Start completion flash animation
+		completionCmd = m.chat.StartCompletionFlash()
 	} else {
 		// For non-active session, just clear our saved streaming content
 		// The runner already adds the assistant message when streaming completes (claude.go)
@@ -113,11 +116,19 @@ func (m *Model) handleClaudeDone(sessionID string, runner *claude.Runner, isActi
 
 	// Check for pending message queued during streaming
 	if m.sessionState().HasPendingMessage(sessionID) {
+		if completionCmd != nil {
+			return m, tea.Batch(completionCmd, func() tea.Msg {
+				return SendPendingMessageMsg{SessionID: sessionID}
+			})
+		}
 		return m, func() tea.Msg {
 			return SendPendingMessageMsg{SessionID: sessionID}
 		}
 	}
 
+	if completionCmd != nil {
+		return m, completionCmd
+	}
 	return m, nil
 }
 

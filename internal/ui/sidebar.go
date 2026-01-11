@@ -23,6 +23,9 @@ var sidebarSpinnerHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
 // SidebarTickMsg is sent to advance the spinner animation
 type SidebarTickMsg time.Time
 
+// SidebarFocusPulseTickMsg is sent to animate the focus transition pulse
+type SidebarFocusPulseTickMsg time.Time
+
 // sessionNode represents a session with its children (forks)
 type sessionNode struct {
 	Session  config.Session
@@ -54,6 +57,13 @@ type Sidebar struct {
 	spinnerFrame       int             // Current spinner animation frame
 	spinnerTick        int             // Tick counter for frame hold timing
 
+	// Focus pulse animation
+	focusPulseFrame int // -1 = inactive, 0-3 = animation frames
+
+	// Selection fade animation
+	selectionFadeFrame int // Frame counter for selection fade (0-2)
+	lastSelectedIdx    int // Previous selection for detecting changes
+
 	// Cache for incremental updates
 	sessionIndex map[string]int  // Map of session ID to index in sessions slice
 	lastHash     uint64          // Hash of last session list for change detection
@@ -74,6 +84,9 @@ func NewSidebar() *Sidebar {
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
 		sessionsInUse:      make(map[string]bool),
+		focusPulseFrame:    -1,
+		selectionFadeFrame: 2, // Start fully visible
+		lastSelectedIdx:    -1,
 		searchInput:        ti,
 	}
 }
@@ -322,6 +335,29 @@ func SidebarTick() tea.Cmd {
 	})
 }
 
+// SidebarFocusPulseTick returns a command that sends a focus pulse tick
+func SidebarFocusPulseTick() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return SidebarFocusPulseTickMsg(t)
+	})
+}
+
+// StartFocusPulse starts the focus pulse animation
+func (s *Sidebar) StartFocusPulse() tea.Cmd {
+	s.focusPulseFrame = 0
+	return SidebarFocusPulseTick()
+}
+
+// IsFocusPulsing returns whether the focus pulse animation is active
+func (s *Sidebar) IsFocusPulsing() bool {
+	return s.focusPulseFrame >= 0
+}
+
+// GetFocusPulseFrame returns the current focus pulse frame (-1 if inactive)
+func (s *Sidebar) GetFocusPulseFrame() int {
+	return s.focusPulseFrame
+}
+
 // EnterSearchMode activates search mode
 func (s *Sidebar) EnterSearchMode() tea.Cmd {
 	s.searchMode = true
@@ -408,6 +444,7 @@ func (s *Sidebar) getDisplaySessions() []config.Session {
 func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 	switch msg := msg.(type) {
 	case SidebarTickMsg:
+		var cmds []tea.Cmd
 		if s.IsStreaming() {
 			// Advance the spinner with easing (some frames hold longer)
 			s.spinnerTick++
@@ -416,7 +453,27 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 				s.spinnerTick = 0
 				s.spinnerFrame = (s.spinnerFrame + 1) % len(sidebarSpinnerFrames)
 			}
-			return s, SidebarTick()
+			cmds = append(cmds, SidebarTick())
+		}
+		// Advance selection fade animation
+		if s.selectionFadeFrame < 2 {
+			s.selectionFadeFrame++
+		}
+		if len(cmds) > 0 {
+			return s, tea.Batch(cmds...)
+		}
+		return s, nil
+
+	case SidebarFocusPulseTickMsg:
+		if s.focusPulseFrame >= 0 {
+			s.focusPulseFrame++
+			if s.focusPulseFrame >= 4 {
+				// Animation complete
+				s.focusPulseFrame = -1
+			}
+			if s.focusPulseFrame >= 0 {
+				return s, SidebarFocusPulseTick()
+			}
 		}
 		return s, nil
 
@@ -464,13 +521,27 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 		switch msg.String() {
 		case "up", "k":
 			if s.selectedIdx > 0 {
+				oldIdx := s.selectedIdx
 				s.selectedIdx--
 				s.ensureVisible()
+				// Trigger selection fade animation if selection changed
+				if oldIdx != s.selectedIdx {
+					s.selectionFadeFrame = 0
+					s.lastSelectedIdx = oldIdx
+					return s, SidebarTick() // Start tick for fade animation
+				}
 			}
 		case "down", "j":
 			if s.selectedIdx < len(s.sessions)-1 {
+				oldIdx := s.selectedIdx
 				s.selectedIdx++
 				s.ensureVisible()
+				// Trigger selection fade animation if selection changed
+				if oldIdx != s.selectedIdx {
+					s.selectionFadeFrame = 0
+					s.lastSelectedIdx = oldIdx
+					return s, SidebarTick() // Start tick for fade animation
+				}
 			}
 		}
 	}
@@ -542,7 +613,13 @@ func (s *Sidebar) View() string {
 
 	style := PanelStyle
 	if s.focused {
-		style = PanelFocusedStyle
+		// Check for focus pulse animation
+		if s.focusPulseFrame >= 0 && s.focusPulseFrame < 2 {
+			// Use brighter border during pulse (frames 0-1)
+			style = PanelStyle.BorderForeground(lipgloss.Color("#A78BFA")) // Brighter purple
+		} else {
+			style = PanelFocusedStyle
+		}
 	}
 
 	innerHeight := ctx.InnerHeight(s.height)
@@ -584,7 +661,15 @@ func (s *Sidebar) View() string {
 			displayName := s.renderSessionName(sess, idx)
 			itemStyle := SidebarItemStyle
 			if idx == s.selectedIdx {
-				itemStyle = SidebarSelectedStyle
+				// Apply selection fade animation
+				if s.selectionFadeFrame < 2 {
+					// Dimmed selection during fade-in (frames 0-1)
+					itemStyle = lipgloss.NewStyle().
+						Background(lipgloss.Color("#4C1D95")). // Darker purple
+						Foreground(ColorTextInverse)
+				} else {
+					itemStyle = SidebarSelectedStyle
+				}
 				displayName = "> " + strings.TrimPrefix(displayName, "  ")
 			}
 			lines = append(lines, itemStyle.Render(displayName))
@@ -620,7 +705,15 @@ func (s *Sidebar) View() string {
 
 				itemStyle := SidebarItemStyle
 				if isSelected {
-					itemStyle = SidebarSelectedStyle
+					// Apply selection fade animation
+					if s.selectionFadeFrame < 2 {
+						// Dimmed selection during fade-in (frames 0-1)
+						itemStyle = lipgloss.NewStyle().
+							Background(lipgloss.Color("#4C1D95")). // Darker purple
+							Foreground(ColorTextInverse)
+					} else {
+						itemStyle = SidebarSelectedStyle
+					}
 				}
 
 				lines = append(lines, itemStyle.Render(displayName))
