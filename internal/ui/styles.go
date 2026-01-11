@@ -36,17 +36,17 @@ var (
 var (
 	FooterStyle = lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
-		Background(lipgloss.Color("#111827")).
+		Background(ColorBg).
 		Padding(0, 1)
 
 	FooterKeyStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorSecondary).
-		Background(lipgloss.Color("#111827"))
+		Background(ColorBg)
 
 	FooterDescStyle = lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
-		Background(lipgloss.Color("#111827"))
+		Background(ColorBg)
 )
 
 // Panel styles
@@ -98,11 +98,13 @@ var (
 	ChatInputStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorder).
+		Background(ColorBg).
 		Padding(0, 1)
 
 	ChatInputFocusedStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorderFocus).
+		Background(ColorBg).
 		Padding(0, 1)
 )
 

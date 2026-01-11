@@ -397,17 +397,17 @@ func regenerateStyles() {
 	// Update footer styles
 	FooterStyle = lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
-		Background(lipgloss.Color(t.BgDark)).
+		Background(ColorBg).
 		Padding(0, 1)
 
 	FooterKeyStyle = lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorSecondary).
-		Background(lipgloss.Color(t.BgDark))
+		Background(ColorBg)
 
 	FooterDescStyle = lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
-		Background(lipgloss.Color(t.BgDark))
+		Background(ColorBg)
 
 	// Update panel styles
 	PanelStyle = lipgloss.NewStyle().
@@ -452,11 +452,13 @@ func regenerateStyles() {
 	ChatInputStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorder).
+		Background(ColorBg).
 		Padding(0, 1)
 
 	ChatInputFocusedStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorderFocus).
+		Background(ColorBg).
 		Padding(0, 1)
 
 	// Update modal styles
