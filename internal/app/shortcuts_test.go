@@ -108,10 +108,10 @@ func TestExecuteShortcut_RequiresSidebarGuard(t *testing.T) {
 		t.Fatal("Expected chat to be focused after selecting session")
 	}
 
-	// 'n' requires sidebar focus, should be blocked
+	// 'n' requires sidebar focus, should NOT be handled so key propagates to textarea
 	result, cmd, handled := m.ExecuteShortcut("n")
-	if !handled {
-		t.Error("Expected 'n' to be handled (found in registry)")
+	if handled {
+		t.Error("Expected 'n' to NOT be handled when guard fails (key should propagate to textarea)")
 	}
 	if cmd != nil {
 		t.Error("Expected no command when guard fails")
@@ -126,10 +126,10 @@ func TestExecuteShortcut_RequiresSessionGuard(t *testing.T) {
 	cfg := testConfig() // No sessions
 	m := testModelWithSize(cfg, 120, 40)
 
-	// 'd' requires a session selected
+	// 'd' requires a session selected, should NOT be handled so key propagates
 	result, cmd, handled := m.ExecuteShortcut("d")
-	if !handled {
-		t.Error("Expected 'd' to be handled (found in registry)")
+	if handled {
+		t.Error("Expected 'd' to NOT be handled when guard fails (key should propagate)")
 	}
 	if cmd != nil {
 		t.Error("Expected no command when session guard fails")
@@ -152,10 +152,10 @@ func TestExecuteShortcut_ConditionGuard(t *testing.T) {
 		t.Fatal("Expected to be in search mode after '/'")
 	}
 
-	// Second '/' should be blocked by condition
+	// Second '/' should NOT be handled when condition fails, so key propagates
 	result, cmd, handled := m.ExecuteShortcut("/")
-	if !handled {
-		t.Error("Expected '/' to be handled")
+	if handled {
+		t.Error("Expected '/' to NOT be handled when condition fails (key should propagate)")
 	}
 	if cmd != nil {
 		t.Error("Expected no command when condition fails")
@@ -552,6 +552,74 @@ func TestDisplayOnlyShortcuts_NoHandlers(t *testing.T) {
 				key = s.Key
 			}
 			t.Errorf("Display-only shortcut %q should not have a handler", key)
+		}
+	}
+}
+
+// =============================================================================
+// Textarea Input Protection Tests
+// =============================================================================
+
+// TestAllShortcutKeysTypableInTextarea ensures that when the textarea is focused,
+// all shortcut keys pass through to the textarea instead of triggering shortcuts.
+// This is a critical test - if this fails, users cannot type certain letters.
+func TestAllShortcutKeysTypableInTextarea(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select session to focus the chat textarea
+	m = sendKey(m, "enter")
+	if !m.chat.IsFocused() {
+		t.Fatal("Expected chat to be focused after selecting session")
+	}
+
+	// Collect all single-character shortcut keys that have RequiresSidebar guard
+	// These are the keys that could potentially block typing if the bug exists
+	var sidebarShortcutKeys []string
+	for _, s := range ShortcutRegistry {
+		if s.RequiresSidebar && len(s.Key) == 1 {
+			sidebarShortcutKeys = append(sidebarShortcutKeys, s.Key)
+		}
+	}
+
+	// Also include the help shortcut which is handled specially
+	sidebarShortcutKeys = append(sidebarShortcutKeys, "?")
+
+	// Verify we have shortcuts to test (sanity check)
+	if len(sidebarShortcutKeys) == 0 {
+		t.Fatal("No single-character sidebar shortcuts found - test may be misconfigured")
+	}
+
+	// Each shortcut key should NOT be handled when textarea is focused
+	for _, key := range sidebarShortcutKeys {
+		_, _, handled := m.ExecuteShortcut(key)
+		if handled {
+			t.Errorf("Key %q was handled by shortcut system when textarea is focused - users cannot type this letter!", key)
+		}
+	}
+}
+
+// TestCommonLettersTypableInTextarea verifies that common letters used in
+// messages can be typed. This is a regression test for the textarea input bug.
+func TestCommonLettersTypableInTextarea(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select session to focus the chat textarea
+	m = sendKey(m, "enter")
+	if !m.chat.IsFocused() {
+		t.Fatal("Expected chat to be focused after selecting session")
+	}
+
+	// Test every letter of the alphabet - users should be able to type all of them
+	alphabet := "abcdefghijklmnopqrstuvwxyz"
+	for _, letter := range alphabet {
+		key := string(letter)
+		_, _, handled := m.ExecuteShortcut(key)
+		if handled {
+			t.Errorf("Letter %q intercepted by shortcut system - users cannot type this letter!", key)
 		}
 	}
 }

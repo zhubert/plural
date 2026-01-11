@@ -233,7 +233,7 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 	// Handle help shortcut specially (defined outside registry to avoid init cycle)
 	if key == "?" {
 		if m.chat.IsFocused() {
-			return m, nil, true // Found but guard failed
+			return m, nil, false // Guard failed, let key propagate to textarea
 		}
 		result, cmd := shortcutHelp(m)
 		return result, cmd, true
@@ -243,13 +243,13 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 		if s.Key == key {
 			// Check guards
 			if s.RequiresSidebar && m.chat.IsFocused() {
-				return m, nil, true // Found but guard failed
+				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			if s.RequiresSession && m.sidebar.SelectedSession() == nil {
-				return m, nil, true // Found but guard failed
+				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			if s.Condition != nil && !s.Condition(m) {
-				return m, nil, true // Found but guard failed
+				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			result, cmd := s.Handler(m)
 			return result, cmd, true
