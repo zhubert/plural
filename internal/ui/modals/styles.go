@@ -3,6 +3,7 @@ package modals
 import (
 	"image/color"
 
+	"charm.land/bubbles/v2/textarea"
 	"charm.land/lipgloss/v2"
 )
 
@@ -51,4 +52,36 @@ func SetStyles(
 	ModalInputWidth = inputWidth
 	ModalInputCharLimit = inputCharLimit
 	ModalWidth = modalWidth
+}
+
+// ApplyTextareaStyles configures a textarea with transparent background styles.
+// This ensures the textarea background matches the terminal background instead
+// of using the default black background.
+func ApplyTextareaStyles(ta *textarea.Model) {
+	styles := ta.Styles()
+
+	// Create base style without background - let terminal's native background show through
+	baseStyle := lipgloss.NewStyle()
+
+	textStyle := lipgloss.NewStyle().
+		Foreground(ColorText)
+
+	placeholderStyle := lipgloss.NewStyle().
+		Foreground(ColorTextMuted)
+
+	// Configure focused state - no background colors
+	styles.Focused.Base = baseStyle
+	styles.Focused.Text = textStyle
+	styles.Focused.Placeholder = placeholderStyle
+	styles.Focused.CursorLine = textStyle // Remove background from cursor line
+	styles.Focused.Prompt = textStyle
+
+	// Configure blurred state (same colors, just not focused)
+	styles.Blurred.Base = baseStyle
+	styles.Blurred.Text = textStyle
+	styles.Blurred.Placeholder = placeholderStyle
+	styles.Blurred.CursorLine = textStyle
+	styles.Blurred.Prompt = textStyle
+
+	ta.SetStyles(styles)
 }

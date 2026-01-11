@@ -258,6 +258,9 @@ func NewEditCommitState(message, mergeType string) *EditCommitState {
 	ta.SetValue(unwrapCommitMessage(message))
 	ta.Focus()
 
+	// Apply transparent background styles
+	ApplyTextareaStyles(&ta)
+
 	return &EditCommitState{
 		Textarea:  ta,
 		MergeType: mergeType,
