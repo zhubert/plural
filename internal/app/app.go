@@ -257,42 +257,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleModalKey(msg)
 		}
 
-		// Handle permission response when chat is focused and has pending permission
-		if m.focus == FocusChat && m.activeSession != nil {
-			if req := m.sessionState().GetPendingPermission(m.activeSession.ID); req != nil {
-				switch msg.String() {
-				case "y", "Y", "n", "N", "a", "A":
-					return m.handlePermissionResponse(msg.String(), m.activeSession.ID, req)
-				}
-			}
-		}
-
-		// Handle question response when chat is focused and has pending question
-		if m.focus == FocusChat && m.activeSession != nil {
-			if m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil {
-				key := msg.String()
-				switch key {
-				case "1", "2", "3", "4", "5":
-					num := int(key[0] - '0')
-					if m.chat.SelectOptionByNumber(num) {
-						return m.submitQuestionResponse(m.activeSession.ID)
-					}
-					return m, nil
-				case "up", "k":
-					m.chat.MoveQuestionSelection(-1)
-					return m, nil
-				case "down", "j":
-					m.chat.MoveQuestionSelection(1)
-					return m, nil
-				case "enter":
-					if m.chat.SelectCurrentOption() {
-						return m.submitQuestionResponse(m.activeSession.ID)
-					}
-					return m, nil
-				}
-			}
-		}
-
 		// Handle Escape to exit search mode or interrupt streaming
 		if msg.String() == "esc" {
 			// First check if sidebar is in search mode
@@ -324,31 +288,53 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle Ctrl+V for image pasting when chat is focused
-		// Note: Most terminals intercept Ctrl+V and send PasteStartMsg instead,
-		// but we keep this as a fallback for terminals that send raw key presses.
-		if msg.String() == "ctrl+v" && m.focus == FocusChat && m.activeSession != nil {
-			return m.handleImagePaste()
-		}
+		// Handle chat-focused keys when chat is focused with an active session
+		if m.focus == FocusChat && m.activeSession != nil {
+			key := msg.String()
 
-		// Handle Ctrl+P for parallel option exploration when chat is focused
-		if msg.String() == "ctrl+p" && m.focus == FocusChat && m.activeSession != nil {
-			if m.sessionState().HasDetectedOptions(m.activeSession.ID) {
+			// Permission response
+			if req := m.sessionState().GetPendingPermission(m.activeSession.ID); req != nil {
+				switch key {
+				case "y", "Y", "n", "N", "a", "A":
+					return m.handlePermissionResponse(key, m.activeSession.ID, req)
+				}
+			}
+
+			// Question response
+			if m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil {
+				switch key {
+				case "1", "2", "3", "4", "5":
+					num := int(key[0] - '0')
+					if m.chat.SelectOptionByNumber(num) {
+						return m.submitQuestionResponse(m.activeSession.ID)
+					}
+					return m, nil
+				case "up", "k":
+					m.chat.MoveQuestionSelection(-1)
+					return m, nil
+				case "down", "j":
+					m.chat.MoveQuestionSelection(1)
+					return m, nil
+				case "enter":
+					if m.chat.SelectCurrentOption() {
+						return m.submitQuestionResponse(m.activeSession.ID)
+					}
+					return m, nil
+				}
+			}
+
+			// Ctrl+V for image pasting (fallback for terminals that send raw key presses)
+			if key == "ctrl+v" {
+				return m.handleImagePaste()
+			}
+
+			// Ctrl+P for parallel option exploration
+			if key == "ctrl+p" && m.sessionState().HasDetectedOptions(m.activeSession.ID) {
 				return m.showExploreOptionsModal()
 			}
-		}
 
-		// Handle Ctrl+F for force resume when session has "in use" error
-		if msg.String() == "ctrl+f" && !m.chat.IsFocused() && m.sidebar.SelectedSession() != nil {
-			sess := m.sidebar.SelectedSession()
-			if m.sessionState().HasSessionInUseError(sess.ID) {
-				return m.forceResumeSession(sess)
-			}
-		}
-
-		// Handle backspace to remove pending image when input is empty
-		if msg.String() == "backspace" && m.focus == FocusChat && m.activeSession != nil {
-			if m.chat.HasPendingImage() && m.chat.GetInput() == "" {
+			// Backspace to remove pending image when input is empty
+			if key == "backspace" && m.chat.HasPendingImage() && m.chat.GetInput() == "" {
 				m.chat.ClearImage()
 				return m, nil
 			}
@@ -370,7 +356,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle special cases not in the registry
 		switch key {
 		case "enter":
-			if m.focus == FocusSidebar {
+			switch m.focus {
+			case FocusSidebar:
 				// Select session
 				if sess := m.sidebar.SelectedSession(); sess != nil {
 					m.selectSession(sess)
@@ -382,7 +369,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
-			} else if m.focus == FocusChat {
+			case FocusChat:
 				if m.CanSendMessage() {
 					// Send message immediately
 					return m.sendMessage()

@@ -176,12 +176,13 @@ func extractSequentialOptions(matches [][]string) []DetectedOption {
 
 		// Check if this continues the sequence or starts a new one
 		expectedNum := len(currentGroup) + 1
-		if num == expectedNum {
+		switch num {
+		case expectedNum:
 			currentGroup = append(currentGroup, DetectedOption{
 				Number: num,
 				Text:   text,
 			})
-		} else if num == 1 {
+		case 1:
 			// Start a new group
 			if len(currentGroup) >= 2 {
 				allGroups = append(allGroups, currentGroup)
@@ -190,7 +191,7 @@ func extractSequentialOptions(matches [][]string) []DetectedOption {
 				Number: 1,
 				Text:   text,
 			}}
-		} else {
+		default:
 			// Break in sequence, save current group if valid
 			if len(currentGroup) >= 2 {
 				allGroups = append(allGroups, currentGroup)
@@ -215,4 +216,3 @@ func extractSequentialOptions(matches [][]string) []DetectedOption {
 
 	return result
 }
-
