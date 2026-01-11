@@ -186,16 +186,14 @@ func applyTextareaStyles(ti *textarea.Model) {
 	styles := ti.Styles()
 
 	// Create style states for focused and blurred
-	baseStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.Bg))
+	// Don't set background - let terminal's native background show through
+	baseStyle := lipgloss.NewStyle()
 
 	textStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.Text)).
-		Background(lipgloss.Color(theme.Bg))
+		Foreground(lipgloss.Color(theme.Text))
 
 	placeholderStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextMuted)).
-		Background(lipgloss.Color(theme.Bg))
+		Foreground(lipgloss.Color(theme.TextMuted))
 
 	// Configure focused state
 	styles.Focused.Base = baseStyle

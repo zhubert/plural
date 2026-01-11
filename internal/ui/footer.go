@@ -67,14 +67,11 @@ func (f *Footer) SetBindings(bindings []KeyBinding) {
 	f.bindings = bindings
 }
 
-// footerSeparator returns the separator string between footer key bindings with proper background
+// footerSeparator returns the separator string between footer key bindings
 func footerSeparator() string {
-	theme := CurrentTheme()
-	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.Bg))
 	sepStyle := lipgloss.NewStyle().
-		Foreground(ColorBorder).
-		Background(lipgloss.Color(theme.Bg))
-	return bgStyle.Render("  ") + sepStyle.Render("|") + bgStyle.Render("  ")
+		Foreground(ColorBorder)
+	return "  " + sepStyle.Render("|") + "  "
 }
 
 // View renders the footer
