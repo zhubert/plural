@@ -534,48 +534,8 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		logger.Log("Git: Merging %s into %s in %s (worktree: %s)", branch, defaultBranch, repoPath, worktreePath)
 
 		// First, check for uncommitted changes in the worktree and commit them
-		status, err := GetWorktreeStatus(worktreePath)
-		if err != nil {
-			ch <- Result{Error: fmt.Errorf("failed to get worktree status: %w", err), Done: true}
+		if !EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
 			return
-		}
-
-		if status.HasChanges {
-			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-
-			// Use provided commit message or generate one
-			if commitMsg == "" {
-				ch <- Result{Output: "Generating commit message with Claude...\n"}
-
-				// Try to generate commit message with Claude, fall back to simple message
-				commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
-				if err != nil {
-					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
-					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
-					commitMsg, err = GenerateCommitMessage(worktreePath)
-					if err != nil {
-						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-						return
-					}
-				} else {
-					// Show the generated commit message
-					firstLine := strings.Split(commitMsg, "\n")[0]
-					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-				}
-			} else {
-				// Show the user-provided commit message
-				firstLine := strings.Split(commitMsg, "\n")[0]
-				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-			}
-
-			ch <- Result{Output: "Committing changes...\n"}
-			if err := CommitAll(worktreePath, commitMsg); err != nil {
-				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
-				return
-			}
-			ch <- Result{Output: "Changes committed successfully\n\n"}
-		} else {
-			ch <- Result{Output: "No uncommitted changes in worktree\n\n"}
 		}
 
 		// Checkout the default branch
@@ -650,48 +610,8 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 		}
 
 		// First, check for uncommitted changes in the worktree and commit them
-		status, err := GetWorktreeStatus(worktreePath)
-		if err != nil {
-			ch <- Result{Error: fmt.Errorf("failed to get worktree status: %w", err), Done: true}
+		if !EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
 			return
-		}
-
-		if status.HasChanges {
-			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-
-			// Use provided commit message or generate one
-			if commitMsg == "" {
-				ch <- Result{Output: "Generating commit message with Claude...\n"}
-
-				// Try to generate commit message with Claude, fall back to simple message
-				commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
-				if err != nil {
-					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
-					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
-					commitMsg, err = GenerateCommitMessage(worktreePath)
-					if err != nil {
-						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-						return
-					}
-				} else {
-					// Show the generated commit message
-					firstLine := strings.Split(commitMsg, "\n")[0]
-					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-				}
-			} else {
-				// Show the user-provided commit message
-				firstLine := strings.Split(commitMsg, "\n")[0]
-				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-			}
-
-			ch <- Result{Output: "Committing changes...\n"}
-			if err := CommitAll(worktreePath, commitMsg); err != nil {
-				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
-				return
-			}
-			ch <- Result{Output: "Changes committed successfully\n\n"}
-		} else {
-			ch <- Result{Output: "No uncommitted changes in worktree\n\n"}
 		}
 
 		// Push the branch
@@ -789,48 +709,8 @@ func MergeToParent(ctx context.Context, childWorktreePath, childBranch, parentWo
 			childBranch, parentBranch, childWorktreePath, parentWorktreePath)
 
 		// First, check for uncommitted changes in the child worktree and commit them
-		status, err := GetWorktreeStatus(childWorktreePath)
-		if err != nil {
-			ch <- Result{Error: fmt.Errorf("failed to get child worktree status: %w", err), Done: true}
+		if !EnsureCommitted(ctx, ch, childWorktreePath, commitMsg) {
 			return
-		}
-
-		if status.HasChanges {
-			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes in child (%s)\n", status.Summary)}
-
-			// Use provided commit message or generate one
-			if commitMsg == "" {
-				ch <- Result{Output: "Generating commit message with Claude...\n"}
-
-				// Try to generate commit message with Claude, fall back to simple message
-				commitMsg, err = GenerateCommitMessageWithClaude(ctx, childWorktreePath)
-				if err != nil {
-					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
-					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
-					commitMsg, err = GenerateCommitMessage(childWorktreePath)
-					if err != nil {
-						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-						return
-					}
-				} else {
-					// Show the generated commit message
-					firstLine := strings.Split(commitMsg, "\n")[0]
-					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-				}
-			} else {
-				// Show the user-provided commit message
-				firstLine := strings.Split(commitMsg, "\n")[0]
-				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-			}
-
-			ch <- Result{Output: "Committing changes in child...\n"}
-			if err := CommitAll(childWorktreePath, commitMsg); err != nil {
-				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
-				return
-			}
-			ch <- Result{Output: "Changes committed successfully\n\n"}
-		} else {
-			ch <- Result{Output: "No uncommitted changes in child worktree\n\n"}
 		}
 
 		// Now merge the child branch into the parent worktree
@@ -887,48 +767,8 @@ func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		logger.Log("Git: Pushing updates for branch %s (worktree: %s)", branch, worktreePath)
 
 		// First, check for uncommitted changes in the worktree and commit them
-		status, err := GetWorktreeStatus(worktreePath)
-		if err != nil {
-			ch <- Result{Error: fmt.Errorf("failed to get worktree status: %w", err), Done: true}
+		if !EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
 			return
-		}
-
-		if status.HasChanges {
-			ch <- Result{Output: fmt.Sprintf("Found uncommitted changes (%s)\n", status.Summary)}
-
-			// Use provided commit message or generate one
-			if commitMsg == "" {
-				ch <- Result{Output: "Generating commit message with Claude...\n"}
-
-				// Try to generate commit message with Claude, fall back to simple message
-				commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
-				if err != nil {
-					logger.Log("Git: Claude commit message failed, using fallback: %v", err)
-					ch <- Result{Output: "Claude unavailable, using fallback message...\n"}
-					commitMsg, err = GenerateCommitMessage(worktreePath)
-					if err != nil {
-						ch <- Result{Error: fmt.Errorf("failed to generate commit message: %w", err), Done: true}
-						return
-					}
-				} else {
-					// Show the generated commit message
-					firstLine := strings.Split(commitMsg, "\n")[0]
-					ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-				}
-			} else {
-				// Show the user-provided commit message
-				firstLine := strings.Split(commitMsg, "\n")[0]
-				ch <- Result{Output: fmt.Sprintf("Commit message: %s\n", firstLine)}
-			}
-
-			ch <- Result{Output: "Committing changes...\n"}
-			if err := CommitAll(worktreePath, commitMsg); err != nil {
-				ch <- Result{Error: fmt.Errorf("failed to commit changes: %w", err), Done: true}
-				return
-			}
-			ch <- Result{Output: "Changes committed successfully\n\n"}
-		} else {
-			ch <- Result{Output: "No uncommitted changes in worktree\n\n"}
 		}
 
 		// Push the updates to the existing remote branch
