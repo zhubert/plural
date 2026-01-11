@@ -74,13 +74,14 @@ type ThemeName string
 
 // Available theme names
 const (
-	ThemeDarkPurple ThemeName = "dark-purple"
-	ThemeNord       ThemeName = "nord"
-	ThemeDracula    ThemeName = "dracula"
-	ThemeGruvbox    ThemeName = "gruvbox"
-	ThemeTokyoNight ThemeName = "tokyo-night"
-	ThemeCatppuccin ThemeName = "catppuccin"
-	ThemeLight      ThemeName = "light"
+	ThemeDarkPurple    ThemeName = "dark-purple"
+	ThemeNord          ThemeName = "nord"
+	ThemeDracula       ThemeName = "dracula"
+	ThemeGruvbox       ThemeName = "gruvbox"
+	ThemeTokyoNight    ThemeName = "tokyo-night"
+	ThemeCatppuccin    ThemeName = "catppuccin"
+	ThemeScienceFiction ThemeName = "science-fiction"
+	ThemeLight         ThemeName = "light"
 )
 
 // DefaultTheme is the default theme name
@@ -250,6 +251,35 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownLink:     "#89DCEB",
 		MarkdownListItem: "#CBA6F7",
 	},
+	ThemeScienceFiction: {
+		Name:             "Science Fiction",
+		Primary:          "#E50914",
+		Secondary:        "#8B0000",
+		Bg:               "#0A0A0A",
+		BgDark:           "#000000",
+		BgSelected:       "#2D0A0A",
+		Text:             "#E8E8E8",
+		TextMuted:        "#666666",
+		TextInverse:      "#0A0A0A",
+		User:             "#FF4444",
+		Assistant:        "#CC0000",
+		Warning:          "#FF6600",
+		Error:            "#FF0000",
+		Info:             "#AA0000",
+		Border:           "#330000",
+		BorderFocus:      "#E50914",
+		DiffAdded:        "#00AA00",
+		DiffRemoved:      "#FF4444",
+		DiffHeader:       "#E50914",
+		DiffHunk:         "#8B0000",
+		MarkdownH1:       "#E50914",
+		MarkdownH2:       "#CC0000",
+		MarkdownH3:       "#AA0000",
+		MarkdownCode:     "#FF6666",
+		MarkdownCodeBg:   "#1A0000",
+		MarkdownLink:     "#FF4444",
+		MarkdownListItem: "#E50914",
+	},
 	ThemeLight: {
 		Name:             "Light",
 		Primary:          "#6366F1",
@@ -290,6 +320,7 @@ func ThemeNames() []ThemeName {
 		ThemeGruvbox,
 		ThemeTokyoNight,
 		ThemeCatppuccin,
+		ThemeScienceFiction,
 		ThemeLight,
 	}
 }
