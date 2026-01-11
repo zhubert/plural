@@ -163,7 +163,7 @@ func TestRunner_GetResponseChan(t *testing.T) {
 	// Set response channel
 	ch := make(chan ResponseChunk)
 	runner.mu.Lock()
-	runner.responseChan = ch
+	runner.currentResponseCh = ch
 	runner.mu.Unlock()
 
 	if runner.GetResponseChan() == nil {

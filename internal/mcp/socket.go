@@ -122,6 +122,15 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 
 	for {
+		// Check if server is closed before waiting for data
+		s.closedMu.RLock()
+		closed := s.closed
+		s.closedMu.RUnlock()
+		if closed {
+			logger.Log("MCP Socket: Server closed, closing connection handler")
+			return
+		}
+
 		// Set read deadline
 		conn.SetReadDeadline(time.Now().Add(SocketReadTimeout))
 
@@ -129,7 +138,15 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout is expected, continue waiting
+				// Timeout is expected - check if server was closed during timeout
+				s.closedMu.RLock()
+				closed := s.closed
+				s.closedMu.RUnlock()
+				if closed {
+					logger.Log("MCP Socket: Server closed during timeout, exiting handler")
+					return
+				}
+				// Server still running, continue waiting for messages
 				continue
 			}
 			logger.Log("MCP Socket: Read error: %v", err)
