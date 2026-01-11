@@ -40,7 +40,6 @@ func stripOptionsTags(content string) string {
 // Compiled regex patterns for markdown parsing
 var (
 	boldPattern       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	italicPattern     = regexp.MustCompile(`(?:^|[^*])\*([^*]+)\*(?:[^*]|$)`)
 	underscoreItalic  = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_])_([^_]+)_(?:[^a-zA-Z0-9_]|$)`)
 	inlineCodePattern = regexp.MustCompile("`([^`]+)`")
 	linkPattern       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)

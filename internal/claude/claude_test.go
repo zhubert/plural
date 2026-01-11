@@ -582,9 +582,6 @@ func TestChunkTypes(t *testing.T) {
 	if ChunkTypeToolResult != "tool_result" {
 		t.Errorf("ChunkTypeToolResult = %q, want 'tool_result'", ChunkTypeToolResult)
 	}
-	if ChunkTypeStatus != "status" {
-		t.Errorf("ChunkTypeStatus = %q, want 'status'", ChunkTypeStatus)
-	}
 }
 
 func TestParseStreamMessage_EmptyText(t *testing.T) {

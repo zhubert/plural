@@ -121,14 +121,6 @@ func sendKey(m *Model, key string) *Model {
 	return result.(*Model)
 }
 
-// sendKeys sends multiple key presses to the model in sequence.
-func sendKeys(m *Model, keys ...string) *Model {
-	for _, key := range keys {
-		m = sendKey(m, key)
-	}
-	return m
-}
-
 // typeText simulates typing a string by sending individual character key presses.
 func typeText(m *Model, text string) *Model {
 	for _, ch := range text {

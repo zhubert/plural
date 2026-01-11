@@ -57,7 +57,6 @@ var (
 	NewChangelogState          = modals.NewChangelogState
 	NewSettingsState           = modals.NewSettingsState
 	NewImportIssuesState       = modals.NewImportIssuesState
-	NewHelpState               = modals.NewHelpState
 	NewHelpStateFromSections   = modals.NewHelpStateFromSections
 	NewExploreOptionsState     = modals.NewExploreOptionsState
 	NewSearchMessagesState     = modals.NewSearchMessagesState
