@@ -68,9 +68,10 @@ var (
 	SidebarItemStyle = lipgloss.NewStyle().
 		Padding(0, 1)
 
+	// SidebarSelectedStyle uses theme's BgSelected color - initialized properly in regenerateStyles()
 	SidebarSelectedStyle = lipgloss.NewStyle().
-		Background(ColorPrimary).
-		Foreground(ColorText).
+		Background(lipgloss.Color(BuiltinThemes[DefaultTheme].GetBgSelected())).
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].Text)).
 		Bold(true).
 		Padding(0, 1)
 

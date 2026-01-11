@@ -345,6 +345,7 @@ func CurrentTheme() Theme {
 func SetTheme(name ThemeName) {
 	currentTheme = GetTheme(name)
 	regenerateStyles()
+	RefreshModalStyles()
 }
 
 // SetThemeByName sets the active theme by string name
