@@ -832,18 +832,18 @@ func renderSpinner(verb string, frameIdx int) string {
 func renderCompletionFlash(frame int) string {
 	checkmark := "✓"
 
-	// Frame 0: bright green checkmark
-	// Frame 1: normal green checkmark
+	// Frame 0: bright checkmark (using theme's diff added color which is green)
+	// Frame 1: normal checkmark
 	// Frame 2+: fade out (empty)
 	switch frame {
 	case 0:
-		// Bright green
+		// Bright checkmark using theme's diff added color
 		style := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#22C55E")).
+			Foreground(DiffAddedStyle.GetForeground()).
 			Bold(true)
 		return style.Render(checkmark) + " " + lipgloss.NewStyle().Foreground(ColorSecondary).Italic(true).Render("Done")
 	case 1:
-		// Normal green (using theme's secondary color which is cyan/teal)
+		// Normal checkmark (using theme's secondary color)
 		style := lipgloss.NewStyle().
 			Foreground(ColorSecondary)
 		return style.Render(checkmark)
@@ -1512,14 +1512,14 @@ func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
 	// Style for file list pane - highlight border if focused
 	fileListStyle := lipgloss.NewStyle().Width(fileListWidth)
 	if c.viewChangesFilePane {
-		fileListStyle = fileListStyle.Foreground(lipgloss.Color("#60A5FA")) // Blue when focused
+		fileListStyle = fileListStyle.Foreground(ColorBorderFocus) // Use theme's focused border color
 	}
 
 	// Join the panes horizontally
 	content := lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		fileListStyle.Render(fileListContent),
-		lipgloss.NewStyle().Width(dividerWidth).Foreground(lipgloss.Color("#4B5563")).Render(dividerContent),
+		lipgloss.NewStyle().Width(dividerWidth).Foreground(ColorBorder).Render(dividerContent),
 		lipgloss.NewStyle().Width(diffWidth).Render(c.viewChangesViewport.View()),
 	)
 

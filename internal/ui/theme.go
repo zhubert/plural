@@ -585,4 +585,9 @@ func regenerateStyles() {
 
 	DiffHunkStyle = lipgloss.NewStyle().
 		Foreground(lipgloss.Color(t.DiffHunk))
+
+	// Update view changes styles
+	ViewChangesSelectedStyle = lipgloss.NewStyle().
+		Background(lipgloss.Color(t.GetBgSelected())).
+		Foreground(lipgloss.Color(t.Text))
 }
