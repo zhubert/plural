@@ -40,17 +40,7 @@ func (s *NewSessionState) Render() string {
 			Italic(true).
 			Render("No repositories added. Press 'r' to add one first.")
 	} else {
-		for i, repo := range s.RepoOptions {
-			style := SidebarItemStyle
-			prefix := "  "
-			if s.Focus == 0 && i == s.RepoIndex {
-				style = SidebarSelectedStyle
-				prefix = "> "
-			} else if i == s.RepoIndex {
-				prefix = "* "
-			}
-			repoList += style.Render(prefix+repo) + "\n"
-		}
+		repoList = RenderSelectableListWithFocus(s.RepoOptions, s.RepoIndex, s.Focus == 0, "* ")
 	}
 
 	// Branch name input section

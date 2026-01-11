@@ -61,9 +61,11 @@ var (
 	NewHelpStateFromSections   = modals.NewHelpStateFromSections
 	NewExploreOptionsState     = modals.NewExploreOptionsState
 	NewSearchMessagesState     = modals.NewSearchMessagesState
-	SessionDisplayName         = modals.SessionDisplayName
-	TruncatePath               = modals.TruncatePath
-	TruncateString             = modals.TruncateString
+	SessionDisplayName             = modals.SessionDisplayName
+	TruncatePath                   = modals.TruncatePath
+	TruncateString                 = modals.TruncateString
+	RenderSelectableList           = modals.RenderSelectableList
+	RenderSelectableListWithFocus  = modals.RenderSelectableListWithFocus
 )
 
 // NewThemeState creates a new ThemeState - wrapper to handle ThemeName conversion

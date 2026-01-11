@@ -152,15 +152,7 @@ func (s *SelectRepoForIssuesState) Render() string {
 			Italic(true).
 			Render("No repositories added. Press 'a' to add one first.")
 	} else {
-		for i, repo := range s.RepoOptions {
-			style := SidebarItemStyle
-			prefix := "  "
-			if i == s.RepoIndex {
-				style = SidebarSelectedStyle
-				prefix = "> "
-			}
-			repoList += style.Render(prefix+repo) + "\n"
-		}
+		repoList = RenderSelectableList(s.RepoOptions, s.RepoIndex)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())

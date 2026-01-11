@@ -62,16 +62,7 @@ func (s *MergeState) Render() string {
 		summarySection = noChangesStyle.Render("No uncommitted changes")
 	}
 
-	var optionList string
-	for i, opt := range s.Options {
-		style := SidebarItemStyle
-		prefix := "  "
-		if i == s.SelectedIndex {
-			style = SidebarSelectedStyle
-			prefix = "> "
-		}
-		optionList += style.Render(prefix+opt) + "\n"
-	}
+	optionList := RenderSelectableList(s.Options, s.SelectedIndex)
 
 	if !s.HasRemote {
 		note := lipgloss.NewStyle().
@@ -272,16 +263,7 @@ func (s *MergeConflictState) Render() string {
 	}
 
 	// Options
-	var optionList string
-	for i, opt := range s.Options {
-		style := SidebarItemStyle
-		prefix := "  "
-		if i == s.SelectedIndex {
-			style = SidebarSelectedStyle
-			prefix = "> "
-		}
-		optionList += style.Render(prefix+opt) + "\n"
-	}
+	optionList := RenderSelectableList(s.Options, s.SelectedIndex)
 
 	help := ModalHelpStyle.Render(s.Help())
 
@@ -355,16 +337,7 @@ func (s *ConfirmDeleteState) Render() string {
 		MarginBottom(1).
 		Render("This will remove the session from the list.")
 
-	var optionList string
-	for i, opt := range s.Options {
-		style := SidebarItemStyle
-		prefix := "  "
-		if i == s.SelectedIndex {
-			style = SidebarSelectedStyle
-			prefix = "> "
-		}
-		optionList += style.Render(prefix+opt) + "\n"
-	}
+	optionList := RenderSelectableList(s.Options, s.SelectedIndex)
 
 	help := ModalHelpStyle.Render(s.Help())
 
