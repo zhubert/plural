@@ -51,12 +51,8 @@ type Sidebar struct {
 	streamingSessions  map[string]bool // Map of session IDs that are currently streaming
 	pendingPermissions map[string]bool // Map of session IDs that have pending permission requests
 	sessionsInUse      map[string]bool // Map of session IDs that have "session in use" errors
-	spinnerFrame       int             // Current spinner animation frame
-	spinnerTick        int             // Tick counter for frame hold timing
-
-	// Selection fade animation
-	selectionFadeFrame int // Frame counter for selection fade (0-2)
-	lastSelectedIdx    int // Previous selection for detecting changes
+	spinnerFrame int // Current spinner animation frame
+	spinnerTick  int // Tick counter for frame hold timing
 
 	// Cache for incremental updates
 	sessionIndex map[string]int  // Map of session ID to index in sessions slice
@@ -78,8 +74,6 @@ func NewSidebar() *Sidebar {
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
 		sessionsInUse:      make(map[string]bool),
-		selectionFadeFrame: 2, // Start fully visible
-		lastSelectedIdx:    -1,
 		searchInput:        ti,
 	}
 }
@@ -425,10 +419,6 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 			}
 			cmds = append(cmds, SidebarTick())
 		}
-		// Advance selection fade animation
-		if s.selectionFadeFrame < 2 {
-			s.selectionFadeFrame++
-		}
 		if len(cmds) > 0 {
 			return s, tea.Batch(cmds...)
 		}
@@ -478,27 +468,13 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 		switch msg.String() {
 		case "up", "k":
 			if s.selectedIdx > 0 {
-				oldIdx := s.selectedIdx
 				s.selectedIdx--
 				s.ensureVisible()
-				// Trigger selection fade animation if selection changed
-				if oldIdx != s.selectedIdx {
-					s.selectionFadeFrame = 0
-					s.lastSelectedIdx = oldIdx
-					return s, SidebarTick() // Start tick for fade animation
-				}
 			}
 		case "down", "j":
 			if s.selectedIdx < len(s.sessions)-1 {
-				oldIdx := s.selectedIdx
 				s.selectedIdx++
 				s.ensureVisible()
-				// Trigger selection fade animation if selection changed
-				if oldIdx != s.selectedIdx {
-					s.selectionFadeFrame = 0
-					s.lastSelectedIdx = oldIdx
-					return s, SidebarTick() // Start tick for fade animation
-				}
 			}
 		}
 	}
@@ -612,15 +588,7 @@ func (s *Sidebar) View() string {
 			displayName := s.renderSessionName(sess, idx)
 			itemStyle := SidebarItemStyle
 			if idx == s.selectedIdx {
-				// Apply selection fade animation
-				if s.selectionFadeFrame < 2 {
-					// Dimmed selection during fade-in (frames 0-1)
-					itemStyle = lipgloss.NewStyle().
-						Background(lipgloss.Color("#4C1D95")). // Darker purple
-						Foreground(ColorTextInverse)
-				} else {
-					itemStyle = SidebarSelectedStyle
-				}
+				itemStyle = SidebarSelectedStyle
 				displayName = "> " + strings.TrimPrefix(displayName, "  ")
 			}
 			lines = append(lines, itemStyle.Render(displayName))
@@ -656,15 +624,7 @@ func (s *Sidebar) View() string {
 
 				itemStyle := SidebarItemStyle
 				if isSelected {
-					// Apply selection fade animation
-					if s.selectionFadeFrame < 2 {
-						// Dimmed selection during fade-in (frames 0-1)
-						itemStyle = lipgloss.NewStyle().
-							Background(lipgloss.Color("#4C1D95")). // Darker purple
-							Foreground(ColorTextInverse)
-					} else {
-						itemStyle = SidebarSelectedStyle
-					}
+					itemStyle = SidebarSelectedStyle
 				}
 
 				lines = append(lines, itemStyle.Render(displayName))
