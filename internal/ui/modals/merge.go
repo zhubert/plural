@@ -2,6 +2,7 @@ package modals
 
 import (
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -192,6 +193,59 @@ func (s *EditCommitState) GetMessage() string {
 	return s.Textarea.Value()
 }
 
+// unwrapCommitMessage unwraps the body of a commit message so it displays
+// correctly in the textarea. Claude often wraps commit message bodies at
+// 72 chars, but this creates awkward line breaks in the modal.
+// This function:
+// - Preserves the summary line (first line)
+// - Preserves the blank line separator
+// - Unwraps body paragraphs (replacing single newlines with spaces)
+// - Preserves paragraph breaks (double newlines)
+func unwrapCommitMessage(message string) string {
+	lines := strings.Split(message, "\n")
+	if len(lines) <= 1 {
+		return message
+	}
+
+	// Find where the body starts (after summary and blank line)
+	// A proper commit message has: summary, blank line, body
+	bodyStart := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "" {
+			bodyStart = i + 1
+			break
+		}
+	}
+
+	// If no blank line found, this isn't a properly formatted commit message
+	// Return as-is to avoid mangling it
+	if bodyStart == -1 || bodyStart >= len(lines) {
+		return message
+	}
+
+	// Summary is just the first line
+	summary := lines[0]
+
+	// Process the body - unwrap paragraphs
+	body := strings.Join(lines[bodyStart:], "\n")
+
+	// Split by double newlines to preserve paragraph breaks
+	paragraphs := strings.Split(body, "\n\n")
+	var unwrappedParagraphs []string
+	for _, para := range paragraphs {
+		// Replace single newlines within paragraph with spaces
+		unwrapped := strings.ReplaceAll(para, "\n", " ")
+		// Clean up multiple spaces
+		for strings.Contains(unwrapped, "  ") {
+			unwrapped = strings.ReplaceAll(unwrapped, "  ", " ")
+		}
+		unwrappedParagraphs = append(unwrappedParagraphs, strings.TrimSpace(unwrapped))
+	}
+
+	// Reconstruct: summary + blank line + unwrapped body paragraphs
+	return summary + "\n\n" + strings.Join(unwrappedParagraphs, "\n\n")
+}
+
 // NewEditCommitState creates a new EditCommitState
 func NewEditCommitState(message, mergeType string) *EditCommitState {
 	ta := textarea.New()
@@ -201,7 +255,7 @@ func NewEditCommitState(message, mergeType string) *EditCommitState {
 	ta.SetWidth(ModalInputWidth)
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
-	ta.SetValue(message)
+	ta.SetValue(unwrapCommitMessage(message))
 	ta.Focus()
 
 	return &EditCommitState{
