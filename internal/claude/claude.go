@@ -887,7 +887,6 @@ func (r *Runner) readPersistentResponses(ctx context.Context) {
 				// return the closed channel so listeners can detect completion.
 				// It will be replaced on the next SendContent call.
 				r.mu.Lock()
-				r.currentResponseCh = nil
 				r.isStreaming = false
 				r.mu.Unlock()
 
@@ -944,18 +943,16 @@ func (r *Runner) handleProcessExit(err error) {
 	logger.Log("Claude: Handling process exit for session %s", r.sessionID)
 
 	// Notify current response channel of error and close it
-	// This fixes a race condition where GetResponseChan() could return nil
-	// while Bubble Tea is still processing earlier chunks from the buffer
+	// Note: Don't set currentResponseCh to nil - let GetResponseChan() return
+	// the closed channel so listeners can detect completion.
+	// It will be replaced on the next SendContent call.
 	r.mu.Lock()
 	ch := r.currentResponseCh
 	if ch != nil {
 		ch <- ResponseChunk{Error: fmt.Errorf("process exited: %v", err), Done: true}
 		close(ch)
-		r.currentResponseCh = nil
 	}
 	r.isStreaming = false
-	// Note: Don't set currentResponseCh to nil - let GetResponseChan() return
-	// the closed channel so listeners can detect completion
 	r.mu.Unlock()
 
 	// Clean up pipes

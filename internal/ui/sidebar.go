@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 // sidebarSpinnerFrames uses the same shimmering spinner as the chat panel
@@ -335,8 +336,10 @@ func (s *Sidebar) SelectSession(id string) {
 func (s *Sidebar) SetStreaming(sessionID string, streaming bool) {
 	if streaming {
 		s.streamingSessions[sessionID] = true
+		logger.Info("Sidebar: SetStreaming(%s, true), total streaming: %d", sessionID, len(s.streamingSessions))
 	} else {
 		delete(s.streamingSessions, sessionID)
+		logger.Info("Sidebar: SetStreaming(%s, false), total streaming: %d", sessionID, len(s.streamingSessions))
 	}
 }
 

@@ -69,7 +69,7 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 
 // handleClaudeDone handles completion of Claude streaming.
 func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
-	logger.Log("App: Session %s completed streaming", sessionID)
+	logger.Info("App: Session %s completed streaming", sessionID)
 	m.sidebar.SetStreaming(sessionID, false)
 	m.sessionState().StopWaiting(sessionID)
 
