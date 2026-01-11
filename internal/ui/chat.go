@@ -781,21 +781,21 @@ func (c *Chat) IsWaiting() bool {
 
 // StopwatchTick returns a command that sends a tick message after a delay
 func StopwatchTick() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
 		return StopwatchTickMsg(t)
 	})
 }
 
 // CompletionFlashTick returns a command that sends a completion flash tick
 func CompletionFlashTick() tea.Cmd {
-	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(160*time.Millisecond, func(t time.Time) tea.Msg {
 		return CompletionFlashTickMsg(t)
 	})
 }
 
 // FocusPulseTick returns a command that sends a focus pulse tick
 func FocusPulseTick() tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return FocusPulseTickMsg(t)
 	})
 }

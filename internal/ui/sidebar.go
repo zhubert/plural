@@ -330,14 +330,14 @@ func (s *Sidebar) HasSessionInUse(sessionID string) bool {
 
 // SidebarTick returns a command that sends a tick message after a delay
 func SidebarTick() tea.Cmd {
-	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(300*time.Millisecond, func(t time.Time) tea.Msg {
 		return SidebarTickMsg(t)
 	})
 }
 
 // SidebarFocusPulseTick returns a command that sends a focus pulse tick
 func SidebarFocusPulseTick() tea.Cmd {
-	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 		return SidebarFocusPulseTickMsg(t)
 	})
 }
