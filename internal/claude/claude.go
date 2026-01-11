@@ -253,9 +253,25 @@ func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	return r.permReqChan
 }
 
-// SendPermissionResponse sends a response to a permission request
+// SendPermissionResponse sends a response to a permission request.
+// Safe to call even if the runner has been stopped - will silently drop the response.
 func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
-	r.permRespChan <- resp
+	r.mu.RLock()
+	stopped := r.stopped
+	ch := r.permRespChan
+	r.mu.RUnlock()
+
+	if stopped || ch == nil {
+		logger.Log("Claude: SendPermissionResponse called on stopped runner, ignoring")
+		return
+	}
+
+	// Use non-blocking send to avoid deadlock if channel is closed between check and send
+	select {
+	case ch <- resp:
+	default:
+		logger.Log("Claude: SendPermissionResponse channel full or closed, ignoring")
+	}
 }
 
 // QuestionRequestChan returns the channel for receiving question requests.
@@ -269,9 +285,25 @@ func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
 	return r.questReqChan
 }
 
-// SendQuestionResponse sends a response to a question request
+// SendQuestionResponse sends a response to a question request.
+// Safe to call even if the runner has been stopped - will silently drop the response.
 func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
-	r.questRespChan <- resp
+	r.mu.RLock()
+	stopped := r.stopped
+	ch := r.questRespChan
+	r.mu.RUnlock()
+
+	if stopped || ch == nil {
+		logger.Log("Claude: SendQuestionResponse called on stopped runner, ignoring")
+		return
+	}
+
+	// Use non-blocking send to avoid deadlock if channel is closed between check and send
+	select {
+	case ch <- resp:
+	default:
+		logger.Log("Claude: SendQuestionResponse channel full or closed, ignoring")
+	}
 }
 
 // IsStreaming returns whether this runner is currently streaming a response
@@ -1018,12 +1050,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		logger.Log("Claude: Message sent in %v, waiting for response", time.Since(sendStartTime))
 
 		// The response will be read by readPersistentResponses goroutine
-		// and routed to this channel. We wait for Done or context cancellation.
-		go func() {
-			<-cmdCtx.Done()
-			// Context cancelled - could interrupt here if needed
-			logger.Log("Claude: Context cancelled for session %s", r.sessionID)
-		}()
+		// and routed to this channel.
 	}()
 
 	return ch
