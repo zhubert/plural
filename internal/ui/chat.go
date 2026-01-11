@@ -403,6 +403,21 @@ func (c *Chat) IsInViewChangesMode() bool {
 	return c.viewChangesMode
 }
 
+// GetSelectedFileIndex returns the currently selected file index in view changes mode.
+// Used for testing navigation.
+func (c *Chat) GetSelectedFileIndex() int {
+	return c.viewChangesFileIndex
+}
+
+// GetViewChangesFocus returns "files" if file list pane is focused, "diff" if diff pane is focused.
+// Used for testing pane switching.
+func (c *Chat) GetViewChangesFocus() string {
+	if c.viewChangesFilePane {
+		return "files"
+	}
+	return "diff"
+}
+
 // GetStreaming returns the current streaming content
 func (c *Chat) GetStreaming() string {
 	return c.streaming

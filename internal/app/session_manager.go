@@ -12,7 +12,7 @@ import (
 // SelectResult contains all the state needed by the UI after selecting a session.
 // This allows SessionManager to handle data operations while app.go handles UI updates.
 type SelectResult struct {
-	Runner     *claude.Runner
+	Runner     claude.RunnerInterface
 	Messages   []claude.Message
 	HeaderName string // Branch name if custom, otherwise session name
 
@@ -31,22 +31,38 @@ type ForceResumeResult struct {
 	Error  error
 }
 
+// RunnerFactory creates a runner for a session.
+// This allows tests to inject mock runners.
+type RunnerFactory func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface
+
+// defaultRunnerFactory creates real Claude runners.
+func defaultRunnerFactory(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	return claude.New(sessionID, workingDir, sessionStarted, initialMessages)
+}
+
 // SessionManager handles session lifecycle operations including runner management,
 // state coordination, and message persistence. It encapsulates the relationship
 // between sessions, runners, and per-session state.
 type SessionManager struct {
-	config       *config.Config
-	stateManager *SessionStateManager
-	runners      map[string]*claude.Runner
+	config        *config.Config
+	stateManager  *SessionStateManager
+	runners       map[string]claude.RunnerInterface
+	runnerFactory RunnerFactory
 }
 
 // NewSessionManager creates a new session manager.
 func NewSessionManager(cfg *config.Config) *SessionManager {
 	return &SessionManager{
-		config:       cfg,
-		stateManager: NewSessionStateManager(),
-		runners:      make(map[string]*claude.Runner),
+		config:        cfg,
+		stateManager:  NewSessionStateManager(),
+		runners:       make(map[string]claude.RunnerInterface),
+		runnerFactory: defaultRunnerFactory,
 	}
+}
+
+// SetRunnerFactory sets a custom runner factory (for testing).
+func (sm *SessionManager) SetRunnerFactory(factory RunnerFactory) {
+	sm.runnerFactory = factory
 }
 
 // StateManager returns the underlying session state manager for direct state access.
@@ -56,12 +72,12 @@ func (sm *SessionManager) StateManager() *SessionStateManager {
 }
 
 // GetRunner returns the runner for a session, or nil if none exists.
-func (sm *SessionManager) GetRunner(sessionID string) *claude.Runner {
+func (sm *SessionManager) GetRunner(sessionID string) claude.RunnerInterface {
 	return sm.runners[sessionID]
 }
 
 // GetRunners returns all runners (for iteration, e.g., checking streaming status).
-func (sm *SessionManager) GetRunners() map[string]*claude.Runner {
+func (sm *SessionManager) GetRunners() map[string]claude.RunnerInterface {
 	return sm.runners
 }
 
@@ -151,7 +167,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 }
 
 // getOrCreateRunner returns an existing runner or creates a new one for the session.
-func (sm *SessionManager) getOrCreateRunner(sess *config.Session) *claude.Runner {
+func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerInterface {
 	if runner, exists := sm.runners[sess.ID]; exists {
 		logger.Log("SessionManager: Reusing existing runner for session %s", sess.ID)
 		return runner
@@ -176,7 +192,7 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) *claude.Runner
 		})
 	}
 
-	runner := claude.New(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
+	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
 	sm.runners[sess.ID] = runner
 
 	// Load allowed tools from config (global + per-repo)
@@ -254,7 +270,7 @@ func (sm *SessionManager) SaveMessages(sessionID string) {
 }
 
 // SaveRunnerMessages saves messages for a specific runner (used when runner reference is already available).
-func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner *claude.Runner) {
+func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner claude.RunnerInterface) {
 	if runner == nil {
 		return
 	}
@@ -273,9 +289,9 @@ func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner *claude.Ru
 
 // DeleteSession cleans up all resources for a deleted session.
 // Returns the runner if it existed (so caller can check if it was active).
-func (sm *SessionManager) DeleteSession(sessionID string) *claude.Runner {
+func (sm *SessionManager) DeleteSession(sessionID string) claude.RunnerInterface {
 	// Stop and remove runner
-	var runner *claude.Runner
+	var runner claude.RunnerInterface
 	if r, exists := sm.runners[sessionID]; exists {
 		logger.Log("SessionManager: Stopping runner for deleted session %s", sessionID)
 		r.Stop()
@@ -307,7 +323,7 @@ func (sm *SessionManager) AddAllowedTool(sessionID string, tool string) {
 }
 
 // SetRunner sets a runner for a session (used when manually creating runners).
-func (sm *SessionManager) SetRunner(sessionID string, runner *claude.Runner) {
+func (sm *SessionManager) SetRunner(sessionID string, runner claude.RunnerInterface) {
 	sm.runners[sessionID] = runner
 }
 
@@ -320,6 +336,6 @@ func (sm *SessionManager) Shutdown() {
 		logger.Log("SessionManager: Stopping runner for session %s", sessionID)
 		runner.Stop()
 	}
-	sm.runners = make(map[string]*claude.Runner)
+	sm.runners = make(map[string]claude.RunnerInterface)
 	logger.Log("SessionManager: Shutdown complete")
 }

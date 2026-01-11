@@ -64,7 +64,7 @@ type Model struct {
 	focus  Focus
 
 	activeSession *config.Session
-	claudeRunner  *claude.Runner // Currently active runner (convenience reference)
+	claudeRunner  claude.RunnerInterface // Currently active runner (convenience reference)
 
 	// Session lifecycle management
 	sessionMgr *SessionManager
@@ -856,7 +856,7 @@ func (m *Model) listenForSessionResponse(sessionID string, ch <-chan claude.Resp
 }
 
 // listenForSessionPermission creates a command to listen for permission requests from a specific session
-func (m *Model) listenForSessionPermission(sessionID string, runner *claude.Runner) tea.Cmd {
+func (m *Model) listenForSessionPermission(sessionID string, runner claude.RunnerInterface) tea.Cmd {
 	if runner == nil {
 		return nil
 	}
@@ -876,7 +876,7 @@ func (m *Model) listenForSessionPermission(sessionID string, runner *claude.Runn
 }
 
 // listenForSessionQuestion creates a command to listen for question requests from a specific session
-func (m *Model) listenForSessionQuestion(sessionID string, runner *claude.Runner) tea.Cmd {
+func (m *Model) listenForSessionQuestion(sessionID string, runner claude.RunnerInterface) tea.Cmd {
 	if runner == nil {
 		return nil
 	}
@@ -1008,7 +1008,7 @@ func (m *Model) hasAnyStreamingSessions() bool {
 }
 
 // detectOptionsInSession scans the runner's messages for numbered options
-func (m *Model) detectOptionsInSession(sessionID string, runner *claude.Runner) {
+func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInterface) {
 	msgs := runner.GetMessages()
 	if len(msgs) == 0 {
 		m.sessionState().ClearDetectedOptions(sessionID)
