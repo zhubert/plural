@@ -26,7 +26,7 @@ go test ./...
 
 # CLI flags
 ./plural --check-prereqs  # Validate required tools
-./plural --clear          # Clear all sessions
+./plural --clear          # Clear all sessions and log files
 ./plural --prune          # Remove orphaned worktrees
 ./plural --debug          # Enable debug logging (verbose output)
 ```

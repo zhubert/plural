@@ -3,6 +3,7 @@ package logger
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -169,4 +170,32 @@ func Close() {
 		logFile.Close()
 		logFile = nil
 	}
+}
+
+// ClearLogs removes all plural log files from /tmp
+func ClearLogs() (int, error) {
+	count := 0
+
+	// Remove main debug log
+	if err := os.Remove(DefaultLogPath); err == nil {
+		count++
+	} else if !os.IsNotExist(err) {
+		return count, err
+	}
+
+	// Remove MCP session logs using glob pattern
+	mcpLogs, err := filepath.Glob("/tmp/plural-mcp-*.log")
+	if err != nil {
+		return count, err
+	}
+
+	for _, logPath := range mcpLogs {
+		if err := os.Remove(logPath); err == nil {
+			count++
+		} else if !os.IsNotExist(err) {
+			return count, err
+		}
+	}
+
+	return count, nil
 }

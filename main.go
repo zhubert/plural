@@ -40,7 +40,7 @@ Options:
   -v, --version        Print version information and exit
   -h, --help           Show this help message
       --debug          Enable debug logging (verbose output to /tmp/plural-debug.log)
-      --clear          Remove all sessions and exit
+      --clear          Remove all sessions and log files, then exit
       --check-prereqs  Check CLI prerequisites and exit
       --prune          Remove orphaned worktrees (worktrees without matching sessions)
 
@@ -101,7 +101,14 @@ For more information, visit: https://github.com/zhubert/plural
 			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
 			os.Exit(1)
 		}
+		logsCleared, err := logger.ClearLogs()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: error clearing logs: %v\n", err)
+		}
 		fmt.Println("All sessions cleared.")
+		if logsCleared > 0 {
+			fmt.Printf("Removed %d log file(s).\n", logsCleared)
+		}
 		return
 	}
 
