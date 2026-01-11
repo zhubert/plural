@@ -507,14 +507,10 @@ func (m *Model) toggleFocus() tea.Cmd {
 		m.focus = FocusChat
 		m.sidebar.SetFocused(false)
 		m.chat.SetFocused(true)
-		// Start focus pulse on chat
-		cmds = append(cmds, m.chat.StartFocusPulse())
 	} else {
 		m.focus = FocusSidebar
 		m.sidebar.SetFocused(true)
 		m.chat.SetFocused(false)
-		// Start focus pulse on sidebar
-		cmds = append(cmds, m.sidebar.StartFocusPulse())
 	}
 	if len(cmds) > 0 {
 		return tea.Batch(cmds...)

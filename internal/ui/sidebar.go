@@ -23,9 +23,6 @@ var sidebarSpinnerHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
 // SidebarTickMsg is sent to advance the spinner animation
 type SidebarTickMsg time.Time
 
-// SidebarFocusPulseTickMsg is sent to animate the focus transition pulse
-type SidebarFocusPulseTickMsg time.Time
-
 // sessionNode represents a session with its children (forks)
 type sessionNode struct {
 	Session  config.Session
@@ -57,9 +54,6 @@ type Sidebar struct {
 	spinnerFrame       int             // Current spinner animation frame
 	spinnerTick        int             // Tick counter for frame hold timing
 
-	// Focus pulse animation
-	focusPulseFrame int // -1 = inactive, 0-3 = animation frames
-
 	// Selection fade animation
 	selectionFadeFrame int // Frame counter for selection fade (0-2)
 	lastSelectedIdx    int // Previous selection for detecting changes
@@ -84,7 +78,6 @@ func NewSidebar() *Sidebar {
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
 		sessionsInUse:      make(map[string]bool),
-		focusPulseFrame:    -1,
 		selectionFadeFrame: 2, // Start fully visible
 		lastSelectedIdx:    -1,
 		searchInput:        ti,
@@ -335,29 +328,6 @@ func SidebarTick() tea.Cmd {
 	})
 }
 
-// SidebarFocusPulseTick returns a command that sends a focus pulse tick
-func SidebarFocusPulseTick() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-		return SidebarFocusPulseTickMsg(t)
-	})
-}
-
-// StartFocusPulse starts the focus pulse animation
-func (s *Sidebar) StartFocusPulse() tea.Cmd {
-	s.focusPulseFrame = 0
-	return SidebarFocusPulseTick()
-}
-
-// IsFocusPulsing returns whether the focus pulse animation is active
-func (s *Sidebar) IsFocusPulsing() bool {
-	return s.focusPulseFrame >= 0
-}
-
-// GetFocusPulseFrame returns the current focus pulse frame (-1 if inactive)
-func (s *Sidebar) GetFocusPulseFrame() int {
-	return s.focusPulseFrame
-}
-
 // EnterSearchMode activates search mode
 func (s *Sidebar) EnterSearchMode() tea.Cmd {
 	s.searchMode = true
@@ -461,19 +431,6 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 		}
 		if len(cmds) > 0 {
 			return s, tea.Batch(cmds...)
-		}
-		return s, nil
-
-	case SidebarFocusPulseTickMsg:
-		if s.focusPulseFrame >= 0 {
-			s.focusPulseFrame++
-			if s.focusPulseFrame >= 4 {
-				// Animation complete
-				s.focusPulseFrame = -1
-			}
-			if s.focusPulseFrame >= 0 {
-				return s, SidebarFocusPulseTick()
-			}
 		}
 		return s, nil
 
@@ -613,13 +570,7 @@ func (s *Sidebar) View() string {
 
 	style := PanelStyle
 	if s.focused {
-		// Check for focus pulse animation
-		if s.focusPulseFrame >= 0 && s.focusPulseFrame < 2 {
-			// Use brighter border during pulse (frames 0-1)
-			style = PanelStyle.BorderForeground(lipgloss.Color("#A78BFA")) // Brighter purple
-		} else {
-			style = PanelFocusedStyle
-		}
+		style = PanelFocusedStyle
 	}
 
 	innerHeight := ctx.InnerHeight(s.height)

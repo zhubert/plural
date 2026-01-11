@@ -388,17 +388,15 @@ func TestRenderSpinner(t *testing.T) {
 	verbs := []string{"Thinking", "Pondering", "Analyzing"}
 	for _, verb := range verbs {
 		for i := 0; i < len(spinnerFrames); i++ {
-			for w := 0; w < len(waveFrames); w++ {
-				result := renderSpinner(verb, i, w)
-				if result == "" {
-					t.Errorf("renderSpinner(%q, %d, %d) returned empty string", verb, i, w)
-				}
-				if !strings.Contains(result, verb) {
-					t.Errorf("renderSpinner(%q, %d, %d) = %q, should contain verb", verb, i, w, result)
-				}
-				if !strings.Contains(result, "...") {
-					t.Errorf("renderSpinner(%q, %d, %d) = %q, should contain ellipsis", verb, i, w, result)
-				}
+			result := renderSpinner(verb, i)
+			if result == "" {
+				t.Errorf("renderSpinner(%q, %d) returned empty string", verb, i)
+			}
+			if !strings.Contains(result, verb) {
+				t.Errorf("renderSpinner(%q, %d) = %q, should contain verb", verb, i, result)
+			}
+			if !strings.Contains(result, "...") {
+				t.Errorf("renderSpinner(%q, %d) = %q, should contain ellipsis", verb, i, result)
 			}
 		}
 	}
