@@ -402,10 +402,12 @@ func regenerateStyles() {
 
 	FooterKeyStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorSecondary)
+		Foreground(ColorSecondary).
+		Background(lipgloss.Color(t.BgDark))
 
 	FooterDescStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted)
+		Foreground(ColorTextMuted).
+		Background(lipgloss.Color(t.BgDark))
 
 	// Update panel styles
 	PanelStyle = lipgloss.NewStyle().

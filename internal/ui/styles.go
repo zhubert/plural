@@ -41,10 +41,12 @@ var (
 
 	FooterKeyStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorSecondary)
+		Foreground(ColorSecondary).
+		Background(lipgloss.Color("#111827"))
 
 	FooterDescStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted)
+		Foreground(ColorTextMuted).
+		Background(lipgloss.Color("#111827"))
 )
 
 // Panel styles

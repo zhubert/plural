@@ -67,6 +67,16 @@ func (f *Footer) SetBindings(bindings []KeyBinding) {
 	f.bindings = bindings
 }
 
+// footerSeparator returns the separator string between footer key bindings with proper background
+func footerSeparator() string {
+	theme := CurrentTheme()
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color(theme.BgDark))
+	sepStyle := lipgloss.NewStyle().
+		Foreground(ColorBorder).
+		Background(lipgloss.Color(theme.BgDark))
+	return bgStyle.Render("  ") + sepStyle.Render("|") + bgStyle.Render("  ")
+}
+
 // View renders the footer
 func (f *Footer) View() string {
 	var parts []string
@@ -84,7 +94,7 @@ func (f *Footer) View() string {
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)
 		}
-		content := strings.Join(parts, "  "+lipgloss.NewStyle().Foreground(ColorBorder).Render("|")+"  ")
+		content := strings.Join(parts, footerSeparator())
 		return FooterStyle.Width(f.width).Render(content)
 	}
 
@@ -100,7 +110,7 @@ func (f *Footer) View() string {
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)
 		}
-		content := strings.Join(parts, "  "+lipgloss.NewStyle().Foreground(ColorBorder).Render("|")+"  ")
+		content := strings.Join(parts, footerSeparator())
 		return FooterStyle.Width(f.width).Render(content)
 	}
 
@@ -206,7 +216,7 @@ func (f *Footer) View() string {
 		}
 	}
 
-	content := strings.Join(parts, "  "+lipgloss.NewStyle().Foreground(ColorBorder).Render("|")+"  ")
+	content := strings.Join(parts, footerSeparator())
 
 	return FooterStyle.Width(f.width).Render(content)
 }

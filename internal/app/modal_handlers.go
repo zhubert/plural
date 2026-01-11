@@ -508,6 +508,7 @@ func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.Them
 		ui.SetTheme(selectedTheme)
 		m.config.SetTheme(string(selectedTheme))
 		m.config.Save()
+		m.chat.RefreshStyles()
 		m.modal.Hide()
 		return m, nil
 	case "up", "k", "down", "j":

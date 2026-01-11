@@ -158,6 +158,9 @@ func NewChat() *Chat {
 	ti.ShowLineNumbers = false
 	ti.Prompt = ""
 
+	// Apply theme-aware styles to textarea
+	applyTextareaStyles(&ti)
+
 	// Create viewport for messages
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
@@ -173,6 +176,42 @@ func NewChat() *Chat {
 	}
 	c.updateContent()
 	return c
+}
+
+// applyTextareaStyles configures the textarea with theme-aware colors
+func applyTextareaStyles(ti *textarea.Model) {
+	theme := CurrentTheme()
+
+	// Get current styles and modify them
+	styles := ti.Styles()
+
+	// Create style states for focused and blurred
+	baseStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.Bg))
+
+	textStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.Text)).
+		Background(lipgloss.Color(theme.Bg))
+
+	placeholderStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextMuted)).
+		Background(lipgloss.Color(theme.Bg))
+
+	// Configure focused state
+	styles.Focused.Base = baseStyle
+	styles.Focused.Text = textStyle
+	styles.Focused.Placeholder = placeholderStyle
+	styles.Focused.CursorLine = textStyle
+	styles.Focused.Prompt = textStyle
+
+	// Configure blurred state (same colors, just not focused)
+	styles.Blurred.Base = baseStyle
+	styles.Blurred.Text = textStyle
+	styles.Blurred.Placeholder = placeholderStyle
+	styles.Blurred.CursorLine = textStyle
+	styles.Blurred.Prompt = textStyle
+
+	ti.SetStyles(styles)
 }
 
 // SetSize sets the chat panel dimensions
@@ -217,6 +256,11 @@ func (c *Chat) SetFocused(focused bool) {
 // IsFocused returns the focus state
 func (c *Chat) IsFocused() bool {
 	return c.focused
+}
+
+// RefreshStyles updates the textarea styles after a theme change
+func (c *Chat) RefreshStyles() {
+	applyTextareaStyles(&c.input)
 }
 
 // SetSession sets the current session info
