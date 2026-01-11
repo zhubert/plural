@@ -793,19 +793,21 @@ func (r *Runner) readPersistentResponses() {
 				r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse})
 				r.mu.Unlock()
 
-				// Signal completion
+				// Signal completion and close channel so listeners detect end
+				// This fixes a race condition where GetResponseChan() could return nil
+				// while Bubble Tea is still processing earlier chunks from the buffer
 				if ch != nil {
-					select {
-					case ch <- ResponseChunk{Done: true}:
-					default:
-					}
+					ch <- ResponseChunk{Done: true}
+					close(ch)
 				}
 
-				// Clear response channel and reset for next message
+				// Reset streaming state for next message
+				// Note: Don't set responseChan to nil here - GetResponseChan() should
+				// return the closed channel so listeners can detect completion.
+				// It will be replaced on the next SendContent call.
 				r.mu.Lock()
 				r.currentResponseCh = nil
 				r.isStreaming = false
-				r.responseChan = nil
 				r.mu.Unlock()
 
 				// Reset for next message
@@ -844,18 +846,19 @@ func (r *Runner) handleProcessExit(err error) {
 
 	logger.Log("Claude: Handling process exit for session %s", r.sessionID)
 
-	// Notify current response channel of error
+	// Notify current response channel of error and close it
+	// This fixes a race condition where GetResponseChan() could return nil
+	// while Bubble Tea is still processing earlier chunks from the buffer
 	r.mu.Lock()
 	ch := r.currentResponseCh
 	if ch != nil {
-		select {
-		case ch <- ResponseChunk{Error: fmt.Errorf("process exited: %v", err), Done: true}:
-		default:
-		}
+		ch <- ResponseChunk{Error: fmt.Errorf("process exited: %v", err), Done: true}
+		close(ch)
 		r.currentResponseCh = nil
 	}
 	r.isStreaming = false
-	r.responseChan = nil
+	// Note: Don't set responseChan to nil - let GetResponseChan() return
+	// the closed channel so listeners can detect completion
 	r.mu.Unlock()
 
 	// Clean up pipes
