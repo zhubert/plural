@@ -49,6 +49,12 @@ var (
 // StopwatchTickMsg is sent to update the animated waiting display
 type StopwatchTickMsg time.Time
 
+// CompletionFlashTickMsg is sent to animate the completion checkmark flash
+type CompletionFlashTickMsg time.Time
+
+// FocusPulseTickMsg is sent to animate the focus transition pulse
+type FocusPulseTickMsg time.Time
+
 // thinkingVerbs are playful status messages that cycle while waiting for Claude
 var thinkingVerbs = []string{
 	"Thinking",
@@ -86,6 +92,9 @@ var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "�
 // First and last frames hold longer for a "breathing" effect
 var spinnerFrameHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
 
+// waveFrames are the characters used for the streaming progress wave animation
+var waveFrames = []string{"  ·•○", " ·•○•", "·•○•·", "•○•· ", "○•·  "}
+
 // messageCache stores pre-rendered message content to avoid expensive re-rendering
 type messageCache struct {
 	content   string // The original message content
@@ -108,6 +117,13 @@ type Chat struct {
 	waitingVerb string // Random verb to display while waiting
 	spinnerIdx  int    // Current spinner frame index
 	spinnerTick int    // Tick counter for frame hold timing
+	waveFrame   int    // Current wave animation frame
+
+	// Completion flash animation
+	completionFlashFrame int // -1 = inactive, 0-2 = animation frames
+
+	// Focus pulse animation
+	focusPulseFrame int // -1 = inactive, 0-3 = animation frames
 
 	// Message rendering cache - avoids re-rendering unchanged messages
 	messageCache []messageCache // Cache of rendered messages, indexed by message position
@@ -160,10 +176,12 @@ func NewChat() *Chat {
 	vp.SoftWrap = true // Wrap text instead of allowing horizontal scrolling
 
 	c := &Chat{
-		viewport:       vp,
-		input:          ti,
-		messages:       []claude.Message{},
-		lastToolUsePos: -1,
+		viewport:             vp,
+		input:                ti,
+		messages:             []claude.Message{},
+		lastToolUsePos:       -1,
+		completionFlashFrame: -1,
+		focusPulseFrame:      -1,
 	}
 	c.updateContent()
 	return c
@@ -769,9 +787,51 @@ func StopwatchTick() tea.Cmd {
 	})
 }
 
-// renderSpinner renders the shimmering spinner with the thinking verb.
-// Returns the spinner character followed by the verb text.
-func renderSpinner(verb string, frameIdx int) string {
+// CompletionFlashTick returns a command that sends a completion flash tick
+func CompletionFlashTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
+		return CompletionFlashTickMsg(t)
+	})
+}
+
+// FocusPulseTick returns a command that sends a focus pulse tick
+func FocusPulseTick() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return FocusPulseTickMsg(t)
+	})
+}
+
+// StartCompletionFlash starts the completion checkmark flash animation
+func (c *Chat) StartCompletionFlash() tea.Cmd {
+	c.completionFlashFrame = 0
+	c.updateContent()
+	return CompletionFlashTick()
+}
+
+// IsCompletionFlashing returns whether the completion flash animation is active
+func (c *Chat) IsCompletionFlashing() bool {
+	return c.completionFlashFrame >= 0
+}
+
+// StartFocusPulse starts the focus pulse animation
+func (c *Chat) StartFocusPulse() tea.Cmd {
+	c.focusPulseFrame = 0
+	return FocusPulseTick()
+}
+
+// IsFocusPulsing returns whether the focus pulse animation is active
+func (c *Chat) IsFocusPulsing() bool {
+	return c.focusPulseFrame >= 0
+}
+
+// GetFocusPulseFrame returns the current focus pulse frame (-1 if inactive)
+func (c *Chat) GetFocusPulseFrame() int {
+	return c.focusPulseFrame
+}
+
+// renderSpinner renders the shimmering spinner with the thinking verb and optional wave.
+// Returns the spinner character followed by the verb text and wave animation.
+func renderSpinner(verb string, frameIdx int, waveFrame int) string {
 	// Get the current spinner frame
 	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
 
@@ -785,7 +845,38 @@ func renderSpinner(verb string, frameIdx int) string {
 		Foreground(ColorPrimary).
 		Italic(true)
 
-	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...")
+	// Style for the wave - uses secondary color, subtle
+	waveStyle := lipgloss.NewStyle().
+		Foreground(ColorSecondary)
+
+	// Get current wave frame
+	wave := waveFrames[waveFrame%len(waveFrames)]
+
+	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...") + " " + waveStyle.Render(wave)
+}
+
+// renderCompletionFlash renders the checkmark completion flash
+func renderCompletionFlash(frame int) string {
+	checkmark := "✓"
+
+	// Frame 0: bright green checkmark
+	// Frame 1: normal green checkmark
+	// Frame 2+: fade out (empty)
+	switch frame {
+	case 0:
+		// Bright green
+		style := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#22C55E")).
+			Bold(true)
+		return style.Render(checkmark) + " " + lipgloss.NewStyle().Foreground(ColorSecondary).Italic(true).Render("Done")
+	case 1:
+		// Normal green (using theme's secondary color which is cyan/teal)
+		style := lipgloss.NewStyle().
+			Foreground(ColorSecondary)
+		return style.Render(checkmark)
+	default:
+		return ""
+	}
 }
 
 // highlightCode applies syntax highlighting to code using chroma
@@ -1161,7 +1252,15 @@ func (c *Chat) updateContent() {
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(renderSpinner(c.waitingVerb, c.spinnerIdx))
+			sb.WriteString(renderSpinner(c.waitingVerb, c.spinnerIdx, c.waveFrame))
+		} else if c.completionFlashFrame >= 0 {
+			// Show completion flash animation
+			if len(c.messages) > 0 {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
+			sb.WriteString("\n")
+			sb.WriteString(renderCompletionFlash(c.completionFlashFrame))
 		}
 
 		// Show queued message waiting to be sent
@@ -1276,8 +1375,37 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 					c.spinnerIdx = 0
 				}
 			}
+			// Advance the wave animation
+			c.waveFrame = (c.waveFrame + 1) % len(waveFrames)
 			c.updateContent()
 			cmds = append(cmds, StopwatchTick())
+		}
+		return c, tea.Batch(cmds...)
+
+	case CompletionFlashTickMsg:
+		if c.completionFlashFrame >= 0 {
+			c.completionFlashFrame++
+			if c.completionFlashFrame >= 3 {
+				// Animation complete
+				c.completionFlashFrame = -1
+			}
+			c.updateContent()
+			if c.completionFlashFrame >= 0 {
+				cmds = append(cmds, CompletionFlashTick())
+			}
+		}
+		return c, tea.Batch(cmds...)
+
+	case FocusPulseTickMsg:
+		if c.focusPulseFrame >= 0 {
+			c.focusPulseFrame++
+			if c.focusPulseFrame >= 4 {
+				// Animation complete
+				c.focusPulseFrame = -1
+			}
+			if c.focusPulseFrame >= 0 {
+				cmds = append(cmds, FocusPulseTick())
+			}
 		}
 		return c, tea.Batch(cmds...)
 	}
@@ -1321,7 +1449,13 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 func (c *Chat) View() string {
 	panelStyle := PanelStyle
 	if c.focused {
-		panelStyle = PanelFocusedStyle
+		// Check for focus pulse animation
+		if c.focusPulseFrame >= 0 && c.focusPulseFrame < 2 {
+			// Use brighter border during pulse (frames 0-1)
+			panelStyle = PanelStyle.BorderForeground(lipgloss.Color("#A78BFA")) // Brighter purple
+		} else {
+			panelStyle = PanelFocusedStyle
+		}
 	}
 
 	// View changes mode: show diff overlay instead of chat

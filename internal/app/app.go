@@ -497,20 +497,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-func (m *Model) toggleFocus() {
+func (m *Model) toggleFocus() tea.Cmd {
+	var cmds []tea.Cmd
 	if m.focus == FocusSidebar {
 		// Only allow switching to chat if there's an active session
 		if m.activeSession == nil {
-			return
+			return nil
 		}
 		m.focus = FocusChat
 		m.sidebar.SetFocused(false)
 		m.chat.SetFocused(true)
+		// Start focus pulse on chat
+		cmds = append(cmds, m.chat.StartFocusPulse())
 	} else {
 		m.focus = FocusSidebar
 		m.sidebar.SetFocused(true)
 		m.chat.SetFocused(false)
+		// Start focus pulse on sidebar
+		cmds = append(cmds, m.sidebar.StartFocusPulse())
 	}
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
+	return nil
 }
 
 func (m *Model) showMCPServersModal() {
