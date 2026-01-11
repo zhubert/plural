@@ -232,6 +232,13 @@ var DisplayOnlyShortcuts = []Shortcut{
 // Returns (model, cmd, true) if the shortcut was found and executed.
 // Returns (model, nil, false) if the shortcut was not found or guards failed.
 func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
+	// If sidebar is in search mode, don't process shortcuts - let keys go to search input
+	// Exception: "/" is handled by its own Condition guard to allow entering search mode
+	if m.sidebar.IsSearchMode() && key != "/" {
+		logger.Log("Shortcut: Sidebar in search mode, letting key %q go to search input", key)
+		return m, nil, false
+	}
+
 	// Handle help shortcut specially (defined outside registry to avoid init cycle)
 	if key == "?" {
 		if m.chat.IsFocused() {
