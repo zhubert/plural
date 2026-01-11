@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -241,16 +242,26 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 
 	for _, s := range ShortcutRegistry {
 		if s.Key == key {
+			selectedSess := m.sidebar.SelectedSession()
+			var selectedID string
+			if selectedSess != nil {
+				selectedID = selectedSess.ID
+			}
+			logger.Log("Shortcut: Found shortcut for key=%q, checking guards: chatFocused=%v, selectedSession=%q", key, m.chat.IsFocused(), selectedID)
 			// Check guards
 			if s.RequiresSidebar && m.chat.IsFocused() {
+				logger.Log("Shortcut: Guard failed - RequiresSidebar but chat is focused")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
-			if s.RequiresSession && m.sidebar.SelectedSession() == nil {
+			if s.RequiresSession && selectedSess == nil {
+				logger.Log("Shortcut: Guard failed - RequiresSession but no session selected")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			if s.Condition != nil && !s.Condition(m) {
+				logger.Log("Shortcut: Guard failed - Condition returned false")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
+			logger.Log("Shortcut: All guards passed, executing handler for %q", key)
 			result, cmd := s.Handler(m)
 			return result, cmd, true
 		}
@@ -364,6 +375,7 @@ func shortcutForceResume(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
+	logger.Log("Shortcut: Opening terminal at worktree: %s", sess.WorkTree)
 	return m, openTerminalAtPath(sess.WorkTree)
 }
 
@@ -486,20 +498,43 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// TerminalErrorMsg is sent when opening a terminal fails
+type TerminalErrorMsg struct {
+	Error string
+}
+
 // openTerminalAtPath returns a command that opens a new terminal window at the given path.
 // Supports macOS (Terminal.app) and Linux (common terminal emulators).
 func openTerminalAtPath(path string) tea.Cmd {
 	return func() tea.Msg {
-		var cmd *exec.Cmd
+		logger.Log("Shortcut: openTerminalAtPath called for OS=%s, path=%s", runtime.GOOS, path)
 
 		switch runtime.GOOS {
 		case "darwin":
 			// macOS: use 'open' command with Terminal.app
+			// Escape backslashes and quotes for AppleScript string
+			escapedPath := strings.ReplaceAll(path, `\`, `\\`)
+			escapedPath = strings.ReplaceAll(escapedPath, `"`, `\"`)
 			script := fmt.Sprintf(`tell application "Terminal"
-				do script "cd %q"
-				activate
-			end tell`, path)
-			cmd = exec.Command("osascript", "-e", script)
+	do script "cd \"%s\""
+	activate
+end tell`, escapedPath)
+			cmd := exec.Command("osascript", "-e", script)
+			logger.Log("Shortcut: Running AppleScript to open Terminal")
+
+			// Run and capture any error output
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to open terminal: %v", err)
+				if len(output) > 0 {
+					errMsg = fmt.Sprintf("Failed to open terminal: %s", strings.TrimSpace(string(output)))
+				}
+				logger.Log("Shortcut: %s", errMsg)
+				return TerminalErrorMsg{Error: errMsg}
+			}
+			logger.Log("Shortcut: Terminal opened successfully")
+			return nil
+
 		case "linux":
 			// Linux: try common terminal emulators in order of preference
 			terminals := []struct {
@@ -512,6 +547,7 @@ func openTerminalAtPath(path string) tea.Cmd {
 				{"xterm", []string{"-e", fmt.Sprintf("cd %q && $SHELL", path)}},
 			}
 
+			var cmd *exec.Cmd
 			for _, term := range terminals {
 				if _, err := exec.LookPath(term.name); err == nil {
 					cmd = exec.Command(term.name, term.args...)
@@ -523,12 +559,19 @@ func openTerminalAtPath(path string) tea.Cmd {
 				// Fallback: try x-terminal-emulator (Debian/Ubuntu alternative)
 				cmd = exec.Command("x-terminal-emulator", "--working-directory="+path)
 			}
-		default:
-			// Unsupported OS
-			return nil
-		}
 
-		cmd.Start() // Fire and forget - don't wait for terminal to close
-		return nil
+			if err := cmd.Start(); err != nil {
+				errMsg := fmt.Sprintf("Failed to open terminal: %v", err)
+				logger.Log("Shortcut: %s", errMsg)
+				return TerminalErrorMsg{Error: errMsg}
+			}
+			logger.Log("Shortcut: Terminal opened successfully")
+			return nil
+
+		default:
+			errMsg := fmt.Sprintf("Unsupported OS for terminal: %s", runtime.GOOS)
+			logger.Log("Shortcut: %s", errMsg)
+			return TerminalErrorMsg{Error: errMsg}
+		}
 	}
 }

@@ -1381,6 +1381,9 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				c.viewport, cmd = c.viewport.Update(msg)
 				cmds = append(cmds, cmd)
 				return c, tea.Batch(cmds...)
+			case "tab":
+				// Don't let textarea consume Tab - let it bubble up for focus switching
+				return c, tea.Batch(cmds...)
 			}
 		}
 

@@ -250,6 +250,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		logger.Log("App: PasteMsg received: len=%d, preview=%q", len(content), preview)
 
 	case tea.KeyPressMsg:
+		logger.Log("App: KeyPressMsg received: key=%q, focus=%v, modalVisible=%v", msg.String(), m.focus, m.modal.IsVisible())
+
 		// Handle modal first if visible
 		if m.modal.IsVisible() {
 			return m.handleModalKey(msg)
@@ -435,6 +437,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.HelpShortcutTriggeredMsg:
 		// Handle shortcut triggered from help modal
 		return m.handleHelpShortcutTrigger(msg.Key)
+
+	case TerminalErrorMsg:
+		// Show terminal error to user in chat
+		if m.activeSession != nil {
+			m.chat.AppendStreaming(fmt.Sprintf("\n[%s]\n", msg.Error))
+			m.chat.FinishStreaming()
+		}
+		return m, nil
 	}
 
 	// Update modal
