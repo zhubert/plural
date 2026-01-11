@@ -375,24 +375,23 @@ func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
 	}
 	// Get worktree status and display it in view changes overlay
 	status, err := git.GetWorktreeStatus(sess.WorkTree)
-	var content string
+	var files []git.FileDiff
 	if err != nil {
-		content = fmt.Sprintf("[Error getting status: %v]\n", err)
+		files = []git.FileDiff{{
+			Filename: "Error",
+			Status:   "!",
+			Diff:     fmt.Sprintf("Error getting status: %v", err),
+		}}
 	} else if !status.HasChanges {
-		content = "No uncommitted changes in this session."
+		files = []git.FileDiff{{
+			Filename: "No changes",
+			Status:   " ",
+			Diff:     "No uncommitted changes in this session.",
+		}}
 	} else {
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "Uncommitted changes (%s):\n\n", status.Summary)
-		for _, file := range status.Files {
-			fmt.Fprintf(&sb, "  - %s\n", file)
-		}
-		if status.Diff != "" {
-			sb.WriteString("\n--- Diff ---\n")
-			sb.WriteString(ui.HighlightDiff(status.Diff))
-		}
-		content = sb.String()
+		files = status.FileDiffs
 	}
-	m.chat.EnterViewChangesMode(content)
+	m.chat.EnterViewChangesMode(files)
 	return m, nil
 }
 

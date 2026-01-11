@@ -3,6 +3,7 @@ package app
 import (
 	"testing"
 
+	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -750,7 +751,11 @@ func TestIntegration_ViewChanges_EnterAndExit(t *testing.T) {
 	}
 
 	// Enter view changes mode
-	m.chat.EnterViewChangesMode("test changes content")
+	m.chat.EnterViewChangesMode([]git.FileDiff{{
+		Filename: "test.go",
+		Status:   "M",
+		Diff:     "test changes content",
+	}})
 	if !m.chat.IsInViewChangesMode() {
 		t.Error("Should be in view changes mode")
 	}

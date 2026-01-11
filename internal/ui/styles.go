@@ -251,4 +251,9 @@ var (
 
 	DiffHunkStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#C084FC")) // Purple for @@ hunk markers
+
+	// View changes file list selection style
+	ViewChangesSelectedStyle = lipgloss.NewStyle().
+					Background(lipgloss.Color("#3B82F6")). // Blue background
+					Foreground(lipgloss.Color("#FFFFFF"))  // White text
 )

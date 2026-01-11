@@ -30,12 +30,20 @@ type Result struct {
 	RepoPath        string   // Path to the repo where conflict occurred
 }
 
+// FileDiff represents a single file's diff with its status
+type FileDiff struct {
+	Filename string // File path relative to repo root
+	Status   string // Status code: M (modified), A (added), D (deleted), etc.
+	Diff     string // Diff content for this file only
+}
+
 // WorktreeStatus represents the status of changes in a worktree
 type WorktreeStatus struct {
 	HasChanges bool
-	Summary    string // Short summary like "3 files changed"
-	Files      []string // List of changed files
-	Diff       string // Full diff output
+	Summary    string     // Short summary like "3 files changed"
+	Files      []string   // List of changed files
+	Diff       string     // Full diff output
+	FileDiffs  []FileDiff // Per-file diffs for detailed viewing
 }
 
 // GetWorktreeStatus returns the status of uncommitted changes in a worktree
@@ -61,9 +69,26 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	}
 
 	status.HasChanges = true
+	// Map to store status codes for each file
+	fileStatuses := make(map[string]string)
 	for _, line := range lines {
 		if len(line) > 3 {
-			status.Files = append(status.Files, strings.TrimSpace(line[3:]))
+			filename := strings.TrimSpace(line[3:])
+			status.Files = append(status.Files, filename)
+			// Extract status code (first 2 chars: index status + worktree status)
+			// Use the more significant status (prefer non-space)
+			statusCode := strings.TrimSpace(line[:2])
+			if statusCode == "" {
+				statusCode = "M" // Default to modified
+			} else if len(statusCode) == 2 {
+				// Take the first non-space character
+				if statusCode[0] != ' ' {
+					statusCode = string(statusCode[0])
+				} else {
+					statusCode = string(statusCode[1])
+				}
+			}
+			fileStatuses[filename] = statusCode
 		}
 	}
 
@@ -100,7 +125,75 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 
 	status.Diff = string(diffOutput) + string(cachedDiff)
 
+	// Parse per-file diffs for detailed viewing
+	status.FileDiffs = parseFileDiffs(status.Diff, status.Files, fileStatuses)
+
 	return status, nil
+}
+
+// parseFileDiffs splits a combined diff into per-file chunks
+func parseFileDiffs(diff string, files []string, fileStatuses map[string]string) []FileDiff {
+	if diff == "" {
+		// No diff content - create entries for each file with empty diff
+		result := make([]FileDiff, 0, len(files))
+		for _, file := range files {
+			status := fileStatuses[file]
+			if status == "" {
+				status = "M"
+			}
+			result = append(result, FileDiff{
+				Filename: file,
+				Status:   status,
+				Diff:     "(no diff available)",
+			})
+		}
+		return result
+	}
+
+	// Split diff on "diff --git" markers
+	chunks := strings.Split(diff, "diff --git ")
+	fileDiffMap := make(map[string]string)
+
+	for _, chunk := range chunks {
+		if chunk == "" {
+			continue
+		}
+		// Re-add the marker for proper formatting
+		chunk = "diff --git " + chunk
+
+		// Extract filename from "diff --git a/path b/path" line
+		firstLine := strings.SplitN(chunk, "\n", 2)[0]
+		// Parse "diff --git a/foo/bar.go b/foo/bar.go"
+		parts := strings.Split(firstLine, " ")
+		if len(parts) >= 4 {
+			// Get the b/path part and strip the "b/" prefix
+			bPath := parts[len(parts)-1]
+			if strings.HasPrefix(bPath, "b/") {
+				filename := bPath[2:]
+				fileDiffMap[filename] = strings.TrimRight(chunk, "\n")
+			}
+		}
+	}
+
+	// Build result in the same order as files list
+	result := make([]FileDiff, 0, len(files))
+	for _, file := range files {
+		status := fileStatuses[file]
+		if status == "" {
+			status = "M"
+		}
+		diffContent := fileDiffMap[file]
+		if diffContent == "" {
+			diffContent = "(no diff available - file may be untracked or binary)"
+		}
+		result = append(result, FileDiff{
+			Filename: file,
+			Status:   status,
+			Diff:     diffContent,
+		})
+	}
+
+	return result
 }
 
 // CommitAll stages all changes and commits them with the given message
