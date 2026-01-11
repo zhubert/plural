@@ -426,7 +426,8 @@ func regenerateStyles() {
 
 	SidebarSelectedStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(t.GetBgSelected())).
-		Foreground(lipgloss.Color(t.TextInverse)).
+		Foreground(lipgloss.Color(t.Text)).
+		Bold(true).
 		Padding(0, 1)
 
 	SidebarRepoStyle = lipgloss.NewStyle().

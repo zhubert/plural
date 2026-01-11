@@ -71,6 +71,7 @@ var (
 	SidebarSelectedStyle = lipgloss.NewStyle().
 		Background(ColorPrimary).
 		Foreground(ColorText).
+		Bold(true).
 		Padding(0, 1)
 
 	SidebarRepoStyle = lipgloss.NewStyle().
