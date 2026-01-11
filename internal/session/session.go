@@ -91,10 +91,10 @@ func Create(repoPath string, customBranch string, branchPrefix string) (*config.
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Log("Session: Failed to create worktree after %v: %s", time.Since(worktreeStart), string(output))
+		logger.Error("Session: Failed to create worktree after %v: %s", time.Since(worktreeStart), string(output))
 		return nil, fmt.Errorf("failed to create worktree: %s: %w", string(output), err)
 	}
-	logger.Log("Session: Git worktree created in %v", time.Since(worktreeStart))
+	logger.Debug("Session: Git worktree created in %v", time.Since(worktreeStart))
 
 	// Display name: use the full branch name for clarity
 	var displayName string
@@ -118,7 +118,7 @@ func Create(repoPath string, customBranch string, branchPrefix string) (*config.
 		CreatedAt: time.Now(),
 	}
 
-	logger.Log("Session: Session created successfully: id=%s, name=%s, total_time=%v", id, session.Name, time.Since(startTime))
+	logger.Info("Session: Session created successfully: id=%s, name=%s, total_time=%v", id, session.Name, time.Since(startTime))
 	return session, nil
 }
 
@@ -175,16 +175,16 @@ func Delete(sess *config.Session) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		logger.Log("Session: Failed to remove worktree: %s", string(output))
+		logger.Error("Session: Failed to remove worktree: %s", string(output))
 		return fmt.Errorf("failed to remove worktree: %s: %w", string(output), err)
 	}
-	logger.Log("Session: Worktree removed successfully")
+	logger.Info("Session: Worktree removed successfully")
 
 	// Prune worktree references (best-effort cleanup)
 	pruneCmd := exec.Command("git", "worktree", "prune")
 	pruneCmd.Dir = sess.RepoPath
 	if output, err := pruneCmd.CombinedOutput(); err != nil {
-		logger.Log("Session: Warning - worktree prune failed (best-effort): %s - %v", string(output), err)
+		logger.Warn("Session: Worktree prune failed (best-effort): %s - %v", string(output), err)
 	}
 
 	// Delete the branch
@@ -193,10 +193,10 @@ func Delete(sess *config.Session) error {
 
 	branchOutput, err := branchCmd.CombinedOutput()
 	if err != nil {
-		logger.Log("Session: Failed to delete branch (may already be deleted): %s", string(branchOutput))
+		logger.Warn("Session: Failed to delete branch (may already be deleted): %s", string(branchOutput))
 		// Don't return error - the worktree is already gone, branch deletion is best-effort
 	} else {
-		logger.Log("Session: Branch deleted successfully")
+		logger.Debug("Session: Branch deleted successfully")
 	}
 
 	return nil
@@ -291,9 +291,9 @@ func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
 		cmd.Dir = orphan.RepoPath
 		if err := cmd.Run(); err != nil {
 			// If git command fails, try direct removal
-			logger.Log("Session: git worktree remove failed, trying direct removal")
+			logger.Warn("Session: git worktree remove failed, trying direct removal")
 			if err := os.RemoveAll(orphan.Path); err != nil {
-				logger.Log("Session: Failed to remove orphan %s: %v", orphan.Path, err)
+				logger.Error("Session: Failed to remove orphan %s: %v", orphan.Path, err)
 				continue
 			}
 		}

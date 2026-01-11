@@ -164,7 +164,7 @@ func New(cfg *config.Config, version string) *Model {
 // Close gracefully shuts down all Claude sessions and releases resources.
 // This should be called when the application is exiting.
 func (m *Model) Close() {
-	logger.Log("App: Closing and shutting down all sessions")
+	logger.Info("App: Closing and shutting down all sessions")
 	m.sessionMgr.Shutdown()
 }
 
@@ -404,7 +404,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		runner := m.sessionMgr.GetRunner(msg.SessionID)
 		exists := runner != nil
 		if !exists {
-			logger.Log("App: Received response for unknown session %s", msg.SessionID)
+			logger.Warn("App: Received response for unknown session %s", msg.SessionID)
 			return m, nil
 		}
 
@@ -412,13 +412,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if msg.Chunk.Error != nil {
 			errMsg := msg.Chunk.Error.Error()
-			logger.Log("App: Error in session %s: %v", msg.SessionID, errMsg)
+			logger.Error("App: Error in session %s: %v", msg.SessionID, errMsg)
 			m.sidebar.SetStreaming(msg.SessionID, false)
 			m.sessionState().StopWaiting(msg.SessionID)
 
 			// Check if this is a "session in use" error
 			if process.IsSessionInUseError(errMsg) {
-				logger.Log("App: Session %s appears to be in use by another process", msg.SessionID)
+				logger.Warn("App: Session %s appears to be in use by another process", msg.SessionID)
 				m.sessionState().SetSessionInUseError(msg.SessionID, true)
 				m.sidebar.SetSessionInUse(msg.SessionID, true)
 				errMsg = "Session is in use by another process. Press 'f' to force resume by killing orphaned processes."
@@ -1011,32 +1011,32 @@ func (m *Model) forceResumeSession(sess *config.Session) (tea.Model, tea.Cmd) {
 
 // handleImagePaste attempts to read an image from the clipboard and attach it
 func (m *Model) handleImagePaste() (tea.Model, tea.Cmd) {
-	logger.Log("App: Handling image paste")
+	logger.Debug("App: Handling image paste")
 
 	// Try to read image from clipboard
 	img, err := clipboard.ReadImage()
 	if err != nil {
-		logger.Log("App: Failed to read image from clipboard: %v", err)
+		logger.Debug("App: Failed to read image from clipboard: %v", err)
 		// Don't show error to user - might just be text paste
 		return m, nil
 	}
 
 	if img == nil {
-		logger.Log("App: No image in clipboard")
+		logger.Debug("App: No image in clipboard")
 		// No image, let text paste happen normally
 		return m, nil
 	}
 
 	// Validate the image
 	if err := img.Validate(); err != nil {
-		logger.Log("App: Image validation failed: %v", err)
+		logger.Warn("App: Image validation failed: %v", err)
 		// Show error message in chat
 		m.chat.AppendStreaming(fmt.Sprintf("\n[Error: %s]\n", err.Error()))
 		return m, nil
 	}
 
 	// Attach the image
-	logger.Log("App: Attaching image: %dKB, %s", img.SizeKB(), img.MediaType)
+	logger.Info("App: Attaching image: %dKB, %s", img.SizeKB(), img.MediaType)
 	m.chat.AttachImage(img.Data, img.MediaType)
 
 	return m, nil

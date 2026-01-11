@@ -7,12 +7,42 @@ import (
 	"time"
 )
 
+// LogLevel represents the severity of a log message
+type LogLevel int
+
+const (
+	// LevelDebug is for verbose debugging information
+	LevelDebug LogLevel = iota
+	// LevelInfo is for general operational information
+	LevelInfo
+	// LevelWarn is for warning conditions
+	LevelWarn
+	// LevelError is for error conditions
+	LevelError
+)
+
+func (l LogLevel) String() string {
+	switch l {
+	case LevelDebug:
+		return "DEBUG"
+	case LevelInfo:
+		return "INFO"
+	case LevelWarn:
+		return "WARN"
+	case LevelError:
+		return "ERROR"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 var (
-	logFile  *os.File
-	mu       sync.Mutex
-	once     sync.Once
-	logPath  string
-	initDone bool
+	logFile      *os.File
+	mu           sync.Mutex
+	once         sync.Once
+	logPath      string
+	initDone     bool
+	currentLevel LogLevel = LevelInfo // Default to Info level
 )
 
 // DefaultLogPath is the default log file for the main process
@@ -21,6 +51,22 @@ const DefaultLogPath = "/tmp/plural-debug.log"
 // MCPLogPath returns the log path for an MCP session
 func MCPLogPath(sessionID string) string {
 	return fmt.Sprintf("/tmp/plural-mcp-%s.log", sessionID)
+}
+
+// SetLevel sets the minimum log level to output
+func SetLevel(level LogLevel) {
+	mu.Lock()
+	defer mu.Unlock()
+	currentLevel = level
+}
+
+// SetDebug enables debug level logging
+func SetDebug(enabled bool) {
+	if enabled {
+		SetLevel(LevelDebug)
+	} else {
+		SetLevel(LevelInfo)
+	}
 }
 
 // Init initializes the logger with a custom path. Must be called before Log().
@@ -38,7 +84,7 @@ func Init(path string) {
 	if err == nil {
 		logFile = f
 		initDone = true
-		writeLog("Logger initialized: %s", path)
+		writeLog(LevelInfo, "Logger initialized: %s", path)
 	}
 }
 
@@ -50,29 +96,68 @@ func ensureInit() {
 			if err == nil {
 				logFile = f
 				initDone = true
-				writeLog("Logger initialized: %s", DefaultLogPath)
+				writeLog(LevelInfo, "Logger initialized: %s", DefaultLogPath)
 			}
 		})
 	}
 }
 
-func writeLog(format string, args ...interface{}) {
+func writeLog(level LogLevel, format string, args ...interface{}) {
 	if logFile == nil {
+		return
+	}
+	if level < currentLevel {
 		return
 	}
 	timestamp := time.Now().Format("15:04:05.000")
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(logFile, "[%s] %s\n", timestamp, msg)
+	fmt.Fprintf(logFile, "[%s] [%s] %s\n", timestamp, level.String(), msg)
 	logFile.Sync()
 }
 
-// Log writes a debug message to the log file
+// Debug writes a debug message to the log file (only if level is LevelDebug)
+func Debug(format string, args ...interface{}) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	ensureInit()
+	writeLog(LevelDebug, format, args...)
+}
+
+// Info writes an info message to the log file
+func Info(format string, args ...interface{}) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	ensureInit()
+	writeLog(LevelInfo, format, args...)
+}
+
+// Warn writes a warning message to the log file
+func Warn(format string, args ...interface{}) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	ensureInit()
+	writeLog(LevelWarn, format, args...)
+}
+
+// Error writes an error message to the log file
+func Error(format string, args ...interface{}) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	ensureInit()
+	writeLog(LevelError, format, args...)
+}
+
+// Log writes a debug message to the log file (legacy function, use Debug/Info/Warn/Error instead)
 func Log(format string, args ...interface{}) {
 	mu.Lock()
 	defer mu.Unlock()
 
 	ensureInit()
-	writeLog(format, args...)
+	writeLog(LevelDebug, format, args...)
 }
 
 // Close closes the log file

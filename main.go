@@ -39,6 +39,7 @@ Usage: plural [options]
 Options:
   -v, --version        Print version information and exit
   -h, --help           Show this help message
+      --debug          Enable debug logging (verbose output to /tmp/plural-debug.log)
       --clear          Remove all sessions and exit
       --check-prereqs  Check CLI prerequisites and exit
       --prune          Remove orphaned worktrees (worktrees without matching sessions)
@@ -49,10 +50,16 @@ For more information, visit: https://github.com/zhubert/plural
 
 	showVersion := flag.Bool("version", false, "Print version information and exit")
 	flag.BoolVar(showVersion, "v", false, "Print version information and exit")
+	debugMode := flag.Bool("debug", false, "Enable debug logging")
 	clearSessions := flag.Bool("clear", false, "Remove all sessions and exit")
 	checkPrereqs := flag.Bool("check-prereqs", false, "Check CLI prerequisites and exit")
 	pruneWorktrees := flag.Bool("prune", false, "Remove orphaned worktrees (worktrees without matching sessions)")
 	flag.Parse()
+
+	// Set debug logging level if requested
+	if *debugMode {
+		logger.SetDebug(true)
+	}
 
 	// Handle version flag
 	if *showVersion {

@@ -520,17 +520,17 @@ func (r *Runner) ensureServerRunning() error {
 		return nil
 	}
 
-	logger.Log("Claude: Starting persistent MCP server for session %s", r.sessionID)
+	logger.Info("Claude: Starting persistent MCP server for session %s", r.sessionID)
 	startTime := time.Now()
 
 	// Create socket server
 	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan, r.questReqChan, r.questRespChan)
 	if err != nil {
-		logger.Log("Claude: Failed to create socket server: %v", err)
+		logger.Error("Claude: Failed to create socket server: %v", err)
 		return fmt.Errorf("failed to start permission server: %v", err)
 	}
 	r.socketServer = socketServer
-	logger.Log("Claude: Socket server created in %v", time.Since(startTime))
+	logger.Debug("Claude: Socket server created in %v", time.Since(startTime))
 
 	// Start socket server in background
 	go r.socketServer.Run()
@@ -540,13 +540,13 @@ func (r *Runner) ensureServerRunning() error {
 	if err != nil {
 		r.socketServer.Close()
 		r.socketServer = nil
-		logger.Log("Claude: Failed to create MCP config: %v", err)
+		logger.Error("Claude: Failed to create MCP config: %v", err)
 		return fmt.Errorf("failed to create MCP config: %v", err)
 	}
 	r.mcpConfigPath = mcpConfigPath
 
 	r.serverRunning = true
-	logger.Log("Claude: Persistent MCP server started in %v, socket=%s, config=%s",
+	logger.Info("Claude: Persistent MCP server started in %v, socket=%s, config=%s",
 		time.Since(startTime), r.socketServer.SocketPath(), r.mcpConfigPath)
 
 	return nil
@@ -602,7 +602,7 @@ func (r *Runner) startPersistentProcess() error {
 		return nil
 	}
 
-	logger.Log("Claude: Starting persistent process for session %s", r.sessionID)
+	logger.Info("Claude: Starting persistent process for session %s", r.sessionID)
 	startTime := time.Now()
 
 	// Build command arguments
@@ -652,7 +652,7 @@ func (r *Runner) startPersistentProcess() error {
 	// Get stdin pipe for writing messages
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		logger.Log("Claude: Failed to get stdin pipe: %v", err)
+		logger.Error("Claude: Failed to get stdin pipe: %v", err)
 		return fmt.Errorf("failed to get stdin pipe: %v", err)
 	}
 
@@ -660,7 +660,7 @@ func (r *Runner) startPersistentProcess() error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		stdin.Close()
-		logger.Log("Claude: Failed to get stdout pipe: %v", err)
+		logger.Error("Claude: Failed to get stdout pipe: %v", err)
 		return fmt.Errorf("failed to get stdout pipe: %v", err)
 	}
 
@@ -669,7 +669,7 @@ func (r *Runner) startPersistentProcess() error {
 	if err != nil {
 		stdin.Close()
 		stdout.Close()
-		logger.Log("Claude: Failed to get stderr pipe: %v", err)
+		logger.Error("Claude: Failed to get stderr pipe: %v", err)
 		return fmt.Errorf("failed to get stderr pipe: %v", err)
 	}
 
@@ -677,7 +677,7 @@ func (r *Runner) startPersistentProcess() error {
 		stdin.Close()
 		stdout.Close()
 		stderr.Close()
-		logger.Log("Claude: Failed to start persistent process: %v", err)
+		logger.Error("Claude: Failed to start persistent process: %v", err)
 		return fmt.Errorf("failed to start process: %v", err)
 	}
 
@@ -687,7 +687,7 @@ func (r *Runner) startPersistentProcess() error {
 	r.persistentStderr = stderr
 	r.processRunning = true
 
-	logger.Log("Claude: Persistent process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
+	logger.Info("Claude: Persistent process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
 
 	// Start goroutine to read responses
 	go r.readPersistentResponses()
@@ -1052,7 +1052,7 @@ func (r *Runner) AddAssistantMessage(content string) {
 // This method is idempotent - multiple calls are safe.
 func (r *Runner) Stop() {
 	r.stopOnce.Do(func() {
-		logger.Log("Claude: Stopping runner for session %s", r.sessionID)
+		logger.Info("Claude: Stopping runner for session %s", r.sessionID)
 
 		// Stop the persistent Claude CLI process first (needs its own lock)
 		r.stopPersistentProcess()
@@ -1066,16 +1066,16 @@ func (r *Runner) Stop() {
 
 		// Close socket server if running
 		if r.socketServer != nil {
-			logger.Log("Claude: Closing persistent socket server for session %s", r.sessionID)
+			logger.Debug("Claude: Closing persistent socket server for session %s", r.sessionID)
 			r.socketServer.Close()
 			r.socketServer = nil
 		}
 
 		// Remove MCP config file and log any errors
 		if r.mcpConfigPath != "" {
-			logger.Log("Claude: Removing MCP config file: %s", r.mcpConfigPath)
+			logger.Debug("Claude: Removing MCP config file: %s", r.mcpConfigPath)
 			if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
-				logger.Log("Claude: Warning: failed to remove MCP config file %s: %v", r.mcpConfigPath, err)
+				logger.Warn("Claude: Failed to remove MCP config file %s: %v", r.mcpConfigPath, err)
 			}
 			r.mcpConfigPath = ""
 		}
@@ -1102,7 +1102,7 @@ func (r *Runner) Stop() {
 			r.questRespChan = nil
 		}
 
-		logger.Log("Claude: Runner stopped for session %s", r.sessionID)
+		logger.Info("Claude: Runner stopped for session %s", r.sessionID)
 	})
 }
 

@@ -41,6 +41,10 @@ func TestLogFile_Exists(t *testing.T) {
 		t.Skip("Log file not created, possibly running in restricted environment")
 	}
 
+	// Enable debug level to test Log() which maps to debug
+	SetDebug(true)
+	defer SetDebug(false)
+
 	// Write a test message
 	testMsg := "test-unique-string-12345"
 	Log("%s", testMsg)
@@ -58,6 +62,10 @@ func TestLogFile_Exists(t *testing.T) {
 
 func TestLog_Timestamp(t *testing.T) {
 	logPath := "/tmp/plural-debug.log"
+
+	// Enable debug level to test Log() which maps to debug
+	SetDebug(true)
+	defer SetDebug(false)
 
 	// Log a unique message
 	uniqueMsg := "timestamp-test-unique-marker"

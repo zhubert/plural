@@ -28,6 +28,7 @@ go test ./...
 ./plural --check-prereqs  # Validate required tools
 ./plural --clear          # Clear all sessions
 ./plural --prune          # Remove orphaned worktrees
+./plural --debug          # Enable debug logging (verbose output)
 ```
 
 ## Debug Logs
@@ -39,6 +40,15 @@ tail -f /tmp/plural-debug.log
 # MCP permission logs (per-session)
 tail -f /tmp/plural-mcp-*.log
 ```
+
+### Log Levels
+
+The logger supports four levels: Debug, Info, Warn, Error.
+
+- **Default**: Only Info, Warn, and Error messages are logged
+- **Debug mode** (`--debug`): All messages including verbose Debug output
+
+Use `--debug` when troubleshooting to see detailed operation logs (streaming chunks, IPC messages, per-message events).
 
 ## Architecture
 
