@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"fmt"
 	"hash/fnv"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -61,6 +63,9 @@ type Sidebar struct {
 	// Search mode
 	searchMode  bool
 	searchInput textinput.Model
+
+	// Worktree size cache (session ID -> size in bytes)
+	worktreeSizes map[string]int64
 }
 
 // NewSidebar creates a new sidebar
@@ -75,7 +80,58 @@ func NewSidebar() *Sidebar {
 		pendingPermissions: make(map[string]bool),
 		sessionsInUse:      make(map[string]bool),
 		searchInput:        ti,
+		worktreeSizes:      make(map[string]int64),
 	}
+}
+
+// calculateWorktreeSize calculates the total size of a worktree directory
+func calculateWorktreeSize(path string) int64 {
+	var size int64
+	filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip files we can't access
+		}
+		if !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				size += info.Size()
+			}
+		}
+		return nil
+	})
+	return size
+}
+
+// formatSize formats a size in bytes to a human-readable string
+func formatSize(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.1fG", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.1fM", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.0fK", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
+}
+
+// getWorktreeSize returns the cached worktree size, calculating it if needed
+func (s *Sidebar) getWorktreeSize(sess config.Session) string {
+	if sess.WorkTree == "" {
+		return ""
+	}
+	if size, ok := s.worktreeSizes[sess.ID]; ok {
+		return formatSize(size)
+	}
+	// Calculate and cache the size
+	size := calculateWorktreeSize(sess.WorkTree)
+	s.worktreeSizes[sess.ID] = size
+	return formatSize(size)
 }
 
 // SetSize sets the sidebar dimensions
@@ -178,6 +234,13 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	s.sessionIndex = make(map[string]int, len(s.sessions))
 	for i, sess := range s.sessions {
 		s.sessionIndex[sess.ID] = i
+	}
+
+	// Clean up worktree size cache for removed sessions
+	for id := range s.worktreeSizes {
+		if _, exists := s.sessionIndex[id]; !exists {
+			delete(s.worktreeSizes, id)
+		}
 	}
 
 	// Adjust selection if needed
@@ -715,6 +778,16 @@ func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int
 		displayName = prefix + parts[len(parts)-1]
 	} else {
 		displayName = prefix + sess.Name
+	}
+
+	// Add worktree size
+	if sizeStr := s.getWorktreeSize(sess); sizeStr != "" {
+		sizeColor := ColorTextMuted
+		if isSelected {
+			sizeColor = ColorText
+		}
+		sizeStyle := lipgloss.NewStyle().Foreground(sizeColor)
+		displayName = displayName + " " + sizeStyle.Render(sizeStr)
 	}
 
 	// Add indicators for streaming and pending permissions
