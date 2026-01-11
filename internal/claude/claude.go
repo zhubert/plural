@@ -702,8 +702,11 @@ func (r *Runner) startPersistentProcess() error {
 func (r *Runner) readPersistentResponses() {
 	logger.Log("Claude: Response reader started for session %s", r.sessionID)
 
-	var fullResponse string
+	var fullResponse strings.Builder
+	fullResponse.Grow(8192) // Pre-allocate for typical response size
 	var lastWasToolUse bool
+	endsWithNewline := false     // Track if response ends with \n
+	endsWithDoubleNewline := false // Track if response ends with \n\n
 	firstChunk := true
 	responseStartTime := time.Now()
 
@@ -750,22 +753,33 @@ func (r *Runner) readPersistentResponses() {
 			switch chunk.Type {
 			case ChunkTypeText:
 				// Add extra newline after tool use for visual separation
-				if lastWasToolUse && strings.HasSuffix(fullResponse, "\n") && !strings.HasSuffix(fullResponse, "\n\n") {
-					fullResponse += "\n"
+				if lastWasToolUse && endsWithNewline && !endsWithDoubleNewline {
+					fullResponse.WriteString("\n")
+					endsWithDoubleNewline = true
 				}
-				fullResponse += chunk.Content
+				fullResponse.WriteString(chunk.Content)
+				// Update newline tracking based on content
+				if len(chunk.Content) > 0 {
+					endsWithNewline = chunk.Content[len(chunk.Content)-1] == '\n'
+					endsWithDoubleNewline = len(chunk.Content) >= 2 && chunk.Content[len(chunk.Content)-2:] == "\n\n"
+				}
 				lastWasToolUse = false
 			case ChunkTypeToolUse:
-				// Format tool use line
-				if fullResponse != "" && !strings.HasSuffix(fullResponse, "\n") {
-					fullResponse += "\n"
+				// Format tool use line - add newline if needed
+				if fullResponse.Len() > 0 && !endsWithNewline {
+					fullResponse.WriteString("\n")
 				}
-				toolLine := "● " + formatToolIcon(chunk.ToolName) + "(" + chunk.ToolName
+				fullResponse.WriteString("● ")
+				fullResponse.WriteString(formatToolIcon(chunk.ToolName))
+				fullResponse.WriteString("(")
+				fullResponse.WriteString(chunk.ToolName)
 				if chunk.ToolInput != "" {
-					toolLine += ": " + chunk.ToolInput
+					fullResponse.WriteString(": ")
+					fullResponse.WriteString(chunk.ToolInput)
 				}
-				toolLine += ")\n"
-				fullResponse += toolLine
+				fullResponse.WriteString(")\n")
+				endsWithNewline = true
+				endsWithDoubleNewline = false
 				lastWasToolUse = true
 			}
 
@@ -790,7 +804,7 @@ func (r *Runner) readPersistentResponses() {
 				// Add assistant message to history
 				r.mu.Lock()
 				r.sessionStarted = true
-				r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse})
+				r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse.String()})
 				r.mu.Unlock()
 
 				// Signal completion and close channel so listeners detect end
@@ -811,8 +825,11 @@ func (r *Runner) readPersistentResponses() {
 				r.mu.Unlock()
 
 				// Reset for next message
-				fullResponse = ""
+				fullResponse.Reset()
+				fullResponse.Grow(8192) // Pre-allocate for next response
 				lastWasToolUse = false
+				endsWithNewline = false
+				endsWithDoubleNewline = false
 				firstChunk = true
 				responseStartTime = time.Now()
 			}

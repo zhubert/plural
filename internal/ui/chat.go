@@ -86,6 +86,13 @@ var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "�
 // First and last frames hold longer for a "breathing" effect
 var spinnerFrameHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
 
+// messageCache stores pre-rendered message content to avoid expensive re-rendering
+type messageCache struct {
+	content   string // The original message content
+	rendered  string // The rendered output
+	wrapWidth int    // The width used for wrapping
+}
+
 // Chat represents the right panel with conversation view
 type Chat struct {
 	viewport    viewport.Model
@@ -101,6 +108,9 @@ type Chat struct {
 	waitingVerb string // Random verb to display while waiting
 	spinnerIdx  int    // Current spinner frame index
 	spinnerTick int    // Tick counter for frame hold timing
+
+	// Message rendering cache - avoids re-rendering unchanged messages
+	messageCache []messageCache // Cache of rendered messages, indexed by message position
 
 	// Track last tool use position for marking as complete
 	lastToolUsePos int // Position in streaming content where last tool use marker starts
@@ -209,6 +219,7 @@ func (c *Chat) SetSession(name string, messages []claude.Message) {
 	c.messages = messages
 	c.hasSession = true
 	c.streaming = ""
+	c.messageCache = nil // Clear cache on session change
 	c.updateContent()
 }
 
@@ -219,6 +230,7 @@ func (c *Chat) ClearSession() {
 	c.hasSession = false
 	c.streaming = ""
 	c.lastToolUsePos = -1
+	c.messageCache = nil // Clear cache on session clear
 	c.hasPendingPermission = false
 	c.pendingPermissionTool = ""
 	c.pendingPermissionDesc = ""
@@ -1077,6 +1089,12 @@ func (c *Chat) updateContent() {
 			Italic(true).
 			Render("Start a conversation with Claude..."))
 	} else {
+		// Ensure cache is properly sized
+		if len(c.messageCache) > len(c.messages) {
+			// Messages were removed (session change), truncate cache
+			c.messageCache = c.messageCache[:len(c.messages)]
+		}
+
 		for i, msg := range c.messages {
 			if i > 0 {
 				sb.WriteString("\n\n")
@@ -1094,9 +1112,36 @@ func (c *Chat) updateContent() {
 
 			sb.WriteString(roleStyle.Render(roleName + ":"))
 			sb.WriteString("\n")
-			// Render markdown content, stripping <options> tags for cleaner display
+
+			// Check cache for this message
 			content := stripOptionsTags(strings.TrimSpace(msg.Content))
-			sb.WriteString(renderMarkdown(content, wrapWidth))
+			var renderedContent string
+
+			if i < len(c.messageCache) {
+				cached := c.messageCache[i]
+				if cached.content == content && cached.wrapWidth == wrapWidth {
+					// Cache hit - use pre-rendered content
+					renderedContent = cached.rendered
+				} else {
+					// Cache miss - content or width changed, re-render
+					renderedContent = renderMarkdown(content, wrapWidth)
+					c.messageCache[i] = messageCache{
+						content:   content,
+						rendered:  renderedContent,
+						wrapWidth: wrapWidth,
+					}
+				}
+			} else {
+				// New message - render and add to cache
+				renderedContent = renderMarkdown(content, wrapWidth)
+				c.messageCache = append(c.messageCache, messageCache{
+					content:   content,
+					rendered:  renderedContent,
+					wrapWidth: wrapWidth,
+				})
+			}
+
+			sb.WriteString(renderedContent)
 		}
 
 		// Show streaming content or waiting indicator with stopwatch

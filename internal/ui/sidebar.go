@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"hash/fnv"
 	"path/filepath"
 	"strings"
 	"time"
@@ -53,6 +54,10 @@ type Sidebar struct {
 	spinnerFrame       int             // Current spinner animation frame
 	spinnerTick        int             // Tick counter for frame hold timing
 
+	// Cache for incremental updates
+	sessionIndex map[string]int  // Map of session ID to index in sessions slice
+	lastHash     uint64          // Hash of last session list for change detection
+
 	// Search mode
 	searchMode  bool
 	searchInput textinput.Model
@@ -97,8 +102,48 @@ func (s *Sidebar) IsFocused() bool {
 	return s.focused
 }
 
+// hashSessions computes a fast hash of the session list to detect changes
+func hashSessions(sessions []config.Session) uint64 {
+	h := fnv.New64a()
+	for _, sess := range sessions {
+		h.Write([]byte(sess.ID))
+		h.Write([]byte{0})
+		h.Write([]byte(sess.RepoPath))
+		h.Write([]byte{0})
+		h.Write([]byte(sess.ParentID))
+		h.Write([]byte{0})
+		h.Write([]byte(sess.Branch))
+		h.Write([]byte{0})
+		// Include status flags in hash
+		if sess.Merged {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
+		if sess.PRCreated {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
+		if sess.MergedToParent {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
+	}
+	return h.Sum64()
+}
+
 // SetSessions updates the session list, grouping by repo
 func (s *Sidebar) SetSessions(sessions []config.Session) {
+	// Fast path: check if sessions have changed using hash
+	newHash := hashSessions(sessions)
+	if newHash == s.lastHash && len(sessions) == len(s.sessions) {
+		// No structural changes - skip expensive tree rebuild
+		return
+	}
+	s.lastHash = newHash
+
 	// Group sessions by repo path
 	groupMap := make(map[string]*repoGroup)
 	var groupOrder []string
@@ -127,6 +172,12 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	s.sessions = make([]config.Session, 0, len(sessions))
 	for _, group := range s.groups {
 		flattenSessionTree(group.RootNodes, &s.sessions)
+	}
+
+	// Rebuild session index for O(1) lookup
+	s.sessionIndex = make(map[string]int, len(s.sessions))
+	for i, sess := range s.sessions {
+		s.sessionIndex[sess.ID] = i
 	}
 
 	// Adjust selection if needed
@@ -201,6 +252,14 @@ func (s *Sidebar) SelectedSession() *config.Session {
 
 // SelectSession selects a session by ID
 func (s *Sidebar) SelectSession(id string) {
+	// Use index for O(1) lookup if available
+	if s.sessionIndex != nil {
+		if idx, ok := s.sessionIndex[id]; ok {
+			s.selectedIdx = idx
+			return
+		}
+	}
+	// Fallback to linear search
 	for i, sess := range s.sessions {
 		if sess.ID == id {
 			s.selectedIdx = i
