@@ -621,31 +621,31 @@ func TestAddMCPServerState_Navigation(t *testing.T) {
 	}
 
 	// Global mode - advance should skip repo selector (index 1)
-	state.advanceInput()
+	state.AdvanceInput()
 	if state.InputIndex != 2 { // Skip to name input
 		t.Errorf("Expected InputIndex 2 after advance (global), got %d", state.InputIndex)
 	}
 
 	// Continue advancing
-	state.advanceInput()
+	state.AdvanceInput()
 	if state.InputIndex != 3 { // Command input
 		t.Errorf("Expected InputIndex 3, got %d", state.InputIndex)
 	}
 
-	state.advanceInput()
+	state.AdvanceInput()
 	if state.InputIndex != 4 { // Args input
 		t.Errorf("Expected InputIndex 4, got %d", state.InputIndex)
 	}
 
 	// Retreat
-	state.retreatInput()
+	state.RetreatInput()
 	if state.InputIndex != 3 {
 		t.Errorf("Expected InputIndex 3 after retreat, got %d", state.InputIndex)
 	}
 
 	// Retreat back to scope
-	state.retreatInput()
-	state.retreatInput()
+	state.RetreatInput()
+	state.RetreatInput()
 	if state.InputIndex != 0 {
 		t.Errorf("Expected InputIndex 0, got %d", state.InputIndex)
 	}
@@ -657,12 +657,12 @@ func TestAddMCPServerState_PerRepoNavigation(t *testing.T) {
 	state.IsGlobal = false
 
 	// Per-repo mode - advance should go to repo selector
-	state.advanceInput()
+	state.AdvanceInput()
 	if state.InputIndex != 1 { // Repo selector
 		t.Errorf("Expected InputIndex 1 (per-repo), got %d", state.InputIndex)
 	}
 
-	state.advanceInput()
+	state.AdvanceInput()
 	if state.InputIndex != 2 { // Name input
 		t.Errorf("Expected InputIndex 2, got %d", state.InputIndex)
 	}
@@ -701,9 +701,9 @@ func TestTruncatePath(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := truncatePath(tt.path, tt.maxLen)
+		result := TruncatePath(tt.path, tt.maxLen)
 		if result != tt.expected {
-			t.Errorf("truncatePath(%q, %d) = %q, want %q", tt.path, tt.maxLen, result, tt.expected)
+			t.Errorf("TruncatePath(%q, %d) = %q, want %q", tt.path, tt.maxLen, result, tt.expected)
 		}
 	}
 }
@@ -722,9 +722,9 @@ func TestTruncateString_Modal(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		result := truncateString(tt.s, tt.maxLen)
+		result := TruncateString(tt.s, tt.maxLen)
 		if result != tt.expected {
-			t.Errorf("truncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, result, tt.expected)
+			t.Errorf("TruncateString(%q, %d) = %q, want %q", tt.s, tt.maxLen, result, tt.expected)
 		}
 	}
 }

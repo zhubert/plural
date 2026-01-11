@@ -504,7 +504,7 @@ func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.Them
 		m.modal.Hide()
 		return m, nil
 	case "enter":
-		selectedTheme := state.GetSelectedTheme()
+		selectedTheme := ui.GetSelectedThemeAsThemeName(state)
 		ui.SetTheme(selectedTheme)
 		m.config.SetTheme(string(selectedTheme))
 		m.config.Save()
