@@ -857,6 +857,10 @@ func (m *Model) listenForSessionPermission(sessionID string, runner *claude.Runn
 	}
 
 	ch := runner.PermissionRequestChan()
+	if ch == nil {
+		// Runner has been stopped, don't create a goroutine that would block forever
+		return nil
+	}
 	return func() tea.Msg {
 		req, ok := <-ch
 		if !ok {
@@ -873,6 +877,10 @@ func (m *Model) listenForSessionQuestion(sessionID string, runner *claude.Runner
 	}
 
 	ch := runner.QuestionRequestChan()
+	if ch == nil {
+		// Runner has been stopped, don't create a goroutine that would block forever
+		return nil
+	}
 	return func() tea.Msg {
 		req, ok := <-ch
 		if !ok {
