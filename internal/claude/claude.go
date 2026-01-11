@@ -327,7 +327,6 @@ const (
 	ChunkTypeText       ChunkType = "text"        // Regular text content
 	ChunkTypeToolUse    ChunkType = "tool_use"    // Claude is calling a tool
 	ChunkTypeToolResult ChunkType = "tool_result" // Tool execution result
-	ChunkTypeStatus     ChunkType = "status"      // Status message (init, result)
 )
 
 // ResponseChunk represents a chunk of streaming response
