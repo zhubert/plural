@@ -390,7 +390,21 @@ func (s *Server) sendPermissionResult(id interface{}, allowed bool, args map[str
 	}
 
 	// Wrap result in tool call result format
-	resultJSON, _ := json.Marshal(result)
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		logger.Log("MCP: Failed to marshal permission result: %v", err)
+		// Send a fallback error response to prevent blocking
+		toolResult := ToolCallResult{
+			Content: []ContentItem{
+				{
+					Type: "text",
+					Text: `{"behavior":"deny","message":"internal error: failed to marshal result"}`,
+				},
+			},
+		}
+		s.sendResult(id, toolResult)
+		return
+	}
 	toolResult := ToolCallResult{
 		Content: []ContentItem{
 			{

@@ -153,13 +153,16 @@ type Runner struct {
 	persistentStderr  io.ReadCloser    // Stderr pipe for errors
 	processRunning    bool             // Whether persistent process is running
 	processMu         sync.Mutex       // Guards process lifecycle operations
-	currentResponseCh chan ResponseChunk // Current response channel for routing
+	currentResponseCh chan ResponseChunk // Current response channel for routing (protected by mu)
 
-	// Per-session streaming state
+	// Per-session streaming state (all protected by mu)
 	isStreaming  bool                   // Whether this runner is currently streaming
-	responseChan <-chan ResponseChunk   // Current response channel
 	streamCtx    context.Context        // Context for current streaming operation
 	streamCancel context.CancelFunc     // Cancel function for current streaming
+
+	// Process lifecycle context - used to signal goroutines to exit
+	processCtx    context.Context    // Context for process goroutines
+	processCancel context.CancelFunc // Cancel function to stop process goroutines
 
 	// External MCP servers to include in config
 	mcpServers []MCPServer
@@ -317,7 +320,7 @@ func (r *Runner) IsStreaming() bool {
 func (r *Runner) GetResponseChan() <-chan ResponseChunk {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.responseChan
+	return r.currentResponseCh
 }
 
 // ChunkType represents the type of streaming chunk
@@ -718,30 +721,45 @@ func (r *Runner) startPersistentProcess() error {
 	r.persistentStderr = stderr
 	r.processRunning = true
 
+	// Create context for process goroutines - this allows us to signal them to exit
+	r.mu.Lock()
+	r.processCtx, r.processCancel = context.WithCancel(context.Background())
+	processCtx := r.processCtx
+	r.mu.Unlock()
+
 	logger.Info("Claude: Persistent process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
 
 	// Start goroutine to read responses
-	go r.readPersistentResponses()
+	go r.readPersistentResponses(processCtx)
 
 	// Start goroutine to monitor for process exit
-	go r.monitorProcessExit()
+	go r.monitorProcessExit(processCtx)
 
 	return nil
 }
 
-// readPersistentResponses continuously reads from stdout and routes to the current response channel
-func (r *Runner) readPersistentResponses() {
+// readPersistentResponses continuously reads from stdout and routes to the current response channel.
+// The ctx parameter allows the caller to signal this goroutine to exit cleanly.
+func (r *Runner) readPersistentResponses(ctx context.Context) {
 	logger.Log("Claude: Response reader started for session %s", r.sessionID)
 
 	var fullResponse strings.Builder
 	fullResponse.Grow(8192) // Pre-allocate for typical response size
 	var lastWasToolUse bool
-	endsWithNewline := false     // Track if response ends with \n
+	endsWithNewline := false       // Track if response ends with \n
 	endsWithDoubleNewline := false // Track if response ends with \n\n
 	firstChunk := true
 	responseStartTime := time.Now()
 
 	for {
+		// Check for cancellation first
+		select {
+		case <-ctx.Done():
+			logger.Log("Claude: Response reader exiting - context cancelled")
+			return
+		default:
+		}
+
 		r.processMu.Lock()
 		running := r.processRunning
 		reader := r.persistentStdout
@@ -754,6 +772,13 @@ func (r *Runner) readPersistentResponses() {
 
 		line, err := reader.ReadString('\n')
 		if err != nil {
+			// Check if we were cancelled during the read
+			select {
+			case <-ctx.Done():
+				logger.Log("Claude: Response reader exiting - context cancelled during read")
+				return
+			default:
+			}
 			if err == io.EOF {
 				logger.Log("Claude: EOF on stdout - process exited")
 			} else {
@@ -814,12 +839,14 @@ func (r *Runner) readPersistentResponses() {
 				lastWasToolUse = true
 			}
 
-			// Send to response channel if available with timeout
-			// Uses a timeout to handle slow consumers without blocking forever
+			// Send to response channel if available with timeout and cancellation check
 			if ch != nil {
 				select {
 				case ch <- chunk:
 					// Sent successfully
+				case <-ctx.Done():
+					logger.Log("Claude: Response reader exiting - context cancelled during send")
+					return
 				case <-time.After(5 * time.Second):
 					logger.Log("Claude: Response channel full after 5s timeout, chunk may be lost")
 				}
@@ -842,12 +869,21 @@ func (r *Runner) readPersistentResponses() {
 				// This fixes a race condition where GetResponseChan() could return nil
 				// while Bubble Tea is still processing earlier chunks from the buffer
 				if ch != nil {
-					ch <- ResponseChunk{Done: true}
-					close(ch)
+					// Use select to avoid blocking if channel is full or closed
+					select {
+					case ch <- ResponseChunk{Done: true}:
+						close(ch)
+					case <-ctx.Done():
+						logger.Log("Claude: Response reader exiting - context cancelled during completion")
+						return
+					default:
+						// Channel might be full, close it anyway
+						close(ch)
+					}
 				}
 
 				// Reset streaming state for next message
-				// Note: Don't set responseChan to nil here - GetResponseChan() should
+				// Note: Don't set currentResponseCh to nil here - GetResponseChan() should
 				// return the closed channel so listeners can detect completion.
 				// It will be replaced on the next SendContent call.
 				r.mu.Lock()
@@ -868,8 +904,9 @@ func (r *Runner) readPersistentResponses() {
 	}
 }
 
-// monitorProcessExit waits for the process to exit and handles cleanup
-func (r *Runner) monitorProcessExit() {
+// monitorProcessExit waits for the process to exit and handles cleanup.
+// The ctx parameter allows the caller to signal this goroutine to exit cleanly.
+func (r *Runner) monitorProcessExit(ctx context.Context) {
 	r.processMu.Lock()
 	cmd := r.persistentCmd
 	r.processMu.Unlock()
@@ -878,9 +915,21 @@ func (r *Runner) monitorProcessExit() {
 		return
 	}
 
-	err := cmd.Wait()
-	logger.Log("Claude: Persistent process exited: %v", err)
-	r.handleProcessExit(err)
+	// Use a channel to detect when Wait() completes
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	// Wait for either process exit or context cancellation
+	select {
+	case err := <-done:
+		logger.Log("Claude: Persistent process exited: %v", err)
+		r.handleProcessExit(err)
+	case <-ctx.Done():
+		logger.Log("Claude: Process monitor exiting - context cancelled")
+		// Process will be killed by Stop(), no need to handle here
+	}
 }
 
 // handleProcessExit handles cleanup when the persistent process exits
@@ -905,7 +954,7 @@ func (r *Runner) handleProcessExit(err error) {
 		r.currentResponseCh = nil
 	}
 	r.isStreaming = false
-	// Note: Don't set responseChan to nil - let GetResponseChan() return
+	// Note: Don't set currentResponseCh to nil - let GetResponseChan() return
 	// the closed channel so listeners can detect completion
 	r.mu.Unlock()
 
@@ -926,6 +975,15 @@ func (r *Runner) handleProcessExit(err error) {
 
 // stopPersistentProcess stops the persistent Claude CLI process
 func (r *Runner) stopPersistentProcess() {
+	// Cancel process context first to signal goroutines to exit
+	// This must be done before acquiring processMu to avoid deadlock
+	r.mu.Lock()
+	if r.processCancel != nil {
+		r.processCancel()
+		r.processCancel = nil
+	}
+	r.mu.Unlock()
+
 	r.processMu.Lock()
 	defer r.processMu.Unlock()
 
@@ -1011,7 +1069,6 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		// Set up the response channel for routing
 		r.mu.Lock()
 		r.isStreaming = true
-		r.responseChan = ch
 		r.currentResponseCh = ch
 		r.streamCtx = cmdCtx
 		r.mu.Unlock()
