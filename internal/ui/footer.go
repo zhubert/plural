@@ -74,9 +74,10 @@ func (f *Footer) View() string {
 	// Show view-changes-specific shortcuts when in view changes mode
 	if f.viewChangesMode {
 		viewChangesBindings := []KeyBinding{
-			{Key: "esc/q/v", Desc: "close"},
-			{Key: "↑/↓/j/k", Desc: "scroll"},
-			{Key: "pgup/dn", Desc: "page"},
+			{Key: "←/→", Desc: "switch pane"},
+			{Key: "↑/↓", Desc: "select file"},
+			{Key: "j/k", Desc: "scroll diff"},
+			{Key: "esc/q", Desc: "close"},
 		}
 		for _, b := range viewChangesBindings {
 			key := FooterKeyStyle.Render(b.Key)

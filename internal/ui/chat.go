@@ -18,6 +18,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/muesli/reflow/wordwrap"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 )
@@ -116,10 +117,12 @@ type Chat struct {
 	selectedOptionIdx     int                // Currently highlighted option
 	questionAnswers       map[string]string  // Collected answers (question text -> selected label)
 
-	// View changes mode - temporary overlay showing git diff
-	viewChangesMode    bool             // Whether we're showing the diff overlay
-	viewChangesContent string           // The diff content to display
-	viewChangesViewport viewport.Model  // Separate viewport for diff scrolling
+	// View changes mode - temporary overlay showing git diff with file-by-file navigation
+	viewChangesMode      bool             // Whether we're showing the diff overlay
+	viewChangesViewport  viewport.Model   // Viewport for diff scrolling
+	viewChangesFiles     []git.FileDiff   // List of files with diffs
+	viewChangesFileIndex int              // Currently selected file index
+	viewChangesFilePane  bool             // true = file list focused, false = diff pane focused
 
 	// Pending image attachment
 	pendingImageData []byte  // PNG encoded image data
@@ -333,20 +336,38 @@ func (c *Chat) IsStreaming() bool {
 	return c.streaming != ""
 }
 
-// EnterViewChangesMode enters the temporary diff view overlay
-func (c *Chat) EnterViewChangesMode(content string) {
+// EnterViewChangesMode enters the temporary diff view overlay with file-by-file navigation
+func (c *Chat) EnterViewChangesMode(files []git.FileDiff) {
 	c.viewChangesMode = true
-	c.viewChangesContent = content
+	c.viewChangesFiles = files
+	c.viewChangesFileIndex = 0
+	c.viewChangesFilePane = true // Start with file list focused
 
 	// Create a fresh viewport for the diff content
 	c.viewChangesViewport = viewport.New()
 	c.viewChangesViewport.MouseWheelEnabled = true
 	c.viewChangesViewport.MouseWheelDelta = 3
-	c.viewChangesViewport.SoftWrap = true // Wrap text instead of allowing horizontal scrolling
+	c.viewChangesViewport.SoftWrap = true
 
-	// Size it to match the main viewport
-	c.viewChangesViewport.SetWidth(c.viewport.Width())
+	// Size it - will be adjusted in render, but set initial size
+	c.viewChangesViewport.SetWidth(c.viewport.Width() * 2 / 3)
 	c.viewChangesViewport.SetHeight(c.viewport.Height())
+
+	// Load the first file's diff
+	c.updateViewChangesDiff()
+}
+
+// updateViewChangesDiff updates the diff viewport with the currently selected file's diff
+func (c *Chat) updateViewChangesDiff() {
+	if len(c.viewChangesFiles) == 0 {
+		c.viewChangesViewport.SetContent("No files to display")
+		return
+	}
+	if c.viewChangesFileIndex >= len(c.viewChangesFiles) {
+		c.viewChangesFileIndex = len(c.viewChangesFiles) - 1
+	}
+	file := c.viewChangesFiles[c.viewChangesFileIndex]
+	content := HighlightDiff(file.Diff)
 	c.viewChangesViewport.SetContent(content)
 	c.viewChangesViewport.GotoTop()
 }
@@ -354,7 +375,9 @@ func (c *Chat) EnterViewChangesMode(content string) {
 // ExitViewChangesMode exits the diff view overlay and returns to chat
 func (c *Chat) ExitViewChangesMode() {
 	c.viewChangesMode = false
-	c.viewChangesContent = ""
+	c.viewChangesFiles = nil
+	c.viewChangesFileIndex = 0
+	c.viewChangesFilePane = false
 }
 
 // IsInViewChangesMode returns whether we're currently showing the diff overlay
@@ -1137,13 +1160,49 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 			key := keyMsg.String()
 			switch key {
-			case "esc", "q", "v":
+			case "esc", "q":
 				// Exit view changes mode
 				c.ExitViewChangesMode()
 				return c, nil
+			case "left", "h":
+				// Focus file list pane
+				c.viewChangesFilePane = true
+				return c, nil
+			case "right", "l", "enter":
+				// Focus diff pane
+				c.viewChangesFilePane = false
+				return c, nil
+			case "up", "k":
+				if c.viewChangesFilePane {
+					// Navigate file list up
+					if c.viewChangesFileIndex > 0 {
+						c.viewChangesFileIndex--
+						c.updateViewChangesDiff()
+					}
+				} else {
+					// Scroll diff viewport
+					var cmd tea.Cmd
+					c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
+					cmds = append(cmds, cmd)
+				}
+				return c, tea.Batch(cmds...)
+			case "down", "j":
+				if c.viewChangesFilePane {
+					// Navigate file list down
+					if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
+						c.viewChangesFileIndex++
+						c.updateViewChangesDiff()
+					}
+				} else {
+					// Scroll diff viewport
+					var cmd tea.Cmd
+					c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
+					cmds = append(cmds, cmd)
+				}
+				return c, tea.Batch(cmds...)
 			case "pgup", "pgdown", "ctrl+up", "ctrl+down", "home", "end",
-				"page up", "page down", "ctrl+u", "ctrl+d", "up", "down", "j", "k":
-				// Pass scroll keys to view changes viewport
+				"page up", "page down", "ctrl+u", "ctrl+d":
+				// Page scroll keys always go to diff viewport
 				var cmd tea.Cmd
 				c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
 				cmds = append(cmds, cmd)
@@ -1272,6 +1331,63 @@ func (c *Chat) View() string {
 
 // renderViewChangesMode renders the diff overlay view
 func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
-	// Use the full height (no input area in view changes mode)
-	return panelStyle.Width(c.width).Height(c.height).Render(c.viewChangesViewport.View())
+	// Calculate dimensions for split-pane layout
+	innerWidth := c.width - 2 // Account for panel border
+	innerHeight := c.height - 2
+	fileListWidth := innerWidth / 3
+	dividerWidth := 1
+	diffWidth := innerWidth - fileListWidth - dividerWidth
+
+	// Build file list with selection indicator
+	var fileLines []string
+	for i, f := range c.viewChangesFiles {
+		indicator := "  "
+		if i == c.viewChangesFileIndex {
+			indicator = "> "
+		}
+		line := fmt.Sprintf("%s[%s] %s", indicator, f.Status, f.Filename)
+		// Truncate if too long for the file list width
+		maxLen := fileListWidth - 2
+		if maxLen > 0 && len(line) > maxLen {
+			line = line[:maxLen-1] + "…"
+		}
+		// Highlight selected file
+		if i == c.viewChangesFileIndex {
+			line = ViewChangesSelectedStyle.Render(line)
+		}
+		fileLines = append(fileLines, line)
+	}
+
+	// Pad file list to fill height
+	for len(fileLines) < innerHeight {
+		fileLines = append(fileLines, "")
+	}
+	fileListContent := strings.Join(fileLines[:innerHeight], "\n")
+
+	// Build divider
+	dividerLines := make([]string, innerHeight)
+	for i := range dividerLines {
+		dividerLines[i] = "│"
+	}
+	dividerContent := strings.Join(dividerLines, "\n")
+
+	// Update diff viewport size
+	c.viewChangesViewport.SetWidth(diffWidth)
+	c.viewChangesViewport.SetHeight(innerHeight)
+
+	// Style for file list pane - highlight border if focused
+	fileListStyle := lipgloss.NewStyle().Width(fileListWidth)
+	if c.viewChangesFilePane {
+		fileListStyle = fileListStyle.Foreground(lipgloss.Color("#60A5FA")) // Blue when focused
+	}
+
+	// Join the panes horizontally
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		fileListStyle.Render(fileListContent),
+		lipgloss.NewStyle().Width(dividerWidth).Foreground(lipgloss.Color("#4B5563")).Render(dividerContent),
+		lipgloss.NewStyle().Width(diffWidth).Render(c.viewChangesViewport.View()),
+	)
+
+	return panelStyle.Width(c.width).Height(c.height).Render(content)
 }

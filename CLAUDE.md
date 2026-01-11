@@ -169,6 +169,19 @@ Import GitHub issues directly into new sessions:
 
 Each issue becomes a session with branch name `issue-{number}`. The issue number is stored in the session and when a PR is created, "Fixes #N" is automatically added to the PR body, which will close the issue when the PR is merged.
 
+### View Changes (Pre-Merge Diff Review)
+
+Review file diffs before merging with a file-by-file navigator:
+
+1. **Press `v`** when a session is selected in the sidebar
+2. **Two-pane layout**: Left pane shows file list, right pane shows diff content
+3. **Navigate files**: Use ↑/↓ to select different files in the list
+4. **Switch panes**: Use ←/→ or h/l to switch between file list and diff pane
+5. **Scroll diff**: Use j/k or PgUp/PgDn when in the diff pane
+6. **Exit**: Press Esc or q to close
+
+Each file shows its status code (M=modified, A=added, D=deleted) and the diff is syntax-highlighted with additions in green and deletions in red.
+
 ### Message Search
 
 Search within conversation history:
