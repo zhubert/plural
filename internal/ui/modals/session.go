@@ -1,0 +1,294 @@
+package modals
+
+import (
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+// =============================================================================
+// NewSessionState - State for the New Session modal
+// =============================================================================
+
+type NewSessionState struct {
+	RepoOptions []string
+	RepoIndex   int
+	BranchInput textinput.Model
+	Focus       int // 0=repo list, 1=branch input
+}
+
+func (*NewSessionState) modalState() {}
+
+func (s *NewSessionState) Title() string { return "New Session" }
+
+func (s *NewSessionState) Help() string {
+	return "up/down select repo  Tab: branch name  Enter: create"
+}
+
+func (s *NewSessionState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Repository selection section
+	repoLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Repository:")
+
+	var repoList string
+	if len(s.RepoOptions) == 0 {
+		repoList = lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render("No repositories added. Press 'r' to add one first.")
+	} else {
+		for i, repo := range s.RepoOptions {
+			style := SidebarItemStyle
+			prefix := "  "
+			if s.Focus == 0 && i == s.RepoIndex {
+				style = SidebarSelectedStyle
+				prefix = "> "
+			} else if i == s.RepoIndex {
+				prefix = "* "
+			}
+			repoList += style.Render(prefix+repo) + "\n"
+		}
+	}
+
+	// Branch name input section
+	branchLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Branch name:")
+
+	branchInputStyle := lipgloss.NewStyle()
+	if s.Focus == 1 {
+		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		branchInputStyle = branchInputStyle.PaddingLeft(2)
+	}
+	branchView := branchInputStyle.Render(s.BranchInput.View())
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, branchLabel, branchView, help)
+}
+
+func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.Focus == 0 && s.RepoIndex > 0 {
+				s.RepoIndex--
+			}
+		case "down", "j":
+			if s.Focus == 0 && s.RepoIndex < len(s.RepoOptions)-1 {
+				s.RepoIndex++
+			}
+		case "tab":
+			if s.Focus == 0 {
+				s.Focus = 1
+				s.BranchInput.Focus()
+			} else {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		case "shift+tab":
+			if s.Focus == 1 {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		}
+	}
+
+	// Handle branch input updates when focused
+	if s.Focus == 1 {
+		var cmd tea.Cmd
+		s.BranchInput, cmd = s.BranchInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetSelectedRepo returns the selected repository path
+func (s *NewSessionState) GetSelectedRepo() string {
+	if len(s.RepoOptions) == 0 || s.RepoIndex >= len(s.RepoOptions) {
+		return ""
+	}
+	return s.RepoOptions[s.RepoIndex]
+}
+
+// GetBranchName returns the custom branch name
+func (s *NewSessionState) GetBranchName() string {
+	return s.BranchInput.Value()
+}
+
+// NewNewSessionState creates a new NewSessionState with proper initialization
+func NewNewSessionState(repos []string) *NewSessionState {
+	branchInput := textinput.New()
+	branchInput.Placeholder = "optional branch name (leave empty for auto)"
+	branchInput.CharLimit = 100
+	branchInput.SetWidth(ModalInputWidth)
+
+	return &NewSessionState{
+		RepoOptions: repos,
+		RepoIndex:   0,
+		BranchInput: branchInput,
+		Focus:       0,
+	}
+}
+
+// =============================================================================
+// ForkSessionState - State for the Fork Session modal
+// =============================================================================
+
+type ForkSessionState struct {
+	ParentSessionName string
+	ParentSessionID   string
+	RepoPath          string
+	BranchInput       textinput.Model
+	CopyMessages      bool // Whether to copy conversation history
+	Focus             int  // 0=copy messages toggle, 1=branch input
+}
+
+func (*ForkSessionState) modalState() {}
+
+func (s *ForkSessionState) Title() string { return "Fork Session" }
+
+func (s *ForkSessionState) Help() string {
+	return "Tab: switch field  Space: toggle  Enter: create fork  Esc: cancel"
+}
+
+func (s *ForkSessionState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Parent session info
+	parentLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Forking from:")
+
+	parentName := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render("  " + s.ParentSessionName)
+
+	// Copy messages toggle
+	copyLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Copy conversation history:")
+
+	copyStyle := SidebarItemStyle
+	copyPrefix := "  "
+	if s.Focus == 0 {
+		copyStyle = SidebarSelectedStyle
+		copyPrefix = "> "
+	}
+	checkbox := "[ ]"
+	if s.CopyMessages {
+		checkbox = "[x]"
+	}
+	copyOption := copyStyle.Render(copyPrefix + checkbox + " Include messages from parent session")
+
+	// Branch name input
+	branchLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Branch name:")
+
+	branchInputStyle := lipgloss.NewStyle()
+	if s.Focus == 1 {
+		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		branchInputStyle = branchInputStyle.PaddingLeft(2)
+	}
+	branchView := branchInputStyle.Render(s.BranchInput.View())
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		parentLabel,
+		parentName,
+		copyLabel,
+		copyOption,
+		branchLabel,
+		branchView,
+		help,
+	)
+}
+
+func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "tab":
+			if s.Focus == 0 {
+				s.Focus = 1
+				s.BranchInput.Focus()
+			} else {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		case "shift+tab":
+			if s.Focus == 1 {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		case "space":
+			if s.Focus == 0 {
+				s.CopyMessages = !s.CopyMessages
+			}
+			return s, nil
+		case "up", "down", "j", "k":
+			// Toggle focus between options
+			if s.Focus == 0 {
+				s.Focus = 1
+				s.BranchInput.Focus()
+			} else {
+				s.Focus = 0
+				s.BranchInput.Blur()
+			}
+			return s, nil
+		}
+	}
+
+	// Handle branch input updates when focused
+	if s.Focus == 1 {
+		var cmd tea.Cmd
+		s.BranchInput, cmd = s.BranchInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetBranchName returns the custom branch name
+func (s *ForkSessionState) GetBranchName() string {
+	return s.BranchInput.Value()
+}
+
+// ShouldCopyMessages returns whether to copy conversation history
+func (s *ForkSessionState) ShouldCopyMessages() bool {
+	return s.CopyMessages
+}
+
+// NewForkSessionState creates a new ForkSessionState
+func NewForkSessionState(parentSessionName, parentSessionID, repoPath string) *ForkSessionState {
+	branchInput := textinput.New()
+	branchInput.Placeholder = "optional branch name (leave empty for auto)"
+	branchInput.CharLimit = 100
+	branchInput.SetWidth(ModalInputWidth)
+
+	return &ForkSessionState{
+		ParentSessionName: parentSessionName,
+		ParentSessionID:   parentSessionID,
+		RepoPath:          repoPath,
+		BranchInput:       branchInput,
+		CopyMessages:      true, // Default to copying messages
+		Focus:             0,
+	}
+}
