@@ -114,7 +114,8 @@ var ShortcutRegistry = []Shortcut{
 
 	// Git Operations
 	{
-		Key:             "e",
+		Key:             "ctrl+e",
+		DisplayKey:      "Ctrl+E",
 		Description:     "Open terminal in worktree",
 		Category:        CategoryGit,
 		RequiresSidebar: true,
