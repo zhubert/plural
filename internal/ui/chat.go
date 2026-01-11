@@ -370,7 +370,7 @@ func (c *Chat) EnterViewChangesMode(files []git.FileDiff) {
 	c.viewChangesMode = true
 	c.viewChangesFiles = files
 	c.viewChangesFileIndex = 0
-	c.viewChangesFilePane = true // Start with file list focused
+	c.viewChangesFilePane = false // Start with diff pane focused
 
 	// Create a fresh viewport for the diff content
 	c.viewChangesViewport = viewport.New()
