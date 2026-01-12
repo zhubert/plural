@@ -344,6 +344,20 @@ func (c *Config) MarkSessionMergedToParent(sessionID string) bool {
 	return false
 }
 
+// RenameSession updates the name of a session
+func (c *Config) RenameSession(sessionID, newName string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].Name = newName
+			return true
+		}
+	}
+	return false
+}
+
 // AddGlobalMCPServer adds a global MCP server (returns false if name already exists)
 func (c *Config) AddGlobalMCPServer(server MCPServer) bool {
 	c.mu.Lock()

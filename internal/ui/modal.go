@@ -21,10 +21,11 @@ type (
 	HelpSection              = modals.HelpSection
 	SearchResult             = modals.SearchResult
 
-	AddRepoState            = modals.AddRepoState
+	AddRepoState             = modals.AddRepoState
 	SelectRepoForIssuesState = modals.SelectRepoForIssuesState
-	NewSessionState         = modals.NewSessionState
-	ForkSessionState        = modals.ForkSessionState
+	NewSessionState          = modals.NewSessionState
+	ForkSessionState         = modals.ForkSessionState
+	RenameSessionState       = modals.RenameSessionState
 	MergeState              = modals.MergeState
 	EditCommitState         = modals.EditCommitState
 	MergeConflictState      = modals.MergeConflictState
@@ -43,10 +44,11 @@ type (
 
 // Re-export constructor functions
 var (
-	NewAddRepoState            = modals.NewAddRepoState
+	NewAddRepoState             = modals.NewAddRepoState
 	NewSelectRepoForIssuesState = modals.NewSelectRepoForIssuesState
-	NewNewSessionState         = modals.NewNewSessionState
-	NewForkSessionState        = modals.NewForkSessionState
+	NewNewSessionState          = modals.NewNewSessionState
+	NewForkSessionState         = modals.NewForkSessionState
+	NewRenameSessionState       = modals.NewRenameSessionState
 	NewMergeState              = modals.NewMergeState
 	NewEditCommitState         = modals.NewEditCommitState
 	NewMergeConflictState      = modals.NewMergeConflictState

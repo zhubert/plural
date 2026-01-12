@@ -282,3 +282,87 @@ func NewForkSessionState(parentSessionName, parentSessionID, repoPath string) *F
 		Focus:             0,
 	}
 }
+
+// =============================================================================
+// RenameSessionState - State for the Rename Session modal
+// =============================================================================
+
+type RenameSessionState struct {
+	SessionID   string
+	SessionName string
+	NameInput   textinput.Model
+}
+
+func (*RenameSessionState) modalState() {}
+
+func (s *RenameSessionState) Title() string { return "Rename Session" }
+
+func (s *RenameSessionState) Help() string {
+	return "Enter: save  Esc: cancel"
+}
+
+func (s *RenameSessionState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Current name info
+	currentLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Current name:")
+
+	currentName := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render("  " + s.SessionName)
+
+	// New name input
+	newLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("New name:")
+
+	inputStyle := lipgloss.NewStyle().
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(ColorPrimary).
+		PaddingLeft(1)
+	inputView := inputStyle.Render(s.NameInput.View())
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		currentLabel,
+		currentName,
+		newLabel,
+		inputView,
+		help,
+	)
+}
+
+func (s *RenameSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	var cmd tea.Cmd
+	s.NameInput, cmd = s.NameInput.Update(msg)
+	return s, cmd
+}
+
+// GetNewName returns the new name entered by the user
+func (s *RenameSessionState) GetNewName() string {
+	return s.NameInput.Value()
+}
+
+// NewRenameSessionState creates a new RenameSessionState
+func NewRenameSessionState(sessionID, currentName string) *RenameSessionState {
+	nameInput := textinput.New()
+	nameInput.Placeholder = "enter new name"
+	nameInput.CharLimit = 100
+	nameInput.SetWidth(ModalInputWidth)
+	nameInput.SetValue(currentName)
+	nameInput.Focus()
+
+	return &RenameSessionState{
+		SessionID:   sessionID,
+		SessionName: currentName,
+		NameInput:   nameInput,
+	}
+}

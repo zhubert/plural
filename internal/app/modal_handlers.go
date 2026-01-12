@@ -47,6 +47,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleExploreOptionsModal(key, msg, s)
 	case *ui.ForkSessionState:
 		return m.handleForkSessionModal(key, msg, s)
+	case *ui.RenameSessionState:
+		return m.handleRenameSessionModal(key, msg, s)
 	case *ui.HelpState:
 		return m.handleHelpModal(key, msg, s)
 	case *ui.ImportIssuesState:
@@ -881,6 +883,44 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		return m, nil
 	}
 	// Forward other keys (tab, shift+tab, space, up, down, etc.) to modal for handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// handleRenameSessionModal handles key events for the Rename Session modal.
+func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state *ui.RenameSessionState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		newName := state.GetNewName()
+		if newName == "" {
+			m.modal.SetError("Name cannot be empty")
+			return m, nil
+		}
+		// Update the session name in config
+		if !m.config.RenameSession(state.SessionID, newName) {
+			m.modal.SetError("Failed to rename session")
+			return m, nil
+		}
+		if err := m.config.Save(); err != nil {
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+		logger.Log("App: Renamed session %s to %q", state.SessionID, newName)
+		// Update sidebar and header
+		m.sidebar.SetSessions(m.config.GetSessions())
+		if m.activeSession != nil && m.activeSession.ID == state.SessionID {
+			m.activeSession.Name = newName
+			displayName := ui.SessionDisplayName(m.activeSession.Branch, newName)
+			m.header.SetSessionName(displayName)
+		}
+		m.modal.Hide()
+		return m, nil
+	}
+	// Forward other keys to the modal for text input handling
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
