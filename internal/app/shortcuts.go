@@ -235,6 +235,24 @@ var DisplayOnlyShortcuts = []Shortcut{
 	{DisplayKey: "a", Description: "Always allow this tool", Category: CategoryPermissions},
 }
 
+// isShortcutApplicable checks if a shortcut is applicable given the current model state.
+// This is used to filter which shortcuts appear in the help modal.
+func (m *Model) isShortcutApplicable(s Shortcut) bool {
+	selectedSess := m.sidebar.SelectedSession()
+
+	// Check guards
+	if s.RequiresSidebar && m.chat.IsFocused() {
+		return false
+	}
+	if s.RequiresSession && selectedSess == nil {
+		return false
+	}
+	if s.Condition != nil && !s.Condition(m) {
+		return false
+	}
+	return true
+}
+
 // ExecuteShortcut finds and executes a shortcut by key.
 // It checks all guards (RequiresSidebar, RequiresSession, Condition) before executing.
 // Returns (model, cmd, true) if the shortcut was found and executed.
@@ -285,14 +303,18 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
-// getHelpSections generates help modal sections from the given shortcut slices.
-// This is called at runtime to avoid initialization cycles.
-func getHelpSections(registry []Shortcut, displayOnly []Shortcut) []ui.HelpSection {
+// getApplicableHelpSections generates help modal sections from shortcuts that are
+// applicable in the current application state. This filters out shortcuts whose
+// guards (RequiresSidebar, RequiresSession, Condition) would fail.
+func (m *Model) getApplicableHelpSections(registry []Shortcut, displayOnly []Shortcut) []ui.HelpSection {
 	// Collect shortcuts by category
 	categories := make(map[string][]ui.HelpShortcut)
 
-	// Add executable shortcuts
+	// Add executable shortcuts that are applicable
 	for _, s := range registry {
+		if !m.isShortcutApplicable(s) {
+			continue
+		}
 		displayKey := s.DisplayKey
 		if displayKey == "" {
 			displayKey = s.Key
@@ -303,8 +325,15 @@ func getHelpSections(registry []Shortcut, displayOnly []Shortcut) []ui.HelpSecti
 		})
 	}
 
-	// Add display-only shortcuts
+	// Add display-only shortcuts for applicable categories
+	// Display-only shortcuts are shown when their category has at least one applicable shortcut,
+	// or when they don't have guards (navigation, permissions are always shown for context)
 	for _, s := range displayOnly {
+		// Always show Navigation and Permissions display-only shortcuts for context
+		// Chat display-only shortcuts only show when chat is focused
+		if s.Category == CategoryChat && !m.chat.IsFocused() {
+			continue
+		}
 		displayKey := s.DisplayKey
 		if displayKey == "" {
 			displayKey = s.Key
@@ -489,7 +518,7 @@ func shortcutTheme(m *Model) (tea.Model, tea.Cmd) {
 func shortcutHelp(m *Model) (tea.Model, tea.Cmd) {
 	// Include help shortcut in the registry for display purposes
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
 	m.modal.Show(ui.NewHelpStateFromSections(sections))
 	return m, nil
 }

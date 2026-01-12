@@ -213,20 +213,22 @@ func TestExecuteShortcut_QuitReturnsQuitCmd(t *testing.T) {
 // Help Sections Generation Tests
 // =============================================================================
 
-func TestGetHelpSections_IncludesAllCategories(t *testing.T) {
-	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+func TestGetApplicableHelpSections_IncludesApplicableCategories(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
 
-	// Check that we have the expected categories
+	allShortcuts := append(ShortcutRegistry, helpShortcut)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
+
+	// Check that we have the expected categories (when sidebar is focused, no session)
 	categoryFound := make(map[string]bool)
 	for _, section := range sections {
 		categoryFound[section.Title] = true
 	}
 
+	// These categories should always have some applicable shortcuts when sidebar is focused
 	expectedCategories := []string{
 		CategoryNavigation,
-		CategorySessions,
-		CategoryGit,
 		CategoryConfiguration,
 		CategoryGeneral,
 	}
@@ -238,9 +240,72 @@ func TestGetHelpSections_IncludesAllCategories(t *testing.T) {
 	}
 }
 
-func TestGetHelpSections_IncludesDisplayOnlyShortcuts(t *testing.T) {
+func TestGetApplicableHelpSections_FiltersSessionRequiredShortcuts(t *testing.T) {
+	cfg := testConfig() // No sessions
+	m := testModelWithSize(cfg, 120, 40)
+
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
+
+	// Find sessions section (if it exists)
+	var sessSection *ui.HelpSection
+	for i := range sections {
+		if sections[i].Title == CategorySessions {
+			sessSection = &sections[i]
+			break
+		}
+	}
+
+	// If sessions section exists, it should NOT have shortcuts requiring a session
+	if sessSection != nil {
+		for _, s := range sessSection.Shortcuts {
+			// 'd' (delete) requires session selected
+			if s.Key == "d" {
+				t.Error("Expected 'd' shortcut to be filtered out when no session selected")
+			}
+		}
+	}
+}
+
+func TestGetApplicableHelpSections_IncludesSessionShortcutsWhenSelected(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	allShortcuts := append(ShortcutRegistry, helpShortcut)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
+
+	// Find sessions section
+	var sessSection *ui.HelpSection
+	for i := range sections {
+		if sections[i].Title == CategorySessions {
+			sessSection = &sections[i]
+			break
+		}
+	}
+	if sessSection == nil {
+		t.Fatal("Sessions section not found when session is selected")
+	}
+
+	// Should include 'd' (delete) since session is selected
+	foundDelete := false
+	for _, s := range sessSection.Shortcuts {
+		if s.Key == "d" {
+			foundDelete = true
+			break
+		}
+	}
+	if !foundDelete {
+		t.Error("Expected 'd' shortcut to be included when session is selected")
+	}
+}
+
+func TestGetApplicableHelpSections_IncludesDisplayOnlyShortcuts(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	allShortcuts := append(ShortcutRegistry, helpShortcut)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
 
 	// Find navigation section
 	var navSection *ui.HelpSection
@@ -267,9 +332,12 @@ func TestGetHelpSections_IncludesDisplayOnlyShortcuts(t *testing.T) {
 	}
 }
 
-func TestGetHelpSections_IncludesHelpShortcut(t *testing.T) {
+func TestGetApplicableHelpSections_IncludesHelpShortcut(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
 
 	// Find general section
 	var generalSection *ui.HelpSection
@@ -296,9 +364,12 @@ func TestGetHelpSections_IncludesHelpShortcut(t *testing.T) {
 	}
 }
 
-func TestGetHelpSections_UsesDisplayKeyWhenSet(t *testing.T) {
+func TestGetApplicableHelpSections_UsesDisplayKeyWhenSet(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
 
 	// Find navigation section for Tab which has DisplayKey set
 	var navSection *ui.HelpSection
@@ -325,9 +396,12 @@ func TestGetHelpSections_UsesDisplayKeyWhenSet(t *testing.T) {
 	}
 }
 
-func TestGetHelpSections_OrderedByCategory(t *testing.T) {
+func TestGetApplicableHelpSections_OrderedByCategory(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := getHelpSections(allShortcuts, DisplayOnlyShortcuts)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
 
 	// First section should be Navigation
 	if len(sections) == 0 {
@@ -341,6 +415,23 @@ func TestGetHelpSections_OrderedByCategory(t *testing.T) {
 	lastSection := sections[len(sections)-1]
 	if lastSection.Title != CategoryGeneral {
 		t.Errorf("Expected last section to be %q, got %q", CategoryGeneral, lastSection.Title)
+	}
+}
+
+func TestGetApplicableHelpSections_FiltersChatShortcutsWhenSidebarFocused(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+	// Sidebar is focused by default
+
+	allShortcuts := append(ShortcutRegistry, helpShortcut)
+	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
+
+	// Chat category should not appear when sidebar is focused
+	for _, section := range sections {
+		if section.Title == CategoryChat {
+			t.Error("Expected Chat category to be filtered out when sidebar is focused")
+		}
 	}
 }
 
