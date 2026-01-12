@@ -111,7 +111,7 @@ var ShortcutRegistry = []Shortcut{
 	},
 	{
 		Key:             "ctrl+f",
-		DisplayKey:      "ctrl+f",
+		DisplayKey:      "ctrl-f",
 		Description:     "Force resume (if session in use)",
 		Category:        CategorySessions,
 		RequiresSidebar: true,
@@ -123,7 +123,7 @@ var ShortcutRegistry = []Shortcut{
 	// Git Operations
 	{
 		Key:             "ctrl+e",
-		DisplayKey:      "Ctrl+E",
+		DisplayKey:      "ctrl-e",
 		Description:     "Open terminal in worktree",
 		Category:        CategoryGit,
 		RequiresSidebar: true,
@@ -188,7 +188,7 @@ var ShortcutRegistry = []Shortcut{
 	// Chat
 	{
 		Key:             "ctrl+/",
-		DisplayKey:      "ctrl+/",
+		DisplayKey:      "ctrl-/",
 		Description:     "Search messages",
 		Category:        CategoryChat,
 		RequiresSession: true,
@@ -226,8 +226,8 @@ var DisplayOnlyShortcuts = []Shortcut{
 	{DisplayKey: "Esc", Description: "Cancel search / Stop streaming", Category: CategoryNavigation},
 
 	// Chat (display-only, context-sensitive)
-	{DisplayKey: "Ctrl+V", Description: "Paste image", Category: CategoryChat},
-	{DisplayKey: "Ctrl+P", Description: "Fork detected options", Category: CategoryChat},
+	{DisplayKey: "ctrl-v", Description: "Paste image", Category: CategoryChat},
+	{DisplayKey: "ctrl-p", Description: "Fork detected options", Category: CategoryChat},
 
 	// Permissions (display-only, context-sensitive)
 	{DisplayKey: "y", Description: "Allow action", Category: CategoryPermissions},
