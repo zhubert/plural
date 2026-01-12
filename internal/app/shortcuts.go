@@ -109,17 +109,6 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSession: true,
 		Handler:         shortcutRenameSession,
 	},
-	{
-		Key:             "ctrl+f",
-		DisplayKey:      "ctrl-f",
-		Description:     "Force resume (if session in use)",
-		Category:        CategorySessions,
-		RequiresSidebar: true,
-		RequiresSession: true,
-		Handler:         shortcutForceResume,
-		Condition:       func(m *Model) bool { return m.hasSessionInUseError() },
-	},
-
 	// Git Operations
 	{
 		Key:             "ctrl+e",
@@ -358,15 +347,6 @@ func (m *Model) getApplicableHelpSections(registry []Shortcut, displayOnly []Sho
 	return sections
 }
 
-// hasSessionInUseError checks if the selected session has an "in use" error
-func (m *Model) hasSessionInUseError() bool {
-	sess := m.sidebar.SelectedSession()
-	if sess == nil {
-		return false
-	}
-	return m.sessionState().HasSessionInUseError(sess.ID)
-}
-
 // =============================================================================
 // Shortcut Handlers
 // =============================================================================
@@ -420,11 +400,6 @@ func shortcutRenameSession(m *Model) (tea.Model, tea.Cmd) {
 	currentName := strings.TrimPrefix(sess.Branch, branchPrefix)
 	m.modal.Show(ui.NewRenameSessionState(sess.ID, currentName))
 	return m, nil
-}
-
-func shortcutForceResume(m *Model) (tea.Model, tea.Cmd) {
-	sess := m.sidebar.SelectedSession()
-	return m.forceResumeSession(sess)
 }
 
 func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {

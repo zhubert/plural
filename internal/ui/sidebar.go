@@ -53,9 +53,8 @@ type Sidebar struct {
 	scrollOffset       int
 	streamingSessions  map[string]bool // Map of session IDs that are currently streaming
 	pendingPermissions map[string]bool // Map of session IDs that have pending permission requests
-	sessionsInUse      map[string]bool // Map of session IDs that have "session in use" errors
-	spinnerFrame int // Current spinner animation frame
-	spinnerTick  int // Tick counter for frame hold timing
+	spinnerFrame       int             // Current spinner animation frame
+	spinnerTick        int             // Tick counter for frame hold timing
 
 	// Cache for incremental updates
 	sessionIndex map[string]int  // Map of session ID to index in sessions slice
@@ -79,7 +78,6 @@ func NewSidebar() *Sidebar {
 		selectedIdx:        0,
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
-		sessionsInUse:      make(map[string]bool),
 		searchInput:        ti,
 		worktreeSizes:      make(map[string]int64),
 	}
@@ -367,20 +365,6 @@ func (s *Sidebar) SetPendingPermission(sessionID string, pending bool) {
 // HasPendingPermission returns whether a session has a pending permission request
 func (s *Sidebar) HasPendingPermission(sessionID string) bool {
 	return s.pendingPermissions[sessionID]
-}
-
-// SetSessionInUse sets whether a session has a "session in use" error
-func (s *Sidebar) SetSessionInUse(sessionID string, inUse bool) {
-	if inUse {
-		s.sessionsInUse[sessionID] = true
-	} else {
-		delete(s.sessionsInUse, sessionID)
-	}
-}
-
-// HasSessionInUse returns whether a session has a "session in use" error
-func (s *Sidebar) HasSessionInUse(sessionID string) bool {
-	return s.sessionsInUse[sessionID]
 }
 
 // SidebarTick returns a command that sends a tick message after a delay
@@ -814,17 +798,6 @@ func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int
 		}
 		indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
 		displayName = displayName + " " + indicatorStyle.Render("⚠")
-	}
-
-	// Add "session in use" indicator
-	if s.HasSessionInUse(sess.ID) {
-		// Use white for selected (purple bg), error color for unselected
-		indicatorColor := ColorError
-		if sessionIdx == s.selectedIdx {
-			indicatorColor = ColorText // White on purple background
-		}
-		indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
-		displayName = displayName + " " + indicatorStyle.Render("⛔")
 	}
 
 	// Add merged/PR status labels

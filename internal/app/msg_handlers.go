@@ -10,7 +10,6 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/notification"
-	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -42,14 +41,6 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 	logger.Error("App: Error in session %s: %v", sessionID, errMsg)
 	m.sidebar.SetStreaming(sessionID, false)
 	m.sessionState().StopWaiting(sessionID)
-
-	// Check if this is a "session in use" error
-	if process.IsSessionInUseError(errMsg) {
-		logger.Warn("App: Session %s appears to be in use by another process", sessionID)
-		m.sessionState().SetSessionInUseError(sessionID, true)
-		m.sidebar.SetSessionInUse(sessionID, true)
-		errMsg = "Session is in use by another process. Press 'f' to force resume by killing orphaned processes."
-	}
 
 	if isActiveSession {
 		m.chat.SetWaiting(false)

@@ -1,12 +1,12 @@
 package app
 
 import (
+	"time"
+
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
-	"github.com/zhubert/plural/internal/process"
-	"time"
 )
 
 // SelectResult contains all the state needed by the UI after selecting a session.
@@ -23,12 +23,6 @@ type SelectResult struct {
 	Question   *mcp.QuestionRequest
 	Streaming  string
 	SavedInput string
-}
-
-// ForceResumeResult contains the result of a force resume operation.
-type ForceResumeResult struct {
-	Killed int
-	Error  error
 }
 
 // RunnerFactory creates a runner for a session.
@@ -218,36 +212,6 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	}
 
 	return runner
-}
-
-// ForceResume kills any orphaned Claude processes for the session and clears the error state.
-// Returns the number of processes killed and any error encountered.
-func (sm *SessionManager) ForceResume(sess *config.Session) ForceResumeResult {
-	logger.Log("SessionManager: Force-resuming session %s", sess.ID)
-
-	// Try to kill orphaned processes
-	killed, err := process.KillClaudeProcesses(sess.ID)
-	if err != nil {
-		logger.Log("SessionManager: Error killing orphaned processes for session %s: %v", sess.ID, err)
-		return ForceResumeResult{Killed: killed, Error: err}
-	}
-
-	// Clear the error state
-	sm.stateManager.SetSessionInUseError(sess.ID, false)
-
-	// Clear the old runner from cache so a fresh one will be created
-	if oldRunner, exists := sm.runners[sess.ID]; exists {
-		oldRunner.Stop()
-		delete(sm.runners, sess.ID)
-	}
-
-	if killed > 0 {
-		logger.Log("SessionManager: Killed %d orphaned processes for session %s", killed, sess.ID)
-	} else {
-		logger.Log("SessionManager: No orphaned processes found for session %s, cleared error state", sess.ID)
-	}
-
-	return ForceResumeResult{Killed: killed, Error: nil}
 }
 
 // SaveMessages saves the current messages from a runner to disk.
