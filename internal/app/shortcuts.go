@@ -188,6 +188,13 @@ var ShortcutRegistry = []Shortcut{
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
 	{
+		Key:             "w",
+		Description:     "What's new (changelog)",
+		Category:        CategoryGeneral,
+		RequiresSidebar: true,
+		Handler:         shortcutWhatsNew,
+	},
+	{
 		Key:             "q",
 		Description:     "Quit application",
 		Category:        CategoryGeneral,
@@ -525,6 +532,10 @@ func shortcutSearchMessages(m *Model) (tea.Model, tea.Cmd) {
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	m.modal.Show(ui.NewSettingsState(m.config.GetDefaultBranchPrefix(), m.config.GetNotificationsEnabled()))
 	return m, nil
+}
+
+func shortcutWhatsNew(m *Model) (tea.Model, tea.Cmd) {
+	return m, m.fetchChangelogAll()
 }
 
 // TerminalErrorMsg is sent when opening a terminal fails

@@ -1,14 +1,10 @@
-.PHONY: build test clean generate
+.PHONY: build test clean
 
-build: generate
-	go clean -cache
+build:
 	go build -o plural .
 
 test:
 	go test ./...
-
-generate:
-	go generate ./...
 
 clean:
 	go clean -cache

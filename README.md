@@ -88,6 +88,7 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 | `s` | Manage MCP servers |
 | `t` | Change theme |
 | `,` | Settings |
+| `w` | What's new (changelog) |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -276,6 +277,10 @@ devbox global add github:zhubert/plural
 ```
 
 Or use Homebrew which handles upgrades correctly.
+
+## Changelog
+
+See the [GitHub Releases](https://github.com/zhubert/plural/releases) page for version history and release notes.
 
 ## License
 

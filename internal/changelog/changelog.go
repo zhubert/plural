@@ -1,18 +1,22 @@
-// Package changelog provides parsing and filtering of changelog entries.
-// The changelog is embedded from the CHANGELOG.md file at the repo root.
-// Run `go generate ./...` to copy the file before building.
+// Package changelog fetches release information from GitHub.
 package changelog
 
 import (
-	_ "embed"
-	"regexp"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
-//go:generate cp ../../CHANGELOG.md CHANGELOG.md
-//go:embed CHANGELOG.md
-var Content string
+const (
+	// GitHub API endpoint for releases
+	releasesURL = "https://api.github.com/repos/zhubert/plural/releases"
+
+	// Request timeout
+	timeout = 10 * time.Second
+)
 
 // Entry represents a single version's changelog entry
 type Entry struct {
@@ -21,45 +25,81 @@ type Entry struct {
 	Changes []string
 }
 
-// versionRegex matches version headers like "## v0.0.12 (2026-01-08)" or "## v0.0.12"
-var versionRegex = regexp.MustCompile(`^##\s+v?(\d+\.\d+\.\d+)(?:\s+\(([^)]+)\))?`)
+// githubRelease represents the GitHub API response for a release
+type githubRelease struct {
+	TagName     string `json:"tag_name"`
+	PublishedAt string `json:"published_at"`
+	Body        string `json:"body"`
+}
 
-// Parse extracts changelog entries from markdown content
-func Parse(content string) []Entry {
-	var entries []Entry
-	var current *Entry
+// FetchReleases fetches release information from GitHub.
+// Returns entries in reverse chronological order (newest first).
+func FetchReleases() ([]Entry, error) {
+	client := &http.Client{Timeout: timeout}
 
-	lines := strings.Split(content, "\n")
+	req, err := http.NewRequest("GET", releasesURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "plural")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetching releases: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
+	}
+
+	var releases []githubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	entries := make([]Entry, 0, len(releases))
+	for _, r := range releases {
+		version := strings.TrimPrefix(r.TagName, "v")
+		date := parseDate(r.PublishedAt)
+		changes := parseBody(r.Body)
+
+		entries = append(entries, Entry{
+			Version: version,
+			Date:    date,
+			Changes: changes,
+		})
+	}
+
+	return entries, nil
+}
+
+// parseDate extracts YYYY-MM-DD from an ISO 8601 timestamp
+func parseDate(timestamp string) string {
+	if len(timestamp) >= 10 {
+		return timestamp[:10]
+	}
+	return timestamp
+}
+
+// parseBody extracts bullet points from release body markdown
+func parseBody(body string) []string {
+	var changes []string
+	lines := strings.Split(body, "\n")
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-
-		// Check for version header
-		if matches := versionRegex.FindStringSubmatch(line); matches != nil {
-			// Save previous entry
-			if current != nil {
-				entries = append(entries, *current)
-			}
-			current = &Entry{
-				Version: matches[1],
-				Date:    matches[2],
-				Changes: []string{},
-			}
-			continue
-		}
-
-		// Check for bullet point (change item)
-		if current != nil && strings.HasPrefix(line, "- ") {
-			change := strings.TrimPrefix(line, "- ")
-			current.Changes = append(current.Changes, change)
+		// Match lines starting with "- " or "* "
+		if strings.HasPrefix(line, "- ") {
+			changes = append(changes, strings.TrimPrefix(line, "- "))
+		} else if strings.HasPrefix(line, "* ") {
+			changes = append(changes, strings.TrimPrefix(line, "* "))
 		}
 	}
 
-	// Don't forget the last entry
-	if current != nil {
-		entries = append(entries, *current)
-	}
-
-	return entries
+	return changes
 }
 
 // GetChangesSince returns all entries newer than lastSeen version.
