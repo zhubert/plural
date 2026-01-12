@@ -102,6 +102,14 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutImportIssues,
 	},
 	{
+		Key:             "r",
+		Description:     "Rename selected session",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutRenameSession,
+	},
+	{
 		Key:             "ctrl+f",
 		DisplayKey:      "ctrl+f",
 		Description:     "Force resume (if session in use)",
@@ -373,6 +381,13 @@ func shortcutImportIssues(m *Model) (tea.Model, tea.Cmd) {
 	// No session - show repo picker
 	repos := m.config.GetRepos()
 	m.modal.Show(ui.NewSelectRepoForIssuesState(repos))
+	return m, nil
+}
+
+func shortcutRenameSession(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	currentName := ui.SessionDisplayName(sess.Branch, sess.Name)
+	m.modal.Show(ui.NewRenameSessionState(sess.ID, currentName))
 	return m, nil
 }
 
