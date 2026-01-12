@@ -1,5 +1,50 @@
 # Contributing to Plural
 
+Thank you for your interest in contributing to Plural! This document provides guidelines for contributing to the project.
+
+## How to Contribute
+
+### Reporting Bugs
+
+Before submitting a bug report:
+- Check existing [GitHub Issues](https://github.com/zhubert/plural/issues) to avoid duplicates
+- Run with `--debug` flag and include relevant logs from `/tmp/plural-debug.log`
+
+When filing a bug report, include:
+- Steps to reproduce the issue
+- Expected vs actual behavior
+- Your environment (OS, Go version, Claude Code version)
+- Relevant log output
+
+### Suggesting Features
+
+Open a GitHub Issue with:
+- A clear description of the feature
+- The problem it solves or use case it enables
+- Any implementation ideas (optional)
+
+### Submitting Pull Requests
+
+1. **Start with an issue**: For non-trivial changes, open an issue first to discuss the approach
+2. **Fork and branch**: Create a feature branch from `main`
+3. **Keep changes focused**: One logical change per PR
+4. **Write tests**: Add tests for new functionality
+5. **Update documentation**: Update CLAUDE.md and README.md if behavior changes
+6. **Test locally**: Run `go test ./...` and test the feature manually
+
+#### PR Guidelines
+
+- Write clear commit messages explaining *why*, not just *what*
+- Keep PRs reasonably sized—large changes are harder to review
+- Respond to review feedback promptly
+- Squash fixup commits before merge
+
+#### Code Style
+
+- Follow standard Go conventions (`go fmt`, `go vet`)
+- Match existing code patterns in the codebase
+- Add comments for non-obvious logic
+
 ## Building from Source
 
 ### Requirements
@@ -14,6 +59,7 @@
 ```bash
 git clone https://github.com/zhubert/plural.git
 cd plural
+go generate ./...
 go build -o plural .
 ```
 
@@ -29,9 +75,9 @@ go build -o plural .
 go test ./...
 ```
 
-## Debug
+## Debugging
 
-Logs are written to `/tmp/plural-debug.log`:
+Main application logs:
 ```bash
 tail -f /tmp/plural-debug.log
 ```
@@ -41,76 +87,19 @@ MCP server logs (per session):
 tail -f /tmp/plural-mcp-*.log
 ```
 
-## Releasing
+Use `--debug` flag for verbose output.
 
-The project uses [GoReleaser](https://goreleaser.com/) for automated releases and supports distribution via Homebrew and Devbox/Nix.
+## Releasing (Maintainers)
 
-### Prerequisites
+The project uses [GoReleaser](https://goreleaser.com/) for automated releases. See the release script:
 
 ```bash
-# Install GoReleaser
-brew install goreleaser
+# Run release script (updates flake.nix, vendorHash, tags, pushes)
+./scripts/release.sh v0.0.X
 
-# Set up GitHub tokens
-export GITHUB_TOKEN=your_github_token
-export HOMEBREW_TAP_GITHUB_TOKEN=your_github_token
+# Dry run
+./scripts/release.sh v0.0.X --dry-run
 ```
-
-### Creating a Release
-
-1. **Update version in `flake.nix`** (for Nix/Devbox users):
-   ```bash
-   # Edit flake.nix and update the version string
-   # version = "X.Y.Z";
-   ```
-
-2. **Commit version changes**:
-   ```bash
-   git add flake.nix
-   git commit -m "Bump version to vX.Y.Z"
-   ```
-
-3. **Tag the release**:
-   ```bash
-   git tag vX.Y.Z
-   ```
-
-4. **Push the commit and tag**:
-   ```bash
-   git push origin main
-   git push origin vX.Y.Z
-   ```
-
-5. **Run GoReleaser**:
-   ```bash
-   goreleaser release --clean
-   ```
-
-6. **Update Nix flake hash** (if dependencies changed):
-
-   If `go.mod` dependencies changed since the last release, the `vendorHash` in `flake.nix` needs updating:
-   ```bash
-   # Temporarily set vendorHash to get the new hash
-   # In flake.nix, change vendorHash to: pkgs.lib.fakeHash
-
-   nix build  # This will fail and print the correct hash
-
-   # Update vendorHash with the printed hash, commit, and push
-   ```
-
-### Dry Run
-
-To test the release process without publishing:
-```bash
-goreleaser release --snapshot --clean
-```
-
-### What GoReleaser Does
-
-1. Builds binaries for Linux and macOS (amd64 and arm64)
-2. Creates GitHub release with changelog
-3. Generates checksums
-4. Updates the Homebrew tap formula at `zhubert/homebrew-tap`
 
 ### Distribution Channels
 
@@ -122,16 +111,11 @@ brew tap zhubert/tap
 brew install plural
 ```
 
-**Devbox:**
-```json
-{
-  "packages": ["github:zhubert/plural"]
-}
-```
-
-**Nix:**
+**Nix/Devbox:**
 ```bash
 nix run github:zhubert/plural
-# or
-nix profile install github:zhubert/plural
 ```
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.

@@ -26,6 +26,8 @@ Run multiple Claude sessions on the same codebase—each in its own git branch. 
 - Git
 - GitHub CLI (`gh`) for PR creation (optional)
 
+Run `plural --check-prereqs` to verify all required tools are installed and configured correctly.
+
 ## Installation
 
 ### Homebrew (Recommended)
@@ -67,48 +69,9 @@ plural
 
 ## Keyboard Shortcuts
 
-Shortcuts are context-aware and shown in the footer. Press `?` to see all shortcuts.
+Shortcuts are context-aware and shown in the footer. **Press `?` at any time to see all available shortcuts** for your current context.
 
-### Sidebar (Session List)
-
-| Key | Action |
-|-----|--------|
-| `n` | Create new session |
-| `a` | Add repository |
-| `i` | Import GitHub issues |
-| `Enter` | Select session |
-| `↑/↓` or `j/k` | Navigate sessions |
-| `/` | Search sessions |
-| `r` | Rename selected session |
-| `f` | Fork selected session |
-| `m` | Merge or create PR |
-| `v` | View uncommitted changes |
-| `d` | Delete session |
-| `ctrl-e` | Open terminal in worktree |
-| `s` | Manage MCP servers |
-| `t` | Change theme |
-| `,` | Settings |
-| `?` | Show help |
-| `q` | Quit |
-
-### Chat Panel
-
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Esc` | Stop Claude response |
-| `ctrl-v` | Paste image from clipboard |
-| `ctrl-p` | Fork detected options |
-| `ctrl-/` | Search messages |
-| `Tab` | Switch to sidebar |
-
-### Permission Prompts
-
-| Key | Action |
-|-----|--------|
-| `y` | Allow this operation |
-| `n` | Deny this operation |
-| `a` | Always allow this tool |
+When Claude requests permission for an operation: `y` (allow), `n` (deny), or `a` (always allow this tool).
 
 ## View Changes
 
