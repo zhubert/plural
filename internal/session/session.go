@@ -309,6 +309,13 @@ func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
 		branchCmd.Dir = orphan.RepoPath
 		branchCmd.Run() // Ignore errors
 
+		// Delete session messages file
+		if err := config.DeleteSessionMessages(orphan.ID); err != nil {
+			logger.Warn("Session: Failed to delete session messages for %s: %v", orphan.ID, err)
+		} else {
+			logger.Log("Session: Deleted session messages for: %s", orphan.ID)
+		}
+
 		pruned++
 		logger.Log("Session: Pruned orphan: %s", orphan.Path)
 	}

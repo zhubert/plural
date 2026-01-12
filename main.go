@@ -105,38 +105,71 @@ For more information, visit: https://github.com/zhubert/plural
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: error clearing logs: %v\n", err)
 		}
+		messagesCleared, err := config.ClearAllSessionMessages()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: error clearing session messages: %v\n", err)
+		}
 		fmt.Println("All sessions cleared.")
 		if logsCleared > 0 {
 			fmt.Printf("Removed %d log file(s).\n", logsCleared)
+		}
+		if messagesCleared > 0 {
+			fmt.Printf("Removed %d session message file(s).\n", messagesCleared)
 		}
 		return
 	}
 
 	// Handle prune flag
 	if *pruneWorktrees {
-		orphans, err := session.FindOrphanedWorktrees(cfg)
+		orphanWorktrees, err := session.FindOrphanedWorktrees(cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error finding orphaned worktrees: %v\n", err)
 			os.Exit(1)
 		}
 
-		if len(orphans) == 0 {
-			fmt.Println("No orphaned worktrees found.")
+		orphanMessages, err := config.FindOrphanedSessionMessages(cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error finding orphaned session messages: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(orphanWorktrees) == 0 && len(orphanMessages) == 0 {
+			fmt.Println("No orphaned worktrees or session files found.")
 			return
 		}
 
-		fmt.Printf("Found %d orphaned worktree(s):\n", len(orphans))
-		for _, orphan := range orphans {
-			fmt.Printf("  - %s\n", orphan.Path)
+		if len(orphanWorktrees) > 0 {
+			fmt.Printf("Found %d orphaned worktree(s):\n", len(orphanWorktrees))
+			for _, orphan := range orphanWorktrees {
+				fmt.Printf("  - %s\n", orphan.Path)
+			}
 		}
 
-		pruned, err := session.PruneOrphanedWorktrees(cfg)
+		if len(orphanMessages) > 0 {
+			fmt.Printf("Found %d orphaned session message file(s):\n", len(orphanMessages))
+			for _, sessionID := range orphanMessages {
+				fmt.Printf("  - %s.json\n", sessionID)
+			}
+		}
+
+		prunedWorktrees, err := session.PruneOrphanedWorktrees(cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error pruning worktrees: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Pruned %d worktree(s).\n", pruned)
+		prunedMessages, err := config.PruneOrphanedSessionMessages(cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error pruning session messages: %v\n", err)
+			os.Exit(1)
+		}
+
+		if prunedWorktrees > 0 {
+			fmt.Printf("Pruned %d worktree(s).\n", prunedWorktrees)
+		}
+		if prunedMessages > 0 {
+			fmt.Printf("Pruned %d session message file(s).\n", prunedMessages)
+		}
 		return
 	}
 

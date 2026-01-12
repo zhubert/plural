@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -597,6 +598,92 @@ func DeleteSessionMessages(sessionID string) error {
 		return nil
 	}
 	return err
+}
+
+// ClearAllSessionMessages deletes all session message files.
+// Returns the number of files deleted.
+func ClearAllSessionMessages() (int, error) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return 0, err
+	}
+
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if err := os.Remove(path); err != nil {
+			continue // Best-effort deletion
+		}
+		deleted++
+	}
+
+	return deleted, nil
+}
+
+// FindOrphanedSessionMessages finds session message files that don't have
+// a matching session in the config. Returns the session IDs of orphaned files.
+func FindOrphanedSessionMessages(cfg *Config) ([]string, error) {
+	dir, err := sessionsDir()
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Build set of known session IDs
+	knownSessions := make(map[string]bool)
+	for _, sess := range cfg.GetSessions() {
+		knownSessions[sess.ID] = true
+	}
+
+	var orphans []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		// Extract session ID from filename (remove .json suffix)
+		sessionID := strings.TrimSuffix(entry.Name(), ".json")
+		if !knownSessions[sessionID] {
+			orphans = append(orphans, sessionID)
+		}
+	}
+
+	return orphans, nil
+}
+
+// PruneOrphanedSessionMessages deletes session message files that don't have
+// a matching session in the config. Returns the number of files deleted.
+func PruneOrphanedSessionMessages(cfg *Config) (int, error) {
+	orphans, err := FindOrphanedSessionMessages(cfg)
+	if err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	for _, sessionID := range orphans {
+		if err := DeleteSessionMessages(sessionID); err == nil {
+			deleted++
+		}
+	}
+
+	return deleted, nil
 }
 
 // countLines counts the number of lines in a string
