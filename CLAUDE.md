@@ -1,48 +1,35 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with code in this repository.
+Guidance for Claude Code when working with this repository.
 
 ## Project Overview
 
 Plural is a TUI application for managing multiple concurrent Claude Code sessions. Each session runs in its own git worktree, allowing isolated Claude conversations on the same codebase.
 
-## Build and Run Commands
+## Build and Run
 
 ```bash
-# Build the application
-go build -o plural .
-
-# Run the application
-./plural
-
-# Run tests
-go test ./...
+go build -o plural .     # Build
+./plural                 # Run
+go test ./...            # Test
 
 # CLI flags
-./plural --check-prereqs  # Validate required tools
-./plural --clear          # Clear all sessions and log files
-./plural --prune          # Remove orphaned worktrees
-./plural --debug          # Enable debug logging (verbose output)
+./plural --check-prereqs # Validate required tools
+./plural --clear         # Clear all sessions and log files
+./plural --prune         # Remove orphaned worktrees
+./plural --debug         # Enable debug logging
 ```
 
 ## Debug Logs
 
 ```bash
-# Main app logs (UI events, session management, state transitions)
-tail -f /tmp/plural-debug.log
-
-# MCP permission logs (per-session)
-tail -f /tmp/plural-mcp-*.log
+tail -f /tmp/plural-debug.log    # Main app logs
+tail -f /tmp/plural-mcp-*.log    # MCP permission logs (per-session)
 ```
 
-### Log Levels
+Log levels: Debug, Info, Warn, Error. Default shows Info+. Use `--debug` for verbose output.
 
-The logger supports four levels: Debug, Info, Warn, Error.
-
-- **Default**: Only Info, Warn, and Error messages are logged
-- **Debug mode** (`--debug`): All messages including verbose Debug output
-
-Use `--debug` when troubleshooting to see detailed operation logs (streaming chunks, IPC messages, per-message events).
+---
 
 ## Architecture
 
@@ -54,67 +41,65 @@ Use `--debug` when troubleshooting to see detailed operation logs (streaming chu
 
 ### Package Structure
 
-- **main.go** - Entry point, Bubble Tea program setup, `mcp-server` subcommand
-- **internal/app** - Main Bubble Tea model coordinating UI and Claude runners
-  - `app.go` - Main model, Update/View, key handling
-  - `shortcuts.go` - Central keyboard shortcut registry (single source of truth)
-  - `session_manager.go` - Session lifecycle, runner caching, message persistence
-  - `session_state.go` - Thread-safe per-session state (permissions, streaming, UI)
-  - `modal_handlers.go` - Modal key handlers
-  - `types.go` - Shared types
-- **internal/claude** - Claude CLI wrapper (`--output-format stream-json --input-format stream-json`)
-  - `claude.go` - Runner with persistent process, streaming, tool status, permissions, multi-modal support
-- **internal/changelog** - Fetches release notes from GitHub API for "what's new" display
-- **internal/cli** - CLI prerequisites checking (claude, git, gh)
-- **internal/clipboard** - Cross-platform clipboard image reading
-- **internal/config** - Persists repos, sessions, tools, history to `~/.plural/`
-- **internal/git** - Git operations for merge/PR workflow
-- **internal/logger** - Thread-safe file logger
-- **internal/mcp** - MCP server for permission prompts via Unix socket IPC
-- **internal/notification** - Cross-platform desktop notifications (uses beeep library)
-- **internal/process** - Find/kill orphaned Claude processes
-- **internal/session** - Git worktree creation/management
-- **internal/ui** - Bubble Tea UI components
-  - `constants.go` - Layout constants
-  - `context.go` - Singleton ViewContext for layout calculations
-  - `theme.go` - Theme system
-  - `styles.go` - Lipgloss styles
-  - `sidebar.go`, `chat.go`, `modal.go`, `header.go`, `footer.go` - UI components
+```
+main.go                    Entry point, Bubble Tea setup, mcp-server subcommand
+
+internal/
+├── app/                   Main Bubble Tea model
+│   ├── app.go             Model, Update/View, key handling
+│   ├── shortcuts.go       Keyboard shortcut registry (single source of truth)
+│   ├── session_manager.go Session lifecycle, runner caching, message persistence
+│   ├── session_state.go   Thread-safe per-session state
+│   ├── modal_handlers.go  Modal key handlers
+│   └── types.go           Shared types
+├── claude/                Claude CLI wrapper (stream-json I/O)
+├── changelog/             Fetches release notes from GitHub API
+├── cli/                   Prerequisites checking (claude, git, gh)
+├── clipboard/             Cross-platform clipboard image reading
+├── config/                Persists to ~/.plural/
+├── git/                   Git operations for merge/PR workflow
+├── logger/                Thread-safe file logger
+├── mcp/                   MCP server for permissions via Unix socket IPC
+├── notification/          Desktop notifications (beeep library)
+├── process/               Find/kill orphaned Claude processes
+├── session/               Git worktree creation/management
+└── ui/                    Bubble Tea UI components
+    ├── constants.go       Layout constants
+    ├── context.go         Singleton ViewContext for layout
+    ├── theme.go           Theme system
+    ├── styles.go          Lipgloss styles
+    └── *.go               sidebar, chat, modal, header, footer
+```
 
 ### Data Storage
 
 - `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, theme, branch prefix
 - `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
 
-### Branch Prefix Configuration
-
-A default branch prefix can be configured to prepend to all auto-generated branch names:
-
-- **Settings modal** (`,`): Open the Settings modal to configure the branch prefix
-- **Config field**: `default_branch_prefix` in `~/.plural/config.json`
-- **Example**: Setting `"default_branch_prefix": "zhubert/"` will create branches like:
-  - `zhubert/plural-<uuid>` for new sessions
-  - `zhubert/issue-42` for GitHub issue imports
-  - `zhubert/option-1` for parallel option exploration
-  - `zhubert/my-feature` for manually named branches
-
 ### Key Patterns
 
-- **Bubble Tea Model-Update-View** with tea.Msg for events
+- **Bubble Tea Model-Update-View** with `tea.Msg` for events
 - **Focus system**: Tab switches between sidebar and chat
 - **Streaming**: Claude responses stream via channel as `ClaudeResponseMsg`
 - **Runner caching**: Claude runners cached by session ID in `claudeRunners` map
-- **Thread-safe config**: Uses sync.RWMutex
+- **Thread-safe config**: Uses `sync.RWMutex`
 - **Per-session state**: Independent state maps for concurrent operation
-- **Explicit state machine**: `AppState` enum (StateIdle, StateStreamingClaude)
+- **State machine**: `AppState` enum (StateIdle, StateStreamingClaude)
 
-### Keyboard Shortcuts
+---
 
-Shortcuts are defined in a central registry (`shortcuts.go`) with:
-- `ShortcutRegistry` - All executable shortcuts with handlers
-- `DisplayOnlyShortcuts` - Informational entries shown in help modal
-- Guards: `RequiresSidebar`, `RequiresSession`, `Condition` functions
-- `ExecuteShortcut()` - Unified execution with automatic guard checking
+## Implementation Guide
+
+### Adding Keyboard Shortcuts
+
+Shortcuts are defined in a central registry (`shortcuts.go`):
+
+```go
+ShortcutRegistry      // Executable shortcuts with handlers
+DisplayOnlyShortcuts  // Informational entries for help modal
+```
+
+Guards available: `RequiresSidebar`, `RequiresSession`, `Condition` functions.
 
 To add a new shortcut:
 1. Add entry to `ShortcutRegistry` in `shortcuts.go`
@@ -130,101 +115,43 @@ To add a new shortcut:
 
 ### Session Forking and Merging
 
-Sessions support a git-like branching workflow:
+Sessions support parent-child relationships:
 
-1. **Fork session** (`f`): Creates a child session with its own worktree, optionally copying conversation history
-2. **Explore options** (`Ctrl+P`): When Claude offers multiple options, fork into parallel sessions to try each
-3. **Merge to parent** (`m`): Child sessions can merge back to their parent:
-   - Git changes merged into parent's worktree
-   - Conversation history appended to parent's history
-   - Conflict resolution uses same flow as merge-to-main (Claude resolve / manual)
-   - Child session locked after merge (marked "merged to parent")
-4. **Merge types**: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent), `MergeTypePush` (push updates to existing PR)
+- **Fork** (`f`): Creates child session with own worktree, optionally copies history
+- **Explore options** (`Ctrl+P`): Parses Claude's numbered options, forks into parallel sessions
+- **Merge to parent** (`m`): Merges git changes and appends history to parent, locks child
 
-### PR Updates Workflow
+Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent), `MergeTypePush` (push to existing PR)
 
-After creating a PR, the session remains active for continued development:
+### GitHub Issue Sessions
 
-1. **Continue working**: Send messages to Claude, make additional changes in the session
-2. **Push updates** (`m`): When ready, press `m` to open merge modal - shows "Push updates to PR" instead of "Create PR"
-3. **Commit and push**: Uncommitted changes are committed with Claude-generated message, then pushed to the PR branch
-4. **Iterate**: Continue making changes and pushing updates as needed based on PR feedback
+Issue number stored in session. When PR created from issue session, "Fixes #N" auto-added to PR body. Branch naming: `issue-{number}`.
 
-### GitHub Issue Import
+---
 
-Import GitHub issues directly into new sessions:
-
-1. **Press `i`** from anywhere (sidebar or with/without a session selected)
-2. **Repo selection**: If a session is selected, uses that session's repo. Otherwise, shows a repo picker modal
-3. **Issue list**: Shows open issues from the selected repo (fetched via `gh issue list`)
-4. **Select issues**: Use space to toggle selection, up/down to navigate
-5. **Create sessions**: Press Enter to create a new session for each selected issue
-6. **Auto-start**: Claude automatically receives the issue context and begins working
-
-Each issue becomes a session with branch name `issue-{number}`. The issue number is stored in the session and when a PR is created, "Fixes #N" is automatically added to the PR body, which will close the issue when the PR is merged.
-
-### View Changes (Pre-Merge Diff Review)
-
-Review file diffs before merging with a single-pane view and file navigation bar:
-
-1. **Press `v`** when a session is selected in the sidebar
-2. **Navigation bar**: Shows current file with status code, filename, and position (e.g., "← [M] src/file.go (3 of 7) →")
-3. **Navigate files**: Use ←/→ or h/l to switch between files
-4. **Scroll diff**: Use ↑/↓, j/k, or PgUp/PgDn to scroll the diff content
-5. **Exit**: Press Esc or q to close
-
-Each file shows its status code (M=modified, A=added, D=deleted) and the diff is syntax-highlighted with additions in green and deletions in red.
-
-### Message Search
-
-Search within conversation history:
-
-1. **Press `Ctrl+/`** when the chat panel is focused
-2. **Type to search**: Real-time filtering as you type
-3. **Navigate results**: Use ↑/↓ to move through matches
-4. **View match context**: Each result shows a snippet with the match highlighted
-5. **Press Enter** to close the modal
-
-The search is case-insensitive and matches any substring within messages. Results show the message number, role (You/Claude), and a snippet around the match.
-
-### Desktop Notifications
-
-Plural can send desktop notifications when Claude finishes responding while the application is in the background:
-
-1. **Enable via Settings** (`,`): Open Settings modal and toggle the "Desktop notifications" checkbox
-2. **When triggered**: Notifications appear when Claude completes streaming and the terminal window is not focused
-3. **Notification content**: Shows "Plural" as title and "[session name] is ready" as the message
-4. **Platform support**: Uses the beeep library for cross-platform notifications:
-   - macOS: terminal-notifier or AppleScript
-   - Linux: D-Bus or notify-send
-   - Windows: Windows Runtime COM API
-
-The setting is persisted in `~/.plural/config.json` as `notifications_enabled`.
-
-### Dependencies
+## Dependencies
 
 Charm's Bubble Tea v2 stack:
 - `charm.land/bubbletea/v2` (v2.0.0-rc.2)
 - `charm.land/bubbles/v2` (v2.0.0-rc.1)
 - `charm.land/lipgloss/v2` (v2.0.0-beta.3)
-- `github.com/google/uuid` (v1.6.0)
-- `github.com/gen2brain/beeep` (v0.11.2) - Cross-platform desktop notifications
+- `github.com/google/uuid`
+- `github.com/gen2brain/beeep` - Desktop notifications
 
-Key v2 API notes:
-- Imports use `charm.land/*` instead of `github.com/charmbracelet/*`
-- `tea.KeyMsg` is now `tea.KeyPressMsg`
+**Bubble Tea v2 API notes:**
+- Imports use `charm.land/*` not `github.com/charmbracelet/*`
+- `tea.KeyMsg` → `tea.KeyPressMsg`
 - `tea.View` returns declarative view with properties
 - Viewport uses `SetWidth()`/`SetHeight()` methods
-- **Key strings**: Special keys use string names, not literals. Use `"space"` not `" "`, `"tab"` not `"\t"`, etc.
+- **Key strings**: Use `"space"` not `" "`, `"tab"` not `"\t"`, etc.
+
+---
 
 ## Releasing
 
 ```bash
-# Run release script (updates flake.nix, vendorHash, tags, pushes)
-./scripts/release.sh v0.0.5
-
-# Dry run
-./scripts/release.sh v0.0.5 --dry-run
+./scripts/release.sh v0.0.5           # Full release
+./scripts/release.sh v0.0.5 --dry-run # Dry run
 ```
 
 GoReleaser builds binaries for Linux/macOS (amd64/arm64) and updates Homebrew tap at `zhubert/homebrew-tap`.
