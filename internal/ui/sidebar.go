@@ -171,6 +171,8 @@ func hashSessions(sessions []config.Session) uint64 {
 		h.Write([]byte{0})
 		h.Write([]byte(sess.Branch))
 		h.Write([]byte{0})
+		h.Write([]byte(sess.Name))
+		h.Write([]byte{0})
 		// Include status flags in hash
 		if sess.Merged {
 			h.Write([]byte{1})
