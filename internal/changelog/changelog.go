@@ -92,14 +92,47 @@ func parseBody(body string) []string {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		// Match lines starting with "- " or "* "
+		var change string
 		if strings.HasPrefix(line, "- ") {
-			changes = append(changes, strings.TrimPrefix(line, "- "))
+			change = strings.TrimPrefix(line, "- ")
 		} else if strings.HasPrefix(line, "* ") {
-			changes = append(changes, strings.TrimPrefix(line, "* "))
+			change = strings.TrimPrefix(line, "* ")
+		} else {
+			continue
+		}
+
+		// Strip leading commit SHA if present (40 hex chars followed by space)
+		change = stripCommitSHA(change)
+		if change != "" {
+			changes = append(changes, change)
 		}
 	}
 
 	return changes
+}
+
+// stripCommitSHA removes a leading git commit SHA from a string.
+// GitHub auto-generated release notes include format: "abc123... Commit message"
+func stripCommitSHA(s string) string {
+	// Check for 40-char hex SHA followed by space
+	if len(s) > 41 && s[40] == ' ' && isHexString(s[:40]) {
+		return s[41:]
+	}
+	// Check for 7-char short SHA followed by space
+	if len(s) > 8 && s[7] == ' ' && isHexString(s[:7]) {
+		return s[8:]
+	}
+	return s
+}
+
+// isHexString checks if a string contains only hexadecimal characters
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // GetChangesSince returns all entries newer than lastSeen version.
