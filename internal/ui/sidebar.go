@@ -636,11 +636,12 @@ func (s *Sidebar) View() string {
 	} else if s.searchMode && s.filteredSessions != nil {
 		// Render flat filtered list (no repo grouping)
 		var lines []string
+		innerWidth := ctx.InnerWidth(s.width)
 		for idx, sess := range s.filteredSessions {
 			displayName := s.renderSessionName(sess, idx)
-			itemStyle := SidebarItemStyle
+			itemStyle := SidebarItemStyle.Width(innerWidth)
 			if idx == s.selectedIdx {
-				itemStyle = SidebarSelectedStyle
+				itemStyle = SidebarSelectedStyle.Width(innerWidth)
 				displayName = "> " + strings.TrimPrefix(displayName, "  ")
 			}
 			lines = append(lines, itemStyle.Render(displayName))
@@ -669,14 +670,15 @@ func (s *Sidebar) View() string {
 			lines = append(lines, repoStyle.Render(group.RepoName))
 
 			// Render sessions in tree order with indentation
+			innerWidth := ctx.InnerWidth(s.width)
 			var renderNode func(node sessionNode, depth int)
 			renderNode = func(node sessionNode, depth int) {
 				isSelected := sessionIdx == s.selectedIdx
-				displayName := s.renderSessionNameWithDepth(node.Session, sessionIdx, depth, isSelected)
+				displayName := s.renderSessionNameWithDepth(node.Session, depth, isSelected)
 
-				itemStyle := SidebarItemStyle
+				itemStyle := SidebarItemStyle.Width(innerWidth)
 				if isSelected {
-					itemStyle = SidebarSelectedStyle
+					itemStyle = SidebarSelectedStyle.Width(innerWidth)
 				}
 
 				lines = append(lines, itemStyle.Render(displayName))
@@ -734,11 +736,11 @@ func (s *Sidebar) View() string {
 // renderSessionName builds the display name for a session with all indicators
 func (s *Sidebar) renderSessionName(sess config.Session, sessionIdx int) string {
 	isSelected := sessionIdx == s.selectedIdx
-	return s.renderSessionNameWithDepth(sess, sessionIdx, 0, isSelected)
+	return s.renderSessionNameWithDepth(sess, 0, isSelected)
 }
 
 // renderSessionNameWithDepth builds the display name for a session with indentation based on depth
-func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int, depth int, isSelected bool) string {
+func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, depth int, isSelected bool) string {
 	// Build the prefix with selection indicator and tree structure
 	var prefix string
 	if isSelected {
@@ -769,59 +771,61 @@ func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int
 
 	// Add worktree size
 	if sizeStr := s.getWorktreeSize(sess); sizeStr != "" {
-		sizeColor := ColorTextMuted
 		if isSelected {
-			sizeColor = ColorText
+			displayName = displayName + " " + sizeStr
+		} else {
+			sizeStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+			displayName = displayName + " " + sizeStyle.Render(sizeStr)
 		}
-		sizeStyle := lipgloss.NewStyle().Foreground(sizeColor)
-		displayName = displayName + " " + sizeStyle.Render(sizeStr)
 	}
 
 	// Add indicators for streaming and pending permissions
 	if s.IsSessionStreaming(sess.ID) {
 		spinner := sidebarSpinnerFrames[s.spinnerFrame]
-		// Use white for selected (purple bg), purple for unselected
-		spinnerColor := ColorPrimary
-		if sessionIdx == s.selectedIdx {
-			spinnerColor = ColorText // White on purple background
+		if isSelected {
+			// For selected rows, don't apply separate styling - let the parent style handle it
+			displayName = displayName + " " + spinner
+		} else {
+			// For unselected rows, use purple spinner
+			spinnerStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
+			displayName = displayName + " " + spinnerStyle.Render(spinner)
 		}
-		spinnerStyle := lipgloss.NewStyle().Foreground(spinnerColor)
-		displayName = displayName + " " + spinnerStyle.Render(spinner)
 	}
 
 	// Add permission indicator
 	if s.HasPendingPermission(sess.ID) {
-		// Use white for selected (purple bg), warning color for unselected
-		indicatorColor := ColorWarning
-		if sessionIdx == s.selectedIdx {
-			indicatorColor = ColorText // White on purple background
+		if isSelected {
+			// For selected rows, don't apply separate styling - let the parent style handle it
+			displayName = displayName + " ⚠"
+		} else {
+			// For unselected rows, use warning color
+			indicatorStyle := lipgloss.NewStyle().Foreground(ColorWarning)
+			displayName = displayName + " " + indicatorStyle.Render("⚠")
 		}
-		indicatorStyle := lipgloss.NewStyle().Foreground(indicatorColor)
-		displayName = displayName + " " + indicatorStyle.Render("⚠")
 	}
 
 	// Add merged/PR status labels
 	if sess.MergedToParent {
-		labelColor := ColorSecondary // Green for merged to parent
-		if sessionIdx == s.selectedIdx {
-			labelColor = ColorText // White on purple background
+		if isSelected {
+			displayName = displayName + " (merged to parent)"
+		} else {
+			labelStyle := lipgloss.NewStyle().Foreground(ColorSecondary)
+			displayName = displayName + " " + labelStyle.Render("(merged to parent)")
 		}
-		labelStyle := lipgloss.NewStyle().Foreground(labelColor)
-		displayName = displayName + " " + labelStyle.Render("(merged to parent)")
 	} else if sess.Merged {
-		labelColor := ColorSecondary // Green for merged
-		if sessionIdx == s.selectedIdx {
-			labelColor = ColorText // White on purple background
+		if isSelected {
+			displayName = displayName + " (merged)"
+		} else {
+			labelStyle := lipgloss.NewStyle().Foreground(ColorSecondary)
+			displayName = displayName + " " + labelStyle.Render("(merged)")
 		}
-		labelStyle := lipgloss.NewStyle().Foreground(labelColor)
-		displayName = displayName + " " + labelStyle.Render("(merged)")
 	} else if sess.PRCreated {
-		labelColor := ColorUser // Blue for PR
-		if sessionIdx == s.selectedIdx {
-			labelColor = ColorText // White on purple background
+		if isSelected {
+			displayName = displayName + " (pr)"
+		} else {
+			labelStyle := lipgloss.NewStyle().Foreground(ColorUser)
+			displayName = displayName + " " + labelStyle.Render("(pr)")
 		}
-		labelStyle := lipgloss.NewStyle().Foreground(labelColor)
-		displayName = displayName + " " + labelStyle.Render("(pr)")
 	}
 
 	return displayName
