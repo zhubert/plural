@@ -132,12 +132,11 @@ type Chat struct {
 	selectedOptionIdx     int                // Currently highlighted option
 	questionAnswers       map[string]string  // Collected answers (question text -> selected label)
 
-	// View changes mode - temporary overlay showing git diff with file-by-file navigation
+	// View changes mode - temporary overlay showing git diff with file navigation
 	viewChangesMode      bool             // Whether we're showing the diff overlay
 	viewChangesViewport  viewport.Model   // Viewport for diff scrolling
 	viewChangesFiles     []git.FileDiff   // List of files with diffs
 	viewChangesFileIndex int              // Currently selected file index
-	viewChangesFilePane  bool             // true = file list focused, false = diff pane focused
 
 	// Pending image attachment
 	pendingImageData []byte  // PNG encoded image data
@@ -396,12 +395,11 @@ func (c *Chat) IsStreaming() bool {
 	return c.streaming != ""
 }
 
-// EnterViewChangesMode enters the temporary diff view overlay with file-by-file navigation
+// EnterViewChangesMode enters the temporary diff view overlay with file navigation
 func (c *Chat) EnterViewChangesMode(files []git.FileDiff) {
 	c.viewChangesMode = true
 	c.viewChangesFiles = files
 	c.viewChangesFileIndex = 0
-	c.viewChangesFilePane = false // Start with diff pane focused
 
 	// Create a fresh viewport for the diff content
 	c.viewChangesViewport = viewport.New()
@@ -437,7 +435,6 @@ func (c *Chat) ExitViewChangesMode() {
 	c.viewChangesMode = false
 	c.viewChangesFiles = nil
 	c.viewChangesFileIndex = 0
-	c.viewChangesFilePane = false
 }
 
 // IsInViewChangesMode returns whether we're currently showing the diff overlay
@@ -449,15 +446,6 @@ func (c *Chat) IsInViewChangesMode() bool {
 // Used for testing navigation.
 func (c *Chat) GetSelectedFileIndex() int {
 	return c.viewChangesFileIndex
-}
-
-// GetViewChangesFocus returns "files" if file list pane is focused, "diff" if diff pane is focused.
-// Used for testing pane switching.
-func (c *Chat) GetViewChangesFocus() string {
-	if c.viewChangesFilePane {
-		return "files"
-	}
-	return "diff"
 }
 
 // GetStreaming returns the current streaming content
@@ -1324,44 +1312,22 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				c.ExitViewChangesMode()
 				return c, nil
 			case "left", "h":
-				// Focus file list pane
-				c.viewChangesFilePane = true
-				return c, nil
-			case "right", "l", "enter":
-				// Focus diff pane
-				c.viewChangesFilePane = false
-				return c, nil
-			case "up", "k":
-				if c.viewChangesFilePane {
-					// Navigate file list up
-					if c.viewChangesFileIndex > 0 {
-						c.viewChangesFileIndex--
-						c.updateViewChangesDiff()
-					}
-				} else {
-					// Scroll diff viewport
-					var cmd tea.Cmd
-					c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
-					cmds = append(cmds, cmd)
+				// Navigate to previous file
+				if c.viewChangesFileIndex > 0 {
+					c.viewChangesFileIndex--
+					c.updateViewChangesDiff()
 				}
-				return c, tea.Batch(cmds...)
-			case "down", "j":
-				if c.viewChangesFilePane {
-					// Navigate file list down
-					if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
-						c.viewChangesFileIndex++
-						c.updateViewChangesDiff()
-					}
-				} else {
-					// Scroll diff viewport
-					var cmd tea.Cmd
-					c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
-					cmds = append(cmds, cmd)
+				return c, nil
+			case "right", "l":
+				// Navigate to next file
+				if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
+					c.viewChangesFileIndex++
+					c.updateViewChangesDiff()
 				}
-				return c, tea.Batch(cmds...)
-			case "pgup", "pgdown", "ctrl+up", "ctrl+down", "home", "end",
-				"page up", "page down", "ctrl+u", "ctrl+d":
-				// Page scroll keys always go to diff viewport
+				return c, nil
+			case "up", "k", "down", "j", "pgup", "pgdown", "ctrl+up", "ctrl+down",
+				"home", "end", "page up", "page down", "ctrl+u", "ctrl+d":
+				// Scroll diff viewport
 				var cmd tea.Cmd
 				c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
 				cmds = append(cmds, cmd)
@@ -1505,65 +1471,94 @@ func (c *Chat) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, chatPanel, inputArea)
 }
 
-// renderViewChangesMode renders the diff overlay view
+// renderViewChangesMode renders the diff overlay view with a compact file navigation bar
 func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
-	// Calculate dimensions for split-pane layout
+	// Calculate dimensions
 	innerWidth := c.width - 2 // Account for panel border
 	innerHeight := c.height - 2
-	fileListWidth := innerWidth / 3
-	dividerWidth := 1
-	diffWidth := innerWidth - fileListWidth - dividerWidth
 
-	// Build file list with selection indicator
-	var fileLines []string
-	for i, f := range c.viewChangesFiles {
-		indicator := "  "
-		if i == c.viewChangesFileIndex {
-			indicator = "> "
-		}
-		line := fmt.Sprintf("%s[%s] %s", indicator, f.Status, f.Filename)
-		// Truncate if too long for the file list width
-		maxLen := fileListWidth - 2
-		if maxLen > 0 && len(line) > maxLen {
-			line = line[:maxLen-1] + "…"
-		}
-		// Highlight selected file
-		if i == c.viewChangesFileIndex {
-			line = ViewChangesSelectedStyle.Render(line)
-		}
-		fileLines = append(fileLines, line)
-	}
+	// Build the compact navigation bar
+	navBar := c.renderFileNavBar(innerWidth)
+	navBarHeight := 1 // Single line navigation
 
-	// Pad file list to fill height
-	for len(fileLines) < innerHeight {
-		fileLines = append(fileLines, "")
-	}
-	fileListContent := strings.Join(fileLines[:innerHeight], "\n")
+	// Diff viewport gets remaining height
+	diffHeight := innerHeight - navBarHeight
 
-	// Build divider
-	dividerLines := make([]string, innerHeight)
-	for i := range dividerLines {
-		dividerLines[i] = "│"
-	}
-	dividerContent := strings.Join(dividerLines, "\n")
+	// Update diff viewport size to use full width
+	c.viewChangesViewport.SetWidth(innerWidth)
+	c.viewChangesViewport.SetHeight(diffHeight)
 
-	// Update diff viewport size
-	c.viewChangesViewport.SetWidth(diffWidth)
-	c.viewChangesViewport.SetHeight(innerHeight)
-
-	// Style for file list pane - highlight border if focused
-	fileListStyle := lipgloss.NewStyle().Width(fileListWidth)
-	if c.viewChangesFilePane {
-		fileListStyle = fileListStyle.Foreground(ColorBorderFocus) // Use theme's focused border color
-	}
-
-	// Join the panes horizontally
-	content := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		fileListStyle.Render(fileListContent),
-		lipgloss.NewStyle().Width(dividerWidth).Foreground(ColorBorder).Render(dividerContent),
-		lipgloss.NewStyle().Width(diffWidth).Render(c.viewChangesViewport.View()),
+	// Join navigation bar and diff vertically
+	content := lipgloss.JoinVertical(
+		lipgloss.Left,
+		navBar,
+		c.viewChangesViewport.View(),
 	)
 
 	return panelStyle.Width(c.width).Height(c.height).Render(content)
+}
+
+// renderFileNavBar renders the compact horizontal file navigation bar
+func (c *Chat) renderFileNavBar(width int) string {
+	if len(c.viewChangesFiles) == 0 {
+		return lipgloss.NewStyle().
+			Width(width).
+			Foreground(ColorTextMuted).
+			Render("No files to display")
+	}
+
+	currentFile := c.viewChangesFiles[c.viewChangesFileIndex]
+
+	// Build: "← [M] src/file.go (3 of 7) →"
+	// Left arrow (show if not first file)
+	leftArrow := "  "
+	if c.viewChangesFileIndex > 0 {
+		leftArrow = "← "
+	}
+
+	// Right arrow (show if not last file)
+	rightArrow := "  "
+	if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
+		rightArrow = " →"
+	}
+
+	// Status code in brackets
+	statusStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	status := statusStyle.Render(fmt.Sprintf("[%s]", currentFile.Status))
+
+	// File counter
+	counterStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+	counter := counterStyle.Render(fmt.Sprintf("(%d of %d)", c.viewChangesFileIndex+1, len(c.viewChangesFiles)))
+
+	// Arrow styles
+	arrowStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+
+	// Calculate available width for filename
+	// Format: "← [M] filename (3 of 7) →"
+	fixedWidth := len(leftArrow) + 4 + 1 + len(counter) + len(rightArrow) + 2 // arrows, status, spaces, counter
+	maxFilenameWidth := width - fixedWidth
+	if maxFilenameWidth < 10 {
+		maxFilenameWidth = 10
+	}
+
+	// Truncate filename if needed
+	filename := currentFile.Filename
+	if len(filename) > maxFilenameWidth {
+		filename = "…" + filename[len(filename)-maxFilenameWidth+1:]
+	}
+	filenameStyle := lipgloss.NewStyle().Foreground(ColorText)
+
+	// Assemble the navigation bar
+	navContent := arrowStyle.Render(leftArrow) +
+		status + " " +
+		filenameStyle.Render(filename) + " " +
+		counter +
+		arrowStyle.Render(rightArrow)
+
+	// Style the whole bar with a subtle background
+	barStyle := lipgloss.NewStyle().
+		Width(width).
+		Background(lipgloss.Color(CurrentTheme().BgDark))
+
+	return barStyle.Render(navContent)
 }

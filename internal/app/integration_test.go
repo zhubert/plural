@@ -739,60 +739,39 @@ func TestViewChanges_NavigateFiles(t *testing.T) {
 		t.Errorf("Expected initial file index 0, got %d", initialIdx)
 	}
 
-	// Switch to file pane first (up/down only navigate files when file pane is focused)
-	m = sendKey(m, "h")
-	if m.chat.GetViewChangesFocus() != "files" {
-		t.Fatal("Expected to be in file pane after 'h'")
+	// Navigate to next file with right arrow
+	m = sendKey(m, "right")
+	afterRight := m.chat.GetSelectedFileIndex()
+	if afterRight != 1 {
+		t.Errorf("Expected file index 1 after right, got %d", afterRight)
 	}
 
-	// Navigate down
-	m = sendKey(m, "down")
-	afterDown := m.chat.GetSelectedFileIndex()
-	if afterDown != 1 {
-		t.Errorf("Expected file index 1 after down, got %d", afterDown)
-	}
-
-	// Navigate down again
-	m = sendKey(m, "down")
-	afterDown2 := m.chat.GetSelectedFileIndex()
-	if afterDown2 != 2 {
-		t.Errorf("Expected file index 2 after second down, got %d", afterDown2)
-	}
-
-	// Navigate up
-	m = sendKey(m, "up")
-	afterUp := m.chat.GetSelectedFileIndex()
-	if afterUp != 1 {
-		t.Errorf("Expected file index 1 after up, got %d", afterUp)
-	}
-}
-
-func TestViewChanges_SwitchPanes(t *testing.T) {
-	cfg := testConfigWithSessions()
-	m, _ := testModelWithMocks(cfg, 120, 40)
-	m.sidebar.SetSessions(cfg.Sessions)
-
-	m = sendKey(m, "enter")
-	m.chat.EnterViewChangesMode(testFileDiffs())
-
-	// Initial focus should be on diff pane (right pane) based on EnterViewChangesMode
-	initialPane := m.chat.GetViewChangesFocus()
-	if initialPane != "diff" {
-		t.Errorf("Expected initial focus on 'diff', got %q", initialPane)
-	}
-
-	// Switch to file list pane with 'h' or left arrow
-	m = sendKey(m, "h")
-	afterH := m.chat.GetViewChangesFocus()
-	if afterH != "files" {
-		t.Errorf("Expected focus on 'files' after 'h', got %q", afterH)
-	}
-
-	// Switch back with 'l'
+	// Navigate to next file again with 'l'
 	m = sendKey(m, "l")
-	afterL := m.chat.GetViewChangesFocus()
-	if afterL != "diff" {
-		t.Errorf("Expected focus on 'diff' after 'l', got %q", afterL)
+	afterL := m.chat.GetSelectedFileIndex()
+	if afterL != 2 {
+		t.Errorf("Expected file index 2 after 'l', got %d", afterL)
+	}
+
+	// Navigate to previous file with left arrow
+	m = sendKey(m, "left")
+	afterLeft := m.chat.GetSelectedFileIndex()
+	if afterLeft != 1 {
+		t.Errorf("Expected file index 1 after left, got %d", afterLeft)
+	}
+
+	// Navigate to previous file with 'h'
+	m = sendKey(m, "h")
+	afterH := m.chat.GetSelectedFileIndex()
+	if afterH != 0 {
+		t.Errorf("Expected file index 0 after 'h', got %d", afterH)
+	}
+
+	// Try to go before first file - should stay at 0
+	m = sendKey(m, "h")
+	atStart := m.chat.GetSelectedFileIndex()
+	if atStart != 0 {
+		t.Errorf("Expected file index to stay at 0, got %d", atStart)
 	}
 }
 
