@@ -66,8 +66,8 @@ func (h *Header) renderGradient(content string) string {
 	// Get colors from current theme
 	theme := CurrentTheme()
 	startR, startG, startB := parseHexColor(theme.Primary)
-	// End color: fade to the dark background
-	endR, endG, endB := parseHexColor(theme.BgDark)
+	// End color: fade to the main background
+	endR, endG, endB := parseHexColor(theme.Bg)
 
 	// Text color from theme
 	textColor := lipgloss.Color(theme.Text)

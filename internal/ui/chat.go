@@ -1456,10 +1456,8 @@ func (c *Chat) View() string {
 	var inputContent string
 	if c.HasPendingImage() {
 		// Show image attachment indicator above the textarea
-		theme := CurrentTheme()
 		indicatorStyle := lipgloss.NewStyle().
 			Foreground(ColorInfo).
-			Background(lipgloss.Color(theme.BgDark)).
 			Padding(0, 1)
 		indicator := indicatorStyle.Render(fmt.Sprintf("[Image attached: %dKB] (backspace to remove)", c.GetPendingImageSizeKB()))
 		inputContent = indicator + "\n" + c.input.View()
@@ -1555,10 +1553,9 @@ func (c *Chat) renderFileNavBar(width int) string {
 		counter +
 		arrowStyle.Render(rightArrow)
 
-	// Style the whole bar with a subtle background
+	// Style the whole bar (no explicit background - let terminal's native background show through)
 	barStyle := lipgloss.NewStyle().
-		Width(width).
-		Background(lipgloss.Color(CurrentTheme().BgDark))
+		Width(width)
 
 	return barStyle.Render(navContent)
 }

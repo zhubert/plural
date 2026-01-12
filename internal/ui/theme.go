@@ -18,7 +18,6 @@ type Theme struct {
 
 	// Background colors
 	Bg         string // Main background
-	BgDark     string // Darker background (footer, code blocks)
 	BgSelected string // Selected item background (defaults to Primary if empty)
 
 	// Text colors
@@ -94,7 +93,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#7C3AED",
 		Secondary:        "#06B6D4",
 		Bg:               "#1F2937",
-		BgDark:           "#111827",
 		Text:             "#F9FAFB",
 		TextMuted:        "#9CA3AF",
 		TextInverse:      "#1F2937",
@@ -121,7 +119,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#88C0D0",
 		Secondary:        "#81A1C1",
 		Bg:               "#2E3440",
-		BgDark:           "#242933",
 		Text:             "#ECEFF4",
 		TextMuted:        "#D8DEE9",
 		TextInverse:      "#2E3440",
@@ -148,7 +145,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#BD93F9",
 		Secondary:        "#8BE9FD",
 		Bg:               "#282A36",
-		BgDark:           "#21222C",
 		Text:             "#F8F8F2",
 		TextMuted:        "#6272A4",
 		TextInverse:      "#282A36",
@@ -175,7 +171,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#FE8019",
 		Secondary:        "#83A598",
 		Bg:               "#282828",
-		BgDark:           "#1D2021",
 		Text:             "#EBDBB2",
 		TextMuted:        "#A89984",
 		TextInverse:      "#282828",
@@ -202,7 +197,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#7AA2F7",
 		Secondary:        "#BB9AF7",
 		Bg:               "#1A1B26",
-		BgDark:           "#16161E",
 		Text:             "#C0CAF5",
 		TextMuted:        "#565F89",
 		TextInverse:      "#1A1B26",
@@ -229,7 +223,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#CBA6F7",
 		Secondary:        "#89DCEB",
 		Bg:               "#1E1E2E",
-		BgDark:           "#181825",
 		Text:             "#CDD6F4",
 		TextMuted:        "#6C7086",
 		TextInverse:      "#1E1E2E",
@@ -256,7 +249,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#E50914",
 		Secondary:        "#8B0000",
 		Bg:               "#0A0A0A",
-		BgDark:           "#000000",
 		BgSelected:       "#2D0A0A",
 		Text:             "#E8E8E8",
 		TextMuted:        "#666666",
@@ -285,7 +277,6 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Primary:          "#6366F1",
 		Secondary:        "#0891B2",
 		Bg:               "#FFFFFF",
-		BgDark:           "#F3F4F6",
 		BgSelected:       "#E0E7FF",
 		Text:             "#1F2937",
 		TextMuted:        "#6B7280",
