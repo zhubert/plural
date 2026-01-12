@@ -131,6 +131,14 @@ type GitHubIssuesFetchedMsg struct {
 	Error    error
 }
 
+// ChangelogFetchedMsg is sent when changelog has been fetched from GitHub
+type ChangelogFetchedMsg struct {
+	Entries  []changelog.Entry
+	Error    error
+	ShowAll  bool // If true, show all entries; if false, filter by lastSeen version
+	IsManual bool // If true, this was triggered by user shortcut (don't update lastSeen)
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -417,6 +425,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case GitHubIssuesFetchedMsg:
 		return m.handleGitHubIssuesFetchedMsg(msg)
+
+	case ChangelogFetchedMsg:
+		return m.handleChangelogFetchedMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
@@ -1042,32 +1053,95 @@ func (m *Model) handleStartupModals() (tea.Model, tea.Cmd) {
 	}
 
 	// Priority 2: Changelog modal for new versions
-	// Skip for dev builds
+	// Skip for dev builds; fetch changelog from GitHub asynchronously
 	if m.version != "" && m.version != "dev" {
 		lastSeen := m.config.GetLastSeenVersion()
 		if lastSeen != m.version {
-			entries := changelog.Parse(changelog.Content)
-			changes := changelog.GetChangesSince(lastSeen, entries)
-			if len(changes) > 0 {
-				logger.Log("App: Showing changelog modal (version %s -> %s, %d entries)", lastSeen, m.version, len(changes))
-				// Convert changelog entries to UI entries
-				uiEntries := make([]ui.ChangelogEntry, len(changes))
-				for i, e := range changes {
-					uiEntries[i] = ui.ChangelogEntry{
-						Version: e.Version,
-						Date:    e.Date,
-						Changes: e.Changes,
-					}
-				}
-				m.modal.Show(ui.NewChangelogState(uiEntries))
-				return m, nil
-			}
-			// No new changes, just update last seen version
-			m.config.SetLastSeenVersion(m.version)
-			m.config.Save()
+			logger.Log("App: Fetching changelog from GitHub (version %s -> %s)", lastSeen, m.version)
+			return m, m.fetchChangelog()
 		}
 	}
 
+	return m, nil
+}
+
+// fetchChangelog creates a command to fetch changelog from GitHub asynchronously.
+// Used at startup to show new changes since last seen version.
+func (m *Model) fetchChangelog() tea.Cmd {
+	return func() tea.Msg {
+		entries, err := changelog.FetchReleases()
+		return ChangelogFetchedMsg{
+			Entries:  entries,
+			Error:    err,
+			ShowAll:  false,
+			IsManual: false,
+		}
+	}
+}
+
+// fetchChangelogAll creates a command to fetch and show all changelog entries.
+// Used when user manually requests the changelog via shortcut.
+func (m *Model) fetchChangelogAll() tea.Cmd {
+	return func() tea.Msg {
+		entries, err := changelog.FetchReleases()
+		return ChangelogFetchedMsg{
+			Entries:  entries,
+			Error:    err,
+			ShowAll:  true,
+			IsManual: true,
+		}
+	}
+}
+
+// handleChangelogFetchedMsg handles the fetched changelog entries
+func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, tea.Cmd) {
+	if msg.Error != nil {
+		logger.Log("App: Failed to fetch changelog: %v", msg.Error)
+		if !msg.IsManual {
+			// Only update lastSeen on startup flow failures
+			m.config.SetLastSeenVersion(m.version)
+			m.config.Save()
+		}
+		return m, nil
+	}
+
+	var changes []changelog.Entry
+	if msg.ShowAll {
+		// Limit to 10 most recent releases for manual view
+		changes = msg.Entries
+		if len(changes) > 10 {
+			changes = changes[:10]
+		}
+	} else {
+		lastSeen := m.config.GetLastSeenVersion()
+		changes = changelog.GetChangesSince(lastSeen, msg.Entries)
+	}
+
+	if len(changes) > 0 {
+		logger.Log("App: Showing changelog modal (%d entries, showAll=%v)", len(changes), msg.ShowAll)
+		// Convert changelog entries to UI entries
+		uiEntries := make([]ui.ChangelogEntry, len(changes))
+		for i, e := range changes {
+			uiEntries[i] = ui.ChangelogEntry{
+				Version: e.Version,
+				Date:    e.Date,
+				Changes: e.Changes,
+			}
+		}
+		m.modal.Show(ui.NewChangelogState(uiEntries))
+		if !msg.IsManual {
+			// Update lastSeen only on startup flow
+			m.config.SetLastSeenVersion(m.version)
+			m.config.Save()
+		}
+		return m, nil
+	}
+
+	if !msg.IsManual {
+		// No new changes on startup, just update last seen version
+		m.config.SetLastSeenVersion(m.version)
+		m.config.Save()
+	}
 	return m, nil
 }
 

@@ -19,5 +19,3 @@ result
 # Test coverage
 coverage.out
 
-# Generated files
-internal/changelog/CHANGELOG.md

@@ -240,6 +240,10 @@ devbox global add github:zhubert/plural
 
 Or use Homebrew which handles upgrades correctly.
 
+## Changelog
+
+See the [GitHub Releases](https://github.com/zhubert/plural/releases) page for version history and release notes.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

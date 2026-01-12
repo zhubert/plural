@@ -9,17 +9,11 @@ Plural is a TUI application for managing multiple concurrent Claude Code session
 ## Build and Run Commands
 
 ```bash
-# Generate embedded files (copies CHANGELOG.md for embedding)
-go generate ./...
-
 # Build the application
 go build -o plural .
 
 # Run the application
 ./plural
-
-# Run with go directly (requires go generate first)
-go generate ./... && go run .
 
 # Run tests
 go test ./...
@@ -70,7 +64,7 @@ Use `--debug` when troubleshooting to see detailed operation logs (streaming chu
   - `types.go` - Shared types
 - **internal/claude** - Claude CLI wrapper (`--output-format stream-json --input-format stream-json`)
   - `claude.go` - Runner with persistent process, streaming, tool status, permissions, multi-modal support
-- **internal/changelog** - Changelog parsing for version comparison
+- **internal/changelog** - Fetches release notes from GitHub API for "what's new" display
 - **internal/cli** - CLI prerequisites checking (claude, git, gh)
 - **internal/clipboard** - Cross-platform clipboard image reading
 - **internal/config** - Persists repos, sessions, tools, history to `~/.plural/`
