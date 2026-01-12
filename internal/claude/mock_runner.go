@@ -12,6 +12,10 @@ import (
 // MockRunner is a test double for Runner that doesn't spawn real processes.
 // It allows tests to control response chunks, simulate permissions/questions,
 // and verify messages sent to Claude.
+//
+// NOTE: This file is used by integration tests in internal/app/*_test.go.
+// The deadcode tool reports it as unused because it only analyzes the main
+// binary, not test code. Do not remove this file.
 type MockRunner struct {
 	mu sync.RWMutex
 
