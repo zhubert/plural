@@ -59,15 +59,14 @@ func TruncateString(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// SessionDisplayName returns the display name for a session based on branch and name.
-// If the branch is custom (not starting with "plural-"), it returns the branch name.
-// Otherwise, it extracts a short ID from the name.
+// SessionDisplayName returns the display name for a session.
+// For old-style names (repo/branch format), extracts the last part.
+// For new-style names (simple display name), returns as-is.
 func SessionDisplayName(branch, name string) string {
-	if branch != "" && !strings.HasPrefix(branch, "plural-") {
-		return branch
-	}
+	// If name contains slashes (old format like "repo/branch"), extract last part
 	if parts := strings.Split(name, "/"); len(parts) > 1 {
 		return parts[len(parts)-1]
 	}
+	// Simple name - return as-is
 	return name
 }

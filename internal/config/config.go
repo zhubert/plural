@@ -345,14 +345,15 @@ func (c *Config) MarkSessionMergedToParent(sessionID string) bool {
 	return false
 }
 
-// RenameSession updates the name of a session
-func (c *Config) RenameSession(sessionID, newName string) bool {
+// RenameSession updates the name and branch of a session
+func (c *Config) RenameSession(sessionID, newName, newBranch string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	for i := range c.Sessions {
 		if c.Sessions[i].ID == sessionID {
 			c.Sessions[i].Name = newName
+			c.Sessions[i].Branch = newBranch
 			return true
 		}
 	}

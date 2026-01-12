@@ -924,3 +924,18 @@ func FetchGitHubIssues(repoPath string) ([]GitHubIssue, error) {
 
 	return issues, nil
 }
+
+// RenameBranch renames a git branch in the given worktree.
+// The worktree must have the branch checked out.
+func RenameBranch(worktreePath, oldName, newName string) error {
+	cmd := exec.Command("git", "branch", "-m", oldName, newName)
+	cmd.Dir = worktreePath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git branch rename failed: %s: %w", string(output), err)
+	}
+
+	logger.Log("Git: Renamed branch %q to %q in %s", oldName, newName, worktreePath)
+	return nil
+}

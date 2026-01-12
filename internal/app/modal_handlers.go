@@ -900,8 +900,43 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 			m.modal.SetError("Name cannot be empty")
 			return m, nil
 		}
-		// Update the session name in config
-		if !m.config.RenameSession(state.SessionID, newName) {
+
+		// Get the session to access worktree path and old branch name
+		sess := m.config.GetSession(state.SessionID)
+		if sess == nil {
+			m.modal.SetError("Session not found")
+			return m, nil
+		}
+
+		oldBranch := sess.Branch
+
+		// Apply branch prefix if configured
+		branchPrefix := m.config.GetDefaultBranchPrefix()
+		newBranch := branchPrefix + newName
+
+		// Validate the new branch name
+		if err := session.ValidateBranchName(newName); err != nil {
+			m.modal.SetError(err.Error())
+			return m, nil
+		}
+
+		// Check if new branch already exists (unless it's the same name)
+		if newBranch != oldBranch && session.BranchExists(sess.RepoPath, newBranch) {
+			m.modal.SetError("Branch already exists: " + newBranch)
+			return m, nil
+		}
+
+		// Rename the git branch
+		if newBranch != oldBranch {
+			if err := git.RenameBranch(sess.WorkTree, oldBranch, newBranch); err != nil {
+				m.modal.SetError("Failed to rename branch: " + err.Error())
+				return m, nil
+			}
+		}
+
+		// Update the session name and branch in config
+		// Name stores the full branch name (same as branch) for display
+		if !m.config.RenameSession(state.SessionID, newBranch, newBranch) {
 			m.modal.SetError("Failed to rename session")
 			return m, nil
 		}
@@ -909,13 +944,14 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		logger.Log("App: Renamed session %s to %q", state.SessionID, newName)
+		logger.Log("App: Renamed session %s: branch=%q", state.SessionID, newBranch)
+
 		// Update sidebar and header
 		m.sidebar.SetSessions(m.config.GetSessions())
 		if m.activeSession != nil && m.activeSession.ID == state.SessionID {
-			m.activeSession.Name = newName
-			displayName := ui.SessionDisplayName(m.activeSession.Branch, newName)
-			m.header.SetSessionName(displayName)
+			m.activeSession.Name = newBranch
+			m.activeSession.Branch = newBranch
+			m.header.SetSessionName(newBranch)
 		}
 		m.modal.Hide()
 		return m, nil

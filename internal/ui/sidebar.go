@@ -773,15 +773,13 @@ func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, sessionIdx int
 		}
 	}
 
-	// Use branch name if it's a custom branch, otherwise use the short ID from name
+	// Display the session name (extracts last part for old-style names)
 	var displayName string
-	if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
-		// Custom branch name - show it
-		displayName = prefix + sess.Branch
-	} else if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
-		// Extract short ID from name
+	if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
+		// Old format like "repo/branch" - extract last part
 		displayName = prefix + parts[len(parts)-1]
 	} else {
+		// Simple name - use as-is
 		displayName = prefix + sess.Name
 	}
 

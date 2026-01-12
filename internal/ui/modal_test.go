@@ -735,25 +735,21 @@ func TestSessionDisplayName(t *testing.T) {
 		name     string
 		expected string
 	}{
-		// Custom branch name (not starting with "plural-")
-		{"my-feature-branch", "repo/abc123", "my-feature-branch"},
-		{"fix/bug-123", "repo/def456", "fix/bug-123"},
-
-		// Auto-generated branch name (starting with "plural-")
+		// Old-style names with slashes - extracts last part
+		{"my-feature-branch", "repo/my-feature-branch", "my-feature-branch"},
+		{"fix/bug-123", "repo/fix/bug-123", "bug-123"},
 		{"plural-abc123", "repo/abc123", "abc123"},
-
-		// No branch, extract short ID from name
 		{"", "myrepo/short-id", "short-id"},
 		{"", "repo/with/multiple/parts/final", "final"},
 
-		// No branch, simple name
+		// Simple names (new style after rename) - returns as-is
+		{"my-feature-branch", "custom-name", "custom-name"},
+		{"fix/bug-123", "my renamed session", "my renamed session"},
 		{"", "simple-session", "simple-session"},
 
-		// Edge case: empty both
+		// Edge case: empty name
 		{"", "", ""},
-
-		// Edge case: branch is just "plural-" prefix with nothing
-		{"plural-", "fallback/id", "id"},
+		{"plural-", "", ""},
 	}
 
 	for _, tt := range tests {

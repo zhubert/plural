@@ -386,7 +386,9 @@ func shortcutImportIssues(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutRenameSession(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
-	currentName := ui.SessionDisplayName(sess.Branch, sess.Name)
+	// Get current name without the branch prefix (so user edits just the base name)
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+	currentName := strings.TrimPrefix(sess.Branch, branchPrefix)
 	m.modal.Show(ui.NewRenameSessionState(sess.ID, currentName))
 	return m, nil
 }
