@@ -79,14 +79,16 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 | `Enter` | Select session |
 | `↑/↓` or `j/k` | Navigate sessions |
 | `/` | Search sessions |
+| `r` | Rename selected session |
 | `f` | Fork selected session |
 | `m` | Merge or create PR |
 | `v` | View uncommitted changes |
 | `d` | Delete session |
-| `Ctrl+F` | Force resume (hung session) |
+| `ctrl-f` | Force resume (hung session) |
+| `ctrl-e` | Open terminal in worktree |
 | `s` | Manage MCP servers |
 | `t` | Change theme |
-| `o` | Toggle notifications |
+| `,` | Settings |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -96,8 +98,9 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 |-----|--------|
 | `Enter` | Send message |
 | `Esc` | Stop Claude response |
-| `Ctrl+V` | Paste image from clipboard |
-| `Ctrl+P` | Fork detected options |
+| `ctrl-v` | Paste image from clipboard |
+| `ctrl-p` | Fork detected options |
+| `ctrl-/` | Search messages |
 | `Tab` | Switch to sidebar |
 
 ### Permission Prompts
@@ -107,6 +110,18 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 | `y` | Allow this operation |
 | `n` | Deny this operation |
 | `a` | Always allow this tool |
+
+## View Changes
+
+Review uncommitted changes before merging:
+
+1. Select a session in the sidebar
+2. Press `v` to view changes
+3. Navigate between files with `←/→` or `h/l`
+4. Scroll the diff with `↑/↓`, `j/k`, or `PgUp/PgDn`
+5. Press `Esc` or `q` to close
+
+The navigation bar shows the current file's status (M=modified, A=added, D=deleted), filename, and position in the file list.
 
 ## How Sessions Work
 
@@ -140,6 +155,26 @@ With many sessions, use `/` to search:
 2. Type to filter by branch name, session name, or repo
 3. Use `↑/↓` to navigate results
 4. Press `Enter` to select, `Esc` to cancel
+
+## Renaming Sessions
+
+Give sessions meaningful names:
+
+1. Select a session in the sidebar
+2. Press `r` to open the rename modal
+3. Enter the new name and press `Enter`
+
+The git branch is also renamed to match (with the configured branch prefix applied).
+
+## Opening a Terminal
+
+Work directly in a session's worktree:
+
+1. Select a session in the sidebar
+2. Press `ctrl-e` to open a new terminal window
+3. The terminal opens at the session's worktree directory
+
+Useful for running tests, checking git status, or manual edits alongside Claude's work.
 
 ## GitHub Issue Import
 
@@ -205,15 +240,14 @@ Press `t` to choose from:
 - Catppuccin Mocha
 - Light
 
-## Desktop Notifications
+## Settings
 
-Get notified when Claude finishes responding while Plural is in the background:
+Press `,` to open the Settings modal:
 
-1. Press `o` to enable notifications
-2. Switch to another app while Claude is working
-3. You'll receive a desktop notification when the response is ready
+- **Branch prefix**: Set a default prefix for auto-generated branch names (e.g., `yourname/` creates branches like `yourname/plural-abc123`)
+- **Desktop notifications**: Toggle notifications when Claude finishes while Plural is in the background
 
-**Platform notes:**
+**Notification platform notes:**
 - **macOS**: Works out of the box. For better notifications, install `terminal-notifier` (`brew install terminal-notifier`)
 - **Linux**: Requires a notification daemon (most desktop environments have one) or `notify-send`
 - **Windows 10+**: Works out of the box
@@ -237,7 +271,7 @@ plural --check-prereqs  # Verify required tools
 If a session shows ⛔ (stuck from a crash):
 
 1. Select the session
-2. Press `f` to force resume
+2. Press `ctrl-f` to force resume
 3. Plural kills orphaned processes and resets the session
 
 ## Troubleshooting

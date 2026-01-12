@@ -171,14 +171,13 @@ Each issue becomes a session with branch name `issue-{number}`. The issue number
 
 ### View Changes (Pre-Merge Diff Review)
 
-Review file diffs before merging with a file-by-file navigator:
+Review file diffs before merging with a single-pane view and file navigation bar:
 
 1. **Press `v`** when a session is selected in the sidebar
-2. **Two-pane layout**: Left pane shows file list, right pane shows diff content
-3. **Navigate files**: Use ↑/↓ to select different files in the list
-4. **Switch panes**: Use ←/→ or h/l to switch between file list and diff pane
-5. **Scroll diff**: Use j/k or PgUp/PgDn when in the diff pane
-6. **Exit**: Press Esc or q to close
+2. **Navigation bar**: Shows current file with status code, filename, and position (e.g., "← [M] src/file.go (3 of 7) →")
+3. **Navigate files**: Use ←/→ or h/l to switch between files
+4. **Scroll diff**: Use ↑/↓, j/k, or PgUp/PgDn to scroll the diff content
+5. **Exit**: Press Esc or q to close
 
 Each file shows its status code (M=modified, A=added, D=deleted) and the diff is syntax-highlighted with additions in green and deletions in red.
 
