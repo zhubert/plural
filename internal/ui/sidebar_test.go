@@ -25,10 +25,6 @@ func TestNewSidebar(t *testing.T) {
 	if sidebar.pendingPermissions == nil {
 		t.Error("pendingPermissions map should be initialized")
 	}
-
-	if sidebar.sessionsInUse == nil {
-		t.Error("sessionsInUse map should be initialized")
-	}
 }
 
 func TestSidebar_SetSize(t *testing.T) {
@@ -265,33 +261,6 @@ func TestSidebar_PendingPermission(t *testing.T) {
 	}
 }
 
-func TestSidebar_SessionInUse(t *testing.T) {
-	sidebar := NewSidebar()
-
-	// Initially no sessions in use
-	if sidebar.HasSessionInUse("session-1") {
-		t.Error("Should not have session in use initially")
-	}
-
-	// Set session in use
-	sidebar.SetSessionInUse("session-1", true)
-
-	if !sidebar.HasSessionInUse("session-1") {
-		t.Error("Should have session in use after set")
-	}
-
-	if sidebar.HasSessionInUse("session-2") {
-		t.Error("Session-2 should not be in use")
-	}
-
-	// Clear session in use
-	sidebar.SetSessionInUse("session-1", false)
-
-	if sidebar.HasSessionInUse("session-1") {
-		t.Error("Should not have session in use after clear")
-	}
-}
-
 func TestSidebar_SpinnerFrames(t *testing.T) {
 	if len(sidebarSpinnerFrames) == 0 {
 		t.Error("sidebarSpinnerFrames should not be empty")
@@ -354,7 +323,6 @@ func TestSidebar_View_WithIndicators(t *testing.T) {
 	sidebar.SetSessions(sessions)
 	sidebar.SetStreaming("session-1", true)
 	sidebar.SetPendingPermission("session-2", true)
-	sidebar.SetSessionInUse("session-3", true)
 
 	// Should not panic when rendering with all indicators
 	view := sidebar.View()

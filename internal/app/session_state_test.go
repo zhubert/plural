@@ -237,27 +237,6 @@ func TestSessionStateManager_Streaming(t *testing.T) {
 	}
 }
 
-func TestSessionStateManager_SessionInUseError(t *testing.T) {
-	m := NewSessionStateManager()
-
-	// Initially false
-	if m.HasSessionInUseError("session-1") {
-		t.Error("expected no error initially")
-	}
-
-	// Set error
-	m.SetSessionInUseError("session-1", true)
-	if !m.HasSessionInUseError("session-1") {
-		t.Error("expected error after SetSessionInUseError(true)")
-	}
-
-	// Clear error
-	m.SetSessionInUseError("session-1", false)
-	if m.HasSessionInUseError("session-1") {
-		t.Error("expected no error after SetSessionInUseError(false)")
-	}
-}
-
 func TestSessionStateManager_DeleteCancelsOperations(t *testing.T) {
 	m := NewSessionStateManager()
 

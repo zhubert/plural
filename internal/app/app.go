@@ -646,31 +646,6 @@ func (m *Model) selectSession(sess *config.Session) {
 	logger.Log("App: Session selected and focused: %s", sess.ID)
 }
 
-// forceResumeSession kills any orphaned Claude processes for the session and clears the error state
-func (m *Model) forceResumeSession(sess *config.Session) (tea.Model, tea.Cmd) {
-	// Use SessionManager to handle force resume
-	result := m.sessionMgr.ForceResume(sess)
-	if result.Error != nil {
-		m.chat.AppendStreaming(fmt.Sprintf("\n[Error killing orphaned processes: %v]", result.Error))
-		return m, nil
-	}
-
-	// Update sidebar UI
-	m.sidebar.SetSessionInUse(sess.ID, false)
-
-	// Show result in chat
-	if result.Killed > 0 {
-		m.chat.AppendStreaming(fmt.Sprintf("\n[Killed %d orphaned process(es). Session ready to resume.]", result.Killed))
-	} else {
-		m.chat.AppendStreaming("\n[No orphaned processes found. Session state cleared.]")
-	}
-
-	// Re-select the session to create a fresh runner
-	m.selectSession(sess)
-
-	return m, nil
-}
-
 // handleImagePaste attempts to read an image from the clipboard and attach it
 func (m *Model) handleImagePaste() (tea.Model, tea.Cmd) {
 	logger.Debug("App: Handling image paste")
@@ -1123,12 +1098,10 @@ func (m *Model) View() tea.View {
 	hasPendingPermission := m.activeSession != nil && m.sessionState().GetPendingPermission(m.activeSession.ID) != nil
 	hasPendingQuestion := m.activeSession != nil && m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil
 	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
-	selectedSess := m.sidebar.SelectedSession()
-	sessionInUse := selectedSess != nil && m.sessionState().HasSessionInUseError(selectedSess.ID)
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
 	hasDetectedOptions := m.activeSession != nil && m.sessionState().HasDetectedOptions(m.activeSession.ID)
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, sessionInUse, viewChangesMode, searchMode, hasDetectedOptions)
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, hasDetectedOptions)
 
 	header := m.header.View()
 	footer := m.footer.View()

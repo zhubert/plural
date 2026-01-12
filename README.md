@@ -84,7 +84,6 @@ Shortcuts are context-aware and shown in the footer. Press `?` to see all shortc
 | `m` | Merge or create PR |
 | `v` | View uncommitted changes |
 | `d` | Delete session |
-| `ctrl-f` | Force resume (hung session) |
 | `ctrl-e` | Open terminal in worktree |
 | `s` | Manage MCP servers |
 | `t` | Change theme |
@@ -265,14 +264,6 @@ plural --clear   # Remove all sessions
 plural --prune   # Clean up orphaned worktrees
 plural --check-prereqs  # Verify required tools
 ```
-
-## Recovering Hung Sessions
-
-If a session shows ⛔ (stuck from a crash):
-
-1. Select the session
-2. Press `ctrl-f` to force resume
-3. Plural kills orphaned processes and resets the session
 
 ## Troubleshooting
 

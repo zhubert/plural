@@ -32,9 +32,6 @@ type SessionState struct {
 	StreamingContent string // In-progress streaming content
 	ToolUsePos       int    // Position of tool use marker for replacement
 
-	// Error state
-	SessionInUseError bool // Whether session has "session in use" error
-
 	// Parallel options state
 	DetectedOptions []DetectedOption // Options detected in last assistant message
 
@@ -393,26 +390,6 @@ func (m *SessionStateManager) ClearToolUsePos(sessionID string) {
 	if state, exists := m.states[sessionID]; exists {
 		state.ToolUsePos = -1
 	}
-}
-
-// SetSessionInUseError sets whether a session has a "session in use" error.
-func (m *SessionStateManager) SetSessionInUseError(sessionID string, hasError bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.SessionInUseError = hasError
-}
-
-// HasSessionInUseError returns whether a session has a "session in use" error.
-func (m *SessionStateManager) HasSessionInUseError(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.SessionInUseError
-	}
-	return false
 }
 
 // ReplaceToolUseMarker replaces the tool use marker in streaming content.
