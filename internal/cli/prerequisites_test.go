@@ -246,7 +246,6 @@ func TestCheckResult_Fields(t *testing.T) {
 		Found:        true,
 		Path:         "/usr/bin/test",
 		Version:      "2.0.0",
-		Error:        nil,
 	}
 
 	if result.Prerequisite.Name != "test" {
@@ -262,3 +261,4 @@ func TestCheckResult_Fields(t *testing.T) {
 		t.Error("Version field mismatch")
 	}
 }
+

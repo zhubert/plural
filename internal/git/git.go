@@ -100,14 +100,14 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 		status.Summary = fmt.Sprintf("%d files changed", fileCount)
 	}
 
-	// Get diff
-	cmd = exec.Command("git", "diff", "HEAD")
+	// Get diff (use --no-ext-diff to ensure output goes to stdout even if external diff is configured)
+	cmd = exec.Command("git", "diff", "--no-ext-diff", "HEAD")
 	cmd.Dir = worktreePath
 	diffOutput, err := cmd.Output()
 	if err != nil {
 		// If HEAD doesn't exist (new repo), try diff without HEAD
 		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
-		cmd = exec.Command("git", "diff")
+		cmd = exec.Command("git", "diff", "--no-ext-diff")
 		cmd.Dir = worktreePath
 		diffOutput, err = cmd.Output()
 		if err != nil {
@@ -116,7 +116,7 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	}
 
 	// Also include staged changes in diff-like format
-	cmd = exec.Command("git", "diff", "--cached")
+	cmd = exec.Command("git", "diff", "--no-ext-diff", "--cached")
 	cmd.Dir = worktreePath
 	cachedDiff, err := cmd.Output()
 	if err != nil {
@@ -228,8 +228,8 @@ func GenerateCommitMessage(worktreePath string) (string, error) {
 		return "", fmt.Errorf("no changes to commit")
 	}
 
-	// Get the diff stats for a better message
-	cmd := exec.Command("git", "diff", "--stat", "HEAD")
+	// Get the diff stats for a better message (use --no-ext-diff to ensure output goes to stdout)
+	cmd := exec.Command("git", "diff", "--no-ext-diff", "--stat", "HEAD")
 	cmd.Dir = worktreePath
 	statOutput, err := cmd.Output()
 	if err != nil {
@@ -262,14 +262,14 @@ func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (
 		return "", fmt.Errorf("no changes to commit")
 	}
 
-	// Get the full diff for Claude to analyze
-	cmd := exec.CommandContext(ctx, "git", "diff", "HEAD")
+	// Get the full diff for Claude to analyze (use --no-ext-diff to ensure output goes to stdout)
+	cmd := exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", "HEAD")
 	cmd.Dir = worktreePath
 	diffOutput, err := cmd.Output()
 	if err != nil {
 		// Try without HEAD for new repos
 		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
-		cmd = exec.CommandContext(ctx, "git", "diff")
+		cmd = exec.CommandContext(ctx, "git", "diff", "--no-ext-diff")
 		cmd.Dir = worktreePath
 		diffOutput, err = cmd.Output()
 		if err != nil {
@@ -278,7 +278,7 @@ func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (
 	}
 
 	// Also get staged changes
-	cmd = exec.CommandContext(ctx, "git", "diff", "--cached")
+	cmd = exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", "--cached")
 	cmd.Dir = worktreePath
 	cachedOutput, err := cmd.Output()
 	if err != nil {
@@ -344,8 +344,8 @@ func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueN
 		return "", "", fmt.Errorf("failed to get commit log: %w", err)
 	}
 
-	// Get the diff from base branch
-	cmd = exec.CommandContext(ctx, "git", "diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
+	// Get the diff from base branch (use --no-ext-diff to ensure output goes to stdout)
+	cmd = exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
 	cmd.Dir = repoPath
 	diffOutput, err := cmd.Output()
 	if err != nil {
