@@ -1,6 +1,8 @@
 package modals
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -77,9 +79,10 @@ func NewWelcomeState() *WelcomeState {
 // =============================================================================
 
 type ChangelogState struct {
-	Entries      []ChangelogEntry
-	ScrollOffset int
-	MaxVisible   int
+	Entries         []ChangelogEntry
+	ScrollOffset    int
+	maxVisibleLines int
+	totalLines      int
 }
 
 func (*ChangelogState) modalState() {}
@@ -87,7 +90,7 @@ func (*ChangelogState) modalState() {}
 func (s *ChangelogState) Title() string { return "What's New" }
 
 func (s *ChangelogState) Help() string {
-	if len(s.Entries) > s.MaxVisible {
+	if s.totalLines > s.maxVisibleLines {
 		return "up/down scroll  Enter/Esc: dismiss"
 	}
 	return "Press Enter or Esc to dismiss"
@@ -100,14 +103,13 @@ func (s *ChangelogState) Render() string {
 		MarginBottom(1).
 		Render(s.Title())
 
-	// Build changelog content
-	var content string
+	// Build all lines first to enable line-based scrolling
+	// Each entry in allLines represents one visual line (after text wrapping)
+	var allLines []string
+
 	for i, entry := range s.Entries {
-		if i < s.ScrollOffset {
-			continue
-		}
-		if i >= s.ScrollOffset+s.MaxVisible {
-			break
+		if i > 0 {
+			allLines = append(allLines, "") // Blank line between versions
 		}
 
 		// Version header
@@ -119,31 +121,52 @@ func (s *ChangelogState) Render() string {
 			Bold(true).
 			Foreground(ColorPrimary).
 			Render(versionStr)
+		allLines = append(allLines, versionLine)
 
-		// Changes
-		var changes string
+		// Changes - handle text wrapping by splitting into individual visual lines
 		for _, change := range entry.Changes {
-			bullet := lipgloss.NewStyle().
-				Foreground(ColorSecondary).
-				Render("  - ")
 			changeText := lipgloss.NewStyle().
 				Foreground(ColorText).
 				Width(45).
 				Render(change)
-			changes += bullet + changeText + "\n"
-		}
-
-		content += versionLine + "\n" + changes
-		if i < len(s.Entries)-1 && i < s.ScrollOffset+s.MaxVisible-1 {
-			content += "\n"
+			// Split wrapped text into individual lines
+			wrappedLines := strings.Split(changeText, "\n")
+			for j, line := range wrappedLines {
+				bullet := lipgloss.NewStyle().
+					Foreground(ColorSecondary).
+					Render("  - ")
+				if j == 0 {
+					allLines = append(allLines, bullet+line)
+				} else {
+					// Continuation lines get padding to align with first line
+					allLines = append(allLines, "    "+line)
+				}
+			}
 		}
 	}
 
+	s.totalLines = len(allLines)
+
+	// Apply scroll offset and limit visible lines
+	var visibleLines []string
+	for i, line := range allLines {
+		if i < s.ScrollOffset {
+			continue
+		}
+		if len(visibleLines) >= s.maxVisibleLines {
+			break
+		}
+		visibleLines = append(visibleLines, line)
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, visibleLines...)
+
 	// Scroll indicator
-	if len(s.Entries) > s.MaxVisible {
+	if s.totalLines > s.maxVisibleLines {
 		scrollInfo := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
+			MarginTop(1).
 			Render("(scroll for more)")
 		content += "\n" + scrollInfo
 	}
@@ -154,14 +177,29 @@ func (s *ChangelogState) Render() string {
 }
 
 func (s *ChangelogState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch msg.String() {
 		case "up", "k":
 			if s.ScrollOffset > 0 {
 				s.ScrollOffset--
 			}
 		case "down", "j":
-			if s.ScrollOffset < len(s.Entries)-s.MaxVisible {
+			maxOffset := max(0, s.totalLines-s.maxVisibleLines)
+			if s.ScrollOffset < maxOffset {
+				s.ScrollOffset++
+			}
+		}
+	case tea.MouseWheelMsg:
+		maxOffset := max(0, s.totalLines-s.maxVisibleLines)
+		if msg.Y < 0 {
+			// Scroll up
+			if s.ScrollOffset > 0 {
+				s.ScrollOffset--
+			}
+		} else if msg.Y > 0 {
+			// Scroll down
+			if s.ScrollOffset < maxOffset {
 				s.ScrollOffset++
 			}
 		}
@@ -172,9 +210,9 @@ func (s *ChangelogState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 // NewChangelogState creates a new ChangelogState
 func NewChangelogState(entries []ChangelogEntry) *ChangelogState {
 	return &ChangelogState{
-		Entries:      entries,
-		ScrollOffset: 0,
-		MaxVisible:   5,
+		Entries:         entries,
+		ScrollOffset:    0,
+		maxVisibleLines: 15,
 	}
 }
 

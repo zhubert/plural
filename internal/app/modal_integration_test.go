@@ -1236,11 +1236,14 @@ func TestChangelogModal_Scroll(t *testing.T) {
 	state := m.modal.State.(*ui.ChangelogState)
 	initialOffset := state.ScrollOffset
 
+	// Render once to populate totalLines
+	_ = state.Render()
+
 	// Scroll down
 	m = sendKey(m, "down")
 	state = m.modal.State.(*ui.ChangelogState)
 
-	if state.ScrollOffset == initialOffset && len(entries) > state.MaxVisible {
+	if state.ScrollOffset == initialOffset && len(entries) > 1 {
 		t.Log("Scroll should change when there are more entries than visible")
 	}
 
