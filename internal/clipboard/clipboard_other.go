@@ -82,3 +82,16 @@ func ReadImage() (*ImageData, error) {
 		Height:    height,
 	}, nil
 }
+
+// WriteText writes text to the clipboard.
+func WriteText(text string) error {
+	if !initialized {
+		if err := Init(); err != nil {
+			return err
+		}
+	}
+
+	clipboard.Write(clipboard.FmtText, []byte(text))
+	logger.Log("Clipboard: Wrote %d bytes of text", len(text))
+	return nil
+}

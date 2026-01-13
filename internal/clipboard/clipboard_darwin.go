@@ -130,6 +130,23 @@ unsigned long readImageFromPasteboard(void **outData) {
 void freeImageData(void *data) {
     free(data);
 }
+
+// writeTextToPasteboard writes text to the macOS pasteboard.
+// Returns 1 on success, 0 on failure.
+int writeTextToPasteboard(const char *text, unsigned long length) {
+    @autoreleasepool {
+        NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+        [pasteboard clearContents];
+
+        NSString *string = [[NSString alloc] initWithBytes:text length:length encoding:NSUTF8StringEncoding];
+        if (string == nil) {
+            return 0;
+        }
+
+        BOOL success = [pasteboard setString:string forType:NSPasteboardTypeString];
+        return success ? 1 : 0;
+    }
+}
 */
 import "C"
 
@@ -208,4 +225,20 @@ func ReadImage() (*ImageData, error) {
 		Width:     width,
 		Height:    height,
 	}, nil
+}
+
+// WriteText writes text to the clipboard.
+func WriteText(text string) error {
+	logger.Log("Clipboard: Writing text using native macOS API")
+
+	cText := C.CString(text)
+	defer C.free(unsafe.Pointer(cText))
+
+	result := C.writeTextToPasteboard(cText, C.ulong(len(text)))
+	if result == 0 {
+		return fmt.Errorf("failed to write text to clipboard")
+	}
+
+	logger.Log("Clipboard: Wrote %d bytes of text", len(text))
+	return nil
 }

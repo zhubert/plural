@@ -16,8 +16,12 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/reflow/wordwrap"
+	"github.com/rivo/uniseg"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
@@ -145,6 +149,19 @@ type Chat struct {
 
 	// Queued message waiting to be sent after streaming completes
 	queuedMessage string
+
+	// Text selection state
+	selectionStartCol  int
+	selectionStartLine int
+	selectionEndCol    int
+	selectionEndLine   int
+	selectionActive    bool // true during drag
+
+	// Click tracking for double/triple click detection
+	lastClickTime time.Time
+	lastClickX    int
+	lastClickY    int
+	clickCount    int
 }
 
 // NewChat creates a new chat panel
@@ -1343,7 +1360,58 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, tea.Batch(cmds...)
 	}
 
-	switch msg.(type) {
+	// Handle mouse events for text selection
+	switch msg := msg.(type) {
+	case tea.MouseClickMsg:
+		if c.hasSession && msg.Button == tea.MouseLeft {
+			// Adjust coordinates for panel border
+			x := msg.X - 1
+			y := msg.Y - 1
+			if x >= 0 && y >= 0 {
+				c.handleMouseClick(x, y)
+			}
+		}
+		return c, nil
+
+	case tea.MouseMotionMsg:
+		if c.hasSession && c.selectionActive && msg.Button == tea.MouseLeft {
+			// Adjust coordinates for panel border
+			x := msg.X - 1
+			y := msg.Y - 1
+			c.EndSelection(x, y)
+		}
+		return c, nil
+
+	case tea.MouseReleaseMsg:
+		if c.hasSession && msg.Button == tea.MouseLeft && c.selectionActive {
+			// Adjust coordinates for panel border
+			x := msg.X - 1
+			y := msg.Y - 1
+			c.EndSelection(x, y)
+			clickCount := c.clickCount
+
+			// Schedule delayed copy to allow for multi-click detection
+			tick := tea.Tick(doubleClickThreshold, func(time.Time) tea.Msg {
+				return SelectionCopyMsg{
+					clickCount:   clickCount,
+					endSelection: true,
+					x:            x,
+					y:            y,
+				}
+			})
+			return c, tick
+		}
+		return c, nil
+
+	case SelectionCopyMsg:
+		if msg.clickCount == c.clickCount && time.Since(c.lastClickTime) >= doubleClickThreshold {
+			// If the click count matches and threshold has passed, copy selected text
+			c.SelectionStop()
+			cmds = append(cmds, c.CopySelectedText())
+			return c, tea.Batch(cmds...)
+		}
+		return c, nil
+
 	case StopwatchTickMsg:
 		if c.waiting {
 			// Advance the spinner with easing (some frames hold longer)
@@ -1392,6 +1460,13 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 			case "tab":
 				// Don't let textarea consume Tab - let it bubble up for focus switching
 				return c, tea.Batch(cmds...)
+			case "esc":
+				// Clear text selection if there is one
+				if c.HasTextSelection() {
+					c.SelectionClear()
+					return c, nil
+				}
+				// Otherwise let it bubble up for other handlers (stop streaming, etc.)
 			}
 		}
 
@@ -1432,6 +1507,10 @@ func (c *Chat) View() string {
 		viewportContent = c.renderNoSessionMessage()
 	} else {
 		viewportContent = c.viewport.View()
+		// Apply selection highlighting if there's an active selection
+		if c.HasTextSelection() {
+			viewportContent = c.selectionView(viewportContent)
+		}
 	}
 
 	if !c.hasSession {
@@ -1558,4 +1637,336 @@ func (c *Chat) renderFileNavBar(width int) string {
 		Width(width)
 
 	return barStyle.Render(navContent)
+}
+
+// SelectionCopyMsg is sent after a delay to handle copying selected text
+type SelectionCopyMsg struct {
+	clickCount   int
+	endSelection bool
+	x, y         int
+}
+
+const (
+	doubleClickThreshold = 500 * time.Millisecond
+	clickTolerance       = 2 // pixels
+)
+
+// StartSelection begins a text selection at the given coordinates
+func (c *Chat) StartSelection(col, line int) {
+	c.selectionStartCol = col
+	c.selectionStartLine = line
+	c.selectionEndCol = col
+	c.selectionEndLine = line
+	c.selectionActive = true
+}
+
+// EndSelection updates the end position of the selection during drag
+func (c *Chat) EndSelection(col, line int) {
+	if !c.selectionActive {
+		return
+	}
+	c.selectionEndCol = col
+	c.selectionEndLine = line
+}
+
+// SelectionStop ends the drag but keeps the selection visible
+func (c *Chat) SelectionStop() {
+	c.selectionActive = false
+}
+
+// SelectionClear clears the selection entirely
+func (c *Chat) SelectionClear() {
+	c.selectionStartCol = -1
+	c.selectionStartLine = -1
+	c.selectionEndCol = -1
+	c.selectionEndLine = -1
+	c.selectionActive = false
+}
+
+// HasTextSelection returns true if there is an active or completed selection
+func (c *Chat) HasTextSelection() bool {
+	return c.selectionStartCol >= 0 && c.selectionStartLine >= 0 &&
+		(c.selectionEndCol != c.selectionStartCol || c.selectionEndLine != c.selectionStartLine)
+}
+
+// handleMouseClick handles mouse click events and detects double/triple clicks
+func (c *Chat) handleMouseClick(x, y int) tea.Cmd {
+	now := time.Now()
+
+	// Check if this is a potential multi-click
+	if now.Sub(c.lastClickTime) <= doubleClickThreshold &&
+		abs(x-c.lastClickX) <= clickTolerance &&
+		abs(y-c.lastClickY) <= clickTolerance {
+		c.clickCount++
+	} else {
+		c.clickCount = 1
+	}
+
+	c.lastClickTime = now
+	c.lastClickX = x
+	c.lastClickY = y
+
+	switch c.clickCount {
+	case 1:
+		// Single click - start selection
+		c.StartSelection(x, y)
+	case 2:
+		// Double click - select word
+		c.SelectWord(x, y)
+	case 3:
+		// Triple click - select line/paragraph
+		c.SelectParagraph(x, y)
+		c.clickCount = 0 // Reset after triple click
+	}
+
+	return nil
+}
+
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// SelectWord selects the word at the given position
+func (c *Chat) SelectWord(col, line int) {
+	// Get the content from the viewport
+	content := c.viewport.View()
+	lines := strings.Split(content, "\n")
+
+	if line < 0 || line >= len(lines) {
+		return
+	}
+
+	currentLine := ansi.Strip(lines[line])
+	if col < 0 || col >= len(currentLine) {
+		return
+	}
+
+	// Find word boundaries using uniseg
+	startCol := col
+	endCol := col
+
+	// Search backward for word start
+	gr := uniseg.NewGraphemes(currentLine[:col])
+	pos := 0
+	lastBoundary := 0
+	for gr.Next() {
+		if gr.IsWordBoundary() {
+			lastBoundary = pos
+		}
+		pos += len(gr.Str())
+	}
+	startCol = lastBoundary
+
+	// Search forward for word end
+	gr = uniseg.NewGraphemes(currentLine[col:])
+	pos = col
+	for gr.Next() {
+		if gr.IsWordBoundary() {
+			endCol = pos
+			break
+		}
+		pos += len(gr.Str())
+	}
+	if endCol <= col {
+		endCol = len(currentLine)
+	}
+
+	c.selectionStartCol = startCol
+	c.selectionStartLine = line
+	c.selectionEndCol = endCol
+	c.selectionEndLine = line
+	c.selectionActive = false
+}
+
+// SelectParagraph selects the paragraph/line at the given position
+func (c *Chat) SelectParagraph(col, line int) {
+	// Get the content from the viewport
+	content := c.viewport.View()
+	lines := strings.Split(content, "\n")
+
+	if line < 0 || line >= len(lines) {
+		return
+	}
+
+	// Find paragraph boundaries (search for empty lines)
+	startLine := line
+	endLine := line
+
+	// Search backward for paragraph start
+	for startLine > 0 {
+		prevLine := ansi.Strip(lines[startLine-1])
+		if strings.TrimSpace(prevLine) == "" {
+			break
+		}
+		startLine--
+	}
+
+	// Search forward for paragraph end
+	for endLine < len(lines)-1 {
+		nextLine := ansi.Strip(lines[endLine+1])
+		if strings.TrimSpace(nextLine) == "" {
+			break
+		}
+		endLine++
+	}
+
+	// Get the width of the last line in the paragraph
+	lastLineWidth := len(ansi.Strip(lines[endLine]))
+
+	c.selectionStartCol = 0
+	c.selectionStartLine = startLine
+	c.selectionEndCol = lastLineWidth
+	c.selectionEndLine = endLine
+	c.selectionActive = false
+}
+
+// selectionArea returns the normalized selection area (start < end)
+func (c *Chat) selectionArea() (startCol, startLine, endCol, endLine int) {
+	startCol = c.selectionStartCol
+	startLine = c.selectionStartLine
+	endCol = c.selectionEndCol
+	endLine = c.selectionEndLine
+
+	// Normalize so start is before end
+	if startLine > endLine || (startLine == endLine && startCol > endCol) {
+		startCol, endCol = endCol, startCol
+		startLine, endLine = endLine, startLine
+	}
+
+	return
+}
+
+// GetSelectedText returns the currently selected text
+func (c *Chat) GetSelectedText() string {
+	if !c.HasTextSelection() {
+		return ""
+	}
+
+	content := c.viewport.View()
+	lines := strings.Split(content, "\n")
+
+	startCol, startLine, endCol, endLine := c.selectionArea()
+
+	var result strings.Builder
+
+	for y := startLine; y <= endLine && y < len(lines); y++ {
+		line := ansi.Strip(lines[y])
+
+		var lineStart, lineEnd int
+		if y == startLine {
+			lineStart = startCol
+		} else {
+			lineStart = 0
+		}
+		if y == endLine {
+			lineEnd = endCol
+		} else {
+			lineEnd = len(line)
+		}
+
+		// Ensure bounds are valid
+		if lineStart < 0 {
+			lineStart = 0
+		}
+		if lineEnd > len(line) {
+			lineEnd = len(line)
+		}
+		if lineStart > lineEnd {
+			lineStart = lineEnd
+		}
+
+		if lineStart < len(line) {
+			result.WriteString(line[lineStart:lineEnd])
+		}
+		if y < endLine {
+			result.WriteString("\n")
+		}
+	}
+
+	return strings.TrimSpace(result.String())
+}
+
+// CopySelectedText copies the selected text to the clipboard
+func (c *Chat) CopySelectedText() tea.Cmd {
+	if !c.HasTextSelection() {
+		return nil
+	}
+
+	selectedText := c.GetSelectedText()
+	if selectedText == "" {
+		return nil
+	}
+
+	return tea.Batch(
+		// OSC 52 escape sequence (works in modern terminals)
+		tea.SetClipboard(selectedText),
+		// Native clipboard fallback
+		func() tea.Msg {
+			_ = clipboard.WriteText(selectedText)
+			return nil
+		},
+	)
+}
+
+// selectionView applies selection highlighting to the rendered view using ultraviolet
+func (c *Chat) selectionView(view string) string {
+	if !c.HasTextSelection() {
+		return view
+	}
+
+	width := c.viewport.Width()
+	height := c.viewport.Height()
+	if width <= 0 || height <= 0 {
+		return view
+	}
+
+	// Create screen buffer from the rendered view
+	area := uv.Rect(0, 0, width, height)
+	scr := uv.NewScreenBuffer(area.Dx(), area.Dy())
+	uv.NewStyledString(view).Draw(scr, area)
+
+	// Get normalized selection coordinates
+	startCol, startLine, endCol, endLine := c.selectionArea()
+
+	// Get selection style colors
+	selBg := TextSelectionStyle.GetBackground()
+	selFg := TextSelectionStyle.GetForeground()
+
+	// Apply selection highlighting
+	for y := startLine; y <= endLine && y < height; y++ {
+		var xStart, xEnd int
+		if y == startLine && y == endLine {
+			// Single line selection
+			xStart = startCol
+			xEnd = endCol
+		} else if y == startLine {
+			// First line of multi-line selection
+			xStart = startCol
+			xEnd = width
+		} else if y == endLine {
+			// Last line of multi-line selection
+			xStart = 0
+			xEnd = endCol
+		} else {
+			// Middle lines
+			xStart = 0
+			xEnd = width
+		}
+
+		for x := xStart; x < xEnd && x < width; x++ {
+			cell := scr.CellAt(x, y)
+			if cell != nil {
+				cell = cell.Clone()
+				cell.Style.Bg = selBg
+				cell.Style.Fg = selFg
+				scr.SetCell(x, y, cell)
+			}
+		}
+	}
+
+	return scr.Render()
 }
