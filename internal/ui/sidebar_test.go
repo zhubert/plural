@@ -336,6 +336,78 @@ func TestSidebar_View_WithIndicators(t *testing.T) {
 	}
 }
 
+func TestSidebar_View_MultipleSpinners(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetSize(60, 24) // Wide enough to show spinners
+
+	sessions := []config.Session{
+		{ID: "session-1", Name: "repo/session1", RepoPath: "/repo", Branch: "b1"},
+		{ID: "session-2", Name: "repo/session2", RepoPath: "/repo", Branch: "b2"},
+		{ID: "session-3", Name: "repo/session3", RepoPath: "/repo", Branch: "b3"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Set multiple sessions as streaming
+	sidebar.SetStreaming("session-1", true)
+	sidebar.SetStreaming("session-2", true)
+	sidebar.SetStreaming("session-3", true)
+
+	// Verify state
+	if !sidebar.IsSessionStreaming("session-1") {
+		t.Error("session-1 should be streaming")
+	}
+	if !sidebar.IsSessionStreaming("session-2") {
+		t.Error("session-2 should be streaming")
+	}
+	if !sidebar.IsSessionStreaming("session-3") {
+		t.Error("session-3 should be streaming")
+	}
+
+	// Get the view and check for spinners
+	view := sidebar.View()
+
+	// Count spinner occurrences - the first spinner frame is "·"
+	spinnerCount := strings.Count(view, sidebarSpinnerFrames[0])
+
+	if spinnerCount < 3 {
+		t.Errorf("Expected at least 3 spinners in view, got %d. View:\n%s", spinnerCount, view)
+	}
+}
+
+func TestSidebar_View_MultipleSpinners_ForkedSessions(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetSize(60, 24) // Wide enough to show spinners
+
+	// Parent session and forked children (mimics createParallelSessions)
+	sessions := []config.Session{
+		{ID: "parent", Name: "repo/parent", RepoPath: "/repo", Branch: "main"},
+		{ID: "child-1", Name: "repo/option-1", RepoPath: "/repo", Branch: "opt1", ParentID: "parent"},
+		{ID: "child-2", Name: "repo/option-2", RepoPath: "/repo", Branch: "opt2", ParentID: "parent"},
+		{ID: "child-3", Name: "repo/option-3", RepoPath: "/repo", Branch: "opt3", ParentID: "parent"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Set all children as streaming (mimics what happens during parallel session creation)
+	sidebar.SetStreaming("child-1", true)
+	sidebar.SetStreaming("child-2", true)
+	sidebar.SetStreaming("child-3", true)
+
+	// Verify state
+	if len(sidebar.streamingSessions) != 3 {
+		t.Errorf("Expected 3 streaming sessions, got %d", len(sidebar.streamingSessions))
+	}
+
+	// Get the view and check for spinners
+	view := sidebar.View()
+
+	// Count spinner occurrences - the first spinner frame is "·"
+	spinnerCount := strings.Count(view, sidebarSpinnerFrames[0])
+
+	if spinnerCount < 3 {
+		t.Errorf("Expected at least 3 spinners in view for forked sessions, got %d. View:\n%s", spinnerCount, view)
+	}
+}
+
 func TestSidebar_GetSelectedLine(t *testing.T) {
 	sidebar := NewSidebar()
 

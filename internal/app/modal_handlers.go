@@ -749,12 +749,18 @@ func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *
 	return m, nil
 }
 
+// issueSessionInfo holds info needed to start an issue session after creation
+type issueSessionInfo struct {
+	Session      *config.Session
+	InitialMsg   string
+}
+
 // createSessionsFromIssues creates new sessions for each selected GitHub issue.
 func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem) (tea.Model, tea.Cmd) {
-	var firstSession *config.Session
-	var firstSessionInitialMsg string
-
 	branchPrefix := m.config.GetDefaultBranchPrefix()
+
+	var createdSessions []issueSessionInfo
+	var firstSession *config.Session
 
 	for _, issue := range issues {
 		// Create branch name from issue number
@@ -781,16 +787,17 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 		initialMsg := fmt.Sprintf("GitHub Issue #%d: %s\n\n%s\n\n---\nPlease help me work on this issue.",
 			issue.Number, issue.Title, issue.Body)
 
-		// Store the initial message in session state - it will be sent when the session is selected
-		m.sessionState().SetInitialMessage(sess.ID, initialMsg)
-
 		// No parent ID - these are top-level sessions
 		logger.Log("App: Created session for issue #%d: id=%s, name=%s", issue.Number, sess.ID, sess.Name)
 
 		m.config.AddSession(*sess)
+		createdSessions = append(createdSessions, issueSessionInfo{
+			Session:    sess,
+			InitialMsg: initialMsg,
+		})
+
 		if firstSession == nil {
 			firstSession = sess
-			firstSessionInitialMsg = initialMsg
 		}
 	}
 
@@ -800,21 +807,60 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 	}
 	m.sidebar.SetSessions(m.config.GetSessions())
 
-	// Select the first created session and trigger sending the initial message
-	if firstSession != nil {
-		m.sidebar.SelectSession(firstSession.ID)
-		m.selectSession(firstSession)
+	// Start all sessions in parallel (similar to createParallelSessions)
+	var cmds []tea.Cmd
+	if len(createdSessions) > 0 {
+		for _, info := range createdSessions {
+			sess := info.Session
+			initialMsg := info.InitialMsg
 
-		// Set as pending message and return command to send it
-		// Clear the initial message since we're about to send it
-		m.sessionState().GetInitialMessage(firstSession.ID)
-		m.sessionState().SetPendingMessage(firstSession.ID, firstSessionInitialMsg)
+			// Get or create runner for this session
+			result := m.sessionMgr.Select(sess, "", "", "")
+			if result == nil || result.Runner == nil {
+				logger.Log("App: Failed to get runner for issue session %s", sess.ID)
+				continue
+			}
 
-		return m, func() tea.Msg {
-			return SendPendingMessageMsg{SessionID: firstSession.ID}
+			runner := result.Runner
+
+			// Start streaming for this session
+			ctx, cancel := context.WithCancel(context.Background())
+			m.sessionState().StartWaiting(sess.ID, cancel)
+			m.sidebar.SetStreaming(sess.ID, true)
+
+			logger.Log("App: Auto-starting issue session %s with issue #%d", sess.ID, sess.IssueNumber)
+
+			// Send the initial message to Claude
+			content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}
+			responseChan := runner.SendContent(ctx, content)
+
+			// Add listeners for this session
+			cmds = append(cmds,
+				m.listenForSessionResponse(sess.ID, responseChan),
+				m.listenForSessionPermission(sess.ID, runner),
+				m.listenForSessionQuestion(sess.ID, runner),
+			)
 		}
+
+		// Switch to the first session's UI
+		if firstSession != nil {
+			m.sidebar.SelectSession(firstSession.ID)
+			m.selectSession(firstSession)
+
+			// Update UI for the active session
+			if m.claudeRunner != nil {
+				startTime, _ := m.sessionState().GetWaitStart(firstSession.ID)
+				m.chat.SetWaitingWithStart(true, startTime)
+			}
+		}
+
+		m.setState(StateStreamingClaude)
+		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
 	}
 
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 
