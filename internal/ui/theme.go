@@ -50,6 +50,10 @@ type Theme struct {
 	MarkdownCodeBg   string // Code background
 	MarkdownLink     string // Links
 	MarkdownListItem string // List bullets
+
+	// Text selection colors
+	TextSelectionBg string // Selection background
+	TextSelectionFg string // Selection foreground
 }
 
 // GetBgSelected returns the selected background color, defaulting to Primary
@@ -113,6 +117,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#1E1E2E",
 		MarkdownLink:     "#67E8F9",
 		MarkdownListItem: "#06B6D4",
+		TextSelectionBg:  "#4C1D95",
+		TextSelectionFg:  "#F9FAFB",
 	},
 	ThemeNord: {
 		Name:             "Nord",
@@ -139,6 +145,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#242933",
 		MarkdownLink:     "#88C0D0",
 		MarkdownListItem: "#81A1C1",
+		TextSelectionBg:  "#5E81AC",
+		TextSelectionFg:  "#ECEFF4",
 	},
 	ThemeDracula: {
 		Name:             "Dracula",
@@ -165,6 +173,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#21222C",
 		MarkdownLink:     "#8BE9FD",
 		MarkdownListItem: "#BD93F9",
+		TextSelectionBg:  "#44475A",
+		TextSelectionFg:  "#F8F8F2",
 	},
 	ThemeGruvbox: {
 		Name:             "Gruvbox Dark",
@@ -191,6 +201,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#1D2021",
 		MarkdownLink:     "#83A598",
 		MarkdownListItem: "#FE8019",
+		TextSelectionBg:  "#504945",
+		TextSelectionFg:  "#EBDBB2",
 	},
 	ThemeTokyoNight: {
 		Name:             "Tokyo Night",
@@ -217,6 +229,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#16161E",
 		MarkdownLink:     "#7DCFFF",
 		MarkdownListItem: "#BB9AF7",
+		TextSelectionBg:  "#3B4261",
+		TextSelectionFg:  "#C0CAF5",
 	},
 	ThemeCatppuccin: {
 		Name:             "Catppuccin Mocha",
@@ -243,6 +257,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#181825",
 		MarkdownLink:     "#89DCEB",
 		MarkdownListItem: "#CBA6F7",
+		TextSelectionBg:  "#45475A",
+		TextSelectionFg:  "#CDD6F4",
 	},
 	ThemeScienceFiction: {
 		Name:             "Science Fiction",
@@ -271,6 +287,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#1A0000",
 		MarkdownLink:     "#FF4444",
 		MarkdownListItem: "#E50914",
+		TextSelectionBg:  "#4D0000",
+		TextSelectionFg:  "#E8E8E8",
 	},
 	ThemeLight: {
 		Name:             "Light",
@@ -299,6 +317,8 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownCodeBg:   "#F3F4F6",
 		MarkdownLink:     "#0891B2",
 		MarkdownListItem: "#6366F1",
+		TextSelectionBg:  "#BFDBFE",
+		TextSelectionFg:  "#1F2937",
 	},
 }
 
@@ -581,4 +601,9 @@ func regenerateStyles() {
 	ViewChangesSelectedStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(t.GetBgSelected())).
 		Foreground(lipgloss.Color(t.Text))
+
+	// Update text selection style
+	TextSelectionStyle = lipgloss.NewStyle().
+		Background(lipgloss.Color(t.TextSelectionBg)).
+		Foreground(lipgloss.Color(t.TextSelectionFg))
 }

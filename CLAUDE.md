@@ -85,6 +85,7 @@ internal/
 - **Thread-safe config**: Uses `sync.RWMutex`
 - **Per-session state**: Independent state maps for concurrent operation
 - **State machine**: `AppState` enum (StateIdle, StateStreamingClaude)
+- **Text selection**: Mouse-based selection with ultraviolet screen buffer rendering
 
 ---
 
@@ -137,6 +138,23 @@ The Add Repository modal (`a` key) supports Tab completion for paths:
 - Hidden files only shown when typing `.` prefix
 - Use up/down to navigate options, Tab/Enter to select
 
+### Text Selection
+
+Chat panel supports mouse-based text selection with visual highlighting:
+
+- **Single click + drag**: Select arbitrary text region
+- **Double click**: Select word (Unicode grapheme-aware via `uniseg`)
+- **Triple click**: Select paragraph (finds empty line boundaries)
+- **Auto-copy**: Selected text is automatically copied to clipboard on mouse release
+- **Esc**: Clear selection
+- **Visual highlighting**: Uses `ultraviolet` screen buffer to apply selection background color
+
+Implementation in `internal/ui/chat.go`:
+- Selection state: `selectionStartCol/Line`, `selectionEndCol/Line`, `selectionActive`
+- Multi-click detection: Tracks `lastClickTime`, `clickCount` with 500ms threshold
+- Rendering: `selectionView()` applies highlight style to cells in selection range
+- Clipboard: Dual approach using OSC 52 escape sequence + native `internal/clipboard` package
+
 ---
 
 ## Dependencies
@@ -145,8 +163,11 @@ Charm's Bubble Tea v2 stack:
 - `charm.land/bubbletea/v2` (v2.0.0-rc.2)
 - `charm.land/bubbles/v2` (v2.0.0-rc.1)
 - `charm.land/lipgloss/v2` (v2.0.0-beta.3)
+- `github.com/charmbracelet/ultraviolet` - Screen buffer for text selection rendering
 - `github.com/google/uuid`
 - `github.com/gen2brain/beeep` - Desktop notifications
+- `github.com/rivo/uniseg` - Unicode grapheme segmentation for word selection
+- `golang.design/x/clipboard` - Cross-platform clipboard (Linux/Windows)
 
 **Bubble Tea v2 API notes:**
 - Imports use `charm.land/*` not `github.com/charmbracelet/*`

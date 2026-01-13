@@ -224,6 +224,8 @@ var DisplayOnlyShortcuts = []Shortcut{
 	// Chat (display-only, context-sensitive)
 	{DisplayKey: "ctrl-v", Description: "Paste image", Category: CategoryChat},
 	{DisplayKey: "ctrl-p", Description: "Fork detected options", Category: CategoryChat},
+	{DisplayKey: "Mouse drag", Description: "Select text (auto-copies)", Category: CategoryChat},
+	{DisplayKey: "Esc", Description: "Clear text selection", Category: CategoryChat},
 
 	// Permissions (display-only, context-sensitive)
 	{DisplayKey: "y", Description: "Allow action", Category: CategoryPermissions},
