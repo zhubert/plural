@@ -48,6 +48,7 @@ internal/
 ├── app/                   Main Bubble Tea model
 │   ├── app.go             Model, Update/View, key handling
 │   ├── shortcuts.go       Keyboard shortcut registry (single source of truth)
+│   ├── slash_commands.go  Local slash command handling (/cost, /help)
 │   ├── session_manager.go Session lifecycle, runner caching, message persistence
 │   ├── session_state.go   Thread-safe per-session state
 │   ├── modal_handlers.go  Modal key handlers
@@ -127,6 +128,20 @@ Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeT
 ### GitHub Issue Sessions
 
 Issue number stored in session. When PR created from issue session, "Fixes #N" auto-added to PR body. Branch naming: `issue-{number}`.
+
+### Slash Commands
+
+Plural implements its own slash commands because Claude CLI built-in commands (like `/cost`, `/help`, `/mcp`) are designed for interactive REPL mode and don't work in stream-json mode.
+
+Available commands:
+- `/cost` - Show token usage and estimated cost for the current session (reads from Claude's JSONL session files)
+- `/help` - Show available Plural slash commands
+- `/mcp` - Open MCP servers configuration modal (same as `s` shortcut)
+
+Implementation in `internal/app/slash_commands.go`:
+- Commands are intercepted in `sendMessage()` before being sent to Claude
+- Unknown slash commands are passed through to Claude (for custom commands)
+- Cost data is read from `~/.claude/projects/<escaped-path>/<session-id>.jsonl`
 
 ### Path Auto-Completion
 

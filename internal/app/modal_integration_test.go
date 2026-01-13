@@ -769,7 +769,7 @@ func TestMCPServersModal_Open(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, "s")
+	m.showMCPServersModal()
 	if !m.modal.IsVisible() {
 		t.Fatal("MCP servers modal should be visible")
 	}
@@ -784,7 +784,7 @@ func TestMCPServersModal_OpenAddServer(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, "s")
+	m.showMCPServersModal()
 	if !m.modal.IsVisible() {
 		t.Fatal("MCP servers modal should be visible")
 	}
@@ -802,7 +802,7 @@ func TestMCPServersModal_AddServerBackToList(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, "s")
+	m.showMCPServersModal()
 	m = sendKey(m, "a")
 
 	// Press escape to go back to list
@@ -818,7 +818,7 @@ func TestAddMCPServerModal_SubmitEmptyFields(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, "s")
+	m.showMCPServersModal()
 	m = sendKey(m, "a")
 
 	state, ok := m.modal.State.(*ui.AddMCPServerState)
@@ -1451,7 +1451,7 @@ func TestModalDoesNotAffectSessionState(t *testing.T) {
 	m = sendKey(m, "esc")
 	m = sendKey(m, "t") // Theme
 	m = sendKey(m, "esc")
-	m = sendKey(m, "s") // MCP
+	m.showMCPServersModal() // MCP
 	m = sendKey(m, "esc")
 
 	// Session state should be preserved

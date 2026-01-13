@@ -1210,7 +1210,8 @@ func TestModal_MCPServers(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, "s")
+	// MCP servers is accessed via /mcp slash command, not a shortcut
+	m.showMCPServersModal()
 
 	if !m.modal.IsVisible() {
 		t.Error("MCP servers modal should be visible")
@@ -1547,8 +1548,8 @@ func TestFlow_OpenAndCloseMultipleModals(t *testing.T) {
 		t.Error("Modal should be closed")
 	}
 
-	// Open and close MCP servers modal
-	m = sendKey(m, "s")
+	// Open and close MCP servers modal (via /mcp slash command)
+	m.showMCPServersModal()
 	if !m.modal.IsVisible() {
 		t.Error("MCP modal should be open")
 	}

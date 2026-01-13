@@ -795,6 +795,30 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Check for slash commands (only if no image attached)
+	if !hasImage && strings.HasPrefix(input, "/") {
+		result := m.handleSlashCommand(input)
+		if result.Handled {
+			m.chat.ClearInput()
+
+			// Handle UI actions
+			if result.Action != ActionNone {
+				switch result.Action {
+				case ActionOpenMCP:
+					return shortcutMCPServers(m)
+				}
+			}
+
+			// Display the command as user message and response
+			m.chat.AddUserMessage(input)
+			if result.Response != "" {
+				m.chat.AddSystemMessage(result.Response)
+			}
+			return m, nil
+		}
+		// If not handled, fall through to send to Claude
+	}
+
 	inputPreview := input
 	if len(inputPreview) > 50 {
 		inputPreview = inputPreview[:50] + "..."
