@@ -134,17 +134,23 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 // parseFileDiffs splits a combined diff into per-file chunks
 func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[string]string) []FileDiff {
 	if diff == "" {
-		// No diff content - create entries for each file with empty diff
+		// No diff content from git diff - but untracked files need special handling
 		result := make([]FileDiff, 0, len(files))
 		for _, file := range files {
 			status := fileStatuses[file]
 			if status == "" {
 				status = "M"
 			}
+			var diffContent string
+			if status == "?" {
+				diffContent = generateUntrackedFileDiff(worktreePath, file)
+			} else {
+				diffContent = "(no diff available)"
+			}
 			result = append(result, FileDiff{
 				Filename: file,
 				Status:   status,
-				Diff:     "(no diff available)",
+				Diff:     diffContent,
 			})
 		}
 		return result
