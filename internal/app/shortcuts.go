@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
@@ -115,7 +116,6 @@ var ShortcutRegistry = []Shortcut{
 		DisplayKey:      "ctrl-e",
 		Description:     "Open terminal in worktree",
 		Category:        CategoryGit,
-		RequiresSidebar: true,
 		RequiresSession: true,
 		Handler:         shortcutOpenTerminal,
 	},
@@ -410,7 +410,16 @@ func shortcutRenameSession(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
-	sess := m.sidebar.SelectedSession()
+	// Use activeSession when chat is focused, otherwise use sidebar selection
+	var sess *config.Session
+	if m.chat.IsFocused() && m.activeSession != nil {
+		sess = m.activeSession
+	} else {
+		sess = m.sidebar.SelectedSession()
+	}
+	if sess == nil {
+		return m, nil
+	}
 	logger.Log("Shortcut: Opening terminal at worktree: %s", sess.WorkTree)
 	return m, openTerminalAtPath(sess.WorkTree)
 }
