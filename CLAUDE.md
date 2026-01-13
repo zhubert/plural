@@ -127,6 +127,16 @@ Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeT
 
 Issue number stored in session. When PR created from issue session, "Fixes #N" auto-added to PR body. Branch naming: `issue-{number}`.
 
+### Path Auto-Completion
+
+The Add Repository modal (`a` key) supports Tab completion for paths:
+
+- **PathCompleter** (`internal/ui/modals/completion.go`): Handles filesystem path auto-completion
+- Expands `~` to home directory
+- Shows completion options when multiple matches exist
+- Hidden files only shown when typing `.` prefix
+- Use up/down to navigate options, Tab/Enter to select
+
 ---
 
 ## Dependencies
