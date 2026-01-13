@@ -629,7 +629,7 @@ func (c *Chat) renderNoSessionMessage() string {
 	sb.WriteString(msgStyle.Render(" to create a new session"))
 	sb.WriteString("\n")
 	sb.WriteString(msgStyle.Render("  • Press "))
-	sb.WriteString(keyStyle.Render("r"))
+	sb.WriteString(keyStyle.Render("a"))
 	sb.WriteString(msgStyle.Render(" to add a repository first"))
 	return sb.String()
 }
