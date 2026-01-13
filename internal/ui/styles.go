@@ -258,3 +258,10 @@ var (
 					Background(lipgloss.Color("#3B82F6")). // Blue background
 					Foreground(lipgloss.Color("#FFFFFF"))  // White text
 )
+
+// Text selection style
+var (
+	TextSelectionStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#4C1D95")). // Purple background
+				Foreground(lipgloss.Color("#F9FAFB"))  // Light text
+)

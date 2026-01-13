@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
@@ -115,7 +116,6 @@ var ShortcutRegistry = []Shortcut{
 		DisplayKey:      "ctrl-e",
 		Description:     "Open terminal in worktree",
 		Category:        CategoryGit,
-		RequiresSidebar: true,
 		RequiresSession: true,
 		Handler:         shortcutOpenTerminal,
 	},
@@ -217,6 +217,8 @@ var DisplayOnlyShortcuts = []Shortcut{
 	// Chat (display-only, context-sensitive)
 	{DisplayKey: "ctrl-v", Description: "Paste image", Category: CategoryChat},
 	{DisplayKey: "ctrl-p", Description: "Fork detected options", Category: CategoryChat},
+	{DisplayKey: "Mouse drag", Description: "Select text (auto-copies)", Category: CategoryChat},
+	{DisplayKey: "Esc", Description: "Clear text selection", Category: CategoryChat},
 
 	// Permissions (display-only, context-sensitive)
 	{DisplayKey: "y", Description: "Allow action", Category: CategoryPermissions},
@@ -403,7 +405,16 @@ func shortcutRenameSession(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
-	sess := m.sidebar.SelectedSession()
+	// Use activeSession when chat is focused, otherwise use sidebar selection
+	var sess *config.Session
+	if m.chat.IsFocused() && m.activeSession != nil {
+		sess = m.activeSession
+	} else {
+		sess = m.sidebar.SelectedSession()
+	}
+	if sess == nil {
+		return m, nil
+	}
 	logger.Log("Shortcut: Opening terminal at worktree: %s", sess.WorkTree)
 	return m, openTerminalAtPath(sess.WorkTree)
 }

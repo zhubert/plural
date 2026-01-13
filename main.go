@@ -201,7 +201,9 @@ func runMCPServer() {
 	// Extract session ID from socket path (e.g., /tmp/plural-<session-id>.sock)
 	sessionID := extractSessionID(*socketPath)
 	if sessionID != "" {
-		logger.Init(logger.MCPLogPath(sessionID))
+		if err := logger.Init(logger.MCPLogPath(sessionID)); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
 	}
 	defer logger.Close()
 
