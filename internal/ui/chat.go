@@ -361,6 +361,15 @@ func (c *Chat) AddUserMessage(content string) {
 	c.updateContent()
 }
 
+// AddSystemMessage adds a system/assistant message (for local command responses)
+func (c *Chat) AddSystemMessage(content string) {
+	c.messages = append(c.messages, claude.Message{
+		Role:    "assistant",
+		Content: content,
+	})
+	c.updateContent()
+}
+
 // GetInput returns the current input text
 func (c *Chat) GetInput() string {
 	val := strings.TrimSpace(c.input.Value())

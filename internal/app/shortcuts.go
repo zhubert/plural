@@ -153,13 +153,6 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutAddRepo,
 	},
 	{
-		Key:             "s",
-		Description:     "Manage MCP servers",
-		Category:        CategoryConfiguration,
-		RequiresSidebar: true,
-		Handler:         shortcutMCPServers,
-	},
-	{
 		Key:             "t",
 		Description:     "Change theme",
 		Category:        CategoryConfiguration,
