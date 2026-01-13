@@ -126,13 +126,13 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	status.Diff = string(diffOutput) + string(cachedDiff)
 
 	// Parse per-file diffs for detailed viewing
-	status.FileDiffs = parseFileDiffs(status.Diff, status.Files, fileStatuses)
+	status.FileDiffs = parseFileDiffs(worktreePath, status.Diff, status.Files, fileStatuses)
 
 	return status, nil
 }
 
 // parseFileDiffs splits a combined diff into per-file chunks
-func parseFileDiffs(diff string, files []string, fileStatuses map[string]string) []FileDiff {
+func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[string]string) []FileDiff {
 	if diff == "" {
 		// No diff content - create entries for each file with empty diff
 		result := make([]FileDiff, 0, len(files))
@@ -184,7 +184,12 @@ func parseFileDiffs(diff string, files []string, fileStatuses map[string]string)
 		}
 		diffContent := fileDiffMap[file]
 		if diffContent == "" {
-			diffContent = "(no diff available - file may be untracked or binary)"
+			// For untracked files (status "?"), generate a diff showing the new file content
+			if status == "?" {
+				diffContent = generateUntrackedFileDiff(worktreePath, file)
+			} else {
+				diffContent = "(no diff available - file may be binary)"
+			}
 		}
 		result = append(result, FileDiff{
 			Filename: file,
@@ -194,6 +199,24 @@ func parseFileDiffs(diff string, files []string, fileStatuses map[string]string)
 	}
 
 	return result
+}
+
+// generateUntrackedFileDiff creates a diff-like output for an untracked file
+func generateUntrackedFileDiff(worktreePath, file string) string {
+	// Use git diff --no-index to compare /dev/null with the new file
+	// This produces a proper diff format showing the file as new
+	cmd := exec.Command("git", "diff", "--no-ext-diff", "--no-index", "/dev/null", file)
+	cmd.Dir = worktreePath
+	output, err := cmd.Output()
+	if err != nil {
+		// git diff --no-index returns exit code 1 when files differ, which is expected
+		// Only treat it as an error if there's no output
+		if len(output) == 0 {
+			logger.Log("Git: Warning - failed to generate diff for untracked file %s: %v", file, err)
+			return "(no diff available - file may be binary)"
+		}
+	}
+	return strings.TrimRight(string(output), "\n")
 }
 
 // CommitAll stages all changes and commits them with the given message
