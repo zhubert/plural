@@ -69,6 +69,13 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // handleAddRepoModal handles key events for the Add Repository modal.
 func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.AddRepoState) (tea.Model, tea.Cmd) {
+	// If showing completion options, forward Enter to the modal to select the option
+	if state.IsShowingOptions() && key == "enter" {
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+
 	switch key {
 	case "esc":
 		m.modal.Hide()
