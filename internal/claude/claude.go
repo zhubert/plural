@@ -942,6 +942,28 @@ func (r *Runner) handleProcessExit(err error) {
 
 	logger.Log("Claude: Handling process exit for session %s", r.sessionID)
 
+	// Read stderr to get actual error message before closing
+	var stderrContent string
+	if r.persistentStderr != nil {
+		stderrBytes, readErr := io.ReadAll(r.persistentStderr)
+		if readErr != nil {
+			logger.Log("Claude: Failed to read stderr: %v", readErr)
+		} else if len(stderrBytes) > 0 {
+			stderrContent = strings.TrimSpace(string(stderrBytes))
+			logger.Log("Claude: Stderr output: %s", stderrContent)
+		}
+	}
+
+	// Build error message with stderr content if available
+	var exitErr error
+	if stderrContent != "" {
+		exitErr = fmt.Errorf("process exited: %s", stderrContent)
+	} else if err != nil {
+		exitErr = fmt.Errorf("process exited: %v", err)
+	} else {
+		exitErr = fmt.Errorf("process exited unexpectedly")
+	}
+
 	// Notify current response channel of error and close it
 	// Note: Don't set currentResponseCh to nil - let GetResponseChan() return
 	// the closed channel so listeners can detect completion.
@@ -949,7 +971,7 @@ func (r *Runner) handleProcessExit(err error) {
 	r.mu.Lock()
 	ch := r.currentResponseCh
 	if ch != nil {
-		ch <- ResponseChunk{Error: fmt.Errorf("process exited: %v", err), Done: true}
+		ch <- ResponseChunk{Error: exitErr, Done: true}
 		close(ch)
 	}
 	r.isStreaming = false
