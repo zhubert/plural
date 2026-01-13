@@ -72,33 +72,39 @@ func SetDebug(enabled bool) {
 
 // Init initializes the logger with a custom path. Must be called before Log().
 // If not called, the default path will be used on first Log() call.
-func Init(path string) {
+// Returns an error if the log file cannot be opened.
+func Init(path string) error {
 	mu.Lock()
 	defer mu.Unlock()
 
 	if initDone {
-		return
+		return nil
 	}
 
 	logPath = path
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err == nil {
-		logFile = f
-		initDone = true
-		writeLog(LevelInfo, "Logger initialized: %s", path)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file %s: %w", path, err)
 	}
+	logFile = f
+	initDone = true
+	writeLog(LevelInfo, "Logger initialized: %s", path)
+	return nil
 }
 
 func ensureInit() {
 	if !initDone {
 		once.Do(func() {
 			logPath = DefaultLogPath
-			f, err := os.OpenFile(DefaultLogPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-			if err == nil {
-				logFile = f
-				initDone = true
-				writeLog(LevelInfo, "Logger initialized: %s", DefaultLogPath)
+			f, err := os.OpenFile(DefaultLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				// Print to stderr since we can't log
+				fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", DefaultLogPath, err)
+				return
 			}
+			logFile = f
+			initDone = true
+			writeLog(LevelInfo, "Logger initialized: %s", DefaultLogPath)
 		})
 	}
 }
