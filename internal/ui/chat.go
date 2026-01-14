@@ -261,11 +261,6 @@ func (c *Chat) SetSize(width, height int) {
 func (c *Chat) SetFocused(focused bool) {
 	c.focused = focused
 	if focused {
-		// If the textarea is empty or only whitespace, reset it to ensure
-		// the cursor is on the first line
-		if strings.TrimSpace(c.input.Value()) == "" {
-			c.input.Reset()
-		}
 		c.input.Focus()
 	} else {
 		c.input.Blur()

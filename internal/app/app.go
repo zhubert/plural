@@ -376,6 +376,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							return SendPendingMessageMsg{SessionID: sess.ID}
 						}
 					}
+					return m, nil
 				}
 			case FocusChat:
 				if m.CanSendMessage() {
