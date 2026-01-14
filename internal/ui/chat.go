@@ -1582,11 +1582,16 @@ func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
 	c.viewChangesViewport.SetWidth(innerWidth)
 	c.viewChangesViewport.SetHeight(diffHeight)
 
+	// Get viewport content and constrain to max height to prevent layout overflow
+	diffContent := lipgloss.NewStyle().
+		MaxHeight(diffHeight).
+		Render(c.viewChangesViewport.View())
+
 	// Join navigation bar and diff vertically
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		navBar,
-		c.viewChangesViewport.View(),
+		diffContent,
 	)
 
 	return panelStyle.Width(c.width).Height(c.height).Render(content)
