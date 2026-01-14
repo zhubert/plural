@@ -487,6 +487,59 @@ func TestChat_SessionManagement(t *testing.T) {
 	if len(chat.messages) != 0 {
 		t.Errorf("Expected 0 messages after clear, got %d", len(chat.messages))
 	}
+
+	// Verify waiting state is also cleared
+	if chat.waiting {
+		t.Error("Chat waiting state should be cleared after ClearSession")
+	}
+
+	// Verify View shows "No session selected" message
+	chat.SetSize(80, 24)
+	view := chat.View()
+	if !strings.Contains(view, "No session selected") {
+		t.Errorf("View should contain 'No session selected' after ClearSession, got: %s", view)
+	}
+}
+
+func TestChat_ClearSessionWhileWaiting(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+
+	// Set up session with messages
+	messages := []claude.Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there!"},
+	}
+	chat.SetSession("test-session", messages)
+
+	// Simulate waiting state (Claude is thinking)
+	chat.SetWaiting(true)
+	if !chat.waiting {
+		t.Error("Chat should be waiting after SetWaiting(true)")
+	}
+
+	// Clear session
+	chat.ClearSession()
+
+	// Verify all state is cleared
+	if chat.hasSession {
+		t.Error("Chat should not have session after ClearSession")
+	}
+	if chat.waiting {
+		t.Error("Waiting state should be cleared after ClearSession")
+	}
+	if len(chat.messages) != 0 {
+		t.Errorf("Expected 0 messages after clear, got %d", len(chat.messages))
+	}
+
+	// Verify View shows "No session selected" (not stuck on "Thinking...")
+	view := chat.View()
+	if !strings.Contains(view, "No session selected") {
+		t.Errorf("View should contain 'No session selected' after ClearSession, got: %s", view)
+	}
+	if strings.Contains(view, "Thinking") || strings.Contains(view, "Claude:") {
+		t.Error("View should not contain thinking indicator after ClearSession")
+	}
 }
 
 func TestChat_Streaming(t *testing.T) {

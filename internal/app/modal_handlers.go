@@ -187,11 +187,18 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			// Clean up runner and all per-session state via SessionManager
 			deletedRunner := m.sessionMgr.DeleteSession(sess.ID)
 			m.sidebar.SetPendingPermission(sess.ID, false)
+			logger.Log("App: Checking if active session should be cleared: activeSession=%v, activeSessionID=%s, deletedSessionID=%s",
+				m.activeSession != nil,
+				func() string { if m.activeSession != nil { return m.activeSession.ID } else { return "<nil>" } }(),
+				sess.ID)
 			if m.activeSession != nil && m.activeSession.ID == sess.ID {
+				logger.Log("App: Clearing active session and chat")
 				m.activeSession = nil
 				m.claudeRunner = nil
 				m.chat.ClearSession()
 				m.header.SetSessionName("")
+			} else {
+				logger.Log("App: Not clearing chat - deleted session was not the active session")
 			}
 			if deletedRunner != nil {
 				logger.Log("App: Session deleted successfully (runner stopped): %s", sess.ID)

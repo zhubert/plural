@@ -303,6 +303,9 @@ func (c *Chat) ClearSession() {
 	c.currentQuestionIdx = 0
 	c.selectedOptionIdx = 0
 	c.questionAnswers = nil
+	c.waiting = false
+	c.completionFlashFrame = -1
+	c.queuedMessage = ""
 	c.updateContent()
 }
 
