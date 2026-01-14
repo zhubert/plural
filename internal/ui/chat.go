@@ -1478,6 +1478,11 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 					c.SelectionClear()
 					return c, nil
 				}
+				// Clear textarea if it has content
+				if c.input.Value() != "" {
+					c.input.Reset()
+					return c, nil
+				}
 				// Otherwise let it bubble up for other handlers (stop streaming, etc.)
 			}
 		}
