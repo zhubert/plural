@@ -41,6 +41,8 @@ var DefaultAllowedTools = []string{
 	// File modifications (core editing workflow)
 	"Edit",
 	"Write",
+	// Planning mode (safe - just signals plan completion for user review)
+	"ExitPlanMode",
 	// Safe read-only shell commands
 	"Bash(ls:*)",
 	"Bash(cat:*)",
