@@ -444,6 +444,10 @@ func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
 		files = status.FileDiffs
 	}
 	m.chat.EnterViewChangesMode(files)
+	// Switch focus to chat so arrow keys and Escape work immediately
+	m.focus = FocusChat
+	m.sidebar.SetFocused(false)
+	m.chat.SetFocused(true)
 	return m, nil
 }
 
