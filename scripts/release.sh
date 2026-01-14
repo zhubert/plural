@@ -1,9 +1,15 @@
 #!/bin/bash
 #
 # Release script for Plural
-# Usage: ./scripts/release.sh v0.0.5 [--dry-run]
+# Usage: ./scripts/release.sh <patch|minor|major> [--dry-run]
 #
 # This script automates the release process for Homebrew and Nix distribution.
+# It automatically determines the next version based on the latest git tag.
+#
+# Examples:
+#   ./scripts/release.sh patch      # v0.0.3 -> v0.0.4
+#   ./scripts/release.sh minor      # v0.0.3 -> v0.1.0
+#   ./scripts/release.sh major      # v0.0.3 -> v1.0.0
 
 set -e
 
@@ -21,7 +27,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Parse arguments
-VERSION=""
+BUMP_TYPE=""
 DRY_RUN=false
 
 for arg in "$@"; do
@@ -29,29 +35,59 @@ for arg in "$@"; do
         --dry-run)
             DRY_RUN=true
             ;;
-        v*)
-            VERSION="$arg"
+        patch|minor|major)
+            BUMP_TYPE="$arg"
             ;;
         *)
             echo -e "${RED}Unknown argument: $arg${NC}"
-            echo "Usage: ./release.sh v0.0.5 [--dry-run]"
+            echo "Usage: ./release.sh <patch|minor|major> [--dry-run]"
             exit 1
             ;;
     esac
 done
 
-# Validate version argument
-if [ -z "$VERSION" ]; then
-    echo -e "${RED}Error: Version argument required${NC}"
-    echo "Usage: ./release.sh v0.0.5 [--dry-run]"
+# Validate bump type argument
+if [ -z "$BUMP_TYPE" ]; then
+    echo -e "${RED}Error: Bump type argument required (patch, minor, or major)${NC}"
+    echo "Usage: ./release.sh <patch|minor|major> [--dry-run]"
     exit 1
 fi
 
-# Validate version format (vX.Y.Z)
-if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo -e "${RED}Error: Version must be in format vX.Y.Z (e.g., v0.0.5)${NC}"
+# Get the latest version tag
+LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+
+# Validate the latest tag format
+if ! [[ "$LATEST_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    echo -e "${RED}Error: Latest tag '$LATEST_TAG' is not in format vX.Y.Z${NC}"
     exit 1
 fi
+
+# Extract version components
+MAJOR="${BASH_REMATCH[1]}"
+MINOR="${BASH_REMATCH[2]}"
+PATCH="${BASH_REMATCH[3]}"
+
+# Calculate new version based on bump type
+case $BUMP_TYPE in
+    patch)
+        PATCH=$((PATCH + 1))
+        ;;
+    minor)
+        MINOR=$((MINOR + 1))
+        PATCH=0
+        ;;
+    major)
+        MAJOR=$((MAJOR + 1))
+        MINOR=0
+        PATCH=0
+        ;;
+esac
+
+VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+
+echo -e "Current version: ${YELLOW}${LATEST_TAG}${NC}"
+echo -e "New version:     ${GREEN}${VERSION}${NC} (${BUMP_TYPE} bump)"
+echo ""
 
 # Strip the 'v' prefix for flake.nix (uses "0.0.5" not "v0.0.5")
 VERSION_NUMBER="${VERSION#v}"
@@ -168,7 +204,7 @@ if [ "$DRY_RUN" = true ]; then
 
     echo ""
     echo -e "${GREEN}Dry run completed successfully!${NC}"
-    echo "To perform the actual release, run: ./scripts/release.sh ${VERSION}"
+    echo "To perform the actual release, run: ./scripts/release.sh ${BUMP_TYPE}"
 else
     # Actual release
     echo ""

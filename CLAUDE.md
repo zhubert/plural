@@ -196,8 +196,10 @@ Charm's Bubble Tea v2 stack:
 ## Releasing
 
 ```bash
-./scripts/release.sh v0.0.5           # Full release
-./scripts/release.sh v0.0.5 --dry-run # Dry run
+./scripts/release.sh patch            # v0.0.3 -> v0.0.4
+./scripts/release.sh minor            # v0.0.3 -> v0.1.0
+./scripts/release.sh major            # v0.0.3 -> v1.0.0
+./scripts/release.sh patch --dry-run  # Dry run
 ```
 
 GoReleaser builds binaries for Linux/macOS (amd64/arm64) and updates Homebrew tap at `zhubert/homebrew-tap`.
