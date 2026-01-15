@@ -155,7 +155,8 @@ type Runner struct {
 	persistentStderr  io.ReadCloser    // Stderr pipe for errors
 	processRunning    bool             // Whether persistent process is running
 	processMu         sync.Mutex       // Guards process lifecycle operations
-	currentResponseCh chan ResponseChunk // Current response channel for routing (protected by mu)
+	currentResponseCh       chan ResponseChunk // Current response channel for routing (protected by mu)
+	currentResponseChClosed bool               // Whether currentResponseCh has been closed (protected by mu)
 
 	// Per-session streaming state (all protected by mu)
 	isStreaming  bool                   // Whether this runner is currently streaming
@@ -802,9 +803,12 @@ func (r *Runner) readPersistentResponses(ctx context.Context) {
 		// Parse the JSON message
 		chunks := parseStreamMessage(line)
 
-		// Get the current response channel
+		// Get the current response channel (nil if already closed)
 		r.mu.RLock()
 		ch := r.currentResponseCh
+		if r.currentResponseChClosed {
+			ch = nil
+		}
 		r.mu.RUnlock()
 
 		for _, chunk := range chunks {
@@ -870,27 +874,27 @@ func (r *Runner) readPersistentResponses(ctx context.Context) {
 				// Signal completion and close channel so listeners detect end
 				// This fixes a race condition where GetResponseChan() could return nil
 				// while Bubble Tea is still processing earlier chunks from the buffer
-				if ch != nil {
-					// Use select to avoid blocking if channel is full or closed
+				r.mu.Lock()
+				if ch != nil && !r.currentResponseChClosed {
+					// Use select to avoid blocking if channel is full
 					select {
 					case ch <- ResponseChunk{Done: true}:
-						close(ch)
-					case <-ctx.Done():
-						logger.Log("Claude: Response reader exiting - context cancelled during completion")
-						return
 					default:
-						// Channel might be full, close it anyway
-						close(ch)
+						// Channel might be full, just close it
 					}
+					close(ch)
+					r.currentResponseChClosed = true
 				}
-
-				// Reset streaming state for next message
-				// Note: Don't set currentResponseCh to nil here - GetResponseChan() should
-				// return the closed channel so listeners can detect completion.
-				// It will be replaced on the next SendContent call.
-				r.mu.Lock()
 				r.isStreaming = false
 				r.mu.Unlock()
+
+				// Check for context cancellation after closing
+				select {
+				case <-ctx.Done():
+					logger.Log("Claude: Response reader exiting - context cancelled during completion")
+					return
+				default:
+				}
 
 				// Reset for next message
 				fullResponse.Reset()
@@ -972,9 +976,14 @@ func (r *Runner) handleProcessExit(err error) {
 	// It will be replaced on the next SendContent call.
 	r.mu.Lock()
 	ch := r.currentResponseCh
-	if ch != nil {
-		ch <- ResponseChunk{Error: exitErr, Done: true}
+	if ch != nil && !r.currentResponseChClosed {
+		// Use select to avoid blocking if channel is full
+		select {
+		case ch <- ResponseChunk{Error: exitErr, Done: true}:
+		default:
+		}
 		close(ch)
+		r.currentResponseChClosed = true
 	}
 	r.isStreaming = false
 	r.mu.Unlock()
@@ -1091,6 +1100,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		r.mu.Lock()
 		r.isStreaming = true
 		r.currentResponseCh = ch
+		r.currentResponseChClosed = false // Reset closed flag for new channel
 		r.streamCtx = cmdCtx
 		r.mu.Unlock()
 
