@@ -1380,7 +1380,10 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 			x := msg.X - 1
 			y := msg.Y - 1
 			if x >= 0 && y >= 0 {
-				c.handleMouseClick(x, y)
+				cmd := c.handleMouseClick(x, y)
+				if cmd != nil {
+					return c, cmd
+				}
 			}
 		}
 		return c, nil
@@ -1733,12 +1736,14 @@ func (c *Chat) handleMouseClick(x, y int) tea.Cmd {
 		// Single click - start selection
 		c.StartSelection(x, y)
 	case 2:
-		// Double click - select word
+		// Double click - select word and copy immediately
 		c.SelectWord(x, y)
+		return c.CopySelectedText()
 	case 3:
-		// Triple click - select line/paragraph
+		// Triple click - select line/paragraph and copy immediately
 		c.SelectParagraph(x, y)
 		c.clickCount = 0 // Reset after triple click
+		return c.CopySelectedText()
 	}
 
 	return nil
