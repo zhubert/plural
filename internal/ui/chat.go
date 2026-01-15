@@ -1395,7 +1395,9 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, nil
 
 	case tea.MouseReleaseMsg:
-		if c.hasSession && msg.Button == tea.MouseLeft && c.selectionActive {
+		// Note: Don't check msg.Button here - release events may not preserve the button that was released
+		// We rely on selectionActive which was set when we started selection with left click
+		if c.hasSession && c.selectionActive {
 			// Adjust coordinates for panel border
 			x := msg.X - 1
 			y := msg.Y - 1
