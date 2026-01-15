@@ -13,6 +13,8 @@ import (
 type (
 	ModalState               = modals.ModalState
 	MCPServerDisplay         = modals.MCPServerDisplay
+	MarketplaceDisplay       = modals.MarketplaceDisplay
+	PluginDisplay            = modals.PluginDisplay
 	ChangelogEntry           = modals.ChangelogEntry
 	OptionItem               = modals.OptionItem
 	IssueItem                = modals.IssueItem
@@ -32,6 +34,8 @@ type (
 	ConfirmDeleteState      = modals.ConfirmDeleteState
 	MCPServersState         = modals.MCPServersState
 	AddMCPServerState       = modals.AddMCPServerState
+	PluginsState            = modals.PluginsState
+	AddMarketplaceState     = modals.AddMarketplaceState
 	WelcomeState            = modals.WelcomeState
 	ChangelogState          = modals.ChangelogState
 	ThemeState              = modals.ThemeState
@@ -55,6 +59,9 @@ var (
 	NewConfirmDeleteState      = modals.NewConfirmDeleteState
 	NewMCPServersState         = modals.NewMCPServersState
 	NewAddMCPServerState       = modals.NewAddMCPServerState
+	NewPluginsState            = modals.NewPluginsState
+	NewPluginsStateWithData    = modals.NewPluginsStateWithData
+	NewAddMarketplaceState     = modals.NewAddMarketplaceState
 	NewWelcomeState            = modals.NewWelcomeState
 	NewChangelogState          = modals.NewChangelogState
 	NewSettingsState           = modals.NewSettingsState

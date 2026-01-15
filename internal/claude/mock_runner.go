@@ -236,6 +236,7 @@ func (m *MockRunner) SetMCPServers(servers []MCPServer) {
 	m.mcpServers = servers
 }
 
+
 // PermissionRequestChan implements RunnerInterface.
 func (m *MockRunner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	m.mu.RLock()
