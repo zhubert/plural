@@ -13,6 +13,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 )
 
@@ -133,8 +134,21 @@ For more information, visit: https://github.com/zhubert/plural
 			os.Exit(1)
 		}
 
-		if len(orphanWorktrees) == 0 && len(orphanMessages) == 0 {
-			fmt.Println("No orphaned worktrees or session files found.")
+		// Build set of known session IDs
+		knownSessions := make(map[string]bool)
+		for _, sess := range cfg.GetSessions() {
+			knownSessions[sess.ID] = true
+		}
+
+		// Find orphaned Claude processes
+		orphanProcesses, err := process.FindOrphanedClaudeProcesses(knownSessions)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error finding orphaned processes: %v\n", err)
+			// Non-fatal, continue with other cleanup
+		}
+
+		if len(orphanWorktrees) == 0 && len(orphanMessages) == 0 && len(orphanProcesses) == 0 {
+			fmt.Println("No orphaned worktrees, session files, or processes found.")
 			return
 		}
 
@@ -152,6 +166,13 @@ For more information, visit: https://github.com/zhubert/plural
 			}
 		}
 
+		if len(orphanProcesses) > 0 {
+			fmt.Printf("Found %d orphaned Claude process(es):\n", len(orphanProcesses))
+			for _, proc := range orphanProcesses {
+				fmt.Printf("  - PID %d\n", proc.PID)
+			}
+		}
+
 		prunedWorktrees, err := session.PruneOrphanedWorktrees(cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error pruning worktrees: %v\n", err)
@@ -164,11 +185,20 @@ For more information, visit: https://github.com/zhubert/plural
 			os.Exit(1)
 		}
 
+		prunedProcesses, err := process.CleanupOrphanedProcesses(knownSessions)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error killing orphaned processes: %v\n", err)
+			// Non-fatal, continue
+		}
+
 		if prunedWorktrees > 0 {
 			fmt.Printf("Pruned %d worktree(s).\n", prunedWorktrees)
 		}
 		if prunedMessages > 0 {
 			fmt.Printf("Pruned %d session message file(s).\n", prunedMessages)
+		}
+		if prunedProcesses > 0 {
+			fmt.Printf("Killed %d orphaned process(es).\n", prunedProcesses)
 		}
 		return
 	}
