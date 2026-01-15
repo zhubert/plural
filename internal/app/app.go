@@ -654,6 +654,111 @@ func (m *Model) showMCPServersModal() {
 	m.modal.Show(ui.NewMCPServersState(globalServers, perRepoServers, repos))
 }
 
+func (m *Model) showPluginsModal() {
+	// Fetch marketplaces and plugins from Claude CLI
+	marketplaces, err := claude.ListMarketplaces()
+	if err != nil {
+		state := ui.NewPluginsState()
+		state.SetError(err.Error())
+		m.modal.Show(state)
+		return
+	}
+
+	plugins, err := claude.ListPlugins()
+	if err != nil {
+		state := ui.NewPluginsState()
+		state.SetError(err.Error())
+		m.modal.Show(state)
+		return
+	}
+
+	// Convert to display types
+	var mpDisplays []ui.MarketplaceDisplay
+	for _, mp := range marketplaces {
+		mpDisplays = append(mpDisplays, ui.MarketplaceDisplay{
+			Name:        mp.Name,
+			Source:      mp.Source,
+			Repo:        mp.Repo,
+			LastUpdated: mp.LastUpdated.Format("2006-01-02"),
+		})
+	}
+
+	var pluginDisplays []ui.PluginDisplay
+	for _, p := range plugins {
+		status := "available"
+		if p.Enabled {
+			status = "enabled"
+		} else if p.Installed {
+			status = "installed"
+		}
+		pluginDisplays = append(pluginDisplays, ui.PluginDisplay{
+			Name:        p.Name,
+			Marketplace: p.Marketplace,
+			FullName:    p.FullName,
+			Description: p.Description,
+			Status:      status,
+			Version:     p.Version,
+		})
+	}
+
+	m.modal.Show(ui.NewPluginsStateWithData(mpDisplays, pluginDisplays))
+}
+
+// showPluginsModalOnTab shows the plugins modal and sets it to a specific tab.
+func (m *Model) showPluginsModalOnTab(tab int) {
+	// Fetch marketplaces and plugins from Claude CLI
+	marketplaces, err := claude.ListMarketplaces()
+	if err != nil {
+		state := ui.NewPluginsState()
+		state.ActiveTab = tab
+		state.SetError(err.Error())
+		m.modal.Show(state)
+		return
+	}
+
+	plugins, err := claude.ListPlugins()
+	if err != nil {
+		state := ui.NewPluginsState()
+		state.ActiveTab = tab
+		state.SetError(err.Error())
+		m.modal.Show(state)
+		return
+	}
+
+	// Convert to display types
+	var mpDisplays []ui.MarketplaceDisplay
+	for _, mp := range marketplaces {
+		mpDisplays = append(mpDisplays, ui.MarketplaceDisplay{
+			Name:        mp.Name,
+			Source:      mp.Source,
+			Repo:        mp.Repo,
+			LastUpdated: mp.LastUpdated.Format("2006-01-02"),
+		})
+	}
+
+	var pluginDisplays []ui.PluginDisplay
+	for _, p := range plugins {
+		status := "available"
+		if p.Enabled {
+			status = "enabled"
+		} else if p.Installed {
+			status = "installed"
+		}
+		pluginDisplays = append(pluginDisplays, ui.PluginDisplay{
+			Name:        p.Name,
+			Marketplace: p.Marketplace,
+			FullName:    p.FullName,
+			Description: p.Description,
+			Status:      status,
+			Version:     p.Version,
+		})
+	}
+
+	state := ui.NewPluginsStateWithData(mpDisplays, pluginDisplays)
+	state.ActiveTab = tab
+	m.modal.Show(state)
+}
+
 // showCommitConflictModal shows the commit message modal for resolved merge conflicts.
 func (m *Model) showCommitConflictModal() (tea.Model, tea.Cmd) {
 	// Check if there are still conflicts
@@ -807,6 +912,8 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 				switch result.Action {
 				case ActionOpenMCP:
 					return shortcutMCPServers(m)
+				case ActionOpenPlugins:
+					return shortcutPlugins(m)
 				}
 			}
 

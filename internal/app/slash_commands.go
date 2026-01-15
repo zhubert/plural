@@ -15,8 +15,9 @@ import (
 type SlashCommandAction int
 
 const (
-	ActionNone       SlashCommandAction = iota
-	ActionOpenMCP                       // Open MCP servers modal
+	ActionNone        SlashCommandAction = iota
+	ActionOpenMCP                        // Open MCP servers modal
+	ActionOpenPlugins                    // Open plugins modal
 )
 
 // SlashCommandResult represents the result of handling a slash command.
@@ -48,6 +49,10 @@ func getSlashCommands() []slashCommandDef {
 			name:        "mcp",
 			description: "Manage MCP servers",
 		},
+		{
+			name:        "plugins",
+			description: "Manage plugin directories",
+		},
 	}
 }
 
@@ -76,6 +81,8 @@ func (m *Model) handleSlashCommand(input string) SlashCommandResult {
 		return handleHelpCommand(m, args)
 	case "mcp":
 		return handleMCPCommand(m, args)
+	case "plugin", "plugins":
+		return handlePluginsCommand(m, args)
 	default:
 		// Unknown slash command - let Claude handle it (might be a custom command)
 		logger.Log("App: Unknown slash command /%s, passing to Claude", cmdName)
@@ -88,6 +95,14 @@ func handleMCPCommand(_ *Model, _ string) SlashCommandResult {
 	return SlashCommandResult{
 		Handled: true,
 		Action:  ActionOpenMCP,
+	}
+}
+
+// handlePluginsCommand opens the plugins configuration modal.
+func handlePluginsCommand(_ *Model, _ string) SlashCommandResult {
+	return SlashCommandResult{
+		Handled: true,
+		Action:  ActionOpenPlugins,
 	}
 }
 

@@ -37,7 +37,7 @@ func TestGetSlashCommandCompletions(t *testing.T) {
 	}{
 		{"", nil},           // No prefix
 		{"hello", nil},      // Not a slash command
-		{"/", []string{"/cost", "/help", "/mcp"}},
+		{"/", []string{"/cost", "/help", "/mcp", "/plugins"}},
 		{"/c", []string{"/cost"}},
 		{"/co", []string{"/cost"}},
 		{"/cost", []string{"/cost"}},
@@ -45,6 +45,8 @@ func TestGetSlashCommandCompletions(t *testing.T) {
 		{"/help", []string{"/help"}},
 		{"/m", []string{"/mcp"}},
 		{"/mcp", []string{"/mcp"}},
+		{"/p", []string{"/plugins"}},
+		{"/plugins", []string{"/plugins"}},
 		{"/xyz", []string{}}, // No matches - returns empty slice
 	}
 
@@ -97,6 +99,18 @@ func TestHandleMCPCommand(t *testing.T) {
 
 	if result.Action != ActionOpenMCP {
 		t.Errorf("handleMCPCommand should return Action=ActionOpenMCP, got %v", result.Action)
+	}
+}
+
+func TestHandlePluginsCommand(t *testing.T) {
+	result := handlePluginsCommand(nil, "")
+
+	if !result.Handled {
+		t.Error("handlePluginsCommand should return Handled=true")
+	}
+
+	if result.Action != ActionOpenPlugins {
+		t.Errorf("handlePluginsCommand should return Action=ActionOpenPlugins, got %v", result.Action)
 	}
 }
 
