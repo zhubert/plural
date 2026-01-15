@@ -194,6 +194,13 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSidebar: true,
 		Handler:         shortcutQuit,
 	},
+	{
+		Key:         "ctrl+d",
+		DisplayKey:  "ctrl-d",
+		Description: "Quit application",
+		Category:    CategoryGeneral,
+		Handler:     shortcutQuit,
+	},
 }
 
 // helpShortcut is defined separately to avoid initialization cycle.
