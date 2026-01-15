@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/zhubert/plural/internal/logger"
@@ -161,6 +162,7 @@ type Runner struct {
 	isStreaming  bool                   // Whether this runner is currently streaming
 	streamCtx    context.Context        // Context for current streaming operation
 	streamCancel context.CancelFunc     // Cancel function for current streaming
+	interrupted  bool                   // Whether current operation was interrupted by user
 
 	// Process lifecycle context - used to signal goroutines to exit
 	processCtx    context.Context    // Context for process goroutines
@@ -863,9 +865,10 @@ func (r *Runner) readPersistentResponses(ctx context.Context) {
 			if msg.Type == "result" {
 				logger.Log("Claude: Result message received, response complete")
 
-				// Add assistant message to history
+				// Add assistant message to history and reset interrupt flag
 				r.mu.Lock()
 				r.sessionStarted = true
+				r.interrupted = false // Reset in case SIGINT was handled gracefully
 				r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse.String()})
 				r.mu.Unlock()
 
@@ -946,6 +949,13 @@ func (r *Runner) handleProcessExit(err error) {
 
 	logger.Log("Claude: Handling process exit for session %s", r.sessionID)
 
+	// Check if this was a user-initiated interrupt
+	r.mu.Lock()
+	wasInterrupted := r.interrupted
+	r.interrupted = false // Reset for next operation
+	ch := r.currentResponseCh
+	r.mu.Unlock()
+
 	// Read stderr to get actual error message before closing
 	var stderrContent string
 	if r.persistentStderr != nil {
@@ -958,26 +968,31 @@ func (r *Runner) handleProcessExit(err error) {
 		}
 	}
 
-	// Build error message with stderr content if available
-	var exitErr error
-	if stderrContent != "" {
-		exitErr = fmt.Errorf("process exited: %s", stderrContent)
-	} else if err != nil {
-		exitErr = fmt.Errorf("process exited: %v", err)
-	} else {
-		exitErr = fmt.Errorf("process exited unexpectedly")
-	}
-
-	// Notify current response channel of error and close it
+	// Notify current response channel and close it
 	// Note: Don't set currentResponseCh to nil - let GetResponseChan() return
 	// the closed channel so listeners can detect completion.
 	// It will be replaced on the next SendContent call.
-	r.mu.Lock()
-	ch := r.currentResponseCh
 	if ch != nil {
-		ch <- ResponseChunk{Error: exitErr, Done: true}
+		if wasInterrupted {
+			// User interrupted - just signal done without error
+			logger.Log("Claude: Process exit due to user interrupt, not reporting error")
+			ch <- ResponseChunk{Done: true}
+		} else {
+			// Unexpected exit - build error message with stderr content if available
+			var exitErr error
+			if stderrContent != "" {
+				exitErr = fmt.Errorf("process exited: %s", stderrContent)
+			} else if err != nil {
+				exitErr = fmt.Errorf("process exited: %v", err)
+			} else {
+				exitErr = fmt.Errorf("process exited unexpectedly")
+			}
+			ch <- ResponseChunk{Error: exitErr, Done: true}
+		}
 		close(ch)
 	}
+
+	r.mu.Lock()
 	r.isStreaming = false
 	r.mu.Unlock()
 
@@ -1050,6 +1065,33 @@ func (r *Runner) stopPersistentProcess() {
 	r.processRunning = false
 }
 
+// Interrupt sends SIGINT to the Claude process to interrupt its current operation.
+// This is used when the user presses Escape to stop a streaming response.
+// Unlike Stop(), this doesn't terminate the process - it just interrupts the current task.
+func (r *Runner) Interrupt() error {
+	r.processMu.Lock()
+	defer r.processMu.Unlock()
+
+	if !r.processRunning || r.persistentCmd == nil || r.persistentCmd.Process == nil {
+		logger.Log("Claude: Interrupt called but process not running")
+		return nil
+	}
+
+	// Set interrupted flag so handleProcessExit doesn't report an error
+	r.mu.Lock()
+	r.interrupted = true
+	r.mu.Unlock()
+
+	logger.Info("Claude: Sending SIGINT to interrupt session %s (pid=%d)", r.sessionID, r.persistentCmd.Process.Pid)
+
+	if err := r.persistentCmd.Process.Signal(syscall.SIGINT); err != nil {
+		logger.Error("Claude: Failed to send SIGINT: %v", err)
+		return fmt.Errorf("failed to send interrupt signal: %w", err)
+	}
+
+	return nil
+}
+
 // Send sends a message to Claude and streams the response
 func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChunk {
 	return r.SendContent(cmdCtx, TextContent(prompt))
@@ -1092,6 +1134,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		// Set up the response channel for routing
 		r.mu.Lock()
 		r.isStreaming = true
+		r.interrupted = false // Reset interrupt flag for new message
 		r.currentResponseCh = ch
 		r.streamCtx = cmdCtx
 		r.mu.Unlock()
