@@ -277,6 +277,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cancel := m.sessionState().GetStreamCancel(m.activeSession.ID); cancel != nil {
 					logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
 					cancel()
+					// Send SIGINT to interrupt the Claude process (handles sub-agent work)
+					if m.claudeRunner != nil {
+						if err := m.claudeRunner.Interrupt(); err != nil {
+							logger.Error("App: Failed to interrupt Claude: %v", err)
+						}
+					}
 					m.sessionState().StopWaiting(m.activeSession.ID)
 					m.sidebar.SetStreaming(m.activeSession.ID, false)
 					m.chat.SetWaiting(false)

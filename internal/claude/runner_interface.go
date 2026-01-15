@@ -34,6 +34,7 @@ type RunnerInterface interface {
 
 	// Lifecycle
 	Stop()
+	Interrupt() error
 }
 
 // Ensure Runner implements RunnerInterface at compile time.
