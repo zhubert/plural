@@ -1401,19 +1401,27 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 			// Adjust coordinates for panel border
 			x := msg.X - 1
 			y := msg.Y - 1
-			c.EndSelection(x, y)
-			clickCount := c.clickCount
 
-			// Schedule delayed copy to allow for multi-click detection
-			tick := tea.Tick(doubleClickThreshold, func(time.Time) tea.Msg {
-				return SelectionCopyMsg{
-					clickCount:   clickCount,
-					endSelection: true,
-					x:            x,
-					y:            y,
-				}
-			})
-			return c, tick
+			// For drag selections, update the end position
+			if c.selectionActive {
+				c.EndSelection(x, y)
+			}
+
+			// Copy if we have a selection (either from drag or double/triple click)
+			if c.HasTextSelection() {
+				clickCount := c.clickCount
+
+				// Schedule delayed copy to allow for multi-click detection
+				tick := tea.Tick(doubleClickThreshold, func(time.Time) tea.Msg {
+					return SelectionCopyMsg{
+						clickCount:   clickCount,
+						endSelection: true,
+						x:            x,
+						y:            y,
+					}
+				})
+				return c, tick
+			}
 		}
 		return c, nil
 
