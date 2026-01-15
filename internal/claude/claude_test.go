@@ -555,7 +555,7 @@ func TestFormatToolIcon(t *testing.T) {
 
 func TestDefaultAllowedTools(t *testing.T) {
 	expected := []string{
-		"Read", "Glob", "Grep", "Edit", "Write",
+		"Read", "Glob", "Grep", "Edit", "Write", "ExitPlanMode",
 		"Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)",
 		"Bash(tail:*)", "Bash(wc:*)", "Bash(pwd:*)",
 	}
