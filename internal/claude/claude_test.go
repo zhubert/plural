@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -946,4 +947,141 @@ func TestRunner_Interrupt_Idempotent(t *testing.T) {
 	runner.Interrupt()
 	runner.Interrupt()
 	runner.Interrupt()
+}
+
+func TestConstants(t *testing.T) {
+	// Verify error handling constants have reasonable values
+	if ResponseReadTimeout <= 0 {
+		t.Error("ResponseReadTimeout should be positive")
+	}
+
+	if MaxProcessRestartAttempts <= 0 {
+		t.Error("MaxProcessRestartAttempts should be positive")
+	}
+
+	if MaxProcessRestartAttempts > 10 {
+		t.Error("MaxProcessRestartAttempts should not be too high to avoid infinite loops")
+	}
+
+	if ProcessRestartDelay <= 0 {
+		t.Error("ProcessRestartDelay should be positive")
+	}
+
+	if ResponseChannelFullTimeout <= 0 {
+		t.Error("ResponseChannelFullTimeout should be positive")
+	}
+}
+
+func TestRunner_RestartTracking(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Initially, restart attempts should be 0
+	runner.mu.RLock()
+	attempts := runner.restartAttempts
+	runner.mu.RUnlock()
+
+	if attempts != 0 {
+		t.Errorf("Expected 0 restart attempts initially, got %d", attempts)
+	}
+
+	// Set restart attempts
+	runner.mu.Lock()
+	runner.restartAttempts = 2
+	runner.mu.Unlock()
+
+	runner.mu.RLock()
+	attempts = runner.restartAttempts
+	runner.mu.RUnlock()
+
+	if attempts != 2 {
+		t.Errorf("Expected 2 restart attempts, got %d", attempts)
+	}
+}
+
+func TestReportFatalError(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Create a channel to receive the error
+	ch := make(chan ResponseChunk, 10)
+
+	// Call reportFatalError
+	testErr := fmt.Errorf("test fatal error")
+	runner.reportFatalError(ch, false, testErr)
+
+	// Should receive an error chunk
+	select {
+	case chunk := <-ch:
+		if chunk.Error == nil {
+			t.Error("Expected error in chunk")
+		}
+		if !chunk.Done {
+			t.Error("Expected Done=true in error chunk")
+		}
+		if chunk.Error.Error() != testErr.Error() {
+			t.Errorf("Expected error %q, got %q", testErr.Error(), chunk.Error.Error())
+		}
+	default:
+		t.Error("Expected chunk from channel")
+	}
+
+	// Channel should be closed
+	runner.mu.RLock()
+	closed := runner.currentResponseChClosed
+	streaming := runner.isStreaming
+	runner.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected currentResponseChClosed to be true")
+	}
+	if streaming {
+		t.Error("Expected isStreaming to be false")
+	}
+}
+
+func TestReportFatalError_AlreadyClosed(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Mark as already closed
+	runner.mu.Lock()
+	runner.currentResponseChClosed = true
+	runner.mu.Unlock()
+
+	ch := make(chan ResponseChunk, 10)
+
+	// Should not panic or send anything since already closed
+	runner.reportFatalError(ch, true, fmt.Errorf("test error"))
+
+	select {
+	case <-ch:
+		t.Error("Should not receive chunk when already closed")
+	default:
+		// Expected - no chunk sent
+	}
+}
+
+func TestReportFatalError_NilChannel(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Should not panic with nil channel
+	runner.reportFatalError(nil, false, fmt.Errorf("test error"))
+}
+
+func TestErrorVariables(t *testing.T) {
+	// Verify error variables are defined
+	if errReadTimeout == nil {
+		t.Error("errReadTimeout should not be nil")
+	}
+
+	if errChannelFull == nil {
+		t.Error("errChannelFull should not be nil")
+	}
+
+	// Verify they have meaningful messages
+	if errReadTimeout.Error() == "" {
+		t.Error("errReadTimeout should have a message")
+	}
+
+	if errChannelFull.Error() == "" {
+		t.Error("errChannelFull should have a message")
+	}
 }
