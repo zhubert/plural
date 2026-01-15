@@ -357,5 +357,11 @@ func (m *MockRunner) CompleteStreaming(content string) {
 	}
 }
 
+// Interrupt implements RunnerInterface.Interrupt for mock.
+// In tests, this is a no-op since there's no real Claude process.
+func (m *MockRunner) Interrupt() error {
+	return nil
+}
+
 // Ensure MockRunner implements RunnerInterface at compile time.
 var _ RunnerInterface = (*MockRunner)(nil)

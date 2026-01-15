@@ -928,3 +928,22 @@ func TestResponseChunk_Fields(t *testing.T) {
 		t.Error("Expected Done=true")
 	}
 }
+
+func TestRunner_Interrupt_NotRunning(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Interrupt should not error when no process is running
+	err := runner.Interrupt()
+	if err != nil {
+		t.Errorf("Interrupt should not error when no process running, got: %v", err)
+	}
+}
+
+func TestRunner_Interrupt_Idempotent(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Multiple Interrupt calls should be safe
+	runner.Interrupt()
+	runner.Interrupt()
+	runner.Interrupt()
+}
