@@ -74,7 +74,7 @@ internal/
 
 ### Data Storage
 
-- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, theme, branch prefix
+- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, plugins, theme, branch prefix
 - `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
 
 ### Key Patterns
@@ -137,6 +137,7 @@ Available commands:
 - `/cost` - Show token usage and estimated cost for the current session (reads from Claude's JSONL session files)
 - `/help` - Show available Plural slash commands
 - `/mcp` - Open MCP servers configuration modal (same as `s` shortcut)
+- `/plugins` - Open plugin directories configuration modal
 
 Implementation in `internal/app/slash_commands.go`:
 - Commands are intercepted in `sendMessage()` before being sent to Claude
@@ -189,7 +190,31 @@ Charm's Bubble Tea v2 stack:
 - `tea.KeyMsg` → `tea.KeyPressMsg`
 - `tea.View` returns declarative view with properties
 - Viewport uses `SetWidth()`/`SetHeight()` methods
-- **Key strings**: Use `"space"` not `" "`, `"tab"` not `"\t"`, etc.
+
+**Bubble Tea v2 key strings** (use `msg.String()` on `tea.KeyPressMsg`):
+
+| Key | String | NOT |
+|-----|--------|-----|
+| Escape | `"escape"` | `"esc"` |
+| Enter | `"enter"` | `"return"` |
+| Space | `"space"` | `" "` |
+| Tab | `"tab"` | `"\t"` |
+| Backspace | `"backspace"` | |
+| Delete | `"delete"` | |
+| Up arrow | `"up"` | |
+| Down arrow | `"down"` | |
+| Left arrow | `"left"` | |
+| Right arrow | `"right"` | |
+| Page Up | `"pgup"` | |
+| Page Down | `"pgdown"` | |
+| Home | `"home"` | |
+| End | `"end"` | |
+| Ctrl+C | `"ctrl+c"` | |
+| Ctrl+S | `"ctrl+s"` | |
+| Shift+Tab | `"shift+tab"` | |
+
+Regular letter/number keys return their lowercase value (e.g., `"a"`, `"1"`, `"/"`).
+Always test key handling with actual keypresses when in doubt.
 
 ---
 

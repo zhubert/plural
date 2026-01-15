@@ -175,6 +175,7 @@ type MCPServer struct {
 	Args    []string
 }
 
+
 // New creates a new Claude runner for a session
 func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Message) *Runner {
 	logger.Log("Claude: New Runner created: sessionID=%s, workingDir=%s, started=%v, messages=%d", sessionID, workingDir, sessionStarted, len(initialMessages))
@@ -244,6 +245,7 @@ func (r *Runner) SetMCPServers(servers []MCPServer) {
 	r.mcpServers = servers
 	logger.Log("Claude: Set %d external MCP servers for session %s", len(servers), r.sessionID)
 }
+
 
 // PermissionRequestChan returns the channel for receiving permission requests.
 // Returns nil if the runner has been stopped to prevent reading from closed channel.

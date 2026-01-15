@@ -33,6 +33,10 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleMCPServersModal(key, msg, s)
 	case *ui.AddMCPServerState:
 		return m.handleAddMCPServerModal(key, msg, s)
+	case *ui.PluginsState:
+		return m.handlePluginsModal(key, msg, s)
+	case *ui.AddMarketplaceState:
+		return m.handleAddMarketplaceModal(key, msg, s)
 	case *ui.EditCommitState:
 		return m.handleEditCommitModal(key, msg, s)
 	case *ui.WelcomeState:
@@ -366,6 +370,122 @@ func (m *Model) handleAddMCPServerModal(key string, msg tea.KeyPressMsg, state *
 		}
 		m.config.Save()
 		m.modal.Hide()
+		return m, nil
+	}
+	// Forward other keys to the modal for text input handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// handlePluginsModal handles key events for the Plugins modal.
+func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.PluginsState) (tea.Model, tea.Cmd) {
+	// Store current tab to preserve it after refresh
+	currentTab := state.ActiveTab
+
+	switch key {
+	case "escape":
+		// If search is focused, let the modal handle it (exits search mode)
+		if state.SearchFocused {
+			modal, cmd := m.modal.Update(msg)
+			m.modal = modal
+			return m, cmd
+		}
+		m.modal.Hide()
+		return m, nil
+
+	// Marketplaces tab actions
+	case "a":
+		if state.ActiveTab == 0 { // Marketplaces tab
+			m.modal.Show(ui.NewAddMarketplaceState())
+		}
+		return m, nil
+
+	case "d":
+		if state.ActiveTab == 0 { // Marketplaces tab
+			if mp := state.GetSelectedMarketplace(); mp != nil {
+				if err := claude.RemoveMarketplace(mp.Name); err != nil {
+					state.SetError(err.Error())
+				} else {
+					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
+				}
+			}
+		}
+		return m, nil
+
+	case "u":
+		if state.ActiveTab == 0 { // Marketplaces - update
+			if mp := state.GetSelectedMarketplace(); mp != nil {
+				if err := claude.UpdateMarketplace(mp.Name); err != nil {
+					state.SetError(err.Error())
+				} else {
+					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
+				}
+			}
+		} else if state.ActiveTab == 1 { // Installed - uninstall
+			if plugin := state.GetSelectedInstalledPlugin(); plugin != nil {
+				if err := claude.UninstallPlugin(plugin.FullName); err != nil {
+					state.SetError(err.Error())
+				} else {
+					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
+				}
+			}
+		}
+		return m, nil
+
+	case "e":
+		if state.ActiveTab == 1 { // Installed - enable/disable
+			if plugin := state.GetSelectedInstalledPlugin(); plugin != nil {
+				var err error
+				if plugin.Status == "enabled" {
+					err = claude.DisablePlugin(plugin.FullName)
+				} else {
+					err = claude.EnablePlugin(plugin.FullName)
+				}
+				if err != nil {
+					state.SetError(err.Error())
+				} else {
+					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
+				}
+			}
+		}
+		return m, nil
+
+	case "i", "enter":
+		if state.ActiveTab == 2 { // Discover - install
+			if plugin := state.GetSelectedAvailablePlugin(); plugin != nil {
+				if err := claude.InstallPlugin(plugin.FullName); err != nil {
+					state.SetError(err.Error())
+				} else {
+					m.showPluginsModalOnTab(1) // Go to Installed tab after install
+				}
+			}
+		}
+		return m, nil
+	}
+
+	// Forward other keys to the modal for navigation handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// handleAddMarketplaceModal handles key events for the Add Marketplace modal.
+func (m *Model) handleAddMarketplaceModal(key string, msg tea.KeyPressMsg, state *ui.AddMarketplaceState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.showPluginsModal() // Go back to plugins modal
+		return m, nil
+	case "enter":
+		source := state.GetValue()
+		if source == "" {
+			return m, nil
+		}
+		if err := claude.AddMarketplace(source); err != nil {
+			m.modal.SetError(err.Error())
+		} else {
+			m.showPluginsModal() // Return to plugins modal and refresh
+		}
 		return m, nil
 	}
 	// Forward other keys to the modal for text input handling

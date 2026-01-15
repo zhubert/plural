@@ -500,6 +500,11 @@ func shortcutMCPServers(m *Model) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func shortcutPlugins(m *Model) (tea.Model, tea.Cmd) {
+	m.showPluginsModal()
+	return m, nil
+}
+
 func shortcutTheme(m *Model) (tea.Model, tea.Cmd) {
 	m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
 	return m, nil
