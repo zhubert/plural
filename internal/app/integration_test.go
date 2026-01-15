@@ -775,6 +775,43 @@ func TestViewChanges_NavigateFiles(t *testing.T) {
 	}
 }
 
+func TestViewChanges_EscapeFromSidebarFocus(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session first (this switches focus to chat)
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+
+	// Enter view changes mode (simulating what shortcutViewChanges does)
+	m.chat.EnterViewChangesMode(testFileDiffs())
+
+	if !m.chat.IsInViewChangesMode() {
+		t.Fatal("Expected to be in view changes mode")
+	}
+
+	// Switch focus back to sidebar (Tab)
+	m = sendKey(m, "tab")
+	if m.focus != FocusSidebar {
+		t.Fatalf("Expected sidebar focus after tab, got %v", m.focus)
+	}
+
+	// Verify still in view changes mode
+	if !m.chat.IsInViewChangesMode() {
+		t.Fatal("Should still be in view changes mode after switching to sidebar")
+	}
+
+	// Press Escape from sidebar - should close view changes mode
+	m = sendKey(m, "esc")
+
+	if m.chat.IsInViewChangesMode() {
+		t.Error("Expected to exit view changes mode after Escape from sidebar")
+	}
+}
+
 // =============================================================================
 // Fork Modal Tests
 // =============================================================================
