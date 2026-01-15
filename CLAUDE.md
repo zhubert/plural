@@ -2,6 +2,17 @@
 
 Guidance for Claude Code when working with this repository.
 
+## Testing Requirements
+
+**ALWAYS write tests for new code.** This is a non-negotiable requirement.
+
+- Every new function or method must have corresponding unit tests
+- Every bug fix must include a regression test
+- Run `go test ./...` before considering any task complete
+- Aim for high coverage (80%+) on new code
+- Use table-driven tests where appropriate
+- Test edge cases and error conditions, not just happy paths
+
 ## Project Overview
 
 Plural is a TUI application for managing multiple concurrent Claude Code sessions. Each session runs in its own git worktree, allowing isolated Claude conversations on the same codebase.

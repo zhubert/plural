@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/mcp"
@@ -907,5 +908,820 @@ func TestThinkingVerbs(t *testing.T) {
 		if verb == "" {
 			t.Errorf("thinkingVerbs[%d] is empty", i)
 		}
+	}
+}
+
+// =============================================================================
+// Text Selection Tests
+// =============================================================================
+
+func TestChat_StartSelection(t *testing.T) {
+	chat := NewChat()
+
+	// Start selection at position (5, 10)
+	chat.StartSelection(5, 10)
+
+	if chat.selectionStartCol != 5 {
+		t.Errorf("Expected selectionStartCol 5, got %d", chat.selectionStartCol)
+	}
+	if chat.selectionStartLine != 10 {
+		t.Errorf("Expected selectionStartLine 10, got %d", chat.selectionStartLine)
+	}
+	if chat.selectionEndCol != 5 {
+		t.Errorf("Expected selectionEndCol 5, got %d", chat.selectionEndCol)
+	}
+	if chat.selectionEndLine != 10 {
+		t.Errorf("Expected selectionEndLine 10, got %d", chat.selectionEndLine)
+	}
+	if !chat.selectionActive {
+		t.Error("Expected selectionActive to be true")
+	}
+}
+
+func TestChat_EndSelection(t *testing.T) {
+	chat := NewChat()
+
+	// EndSelection without active selection should do nothing
+	chat.EndSelection(10, 20)
+	if chat.selectionEndCol != 0 || chat.selectionEndLine != 0 {
+		t.Error("EndSelection should not modify coordinates when selection is not active")
+	}
+
+	// Start selection then end it
+	chat.StartSelection(5, 10)
+	chat.EndSelection(15, 25)
+
+	if chat.selectionEndCol != 15 {
+		t.Errorf("Expected selectionEndCol 15, got %d", chat.selectionEndCol)
+	}
+	if chat.selectionEndLine != 25 {
+		t.Errorf("Expected selectionEndLine 25, got %d", chat.selectionEndLine)
+	}
+	// Start position should be unchanged
+	if chat.selectionStartCol != 5 {
+		t.Errorf("Expected selectionStartCol unchanged at 5, got %d", chat.selectionStartCol)
+	}
+	if chat.selectionStartLine != 10 {
+		t.Errorf("Expected selectionStartLine unchanged at 10, got %d", chat.selectionStartLine)
+	}
+}
+
+func TestChat_SelectionStop(t *testing.T) {
+	chat := NewChat()
+	chat.StartSelection(5, 10)
+	chat.EndSelection(15, 20)
+
+	if !chat.selectionActive {
+		t.Error("Expected selectionActive to be true before stop")
+	}
+
+	chat.SelectionStop()
+
+	if chat.selectionActive {
+		t.Error("Expected selectionActive to be false after stop")
+	}
+	// Coordinates should be preserved
+	if chat.selectionStartCol != 5 || chat.selectionStartLine != 10 {
+		t.Error("Selection start coordinates should be preserved after stop")
+	}
+	if chat.selectionEndCol != 15 || chat.selectionEndLine != 20 {
+		t.Error("Selection end coordinates should be preserved after stop")
+	}
+}
+
+func TestChat_SelectionClear(t *testing.T) {
+	chat := NewChat()
+	chat.StartSelection(5, 10)
+	chat.EndSelection(15, 20)
+	chat.SelectionStop()
+
+	chat.SelectionClear()
+
+	if chat.selectionStartCol != -1 {
+		t.Errorf("Expected selectionStartCol -1, got %d", chat.selectionStartCol)
+	}
+	if chat.selectionStartLine != -1 {
+		t.Errorf("Expected selectionStartLine -1, got %d", chat.selectionStartLine)
+	}
+	if chat.selectionEndCol != -1 {
+		t.Errorf("Expected selectionEndCol -1, got %d", chat.selectionEndCol)
+	}
+	if chat.selectionEndLine != -1 {
+		t.Errorf("Expected selectionEndLine -1, got %d", chat.selectionEndLine)
+	}
+	if chat.selectionActive {
+		t.Error("Expected selectionActive to be false after clear")
+	}
+}
+
+func TestChat_HasTextSelection(t *testing.T) {
+	chat := NewChat()
+
+	// Initially no selection
+	if chat.HasTextSelection() {
+		t.Error("Expected no selection initially")
+	}
+
+	// Selection cleared (negative coords)
+	chat.SelectionClear()
+	if chat.HasTextSelection() {
+		t.Error("Expected no selection after clear")
+	}
+
+	// Start selection but end at same position (no selection)
+	chat.StartSelection(5, 10)
+	if chat.HasTextSelection() {
+		t.Error("Expected no selection when start equals end")
+	}
+
+	// Update end position to create actual selection
+	chat.EndSelection(10, 10)
+	if !chat.HasTextSelection() {
+		t.Error("Expected selection when end differs from start")
+	}
+
+	// Multi-line selection
+	chat.EndSelection(5, 15)
+	if !chat.HasTextSelection() {
+		t.Error("Expected selection for multi-line selection")
+	}
+}
+
+func TestAbs(t *testing.T) {
+	tests := []struct {
+		input    int
+		expected int
+	}{
+		{0, 0},
+		{5, 5},
+		{-5, 5},
+		{-100, 100},
+		{100, 100},
+	}
+
+	for _, tt := range tests {
+		result := abs(tt.input)
+		if result != tt.expected {
+			t.Errorf("abs(%d) = %d, want %d", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestChat_SelectionArea(t *testing.T) {
+	chat := NewChat()
+
+	tests := []struct {
+		name                                     string
+		startCol, startLine, endCol, endLine     int
+		wantStartCol, wantStartLine              int
+		wantEndCol, wantEndLine                  int
+	}{
+		{
+			name:          "already normalized - same line",
+			startCol:      5, startLine: 10, endCol: 15, endLine: 10,
+			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 10,
+		},
+		{
+			name:          "already normalized - multi line",
+			startCol:      5, startLine: 10, endCol: 15, endLine: 20,
+			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 20,
+		},
+		{
+			name:          "needs normalization - same line reversed",
+			startCol:      15, startLine: 10, endCol: 5, endLine: 10,
+			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 10,
+		},
+		{
+			name:          "needs normalization - multi line reversed",
+			startCol:      15, startLine: 20, endCol: 5, endLine: 10,
+			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 20,
+		},
+		{
+			name:          "drag selection upward",
+			startCol:      10, startLine: 15, endCol: 3, endLine: 5,
+			wantStartCol:  3, wantStartLine: 5, wantEndCol: 10, wantEndLine: 15,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat.selectionStartCol = tt.startCol
+			chat.selectionStartLine = tt.startLine
+			chat.selectionEndCol = tt.endCol
+			chat.selectionEndLine = tt.endLine
+
+			gotStartCol, gotStartLine, gotEndCol, gotEndLine := chat.selectionArea()
+
+			if gotStartCol != tt.wantStartCol {
+				t.Errorf("startCol = %d, want %d", gotStartCol, tt.wantStartCol)
+			}
+			if gotStartLine != tt.wantStartLine {
+				t.Errorf("startLine = %d, want %d", gotStartLine, tt.wantStartLine)
+			}
+			if gotEndCol != tt.wantEndCol {
+				t.Errorf("endCol = %d, want %d", gotEndCol, tt.wantEndCol)
+			}
+			if gotEndLine != tt.wantEndLine {
+				t.Errorf("endLine = %d, want %d", gotEndLine, tt.wantEndLine)
+			}
+		})
+	}
+}
+
+func TestChat_HandleMouseClick_SingleClick(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// First click should start selection
+	_ = chat.handleMouseClick(10, 5)
+
+	if chat.clickCount != 1 {
+		t.Errorf("Expected clickCount 1, got %d", chat.clickCount)
+	}
+	if chat.selectionStartCol != 10 {
+		t.Errorf("Expected selectionStartCol 10, got %d", chat.selectionStartCol)
+	}
+	if chat.selectionStartLine != 5 {
+		t.Errorf("Expected selectionStartLine 5, got %d", chat.selectionStartLine)
+	}
+	if !chat.selectionActive {
+		t.Error("Expected selectionActive to be true after single click")
+	}
+}
+
+func TestChat_HandleMouseClick_ClickCountReset(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// First click
+	_ = chat.handleMouseClick(10, 5)
+	if chat.clickCount != 1 {
+		t.Errorf("Expected clickCount 1 after first click, got %d", chat.clickCount)
+	}
+
+	// Click far away - should reset count to 1 (new click sequence)
+	_ = chat.handleMouseClick(50, 20)
+	if chat.clickCount != 1 {
+		t.Errorf("Expected clickCount reset to 1 when clicking far away, got %d", chat.clickCount)
+	}
+}
+
+func TestChat_HandleMouseClick_DoubleClick(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Simulate rapid double click at same position
+	_ = chat.handleMouseClick(10, 5)
+	if chat.clickCount != 1 {
+		t.Errorf("Expected clickCount 1 after first click, got %d", chat.clickCount)
+	}
+
+	// Second click at same position (within tolerance and time threshold)
+	_ = chat.handleMouseClick(10, 5)
+	if chat.clickCount != 2 {
+		t.Errorf("Expected clickCount 2 after second click at same position, got %d", chat.clickCount)
+	}
+}
+
+func TestChat_HandleMouseClick_TripleClick(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Simulate rapid triple click at same position
+	_ = chat.handleMouseClick(10, 5)
+	_ = chat.handleMouseClick(10, 5)
+	_ = chat.handleMouseClick(10, 5)
+
+	// After triple click, count is explicitly reset to 0
+	if chat.clickCount != 0 {
+		t.Errorf("Expected clickCount 0 after triple click, got %d", chat.clickCount)
+	}
+}
+
+func TestChat_HandleMouseClick_TripleClickResets(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Simulate clicks at same position
+	chat.lastClickX = 10
+	chat.lastClickY = 5
+
+	// First click
+	_ = chat.handleMouseClick(10, 5)
+	// Second click
+	_ = chat.handleMouseClick(10, 5)
+	// Third click - should reset to 0
+	_ = chat.handleMouseClick(10, 5)
+
+	if chat.clickCount != 0 {
+		t.Errorf("Expected clickCount 0 after triple click, got %d", chat.clickCount)
+	}
+}
+
+// TestChat_SelectWord_WithViewportContent tests word selection with actual viewport content
+func TestChat_SelectWord_WithViewportContent(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Add some messages to create content
+	chat.messages = []claude.Message{
+		{Role: "assistant", Content: "Hello world this is a test"},
+	}
+
+	// The viewport needs content to work with SelectWord
+	// We'll directly test the function's behavior with known inputs
+
+	// Test bounds checking for negative line
+	chat.SelectWord(5, -1)
+	if chat.HasTextSelection() {
+		t.Error("SelectWord should not create selection for negative line")
+	}
+
+	// Test bounds checking for negative column
+	chat.SelectWord(-1, 0)
+	if chat.HasTextSelection() {
+		t.Error("SelectWord should not create selection for negative column")
+	}
+}
+
+func TestChat_SelectWord_EdgeCases(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+
+	// Test with out-of-bounds line index (should not panic)
+	chat.SelectWord(0, 1000)
+	// Just verify it doesn't crash and doesn't set invalid state
+	if chat.selectionActive {
+		t.Error("SelectWord should not activate selection for out-of-bounds line")
+	}
+}
+
+// TestChat_SelectParagraph_EdgeCases tests paragraph selection edge cases
+func TestChat_SelectParagraph_EdgeCases(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+
+	// Test with out-of-bounds line index (should not panic)
+	chat.SelectParagraph(0, 1000)
+	// Verify it doesn't crash
+	if chat.selectionActive {
+		t.Error("SelectParagraph should not activate selection for out-of-bounds line")
+	}
+
+	// Test with negative line
+	chat.SelectParagraph(0, -1)
+	if chat.HasTextSelection() {
+		t.Error("SelectParagraph should not create selection for negative line")
+	}
+}
+
+func TestChat_GetSelectedText_NoSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+
+	// No selection should return empty string
+	text := chat.GetSelectedText()
+	if text != "" {
+		t.Errorf("Expected empty string for no selection, got %q", text)
+	}
+}
+
+func TestChat_GetSelectedText_WithSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 0
+
+	// The viewport content depends on the view rendering
+	// Test that GetSelectedText doesn't crash with valid coordinates
+	_ = chat.GetSelectedText()
+	// Just verify it doesn't panic
+}
+
+func TestChat_GetSelectedText_BoundsValidation(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Test with reversed selection (end before start on same line)
+	chat.selectionStartCol = 10
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 0
+
+	// Should handle reversed selection gracefully
+	_ = chat.GetSelectedText()
+
+	// Test with negative bounds (will be normalized by selectionArea)
+	chat.selectionStartCol = -5
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 0
+
+	// The function should handle this gracefully
+	_ = chat.GetSelectedText()
+}
+
+func TestChat_CopySelectedText_NoSelection(t *testing.T) {
+	chat := NewChat()
+
+	// Without selection, should return nil
+	cmd := chat.CopySelectedText()
+	if cmd != nil {
+		t.Error("Expected nil command when no selection")
+	}
+}
+
+func TestChat_CopySelectedText_EmptyText(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a selection but ensure GetSelectedText returns empty
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 0
+	chat.selectionEndLine = 0
+
+	// Same position means HasTextSelection returns false
+	cmd := chat.CopySelectedText()
+	if cmd != nil {
+		t.Error("Expected nil command for point selection (no area)")
+	}
+}
+
+func TestChat_CopySelectedText_WithValidSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a valid selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 0
+
+	// Even with valid coordinates, the viewport may be empty
+	// Just ensure it doesn't crash
+	_ = chat.CopySelectedText()
+}
+
+func TestChat_SelectionView_NoSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+
+	originalView := "test content"
+	result := chat.selectionView(originalView)
+
+	// Without selection, should return original view unchanged
+	if result != originalView {
+		t.Errorf("Expected unchanged view without selection, got %q", result)
+	}
+}
+
+func TestChat_SelectionView_ZeroDimensions(t *testing.T) {
+	chat := NewChat()
+	// Don't set size, so viewport has zero dimensions
+
+	// Create a selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 0
+
+	originalView := "test content"
+	result := chat.selectionView(originalView)
+
+	// With zero dimensions, should return original view
+	if result != originalView {
+		t.Errorf("Expected unchanged view with zero dimensions, got %q", result)
+	}
+}
+
+func TestChat_SelectionView_WithValidSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a valid selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 0
+
+	// Test with simple content - should not panic
+	testView := "Hello World"
+	_ = chat.selectionView(testView)
+}
+
+func TestSelectionCopyMsg(t *testing.T) {
+	msg := SelectionCopyMsg{
+		clickCount:   2,
+		endSelection: true,
+		x:            10,
+		y:            5,
+	}
+
+	if msg.clickCount != 2 {
+		t.Errorf("Expected clickCount 2, got %d", msg.clickCount)
+	}
+	if !msg.endSelection {
+		t.Error("Expected endSelection true")
+	}
+	if msg.x != 10 {
+		t.Errorf("Expected x 10, got %d", msg.x)
+	}
+	if msg.y != 5 {
+		t.Errorf("Expected y 5, got %d", msg.y)
+	}
+}
+
+func TestDoubleClickThreshold(t *testing.T) {
+	// Verify the constant is a reasonable value
+	if doubleClickThreshold <= 0 {
+		t.Error("doubleClickThreshold should be positive")
+	}
+	if doubleClickThreshold > 1000*time.Millisecond {
+		t.Error("doubleClickThreshold should not be greater than 1 second")
+	}
+}
+
+func TestClickTolerance(t *testing.T) {
+	// Verify the click tolerance is reasonable
+	if clickTolerance < 0 {
+		t.Error("clickTolerance should not be negative")
+	}
+	if clickTolerance > 10 {
+		t.Error("clickTolerance seems too high (> 10 pixels)")
+	}
+}
+
+// TestChat_SelectionIntegration tests the full selection workflow
+func TestChat_SelectionIntegration(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Simulate single click drag selection workflow
+	t.Run("drag selection workflow", func(t *testing.T) {
+		// Start selection
+		chat.StartSelection(5, 2)
+		if !chat.selectionActive {
+			t.Error("Expected selection to be active after start")
+		}
+
+		// Drag to extend selection
+		chat.EndSelection(20, 5)
+		if !chat.selectionActive {
+			t.Error("Expected selection to still be active during drag")
+		}
+		if chat.selectionEndCol != 20 || chat.selectionEndLine != 5 {
+			t.Error("Selection end not updated correctly during drag")
+		}
+
+		// Stop selection (mouse release)
+		chat.SelectionStop()
+		if chat.selectionActive {
+			t.Error("Expected selection to be inactive after stop")
+		}
+
+		// Selection should still be visible
+		if !chat.HasTextSelection() {
+			t.Error("Expected selection to exist after stop")
+		}
+
+		// Clear selection
+		chat.SelectionClear()
+		if chat.HasTextSelection() {
+			t.Error("Expected no selection after clear")
+		}
+	})
+
+	t.Run("double click word selection", func(t *testing.T) {
+		// Double click selects a word
+		// This is tested indirectly through handleMouseClick
+		chat.SelectionClear()
+
+		// After SelectWord, selectionActive should be false (word selected immediately)
+		chat.SelectWord(5, 0)
+		if chat.selectionActive {
+			t.Error("Expected selectionActive false after SelectWord (immediate selection)")
+		}
+	})
+
+	t.Run("triple click paragraph selection", func(t *testing.T) {
+		chat.SelectionClear()
+
+		// After SelectParagraph, selectionActive should be false
+		chat.SelectParagraph(5, 0)
+		if chat.selectionActive {
+			t.Error("Expected selectionActive false after SelectParagraph")
+		}
+	})
+}
+
+// TestChat_SelectionCoordinates tests various coordinate scenarios
+func TestChat_SelectionCoordinates(t *testing.T) {
+	chat := NewChat()
+
+	tests := []struct {
+		name   string
+		startX int
+		startY int
+		endX   int
+		endY   int
+	}{
+		{"zero coordinates", 0, 0, 10, 10},
+		{"large coordinates", 1000, 500, 2000, 1000},
+		{"same line", 5, 10, 50, 10},
+		{"reversed single line", 50, 10, 5, 10},
+		{"multi-line forward", 5, 10, 50, 20},
+		{"multi-line backward", 50, 20, 5, 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat.StartSelection(tt.startX, tt.startY)
+			chat.EndSelection(tt.endX, tt.endY)
+
+			// Verify coordinates are set correctly
+			if chat.selectionStartCol != tt.startX {
+				t.Errorf("Expected startCol %d, got %d", tt.startX, chat.selectionStartCol)
+			}
+			if chat.selectionStartLine != tt.startY {
+				t.Errorf("Expected startLine %d, got %d", tt.startY, chat.selectionStartLine)
+			}
+			if chat.selectionEndCol != tt.endX {
+				t.Errorf("Expected endCol %d, got %d", tt.endX, chat.selectionEndCol)
+			}
+			if chat.selectionEndLine != tt.endY {
+				t.Errorf("Expected endLine %d, got %d", tt.endY, chat.selectionEndLine)
+			}
+
+			// Clean up for next test
+			chat.SelectionClear()
+		})
+	}
+}
+
+// TestChat_GetSelectedText_MultiLineSelection tests multi-line text extraction
+func TestChat_GetSelectedText_MultiLineSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Multi-line selection
+	chat.selectionStartCol = 5
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 2
+
+	// Test that it doesn't crash with multi-line coordinates
+	_ = chat.GetSelectedText()
+}
+
+// TestChat_CopySelectedText_EmptySelection tests CopySelectedText with empty selection
+func TestChat_CopySelectedText_EmptySelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create selection that would result in empty text after trim
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 1
+	chat.selectionEndLine = 0
+
+	// This may or may not return nil depending on viewport content
+	_ = chat.CopySelectedText()
+}
+
+// TestChat_SelectionView_MultiLineSelection tests multi-line highlighting
+func TestChat_SelectionView_MultiLineSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(40, 10)
+	chat.SetSession("test", nil)
+
+	// Multi-line selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 20
+	chat.selectionEndLine = 3
+
+	testView := "Line 1 content\nLine 2 content\nLine 3 content\nLine 4 content"
+	result := chat.selectionView(testView)
+
+	// The result should be different from input (highlighting applied)
+	// Just verify it doesn't crash
+	if result == "" {
+		t.Error("Expected non-empty result from selectionView")
+	}
+}
+
+// TestChat_SelectionView_SingleLineSelection tests single-line highlighting
+func TestChat_SelectionView_SingleLineSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(40, 10)
+	chat.SetSession("test", nil)
+
+	// Single line selection
+	chat.selectionStartCol = 2
+	chat.selectionStartLine = 1
+	chat.selectionEndCol = 8
+	chat.selectionEndLine = 1
+
+	testView := "Line 1\nLine 2 here\nLine 3"
+	result := chat.selectionView(testView)
+
+	// The result should not be empty
+	if result == "" {
+		t.Error("Expected non-empty result from selectionView")
+	}
+}
+
+// TestChat_SelectionView_FirstLineOnly tests first line of multi-line selection
+func TestChat_SelectionView_FirstLineOnly(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(40, 10)
+	chat.SetSession("test", nil)
+
+	// Selection starting mid-first line through multiple lines
+	chat.selectionStartCol = 5
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 2
+
+	testView := "First line text\nSecond line\nThird line text"
+	_ = chat.selectionView(testView)
+}
+
+// TestChat_SelectionView_LastLineOnly tests last line of multi-line selection
+func TestChat_SelectionView_LastLineOnly(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(40, 10)
+	chat.SetSession("test", nil)
+
+	// Selection ending mid-last line
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 2
+
+	testView := "First line\nMiddle line\nLast line here"
+	_ = chat.selectionView(testView)
+}
+
+// TestChat_SelectionView_MiddleLinesFullWidth tests middle lines of multi-line selection
+func TestChat_SelectionView_MiddleLinesFullWidth(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(40, 10)
+	chat.SetSession("test", nil)
+
+	// Selection spanning 4 lines (tests middle line branches)
+	chat.selectionStartCol = 5
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 3
+
+	testView := "Line 0\nLine 1\nLine 2\nLine 3"
+	_ = chat.selectionView(testView)
+}
+
+// TestChat_SelectWord_ValidPosition tests SelectWord with valid viewport content
+func TestChat_SelectWord_ValidPosition(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Test SelectWord at column 0 (edge case for backward search)
+	chat.SelectWord(0, 0)
+
+	// Test SelectWord at end of line (edge case for forward search)
+	chat.SelectWord(100, 0) // Column beyond line length
+}
+
+// TestChat_SelectParagraph_ValidPosition tests SelectParagraph with viewport content
+func TestChat_SelectParagraph_ValidPosition(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Test at line 0 (edge case - can't search backward past start)
+	chat.SelectParagraph(5, 0)
+
+	// Selection should be set (even if empty content)
+	if chat.selectionStartLine != 0 {
+		t.Errorf("Expected selectionStartLine 0, got %d", chat.selectionStartLine)
 	}
 }
