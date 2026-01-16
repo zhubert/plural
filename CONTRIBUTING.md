@@ -59,7 +59,6 @@ Open a GitHub Issue with:
 ```bash
 git clone https://github.com/zhubert/plural.git
 cd plural
-go generate ./...
 go build -o plural .
 ```
 
