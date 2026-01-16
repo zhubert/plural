@@ -349,6 +349,169 @@ Nice to have:
 	}
 }
 
+func TestDetectOptions_LetterBased(t *testing.T) {
+	tests := []struct {
+		name        string
+		message     string
+		wantLen     int
+		wantLetters []string
+		wantNums    []int
+	}{
+		{
+			name: "markdown heading option letters",
+			message: `## Option A: Rounded Nodes with Smooth Lines
+
+Some description here.
+
+---
+
+## Option B: Bullet Style with Arcs
+
+Another description.
+
+---
+
+## Option C: Metro/Subway Style
+
+More details.`,
+			wantLen:     3,
+			wantLetters: []string{"A", "B", "C"},
+			wantNums:    []int{1, 2, 3},
+		},
+		{
+			name: "six letter options A-F",
+			message: `## Option A: Minimal - Second Line Metadata
+
+Details for A.
+
+## Option B: Inline Compact Badges
+
+Details for B.
+
+## Option C: Visual Flow Lines
+
+Details for C.
+
+## Option D: Grouped Sections
+
+Details for D.
+
+## Option E: Vertical Timeline
+
+Details for E.
+
+## Option F: Bracket Style
+
+Details for F.`,
+			wantLen:     6,
+			wantLetters: []string{"A", "B", "C", "D", "E", "F"},
+			wantNums:    []int{1, 2, 3, 4, 5, 6},
+		},
+		{
+			name: "markdown bold letter options",
+			message: `**Option A:** Use React
+**Option B:** Use Vue
+**Option C:** Use Svelte`,
+			wantLen:     3,
+			wantLetters: []string{"A", "B", "C"},
+			wantNums:    []int{1, 2, 3},
+		},
+		{
+			name: "standard letter list",
+			message: `Here are the approaches:
+A. First approach
+B. Second approach
+C. Third approach`,
+			wantLen:     3,
+			wantLetters: []string{"A", "B", "C"},
+			wantNums:    []int{1, 2, 3},
+		},
+		{
+			name: "letter list with parentheses",
+			message: `A) Option one
+B) Option two`,
+			wantLen:     2,
+			wantLetters: []string{"A", "B"},
+			wantNums:    []int{1, 2},
+		},
+		{
+			name: "non-sequential letters ignored",
+			message: `A. First
+C. Third (skipped B)
+D. Fourth`,
+			wantLen:     0, // Not sequential, so ignored
+			wantLetters: nil,
+			wantNums:    nil,
+		},
+		{
+			name: "only one letter option (not enough)",
+			message: `## Option A: Just one option`,
+			wantLen:     0,
+			wantLetters: nil,
+			wantNums:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			options := DetectOptions(tt.message)
+			if len(options) != tt.wantLen {
+				t.Errorf("DetectOptions() returned %d options, want %d", len(options), tt.wantLen)
+				for i, opt := range options {
+					t.Logf("  Option %d: Letter=%q Number=%d Text=%q", i, opt.Letter, opt.Number, opt.Text)
+				}
+				return
+			}
+			for i, opt := range options {
+				if i < len(tt.wantLetters) && opt.Letter != tt.wantLetters[i] {
+					t.Errorf("Option %d has letter %q, want %q", i, opt.Letter, tt.wantLetters[i])
+				}
+				if i < len(tt.wantNums) && opt.Number != tt.wantNums[i] {
+					t.Errorf("Option %d has number %d, want %d", i, opt.Number, tt.wantNums[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDetectOptions_LetterOptionsPreferredOverNumericFallback(t *testing.T) {
+	// When a message has both letter-based options (like "## Option A:")
+	// and a numeric list (like "1. 2. 3."), the letter options should be detected
+	// because they're more specific (contain "Option" keyword)
+	message := `## Option A: Rounded Nodes with Smooth Lines
+
+The differences:
+
+1. **Vertical spacing**: F has empty lines
+2. **Node symbols**: B uses different shapes
+3. **Line style**: B uses curved corner
+4. **Connector length**: B has longer lines
+
+## Option B: Bullet Style with Arcs
+
+More details here.
+
+## Option C: Metro Style
+
+Final option.`
+
+	options := DetectOptions(message)
+	if len(options) != 3 {
+		t.Fatalf("Expected 3 letter options, got %d", len(options))
+	}
+
+	// Should detect A, B, C letter options, not the 1, 2, 3, 4 numeric list
+	if options[0].Letter != "A" {
+		t.Errorf("Option 0 letter = %q, want %q", options[0].Letter, "A")
+	}
+	if options[1].Letter != "B" {
+		t.Errorf("Option 1 letter = %q, want %q", options[1].Letter, "B")
+	}
+	if options[2].Letter != "C" {
+		t.Errorf("Option 2 letter = %q, want %q", options[2].Letter, "C")
+	}
+}
+
 func TestDetectOptions_MultipleOptionsBlocks(t *testing.T) {
 	// Test from actual production logs: multiple <options> blocks should all be included
 	// Previously only the last block was returned

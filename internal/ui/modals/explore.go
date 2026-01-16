@@ -74,7 +74,14 @@ func (s *ExploreOptionsState) Render() string {
 			text = text[:47] + "..."
 		}
 
-		optionLine := fmt.Sprintf("%s %d. %s", checkbox, opt.Number, text)
+		// Use letter label if present, otherwise use number
+		var label string
+		if opt.Letter != "" {
+			label = opt.Letter
+		} else {
+			label = fmt.Sprintf("%d", opt.Number)
+		}
+		optionLine := fmt.Sprintf("%s %s. %s", checkbox, label, text)
 		optionList += style.Render(prefix+optionLine) + "\n"
 	}
 
