@@ -330,9 +330,12 @@ func TestSidebar_View_WithIndicators(t *testing.T) {
 		t.Error("View should not be empty")
 	}
 
-	// Verify MergedToParent indicator is shown
-	if !strings.Contains(view, "merged to parent") {
-		t.Error("View should contain 'merged to parent' indicator for session-4")
+	// Verify MergedToParent indicator is shown (now uses ✓ symbol and ● node)
+	if !strings.Contains(view, "✓") {
+		t.Error("View should contain '✓' indicator for merged session-4")
+	}
+	if !strings.Contains(view, "●") {
+		t.Error("View should contain '●' node symbol for merged-to-parent session-4")
 	}
 }
 
@@ -437,5 +440,213 @@ func TestSidebar_GetSelectedLine(t *testing.T) {
 	line = sidebar.getSelectedLine()
 	if line != 3 { // 2 sessions + 1 header
 		t.Errorf("Expected line 3 for third session, got %d", line)
+	}
+}
+
+func TestSidebar_RenderSessionNode_NodeSymbols(t *testing.T) {
+	sidebar := NewSidebar()
+
+	tests := []struct {
+		name           string
+		session        config.Session
+		hasChildren    bool
+		streaming      bool
+		expectedSymbol string
+		description    string
+	}{
+		{
+			name:           "regular session",
+			session:        config.Session{ID: "s1", Name: "test"},
+			hasChildren:    false,
+			streaming:      false,
+			expectedSymbol: "◇",
+			description:    "Regular session without children should use ◇",
+		},
+		{
+			name:           "parent session",
+			session:        config.Session{ID: "s2", Name: "parent"},
+			hasChildren:    true,
+			streaming:      false,
+			expectedSymbol: "◆",
+			description:    "Session with children should use ◆",
+		},
+		{
+			name:           "merged to parent",
+			session:        config.Session{ID: "s3", Name: "merged", MergedToParent: true},
+			hasChildren:    false,
+			streaming:      false,
+			expectedSymbol: "●",
+			description:    "Merged to parent session should use ●",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.streaming {
+				sidebar.SetStreaming(tt.session.ID, true)
+				defer sidebar.SetStreaming(tt.session.ID, false)
+			}
+
+			result := sidebar.renderSessionNode(tt.session, 0, false, tt.hasChildren, true)
+
+			if !strings.Contains(result, tt.expectedSymbol) {
+				t.Errorf("%s: expected symbol %s in result %q", tt.description, tt.expectedSymbol, result)
+			}
+		})
+	}
+}
+
+func TestSidebar_RenderSessionNode_StreamingSymbol(t *testing.T) {
+	sidebar := NewSidebar()
+	session := config.Session{ID: "streaming-session", Name: "test"}
+
+	sidebar.SetStreaming(session.ID, true)
+	defer sidebar.SetStreaming(session.ID, false)
+
+	result := sidebar.renderSessionNode(session, 0, false, false, true)
+
+	// Should contain the current spinner frame (first frame is "·")
+	spinnerFrame := sidebarSpinnerFrames[sidebar.spinnerFrame]
+	if !strings.Contains(result, spinnerFrame) {
+		t.Errorf("Streaming session should show spinner frame %q, got %q", spinnerFrame, result)
+	}
+}
+
+func TestSidebar_RenderSessionNode_TreeConnectors(t *testing.T) {
+	sidebar := NewSidebar()
+
+	tests := []struct {
+		name              string
+		depth             int
+		isLastChild       bool
+		expectedConnector string
+	}{
+		{
+			name:              "root level",
+			depth:             0,
+			isLastChild:       true,
+			expectedConnector: "", // No connector at root
+		},
+		{
+			name:              "middle child",
+			depth:             1,
+			isLastChild:       false,
+			expectedConnector: "├─",
+		},
+		{
+			name:              "last child",
+			depth:             1,
+			isLastChild:       true,
+			expectedConnector: "╰─",
+		},
+	}
+
+	session := config.Session{ID: "test", Name: "test-session"}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sidebar.renderSessionNode(session, tt.depth, false, false, tt.isLastChild)
+
+			if tt.depth == 0 {
+				// Root level should not have tree connectors
+				if strings.Contains(result, "├─") || strings.Contains(result, "╰─") {
+					t.Errorf("Root level should not have tree connectors, got %q", result)
+				}
+			} else {
+				if !strings.Contains(result, tt.expectedConnector) {
+					t.Errorf("Expected connector %q in result %q", tt.expectedConnector, result)
+				}
+			}
+		})
+	}
+}
+
+func TestSidebar_RenderSessionNode_RightSideStatus(t *testing.T) {
+	sidebar := NewSidebar()
+
+	tests := []struct {
+		name           string
+		session        config.Session
+		expectedStatus string
+	}{
+		{
+			name:           "merged session",
+			session:        config.Session{ID: "s1", Name: "test", Merged: true},
+			expectedStatus: "✓",
+		},
+		{
+			name:           "merged to parent",
+			session:        config.Session{ID: "s2", Name: "test", MergedToParent: true},
+			expectedStatus: "✓",
+		},
+		{
+			name:           "PR created",
+			session:        config.Session{ID: "s3", Name: "test", PRCreated: true},
+			expectedStatus: "PR",
+		},
+		{
+			name:           "PR with issue number",
+			session:        config.Session{ID: "s4", Name: "test", PRCreated: true, IssueNumber: 123},
+			expectedStatus: "#123",
+		},
+		{
+			name:           "no status",
+			session:        config.Session{ID: "s5", Name: "test"},
+			expectedStatus: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sidebar.renderSessionNode(tt.session, 0, false, false, true)
+
+			if tt.expectedStatus == "" {
+				// Should not contain any status indicators
+				if strings.Contains(result, "✓") || strings.Contains(result, "PR") || strings.Contains(result, "#") {
+					t.Errorf("Expected no status indicator, got %q", result)
+				}
+			} else {
+				if !strings.Contains(result, tt.expectedStatus) {
+					t.Errorf("Expected status %q in result %q", tt.expectedStatus, result)
+				}
+			}
+		})
+	}
+}
+
+func TestSidebar_View_TreeStructure(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetSize(60, 30)
+
+	// Create a parent with multiple children
+	sessions := []config.Session{
+		{ID: "parent", Name: "Parent Session", RepoPath: "/repo", Branch: "main"},
+		{ID: "child-1", Name: "First Child", RepoPath: "/repo", Branch: "c1", ParentID: "parent"},
+		{ID: "child-2", Name: "Second Child", RepoPath: "/repo", Branch: "c2", ParentID: "parent"},
+		{ID: "child-3", Name: "Third Child", RepoPath: "/repo", Branch: "c3", ParentID: "parent"},
+	}
+	sidebar.SetSessions(sessions)
+
+	view := sidebar.View()
+
+	// Parent should have ◆ symbol (has children)
+	if !strings.Contains(view, "◆") {
+		t.Errorf("Parent session should show ◆ symbol, view:\n%s", view)
+	}
+
+	// Children should have tree connectors
+	// First two children should have ├─
+	if !strings.Contains(view, "├─") {
+		t.Errorf("Middle children should have ├─ connector, view:\n%s", view)
+	}
+
+	// Last child should have ╰─
+	if !strings.Contains(view, "╰─") {
+		t.Errorf("Last child should have ╰─ connector, view:\n%s", view)
+	}
+
+	// Children without children of their own should have ◇
+	if !strings.Contains(view, "◇") {
+		t.Errorf("Leaf children should show ◇ symbol, view:\n%s", view)
 	}
 }

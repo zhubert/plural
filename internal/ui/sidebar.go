@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"hash/fnv"
-	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,9 +62,6 @@ type Sidebar struct {
 	// Search mode
 	searchMode  bool
 	searchInput textinput.Model
-
-	// Worktree size cache (session ID -> size in bytes)
-	worktreeSizes map[string]int64
 }
 
 // NewSidebar creates a new sidebar
@@ -79,58 +75,7 @@ func NewSidebar() *Sidebar {
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
 		searchInput:        ti,
-		worktreeSizes:      make(map[string]int64),
 	}
-}
-
-// calculateWorktreeSize calculates the total size of a worktree directory
-func calculateWorktreeSize(path string) int64 {
-	var size int64
-	filepath.WalkDir(path, func(_ string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // Skip files we can't access
-		}
-		if !d.IsDir() {
-			if info, err := d.Info(); err == nil {
-				size += info.Size()
-			}
-		}
-		return nil
-	})
-	return size
-}
-
-// formatSize formats a size in bytes to a human-readable string
-func formatSize(bytes int64) string {
-	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-	)
-	switch {
-	case bytes >= GB:
-		return fmt.Sprintf("%.1fG", float64(bytes)/float64(GB))
-	case bytes >= MB:
-		return fmt.Sprintf("%.1fM", float64(bytes)/float64(MB))
-	case bytes >= KB:
-		return fmt.Sprintf("%.0fK", float64(bytes)/float64(KB))
-	default:
-		return fmt.Sprintf("%dB", bytes)
-	}
-}
-
-// getWorktreeSize returns the cached worktree size, calculating it if needed
-func (s *Sidebar) getWorktreeSize(sess config.Session) string {
-	if sess.WorkTree == "" {
-		return ""
-	}
-	if size, ok := s.worktreeSizes[sess.ID]; ok {
-		return formatSize(size)
-	}
-	// Calculate and cache the size
-	size := calculateWorktreeSize(sess.WorkTree)
-	s.worktreeSizes[sess.ID] = size
-	return formatSize(size)
 }
 
 // SetSize sets the sidebar dimensions
@@ -235,13 +180,6 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	s.sessionIndex = make(map[string]int, len(s.sessions))
 	for i, sess := range s.sessions {
 		s.sessionIndex[sess.ID] = i
-	}
-
-	// Clean up worktree size cache for removed sessions
-	for id := range s.worktreeSizes {
-		if _, exists := s.sessionIndex[id]; !exists {
-			delete(s.worktreeSizes, id)
-		}
 	}
 
 	// Adjust selection if needed
@@ -671,10 +609,11 @@ func (s *Sidebar) View() string {
 
 			// Render sessions in tree order with indentation
 			innerWidth := ctx.InnerWidth(s.width)
-			var renderNode func(node sessionNode, depth int)
-			renderNode = func(node sessionNode, depth int) {
+			var renderNode func(node sessionNode, depth int, isLastChild bool)
+			renderNode = func(node sessionNode, depth int, isLastChild bool) {
 				isSelected := sessionIdx == s.selectedIdx
-				displayName := s.renderSessionNameWithDepth(node.Session, depth, isSelected)
+				hasChildren := len(node.Children) > 0
+				displayName := s.renderSessionNode(node.Session, depth, isSelected, hasChildren, isLastChild)
 
 				itemStyle := SidebarItemStyle.Width(innerWidth)
 				if isSelected {
@@ -685,13 +624,15 @@ func (s *Sidebar) View() string {
 				sessionIdx++
 
 				// Render children with increased depth
-				for _, child := range node.Children {
-					renderNode(child, depth+1)
+				for i, child := range node.Children {
+					childIsLast := i == len(node.Children)-1
+					renderNode(child, depth+1, childIsLast)
 				}
 			}
 
-			for _, node := range group.RootNodes {
-				renderNode(node, 0)
+			for i, node := range group.RootNodes {
+				isLast := i == len(group.RootNodes)-1
+				renderNode(node, 0, isLast)
 			}
 		}
 
@@ -740,91 +681,130 @@ func (s *Sidebar) renderSessionName(sess config.Session, sessionIdx int) string 
 }
 
 // renderSessionNameWithDepth builds the display name for a session with indentation based on depth
+// This is a compatibility wrapper - use renderSessionNode for full tree rendering
 func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, depth int, isSelected bool) string {
-	// Build the prefix with selection indicator and tree structure
-	var prefix string
-	if isSelected {
-		// Selection indicator
-		if depth > 0 {
-			prefix = strings.Repeat("  ", depth-1) + "> └ "
-		} else {
-			prefix = "> "
-		}
+	return s.renderSessionNode(sess, depth, isSelected, false, true)
+}
+
+// renderSessionNode builds the display name for a session with git-log style tree visualization
+// hasChildren: whether this session has child sessions (forks)
+// isLastChild: whether this is the last child of its parent (for connector style)
+func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected bool, hasChildren bool, isLastChild bool) string {
+	// Determine the node symbol based on state
+	var nodeSymbol string
+	if s.IsSessionStreaming(sess.ID) {
+		// Streaming - use animated spinner
+		nodeSymbol = sidebarSpinnerFrames[s.spinnerFrame]
+	} else if sess.MergedToParent {
+		// Merged to parent (locked)
+		nodeSymbol = "●"
+	} else if hasChildren {
+		// Has children - parent node
+		nodeSymbol = "◆"
 	} else {
-		// Normal indentation
-		if depth > 0 {
-			prefix = strings.Repeat("  ", depth) + "└ "
+		// No children - regular session
+		nodeSymbol = "◇"
+	}
+
+	// Build the prefix with tree structure
+	// Symbol positions by depth:
+	//   depth 0: " ◆ name"       symbol at column 1
+	//   depth 1: " ╰─◆ name"     symbol at column 3, connector at column 1 (under parent)
+	//   depth 2: "   ╰─◇ name"   symbol at column 5, connector at column 3 (under parent)
+	// Pattern: symbol at column (1 + 2*depth), connector 2 columns before symbol
+	var prefix string
+	if depth == 0 {
+		// Root level - just the node symbol with padding
+		prefix = " " + nodeSymbol + " "
+	} else {
+		// Child level - use tree connectors
+		// Indent puts connector under parent's symbol (at column 1 + 2*(depth-1))
+		indent := strings.Repeat("  ", depth-1)
+		if isLastChild {
+			prefix = " " + indent + "╰─" + nodeSymbol + " "
 		} else {
-			prefix = "  "
+			prefix = " " + indent + "├─" + nodeSymbol + " "
+		}
+	}
+
+	// Apply styling to prefix (node symbol color)
+	var styledPrefix string
+	if isSelected {
+		// Selected - let parent style handle colors
+		styledPrefix = prefix
+	} else {
+		// Determine symbol style based on state
+		var symbolStyle lipgloss.Style
+		if s.IsSessionStreaming(sess.ID) {
+			symbolStyle = lipgloss.NewStyle().Foreground(ColorPrimary) // Purple for streaming
+		} else if sess.MergedToParent {
+			symbolStyle = lipgloss.NewStyle().Foreground(ColorSecondary) // Cyan for merged
+		} else if hasChildren {
+			symbolStyle = lipgloss.NewStyle().Foreground(ColorPrimary) // Purple for parent
+		} else {
+			symbolStyle = lipgloss.NewStyle().Foreground(ColorTextMuted) // Muted for regular
+		}
+
+		// Style just the node symbol, keep connectors muted
+		if depth == 0 {
+			styledPrefix = " " + symbolStyle.Render(nodeSymbol) + " "
+		} else {
+			connectorStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+			indent := strings.Repeat("  ", depth-1)
+			connector := "├─"
+			if isLastChild {
+				connector = "╰─"
+			}
+			styledPrefix = " " + connectorStyle.Render(indent+connector) + symbolStyle.Render(nodeSymbol) + " "
 		}
 	}
 
 	// Display the session name (extracts last part for old-style names)
-	var displayName string
+	var name string
 	if parts := strings.Split(sess.Name, "/"); len(parts) > 1 {
-		// Old format like "repo/branch" - extract last part
-		displayName = prefix + parts[len(parts)-1]
+		name = parts[len(parts)-1]
 	} else {
-		// Simple name - use as-is
-		displayName = prefix + sess.Name
+		name = sess.Name
 	}
 
-	// Add worktree size
-	if sizeStr := s.getWorktreeSize(sess); sizeStr != "" {
-		if isSelected {
-			displayName = displayName + " " + sizeStr
-		} else {
-			sizeStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-			displayName = displayName + " " + sizeStyle.Render(sizeStr)
-		}
-	}
+	displayName := styledPrefix + name
 
-	// Add indicators for streaming and pending permissions
-	if s.IsSessionStreaming(sess.ID) {
-		spinner := sidebarSpinnerFrames[s.spinnerFrame]
-		if isSelected {
-			// For selected rows, don't apply separate styling - let the parent style handle it
-			displayName = displayName + " " + spinner
-		} else {
-			// For unselected rows, use purple spinner
-			spinnerStyle := lipgloss.NewStyle().Foreground(ColorPrimary)
-			displayName = displayName + " " + spinnerStyle.Render(spinner)
-		}
-	}
-
-	// Add permission indicator
+	// Add permission indicator after name
 	if s.HasPendingPermission(sess.ID) {
 		if isSelected {
-			// For selected rows, don't apply separate styling - let the parent style handle it
 			displayName = displayName + " ⚠"
 		} else {
-			// For unselected rows, use warning color
 			indicatorStyle := lipgloss.NewStyle().Foreground(ColorWarning)
 			displayName = displayName + " " + indicatorStyle.Render("⚠")
 		}
 	}
 
-	// Add merged/PR status labels
+	// Build right-side status indicator
+	var rightStatus string
 	if sess.MergedToParent {
-		if isSelected {
-			displayName = displayName + " (merged to parent)"
-		} else {
-			labelStyle := lipgloss.NewStyle().Foreground(ColorSecondary)
-			displayName = displayName + " " + labelStyle.Render("(merged to parent)")
-		}
+		rightStatus = "✓"
 	} else if sess.Merged {
-		if isSelected {
-			displayName = displayName + " (merged)"
-		} else {
-			labelStyle := lipgloss.NewStyle().Foreground(ColorSecondary)
-			displayName = displayName + " " + labelStyle.Render("(merged)")
-		}
+		rightStatus = "✓"
 	} else if sess.PRCreated {
-		if isSelected {
-			displayName = displayName + " (pr)"
+		// Show PR number if we have an issue number, otherwise just indicate PR exists
+		if sess.IssueNumber > 0 {
+			rightStatus = fmt.Sprintf("#%d", sess.IssueNumber)
 		} else {
-			labelStyle := lipgloss.NewStyle().Foreground(ColorUser)
-			displayName = displayName + " " + labelStyle.Render("(pr)")
+			rightStatus = "PR"
+		}
+	}
+
+	if rightStatus != "" {
+		if isSelected {
+			displayName = displayName + " " + rightStatus
+		} else {
+			var statusStyle lipgloss.Style
+			if sess.MergedToParent || sess.Merged {
+				statusStyle = lipgloss.NewStyle().Foreground(ColorSecondary) // Cyan for merged
+			} else {
+				statusStyle = lipgloss.NewStyle().Foreground(ColorUser) // Light purple for PR
+			}
+			displayName = displayName + " " + statusStyle.Render(rightStatus)
 		}
 	}
 
