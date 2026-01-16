@@ -3,9 +3,32 @@
 package notification
 
 import (
+	_ "embed"
+
 	"github.com/gen2brain/beeep"
 	"github.com/zhubert/plural/internal/logger"
 )
+
+//go:embed assets/icon.png
+var icon []byte
+
+// NotifyFunc is the function signature for sending notifications.
+// This allows for dependency injection in tests.
+type NotifyFunc func(title, message string, icon any) error
+
+// notifier is the function used to send notifications.
+// It defaults to beeep.Notify but can be replaced for testing.
+var notifier NotifyFunc = beeep.Notify
+
+// SetNotifier sets the notification function. Used for testing.
+func SetNotifier(fn NotifyFunc) {
+	notifier = fn
+}
+
+// ResetNotifier resets the notification function to the default (beeep.Notify).
+func ResetNotifier() {
+	notifier = beeep.Notify
+}
 
 // Send sends a desktop notification with the given title and message.
 // On macOS, it uses terminal-notifier or AppleScript.
@@ -13,8 +36,7 @@ import (
 // On Windows, it uses the Windows Runtime COM API.
 func Send(title, message string) error {
 	logger.Log("Notification: Sending notification - title=%q, message=%q", title, message)
-	// Use empty string for icon - beeep handles platform defaults
-	err := beeep.Notify(title, message, "")
+	err := notifier(title, message, icon)
 	if err != nil {
 		logger.Log("Notification: Failed to send notification: %v", err)
 	}
