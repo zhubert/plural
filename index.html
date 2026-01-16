@@ -368,6 +368,7 @@
 
         <div class="hero-pitch fade-in">
             <p>Run multiple Claude sessions on the same codebase—each in its own git branch. When Claude offers different approaches, fork the session and try them all in parallel. Switch freely. Merge the winner.</p>
+            <p style="margin-top: 0.75rem; font-size: 0.8rem;">Requires <a href="https://docs.anthropic.com/en/docs/claude-code" style="color: var(--secondary); text-decoration: none;">Claude Code CLI</a> installed and authenticated.</p>
         </div>
 
         <div class="demo-container fade-in">
@@ -379,6 +380,14 @@
             <div class="command-block">
                 <button class="copy-btn" onclick="copyCommand(this, 'brew tap zhubert/tap && brew install plural')">copy</button>
                 <code><span class="prompt">$</span> brew tap zhubert/tap && brew install plural</code>
+            </div>
+        </section>
+
+        <section class="install fade-in">
+            <h2>install via nix</h2>
+            <div class="command-block">
+                <button class="copy-btn" onclick="copyCommand(this, 'nix profile install github:zhubert/plural')">copy</button>
+                <code><span class="prompt">$</span> nix profile install github:zhubert/plural</code>
             </div>
         </section>
 
@@ -442,7 +451,7 @@
         </nav>
 
         <footer>
-            <p>built with <a href="https://github.com/charmbracelet/bubbletea">bubble tea</a> · mit license</p>
+            <p>built with <a href="https://charm.land/bubbletea">bubble tea</a> · mit license</p>
         </footer>
     </div>
 
