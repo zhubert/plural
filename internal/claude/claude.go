@@ -122,13 +122,20 @@ func GetDisplayContent(blocks []ContentBlock) string {
 
 // OptionsSystemPrompt is appended to Claude's system prompt to request structured option formatting.
 // This allows Plural to reliably detect when Claude presents numbered choices to the user.
-const OptionsSystemPrompt = `When presenting the user with numbered choices or options to choose from, wrap the options in <options> tags. For example:
+const OptionsSystemPrompt = `When presenting the user with numbered or lettered choices or options to choose from, wrap the options in <options> tags. For example:
 <options>
 1. First option
 2. Second option
 3. Third option
 </options>
 The opening and closing tags should be on their own lines, with the numbered options between them.
+
+This also applies to letter-based options (A, B, C, etc.):
+<options>
+A. First approach
+B. Second approach
+C. Third approach
+</options>
 
 If you have multiple groups of options (e.g., high priority and low priority items), use <optgroup> tags within the <options> block:
 <options>
