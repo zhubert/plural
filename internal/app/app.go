@@ -1266,6 +1266,7 @@ func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
 	for i, opt := range options {
 		items[i] = ui.OptionItem{
 			Number:     opt.Number,
+			Letter:     opt.Letter,
 			Text:       opt.Text,
 			Selected:   false,
 			GroupIndex: opt.GroupIndex,
