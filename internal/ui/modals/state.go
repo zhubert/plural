@@ -37,6 +37,7 @@ type ChangelogEntry struct {
 // OptionItem represents a detected option for display
 type OptionItem struct {
 	Number     int
+	Letter     string // Letter label if option is letter-based (A, B, C), empty if numeric
 	Text       string
 	Selected   bool
 	GroupIndex int // Which group this option belongs to (for visual separation)
