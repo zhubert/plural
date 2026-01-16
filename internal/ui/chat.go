@@ -1,10 +1,7 @@
 package ui
 
 import (
-	"bytes"
 	"fmt"
-	"math/rand"
-	"regexp"
 	"strings"
 	"time"
 
@@ -12,85 +9,17 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/alecthomas/chroma/v2"
-	"github.com/alecthomas/chroma/v2/formatters"
-	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/styles"
-	uv "github.com/charmbracelet/ultraviolet"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/muesli/reflow/wordwrap"
-	"github.com/rivo/uniseg"
 	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 )
 
-// optionsTagStripPattern matches <options>...</options> blocks for stripping from display.
-var optionsTagStripPattern = regexp.MustCompile(`(?s)<options>\s*\n?(.*?)\n?\s*</options>`)
+// ToolUseInProgress is the white circle marker for tool use in progress
+const ToolUseInProgress = "⏺"
 
-// optgroupTagStripPattern matches <optgroup>...</optgroup> blocks for stripping from display.
-var optgroupTagStripPattern = regexp.MustCompile(`(?s)<optgroup>\s*\n?(.*?)\n?\s*</optgroup>`)
-
-// stripOptionsTags removes <options>, </options>, <optgroup>, and </optgroup> tags
-// from content for display, leaving only the numbered options inside.
-func stripOptionsTags(content string) string {
-	result := optionsTagStripPattern.ReplaceAllString(content, "$1")
-	result = optgroupTagStripPattern.ReplaceAllString(result, "$1")
-	return result
-}
-
-// Compiled regex patterns for markdown parsing
-var (
-	boldPattern       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	underscoreItalic  = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_])_([^_]+)_(?:[^a-zA-Z0-9_]|$)`)
-	inlineCodePattern = regexp.MustCompile("`([^`]+)`")
-	linkPattern       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
-)
-
-// StopwatchTickMsg is sent to update the animated waiting display
-type StopwatchTickMsg time.Time
-
-// CompletionFlashTickMsg is sent to animate the completion checkmark flash
-type CompletionFlashTickMsg time.Time
-
-// thinkingVerbs are playful status messages that cycle while waiting for Claude
-var thinkingVerbs = []string{
-	"Thinking",
-	"Reasoning",
-	"Pondering",
-	"Contemplating",
-	"Musing",
-	"Cogitating",
-	"Ruminating",
-	"Deliberating",
-	"Reflecting",
-	"Considering",
-	"Analyzing",
-	"Processing",
-	"Computing",
-	"Synthesizing",
-	"Formulating",
-	"Brainstorming",
-	"Noodling",
-	"Percolating",
-	"Brewing",
-	"Marinating",
-}
-
-// randomThinkingVerb returns a random verb from the list
-func randomThinkingVerb() string {
-	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
-}
-
-// spinnerFrames are the characters used for the shimmering spinner animation
-// Inspired by Claude Code's flower-like spinner
-var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
-
-// spinnerFrameHoldTimes defines how long each frame should be held (in ticks)
-// First and last frames hold longer for a "breathing" effect
-var spinnerFrameHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
+// ToolUseComplete is the green circle marker for completed tool use
+const ToolUseComplete = "●"
 
 // messageCache stores pre-rendered message content to avoid expensive re-rendering
 type messageCache struct {
@@ -112,8 +41,8 @@ type Chat struct {
 	hasSession  bool
 	waiting     bool   // Waiting for Claude's response
 	waitingVerb string // Random verb to display while waiting
-	spinnerIdx  int // Current spinner frame index
-	spinnerTick int // Tick counter for frame hold timing
+	spinnerIdx  int    // Current spinner frame index
+	spinnerTick int    // Tick counter for frame hold timing
 
 	// Completion flash animation
 	completionFlashFrame int // -1 = inactive, 0-2 = animation frames
@@ -125,22 +54,22 @@ type Chat struct {
 	lastToolUsePos int // Position in streaming content where last tool use marker starts
 
 	// Pending permission prompt
-	hasPendingPermission   bool
-	pendingPermissionTool  string
-	pendingPermissionDesc  string
+	hasPendingPermission  bool
+	pendingPermissionTool string
+	pendingPermissionDesc string
 
 	// Pending question prompt
-	hasPendingQuestion    bool
-	pendingQuestions      []mcp.Question
-	currentQuestionIdx    int                // Index of current question being answered
-	selectedOptionIdx     int                // Currently highlighted option
-	questionAnswers       map[string]string  // Collected answers (question text -> selected label)
+	hasPendingQuestion bool
+	pendingQuestions   []mcp.Question
+	currentQuestionIdx int               // Index of current question being answered
+	selectedOptionIdx  int               // Currently highlighted option
+	questionAnswers    map[string]string // Collected answers (question text -> selected label)
 
 	// View changes mode - temporary overlay showing git diff with file navigation
-	viewChangesMode      bool             // Whether we're showing the diff overlay
-	viewChangesViewport  viewport.Model   // Viewport for diff scrolling
-	viewChangesFiles     []git.FileDiff   // List of files with diffs
-	viewChangesFileIndex int              // Currently selected file index
+	viewChangesMode      bool           // Whether we're showing the diff overlay
+	viewChangesViewport  viewport.Model // Viewport for diff scrolling
+	viewChangesFiles     []git.FileDiff // List of files with diffs
+	viewChangesFileIndex int            // Currently selected file index
 
 	// Pending image attachment
 	pendingImageData []byte  // PNG encoded image data
@@ -319,12 +248,6 @@ func (c *Chat) AppendStreaming(content string) {
 	c.updateContent()
 }
 
-// ToolUseInProgress is the white circle marker for tool use in progress
-const ToolUseInProgress = "⏺"
-
-// ToolUseComplete is the green circle marker for completed tool use
-const ToolUseComplete = "●"
-
 // AppendToolUse appends a formatted tool use line to the streaming content
 func (c *Chat) AppendToolUse(toolName, toolInput string) {
 	icon := GetToolIcon(toolName)
@@ -422,59 +345,6 @@ func (c *Chat) ClearQueuedMessage() {
 // IsStreaming returns whether we're currently streaming a response
 func (c *Chat) IsStreaming() bool {
 	return c.streaming != ""
-}
-
-// EnterViewChangesMode enters the temporary diff view overlay with file navigation
-func (c *Chat) EnterViewChangesMode(files []git.FileDiff) {
-	c.viewChangesMode = true
-	c.viewChangesFiles = files
-	c.viewChangesFileIndex = 0
-
-	// Create a fresh viewport for the diff content
-	c.viewChangesViewport = viewport.New()
-	c.viewChangesViewport.MouseWheelEnabled = true
-	c.viewChangesViewport.MouseWheelDelta = 3
-	c.viewChangesViewport.SoftWrap = true
-
-	// Size it - will be adjusted in render, but set initial size
-	c.viewChangesViewport.SetWidth(c.viewport.Width() * 2 / 3)
-	c.viewChangesViewport.SetHeight(c.viewport.Height())
-
-	// Load the first file's diff
-	c.updateViewChangesDiff()
-}
-
-// updateViewChangesDiff updates the diff viewport with the currently selected file's diff
-func (c *Chat) updateViewChangesDiff() {
-	if len(c.viewChangesFiles) == 0 {
-		c.viewChangesViewport.SetContent("No files to display")
-		return
-	}
-	if c.viewChangesFileIndex >= len(c.viewChangesFiles) {
-		c.viewChangesFileIndex = len(c.viewChangesFiles) - 1
-	}
-	file := c.viewChangesFiles[c.viewChangesFileIndex]
-	content := HighlightDiff(file.Diff)
-	c.viewChangesViewport.SetContent(content)
-	c.viewChangesViewport.GotoTop()
-}
-
-// ExitViewChangesMode exits the diff view overlay and returns to chat
-func (c *Chat) ExitViewChangesMode() {
-	c.viewChangesMode = false
-	c.viewChangesFiles = nil
-	c.viewChangesFileIndex = 0
-}
-
-// IsInViewChangesMode returns whether we're currently showing the diff overlay
-func (c *Chat) IsInViewChangesMode() bool {
-	return c.viewChangesMode
-}
-
-// GetSelectedFileIndex returns the currently selected file index in view changes mode.
-// Used for testing navigation.
-func (c *Chat) GetSelectedFileIndex() int {
-	return c.viewChangesFileIndex
 }
 
 // GetStreaming returns the current streaming content
@@ -643,57 +513,32 @@ func (c *Chat) GetPendingImageSizeKB() int {
 	return c.pendingImageSize / 1024
 }
 
-// renderNoSessionMessage renders the placeholder message when no session is selected
-func (c *Chat) renderNoSessionMessage() string {
-	msgStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-	keyStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-
-	var sb strings.Builder
-	sb.WriteString(msgStyle.Italic(true).Render("No session selected"))
-	sb.WriteString("\n\n")
-	sb.WriteString(msgStyle.Render("To get started:"))
-	sb.WriteString("\n")
-	sb.WriteString(msgStyle.Render("  • Press "))
-	sb.WriteString(keyStyle.Render("n"))
-	sb.WriteString(msgStyle.Render(" to create a new session"))
-	sb.WriteString("\n")
-	sb.WriteString(msgStyle.Render("  • Press "))
-	sb.WriteString(keyStyle.Render("a"))
-	sb.WriteString(msgStyle.Render(" to add a repository first"))
-	return sb.String()
-}
-
-// renderPermissionPrompt renders the inline permission prompt
-func (c *Chat) renderPermissionPrompt(wrapWidth int) string {
-	var sb strings.Builder
-
-	// Title with tool name on same line: "⚠ Permission Required: Edit"
-	sb.WriteString(PermissionTitleStyle.Render("⚠ Permission Required: "))
-	sb.WriteString(PermissionToolStyle.Render(c.pendingPermissionTool))
-	sb.WriteString("\n")
-
-	// Description (wrapped)
-	descStyle := PermissionDescStyle.Width(wrapWidth - 4) // Account for box padding
-	sb.WriteString(descStyle.Render(c.pendingPermissionDesc))
-	sb.WriteString("\n\n")
-
-	// Keyboard hints - compact horizontal layout
-	keyStyle := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
-	hintStyle := PermissionHintStyle
-
-	sb.WriteString(keyStyle.Render("[y]"))
-	sb.WriteString(hintStyle.Render(" Allow  "))
-	sb.WriteString(keyStyle.Render("[n]"))
-	sb.WriteString(hintStyle.Render(" Deny  "))
-	sb.WriteString(keyStyle.Render("[a]"))
-	sb.WriteString(hintStyle.Render(" Always"))
-
-	// Wrap in a box - allow wider for horizontal content
-	boxWidth := wrapWidth
-	if boxWidth > 80 {
-		boxWidth = 80
+// GetToolIcon returns an appropriate icon for the tool type
+func GetToolIcon(toolName string) string {
+	switch toolName {
+	case "Read":
+		return "Reading"
+	case "Edit":
+		return "Editing"
+	case "Write":
+		return "Writing"
+	case "Glob":
+		return "Searching"
+	case "Grep":
+		return "Searching"
+	case "Bash":
+		return "Running"
+	case "Task":
+		return "Delegating"
+	case "WebFetch":
+		return "Fetching"
+	case "WebSearch":
+		return "Searching"
+	case "TodoWrite":
+		return "Planning"
+	default:
+		return "Using"
 	}
-	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
 // renderQuestionPrompt renders the inline question prompt
@@ -714,7 +559,7 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 
 	// Header/label
 	headerStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
-	sb.WriteString(headerStyle.Render("? "+q.Header+":"))
+	sb.WriteString(headerStyle.Render("? " + q.Header + ":"))
 	sb.WriteString(" ")
 
 	// Question text
@@ -786,415 +631,6 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	return QuestionBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
-// GetToolIcon returns an appropriate icon for the tool type
-func GetToolIcon(toolName string) string {
-	switch toolName {
-	case "Read":
-		return "Reading"
-	case "Edit":
-		return "Editing"
-	case "Write":
-		return "Writing"
-	case "Glob":
-		return "Searching"
-	case "Grep":
-		return "Searching"
-	case "Bash":
-		return "Running"
-	case "Task":
-		return "Delegating"
-	case "WebFetch":
-		return "Fetching"
-	case "WebSearch":
-		return "Searching"
-	case "TodoWrite":
-		return "Planning"
-	default:
-		return "Using"
-	}
-}
-
-// SetWaiting sets the waiting state (before streaming starts)
-func (c *Chat) SetWaiting(waiting bool) {
-	c.waiting = waiting
-	if waiting {
-		c.waitingVerb = randomThinkingVerb()
-		c.spinnerIdx = 0
-		c.spinnerTick = 0
-	}
-	c.updateContent()
-}
-
-// SetWaitingWithStart sets the waiting state with a specific start time (for session restoration)
-// Note: startTime parameter is kept for API compatibility but no longer used
-func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
-	c.waiting = waiting
-	if waiting {
-		c.waitingVerb = randomThinkingVerb()
-		c.spinnerIdx = 0
-		c.spinnerTick = 0
-	}
-	c.updateContent()
-}
-
-// IsWaiting returns whether we're waiting for a response
-func (c *Chat) IsWaiting() bool {
-	return c.waiting
-}
-
-// StopwatchTick returns a command that sends a tick message after a delay
-func StopwatchTick() tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-		return StopwatchTickMsg(t)
-	})
-}
-
-// CompletionFlashTick returns a command that sends a completion flash tick
-func CompletionFlashTick() tea.Cmd {
-	return tea.Tick(160*time.Millisecond, func(t time.Time) tea.Msg {
-		return CompletionFlashTickMsg(t)
-	})
-}
-
-// StartCompletionFlash starts the completion checkmark flash animation
-func (c *Chat) StartCompletionFlash() tea.Cmd {
-	c.completionFlashFrame = 0
-	c.updateContent()
-	return CompletionFlashTick()
-}
-
-// IsCompletionFlashing returns whether the completion flash animation is active
-func (c *Chat) IsCompletionFlashing() bool {
-	return c.completionFlashFrame >= 0
-}
-
-// renderSpinner renders the shimmering spinner with the thinking verb.
-// Returns the spinner character followed by the verb text.
-func renderSpinner(verb string, frameIdx int) string {
-	// Get the current spinner frame
-	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
-
-	// Style for the spinner character - uses theme's user color
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorUser).
-		Bold(true)
-
-	// Style for the verb text - uses theme's primary color, italic
-	verbStyle := lipgloss.NewStyle().
-		Foreground(ColorPrimary).
-		Italic(true)
-
-	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...")
-}
-
-// renderCompletionFlash renders the checkmark completion flash
-func renderCompletionFlash(frame int) string {
-	checkmark := "✓"
-
-	// Frame 0: bright checkmark (using theme's diff added color which is green)
-	// Frame 1: normal checkmark
-	// Frame 2+: fade out (empty)
-	switch frame {
-	case 0:
-		// Bright checkmark using theme's diff added color
-		style := lipgloss.NewStyle().
-			Foreground(DiffAddedStyle.GetForeground()).
-			Bold(true)
-		return style.Render(checkmark) + " " + lipgloss.NewStyle().Foreground(ColorSecondary).Italic(true).Render("Done")
-	case 1:
-		// Normal checkmark (using theme's secondary color)
-		style := lipgloss.NewStyle().
-			Foreground(ColorSecondary)
-		return style.Render(checkmark)
-	default:
-		return ""
-	}
-}
-
-// highlightCode applies syntax highlighting to code using chroma
-func highlightCode(code, language string) string {
-	lexer := lexers.Get(language)
-	if lexer == nil {
-		lexer = lexers.Fallback
-	}
-	lexer = chroma.Coalesce(lexer)
-
-	style := styles.Get("monokai")
-	if style == nil {
-		style = styles.Fallback
-	}
-
-	formatter := formatters.Get("terminal256")
-	if formatter == nil {
-		formatter = formatters.Fallback
-	}
-
-	iterator, err := lexer.Tokenise(nil, code)
-	if err != nil {
-		return code
-	}
-
-	var buf bytes.Buffer
-	if err := formatter.Format(&buf, style, iterator); err != nil {
-		return code
-	}
-
-	return buf.String()
-}
-
-// HighlightDiff applies coloring to git diff output
-func HighlightDiff(diff string) string {
-	if diff == "" {
-		return diff
-	}
-
-	var result strings.Builder
-	lines := strings.Split(diff, "\n")
-
-	for _, line := range lines {
-		switch {
-		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
-			// File headers
-			result.WriteString(DiffHeaderStyle.Render(line))
-		case strings.HasPrefix(line, "@@"):
-			// Hunk markers
-			result.WriteString(DiffHunkStyle.Render(line))
-		case strings.HasPrefix(line, "+"):
-			// Added lines
-			result.WriteString(DiffAddedStyle.Render(line))
-		case strings.HasPrefix(line, "-"):
-			// Removed lines
-			result.WriteString(DiffRemovedStyle.Render(line))
-		case strings.HasPrefix(line, "diff --git"):
-			// Diff command header
-			result.WriteString(DiffHeaderStyle.Render(line))
-		case strings.HasPrefix(line, "index "):
-			// Index line
-			result.WriteString(DiffHeaderStyle.Render(line))
-		case strings.HasPrefix(line, "new file mode") || strings.HasPrefix(line, "deleted file mode"):
-			// File mode changes
-			result.WriteString(DiffHeaderStyle.Render(line))
-		default:
-			// Context lines (unchanged)
-			result.WriteString(line)
-		}
-		result.WriteString("\n")
-	}
-
-	return strings.TrimRight(result.String(), "\n")
-}
-
-// renderInlineMarkdown applies inline formatting (bold, italic, code, links) to a line
-func renderInlineMarkdown(line string) string {
-	// Apply tool use marker coloring first
-	// White circle for in-progress tools
-	line = strings.ReplaceAll(line, ToolUseInProgress, ToolUseInProgressStyle.Render(ToolUseInProgress))
-	// Green circle for completed tools
-	line = strings.ReplaceAll(line, ToolUseComplete, ToolUseCompleteStyle.Render(ToolUseComplete))
-
-	// Process inline code first (to avoid formatting inside code)
-	// We need to protect code spans from other formatting
-	type codeSpan struct {
-		placeholder string
-		original    string
-		rendered    string
-	}
-	var codeSpans []codeSpan
-	codeIdx := 0
-
-	// Extract and replace inline code with placeholders
-	line = inlineCodePattern.ReplaceAllStringFunc(line, func(match string) string {
-		code := inlineCodePattern.FindStringSubmatch(match)[1]
-		placeholder := fmt.Sprintf("\x00CODE%d\x00", codeIdx)
-		codeSpans = append(codeSpans, codeSpan{
-			placeholder: placeholder,
-			original:    match,
-			rendered:    MarkdownInlineCodeStyle.Render(code),
-		})
-		codeIdx++
-		return placeholder
-	})
-
-	// Process bold (**text**)
-	line = boldPattern.ReplaceAllStringFunc(line, func(match string) string {
-		text := boldPattern.FindStringSubmatch(match)[1]
-		return MarkdownBoldStyle.Render(text)
-	})
-
-	// Process italic with underscores (_text_)
-	// Only match underscores at word boundaries (not in identifiers like foo_bar_baz)
-	line = underscoreItalic.ReplaceAllStringFunc(line, func(match string) string {
-		submatch := underscoreItalic.FindStringSubmatch(match)
-		text := submatch[1]
-		// Preserve any prefix/suffix boundary characters that were matched
-		prefix := ""
-		suffix := ""
-		// The regex may have matched a leading non-word character
-		if len(match) > 0 && len(text)+2 < len(match) {
-			// Find where _text_ starts and ends within the match
-			start := strings.Index(match, "_"+text+"_")
-			if start > 0 {
-				prefix = match[:start]
-			}
-			end := start + len("_"+text+"_")
-			if end < len(match) {
-				suffix = match[end:]
-			}
-		}
-		return prefix + MarkdownItalicStyle.Render(text) + suffix
-	})
-
-	// Process links [text](url)
-	line = linkPattern.ReplaceAllStringFunc(line, func(match string) string {
-		parts := linkPattern.FindStringSubmatch(match)
-		text := parts[1]
-		url := parts[2]
-		return MarkdownLinkStyle.Render(text) + " (" + MarkdownLinkStyle.Render(url) + ")"
-	})
-
-	// Restore code spans
-	for _, cs := range codeSpans {
-		line = strings.Replace(line, cs.placeholder, cs.rendered, 1)
-	}
-
-	return line
-}
-
-// wrapText wraps text to the specified width, handling ANSI escape codes
-func wrapText(text string, width int) string {
-	if width <= 0 {
-		return text
-	}
-	return wordwrap.String(text, width)
-}
-
-// renderMarkdownLine renders a single line with markdown formatting
-func renderMarkdownLine(line string, width int) string {
-	trimmed := strings.TrimSpace(line)
-
-	// Headers - don't wrap, they should be concise
-	if strings.HasPrefix(trimmed, "#### ") {
-		return MarkdownH4Style.Render(strings.TrimPrefix(trimmed, "#### "))
-	}
-	if strings.HasPrefix(trimmed, "### ") {
-		return MarkdownH3Style.Render(strings.TrimPrefix(trimmed, "### "))
-	}
-	if strings.HasPrefix(trimmed, "## ") {
-		return MarkdownH2Style.Render(strings.TrimPrefix(trimmed, "## "))
-	}
-	if strings.HasPrefix(trimmed, "# ") {
-		return MarkdownH1Style.Render(strings.TrimPrefix(trimmed, "# "))
-	}
-
-	// Horizontal rule
-	if trimmed == "---" || trimmed == "***" || trimmed == "___" {
-		return MarkdownHRStyle.Render("────────────────────────────────")
-	}
-
-	// Blockquote
-	if strings.HasPrefix(trimmed, "> ") {
-		content := strings.TrimPrefix(trimmed, "> ")
-		return MarkdownBlockquoteStyle.Render(wrapText(renderInlineMarkdown(content), width-4))
-	}
-
-	// Unordered list items
-	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
-		content := trimmed[2:]
-		bullet := MarkdownListBulletStyle.Render("•")
-		// Wrap list item content, accounting for indent and bullet
-		wrapped := wrapText(renderInlineMarkdown(content), width-6)
-		// Indent continuation lines
-		lines := strings.Split(wrapped, "\n")
-		if len(lines) > 1 {
-			for i := 1; i < len(lines); i++ {
-				lines[i] = "    " + lines[i]
-			}
-			wrapped = strings.Join(lines, "\n")
-		}
-		return "  " + bullet + " " + wrapped
-	}
-
-	// Numbered list items
-	for i := 1; i <= 99; i++ {
-		prefix := fmt.Sprintf("%d. ", i)
-		if strings.HasPrefix(trimmed, prefix) {
-			content := strings.TrimPrefix(trimmed, prefix)
-			number := MarkdownListBulletStyle.Render(fmt.Sprintf("%d.", i))
-			// Wrap list item content, accounting for indent and number
-			wrapped := wrapText(renderInlineMarkdown(content), width-6)
-			// Indent continuation lines
-			lines := strings.Split(wrapped, "\n")
-			if len(lines) > 1 {
-				for j := 1; j < len(lines); j++ {
-					lines[j] = "     " + lines[j]
-				}
-				wrapped = strings.Join(lines, "\n")
-			}
-			return "  " + number + " " + wrapped
-		}
-	}
-
-	// Regular line with inline formatting and wrapping
-	return wrapText(renderInlineMarkdown(line), width)
-}
-
-// renderMarkdown renders markdown content with syntax-highlighted code blocks
-func renderMarkdown(content string, width int) string {
-	if width <= 0 {
-		width = DefaultWrapWidth
-	}
-
-	var result strings.Builder
-	lines := strings.Split(content, "\n")
-	inCodeBlock := false
-	codeBlockLang := ""
-	var codeBlockContent strings.Builder
-
-	for _, line := range lines {
-		// Check for code block start/end
-		if strings.HasPrefix(line, "```") {
-			if !inCodeBlock {
-				// Starting a code block
-				inCodeBlock = true
-				codeBlockLang = strings.TrimPrefix(line, "```")
-				codeBlockLang = strings.TrimSpace(codeBlockLang)
-				codeBlockContent.Reset()
-			} else {
-				// Ending a code block - render with syntax highlighting
-				inCodeBlock = false
-				highlighted := highlightCode(codeBlockContent.String(), codeBlockLang)
-				// Add a newline before and after code blocks for spacing
-				if result.Len() > 0 {
-					result.WriteString("\n")
-				}
-				result.WriteString(highlighted)
-				result.WriteString("\n")
-				codeBlockLang = ""
-			}
-			continue
-		}
-
-		if inCodeBlock {
-			if codeBlockContent.Len() > 0 {
-				codeBlockContent.WriteString("\n")
-			}
-			codeBlockContent.WriteString(line)
-		} else {
-			// Render markdown line with wrapping
-			result.WriteString(renderMarkdownLine(line, width))
-			result.WriteString("\n")
-		}
-	}
-
-	// If we ended while still in a code block, output whatever we have
-	if inCodeBlock {
-		highlighted := highlightCode(codeBlockContent.String(), codeBlockLang)
-		result.WriteString(highlighted)
-	}
-
-	return strings.TrimRight(result.String(), "\n")
-}
-
 func (c *Chat) updateContent() {
 	var sb strings.Builder
 
@@ -1205,7 +641,7 @@ func (c *Chat) updateContent() {
 	}
 
 	if !c.hasSession {
-		sb.WriteString(c.renderNoSessionMessage())
+		sb.WriteString(renderNoSessionMessage())
 	} else if len(c.messages) == 0 && c.streaming == "" {
 		sb.WriteString(lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
@@ -1311,7 +747,7 @@ func (c *Chat) updateContent() {
 			if len(c.messages) > 0 || c.streaming != "" || c.waiting {
 				sb.WriteString("\n\n")
 			}
-			sb.WriteString(c.renderPermissionPrompt(wrapWidth))
+			sb.WriteString(renderPermissionPrompt(c.pendingPermissionTool, c.pendingPermissionDesc, wrapWidth))
 		}
 
 		// Show pending question prompt
@@ -1438,33 +874,16 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, nil
 
 	case StopwatchTickMsg:
-		if c.waiting {
-			// Advance the spinner with easing (some frames hold longer)
-			c.spinnerTick++
-			holdTime := spinnerFrameHoldTimes[c.spinnerIdx%len(spinnerFrameHoldTimes)]
-			if c.spinnerTick >= holdTime {
-				c.spinnerTick = 0
-				c.spinnerIdx++
-				if c.spinnerIdx >= len(spinnerFrames) {
-					c.spinnerIdx = 0
-				}
-			}
-			c.updateContent()
-			cmds = append(cmds, StopwatchTick())
+		cmd := c.handleStopwatchTick()
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return c, tea.Batch(cmds...)
 
 	case CompletionFlashTickMsg:
-		if c.completionFlashFrame >= 0 {
-			c.completionFlashFrame++
-			if c.completionFlashFrame >= 3 {
-				// Animation complete
-				c.completionFlashFrame = -1
-			}
-			c.updateContent()
-			if c.completionFlashFrame >= 0 {
-				cmds = append(cmds, CompletionFlashTick())
-			}
+		cmd := c.handleCompletionFlashTick()
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return c, tea.Batch(cmds...)
 	}
@@ -1534,7 +953,7 @@ func (c *Chat) View() string {
 	// Viewport content - render placeholder directly if no session
 	var viewportContent string
 	if !c.hasSession {
-		viewportContent = c.renderNoSessionMessage()
+		viewportContent = renderNoSessionMessage()
 	} else {
 		viewportContent = c.viewport.View()
 		// Apply selection highlighting if there's an active selection
@@ -1576,434 +995,4 @@ func (c *Chat) View() string {
 	inputArea := inputStyle.Width(c.width).Render(inputContent)
 
 	return lipgloss.JoinVertical(lipgloss.Left, chatPanel, inputArea)
-}
-
-// renderViewChangesMode renders the diff overlay view with a compact file navigation bar
-func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
-	// Calculate dimensions
-	innerWidth := c.width - 2 // Account for panel border
-	innerHeight := c.height - 2
-
-	// Build the compact navigation bar
-	navBar := c.renderFileNavBar(innerWidth)
-	navBarHeight := 1 // Single line navigation
-
-	// Diff viewport gets remaining height
-	diffHeight := innerHeight - navBarHeight
-
-	// Update diff viewport size to use full width
-	c.viewChangesViewport.SetWidth(innerWidth)
-	c.viewChangesViewport.SetHeight(diffHeight)
-
-	// Get viewport content and constrain to max height to prevent layout overflow
-	diffContent := lipgloss.NewStyle().
-		MaxHeight(diffHeight).
-		Render(c.viewChangesViewport.View())
-
-	// Join navigation bar and diff vertically
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		navBar,
-		diffContent,
-	)
-
-	return panelStyle.Width(c.width).Height(c.height).Render(content)
-}
-
-// renderFileNavBar renders the compact horizontal file navigation bar
-func (c *Chat) renderFileNavBar(width int) string {
-	if len(c.viewChangesFiles) == 0 {
-		return lipgloss.NewStyle().
-			Width(width).
-			Foreground(ColorTextMuted).
-			Render("No files to display")
-	}
-
-	currentFile := c.viewChangesFiles[c.viewChangesFileIndex]
-
-	// Build: "← [M] src/file.go (3 of 7) →"
-	// Left arrow (show if not first file)
-	leftArrow := "  "
-	if c.viewChangesFileIndex > 0 {
-		leftArrow = "← "
-	}
-
-	// Right arrow (show if not last file)
-	rightArrow := "  "
-	if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
-		rightArrow = " →"
-	}
-
-	// Status code in brackets
-	statusStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
-	status := statusStyle.Render(fmt.Sprintf("[%s]", currentFile.Status))
-
-	// File counter
-	counterStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-	counter := counterStyle.Render(fmt.Sprintf("(%d of %d)", c.viewChangesFileIndex+1, len(c.viewChangesFiles)))
-
-	// Arrow styles
-	arrowStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
-
-	// Calculate available width for filename
-	// Format: "← [M] filename (3 of 7) →"
-	fixedWidth := len(leftArrow) + 4 + 1 + len(counter) + len(rightArrow) + 2 // arrows, status, spaces, counter
-	maxFilenameWidth := width - fixedWidth
-	if maxFilenameWidth < 10 {
-		maxFilenameWidth = 10
-	}
-
-	// Truncate filename if needed
-	filename := currentFile.Filename
-	if len(filename) > maxFilenameWidth {
-		filename = "…" + filename[len(filename)-maxFilenameWidth+1:]
-	}
-	filenameStyle := lipgloss.NewStyle().Foreground(ColorText)
-
-	// Assemble the navigation bar
-	navContent := arrowStyle.Render(leftArrow) +
-		status + " " +
-		filenameStyle.Render(filename) + " " +
-		counter +
-		arrowStyle.Render(rightArrow)
-
-	// Style the whole bar (no explicit background - let terminal's native background show through)
-	barStyle := lipgloss.NewStyle().
-		Width(width)
-
-	return barStyle.Render(navContent)
-}
-
-// SelectionCopyMsg is sent after a delay to handle copying selected text
-type SelectionCopyMsg struct {
-	clickCount   int
-	endSelection bool
-	x, y         int
-}
-
-const (
-	doubleClickThreshold = 500 * time.Millisecond
-	clickTolerance       = 2 // pixels
-)
-
-// StartSelection begins a text selection at the given coordinates
-func (c *Chat) StartSelection(col, line int) {
-	c.selectionStartCol = col
-	c.selectionStartLine = line
-	c.selectionEndCol = col
-	c.selectionEndLine = line
-	c.selectionActive = true
-}
-
-// EndSelection updates the end position of the selection during drag
-func (c *Chat) EndSelection(col, line int) {
-	if !c.selectionActive {
-		return
-	}
-	c.selectionEndCol = col
-	c.selectionEndLine = line
-}
-
-// SelectionStop ends the drag but keeps the selection visible
-func (c *Chat) SelectionStop() {
-	c.selectionActive = false
-}
-
-// SelectionClear clears the selection entirely
-func (c *Chat) SelectionClear() {
-	c.selectionStartCol = -1
-	c.selectionStartLine = -1
-	c.selectionEndCol = -1
-	c.selectionEndLine = -1
-	c.selectionActive = false
-}
-
-// HasTextSelection returns true if there is an active or completed selection
-func (c *Chat) HasTextSelection() bool {
-	return c.selectionStartCol >= 0 && c.selectionStartLine >= 0 &&
-		(c.selectionEndCol != c.selectionStartCol || c.selectionEndLine != c.selectionStartLine)
-}
-
-// handleMouseClick handles mouse click events and detects double/triple clicks
-func (c *Chat) handleMouseClick(x, y int) tea.Cmd {
-	now := time.Now()
-
-	// Check if this is a potential multi-click
-	if now.Sub(c.lastClickTime) <= doubleClickThreshold &&
-		abs(x-c.lastClickX) <= clickTolerance &&
-		abs(y-c.lastClickY) <= clickTolerance {
-		c.clickCount++
-	} else {
-		c.clickCount = 1
-	}
-
-	c.lastClickTime = now
-	c.lastClickX = x
-	c.lastClickY = y
-
-	switch c.clickCount {
-	case 1:
-		// Single click - start selection
-		c.StartSelection(x, y)
-	case 2:
-		// Double click - select word and copy immediately
-		c.SelectWord(x, y)
-		return c.CopySelectedText()
-	case 3:
-		// Triple click - select line/paragraph and copy immediately
-		c.SelectParagraph(x, y)
-		c.clickCount = 0 // Reset after triple click
-		return c.CopySelectedText()
-	}
-
-	return nil
-}
-
-// abs returns the absolute value of an integer
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
-
-// SelectWord selects the word at the given position
-func (c *Chat) SelectWord(col, line int) {
-	// Get the content from the viewport
-	content := c.viewport.View()
-	lines := strings.Split(content, "\n")
-
-	if line < 0 || line >= len(lines) {
-		return
-	}
-
-	currentLine := ansi.Strip(lines[line])
-	if col < 0 || col >= len(currentLine) {
-		return
-	}
-
-	// Find word boundaries using uniseg
-	startCol := col
-	endCol := col
-
-	// Search backward for word start
-	gr := uniseg.NewGraphemes(currentLine[:col])
-	pos := 0
-	lastBoundary := 0
-	for gr.Next() {
-		if gr.IsWordBoundary() {
-			lastBoundary = pos
-		}
-		pos += len(gr.Str())
-	}
-	startCol = lastBoundary
-
-	// Search forward for word end
-	gr = uniseg.NewGraphemes(currentLine[col:])
-	pos = col
-	for gr.Next() {
-		if gr.IsWordBoundary() {
-			endCol = pos
-			break
-		}
-		pos += len(gr.Str())
-	}
-	if endCol <= col {
-		endCol = len(currentLine)
-	}
-
-	c.selectionStartCol = startCol
-	c.selectionStartLine = line
-	c.selectionEndCol = endCol
-	c.selectionEndLine = line
-	c.selectionActive = false
-}
-
-// SelectParagraph selects the paragraph/line at the given position
-func (c *Chat) SelectParagraph(col, line int) {
-	// Get the content from the viewport
-	content := c.viewport.View()
-	lines := strings.Split(content, "\n")
-
-	if line < 0 || line >= len(lines) {
-		return
-	}
-
-	// Find paragraph boundaries (search for empty lines)
-	startLine := line
-	endLine := line
-
-	// Search backward for paragraph start
-	for startLine > 0 {
-		prevLine := ansi.Strip(lines[startLine-1])
-		if strings.TrimSpace(prevLine) == "" {
-			break
-		}
-		startLine--
-	}
-
-	// Search forward for paragraph end
-	for endLine < len(lines)-1 {
-		nextLine := ansi.Strip(lines[endLine+1])
-		if strings.TrimSpace(nextLine) == "" {
-			break
-		}
-		endLine++
-	}
-
-	// Get the width of the last line in the paragraph
-	lastLineWidth := len(ansi.Strip(lines[endLine]))
-
-	c.selectionStartCol = 0
-	c.selectionStartLine = startLine
-	c.selectionEndCol = lastLineWidth
-	c.selectionEndLine = endLine
-	c.selectionActive = false
-}
-
-// selectionArea returns the normalized selection area (start < end)
-func (c *Chat) selectionArea() (startCol, startLine, endCol, endLine int) {
-	startCol = c.selectionStartCol
-	startLine = c.selectionStartLine
-	endCol = c.selectionEndCol
-	endLine = c.selectionEndLine
-
-	// Normalize so start is before end
-	if startLine > endLine || (startLine == endLine && startCol > endCol) {
-		startCol, endCol = endCol, startCol
-		startLine, endLine = endLine, startLine
-	}
-
-	return
-}
-
-// GetSelectedText returns the currently selected text
-func (c *Chat) GetSelectedText() string {
-	if !c.HasTextSelection() {
-		return ""
-	}
-
-	content := c.viewport.View()
-	lines := strings.Split(content, "\n")
-
-	startCol, startLine, endCol, endLine := c.selectionArea()
-
-	var result strings.Builder
-
-	for y := startLine; y <= endLine && y < len(lines); y++ {
-		line := ansi.Strip(lines[y])
-
-		var lineStart, lineEnd int
-		if y == startLine {
-			lineStart = startCol
-		} else {
-			lineStart = 0
-		}
-		if y == endLine {
-			lineEnd = endCol
-		} else {
-			lineEnd = len(line)
-		}
-
-		// Ensure bounds are valid
-		if lineStart < 0 {
-			lineStart = 0
-		}
-		if lineEnd > len(line) {
-			lineEnd = len(line)
-		}
-		if lineStart > lineEnd {
-			lineStart = lineEnd
-		}
-
-		if lineStart < len(line) {
-			result.WriteString(line[lineStart:lineEnd])
-		}
-		if y < endLine {
-			result.WriteString("\n")
-		}
-	}
-
-	return strings.TrimSpace(result.String())
-}
-
-// CopySelectedText copies the selected text to the clipboard
-func (c *Chat) CopySelectedText() tea.Cmd {
-	if !c.HasTextSelection() {
-		return nil
-	}
-
-	selectedText := c.GetSelectedText()
-	if selectedText == "" {
-		return nil
-	}
-
-	return tea.Batch(
-		// OSC 52 escape sequence (works in modern terminals)
-		tea.SetClipboard(selectedText),
-		// Native clipboard fallback
-		func() tea.Msg {
-			_ = clipboard.WriteText(selectedText)
-			return nil
-		},
-	)
-}
-
-// selectionView applies selection highlighting to the rendered view using ultraviolet
-func (c *Chat) selectionView(view string) string {
-	if !c.HasTextSelection() {
-		return view
-	}
-
-	width := c.viewport.Width()
-	height := c.viewport.Height()
-	if width <= 0 || height <= 0 {
-		return view
-	}
-
-	// Create screen buffer from the rendered view
-	area := uv.Rect(0, 0, width, height)
-	scr := uv.NewScreenBuffer(area.Dx(), area.Dy())
-	uv.NewStyledString(view).Draw(scr, area)
-
-	// Get normalized selection coordinates
-	startCol, startLine, endCol, endLine := c.selectionArea()
-
-	// Get selection style colors
-	selBg := TextSelectionStyle.GetBackground()
-	selFg := TextSelectionStyle.GetForeground()
-
-	// Apply selection highlighting
-	for y := startLine; y <= endLine && y < height; y++ {
-		var xStart, xEnd int
-		if y == startLine && y == endLine {
-			// Single line selection
-			xStart = startCol
-			xEnd = endCol
-		} else if y == startLine {
-			// First line of multi-line selection
-			xStart = startCol
-			xEnd = width
-		} else if y == endLine {
-			// Last line of multi-line selection
-			xStart = 0
-			xEnd = endCol
-		} else {
-			// Middle lines
-			xStart = 0
-			xEnd = width
-		}
-
-		for x := xStart; x < xEnd && x < width; x++ {
-			cell := scr.CellAt(x, y)
-			if cell != nil {
-				cell = cell.Clone()
-				cell.Style.Bg = selBg
-				cell.Style.Fg = selFg
-				scr.SetCell(x, y, cell)
-			}
-		}
-	}
-
-	return scr.Render()
 }
