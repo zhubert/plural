@@ -197,6 +197,7 @@ Press `t` to choose from:
 - Gruvbox Dark
 - Tokyo Night
 - Catppuccin Mocha
+- Science Fiction
 - Light
 
 ### Settings
@@ -221,6 +222,17 @@ Extend Claude's capabilities with MCP servers:
 
 Example: Add a GitHub MCP server globally, or a database server for a specific project.
 
+### Slash Commands
+
+Plural provides its own slash commands (Claude CLI's built-in commands don't work in stream-json mode):
+
+- `/cost` - Show token usage and estimated cost for the current session
+- `/help` - Show available Plural slash commands
+- `/mcp` - Open MCP servers configuration modal
+- `/plugins` - Open plugin directories configuration modal
+
+Other slash commands are passed through to Claude CLI.
+
 ---
 
 ## Reference
@@ -238,6 +250,7 @@ plural                  # Start the application
 plural --check-prereqs  # Verify required tools
 plural --clear          # Remove all sessions
 plural --prune          # Clean up orphaned worktrees
+plural --debug          # Enable debug logging
 ```
 
 ### Troubleshooting

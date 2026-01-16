@@ -140,6 +140,19 @@ Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeT
 
 Issue number stored in session. When PR created from issue session, "Fixes #N" auto-added to PR body. Branch naming: `issue-{number}`.
 
+### User Preferences
+
+**Themes** (`t` key): 8 built-in themes defined in `internal/ui/theme.go`:
+- Dark Purple (default), Nord, Dracula, Gruvbox Dark, Tokyo Night, Catppuccin Mocha, Science Fiction, Light
+
+**Settings** (`,` key): Opens modal for:
+- Branch prefix (e.g., `yourname/` creates branches like `yourname/plural-abc123`)
+- Desktop notifications toggle
+
+**Session rename** (`r` key): Renames session and its git branch.
+
+**Message search** (`Ctrl+/`): Search within conversation history when chat is focused.
+
 ### Slash Commands
 
 Plural implements its own slash commands because Claude CLI built-in commands (like `/cost`, `/help`, `/mcp`) are designed for interactive REPL mode and don't work in stream-json mode.
