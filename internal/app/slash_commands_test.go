@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -125,4 +126,160 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestGetSlashCommands(t *testing.T) {
+	commands := getSlashCommands()
+
+	if len(commands) == 0 {
+		t.Error("getSlashCommands should return at least one command")
+	}
+
+	// Check that required commands exist
+	expectedCommands := []string{"cost", "help", "mcp", "plugins"}
+	for _, expected := range expectedCommands {
+		found := false
+		for _, cmd := range commands {
+			if cmd.name == expected {
+				found = true
+				if cmd.description == "" {
+					t.Errorf("Command %q has empty description", expected)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected command %q not found in getSlashCommands()", expected)
+		}
+	}
+}
+
+func TestHandleCostCommand_NoSession(t *testing.T) {
+	// Test /cost with no active session
+	// We need a Model with nil activeSession
+	m := &Model{activeSession: nil}
+	result := handleCostCommand(m, "")
+
+	if !result.Handled {
+		t.Error("handleCostCommand should return Handled=true")
+	}
+
+	if !containsString(result.Response, "No active session") {
+		t.Error("Response should mention no active session")
+	}
+}
+
+func TestSessionJSONLEntry(t *testing.T) {
+	// Test parsing of session JSONL entry structure
+	jsonData := `{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50},"model":"claude-opus-4"}}`
+
+	var entry sessionJSONLEntry
+	if err := json.Unmarshal([]byte(jsonData), &entry); err != nil {
+		t.Fatalf("Failed to unmarshal entry: %v", err)
+	}
+
+	if entry.Type != "assistant" {
+		t.Errorf("Type = %q, want 'assistant'", entry.Type)
+	}
+
+	if entry.Message.Usage.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", entry.Message.Usage.InputTokens)
+	}
+
+	if entry.Message.Usage.OutputTokens != 50 {
+		t.Errorf("OutputTokens = %d, want 50", entry.Message.Usage.OutputTokens)
+	}
+
+	if entry.Message.Model != "claude-opus-4" {
+		t.Errorf("Model = %q, want 'claude-opus-4'", entry.Message.Model)
+	}
+}
+
+func TestSessionJSONLEntry_WithCache(t *testing.T) {
+	jsonData := `{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":30,"cache_read_input_tokens":20,"cache_creation":{"ephemeral_5m_input_tokens":10,"ephemeral_1h_input_tokens":5}}}}`
+
+	var entry sessionJSONLEntry
+	if err := json.Unmarshal([]byte(jsonData), &entry); err != nil {
+		t.Fatalf("Failed to unmarshal entry: %v", err)
+	}
+
+	if entry.Message.Usage.CacheCreationInputTokens != 30 {
+		t.Errorf("CacheCreationInputTokens = %d, want 30", entry.Message.Usage.CacheCreationInputTokens)
+	}
+
+	if entry.Message.Usage.CacheReadInputTokens != 20 {
+		t.Errorf("CacheReadInputTokens = %d, want 20", entry.Message.Usage.CacheReadInputTokens)
+	}
+
+	if entry.Message.Usage.CacheCreation.Ephemeral5mInputTokens != 10 {
+		t.Errorf("Ephemeral5mInputTokens = %d, want 10", entry.Message.Usage.CacheCreation.Ephemeral5mInputTokens)
+	}
+}
+
+func TestSlashCommandDef(t *testing.T) {
+	cmd := slashCommandDef{
+		name:        "test",
+		description: "A test command",
+	}
+
+	if cmd.name != "test" {
+		t.Errorf("name = %q, want 'test'", cmd.name)
+	}
+
+	if cmd.description != "A test command" {
+		t.Errorf("description = %q, want 'A test command'", cmd.description)
+	}
+}
+
+func TestGetSlashCommandCompletions_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		prefix   string
+		wantNil  bool
+		wantLen  int // -1 means don't check exact length
+	}{
+		{"empty string", "", true, 0},
+		{"no slash", "cost", true, 0},
+		{"space after slash", "/ ", true, 0},    // No commands start with space
+		{"uppercase", "/COST", false, 1},        // Should match (case insensitive)
+		{"mixed case", "/CoSt", false, 1},       // Should match
+		{"trailing space", "/cost ", true, 0},   // No commands match "cost "
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := GetSlashCommandCompletions(tt.prefix)
+			if tt.wantNil {
+				if result != nil && len(result) > 0 {
+					t.Errorf("GetSlashCommandCompletions(%q) = %v, want nil or empty", tt.prefix, result)
+				}
+			} else {
+				if result == nil {
+					t.Errorf("GetSlashCommandCompletions(%q) = nil, want non-nil", tt.prefix)
+				} else if tt.wantLen >= 0 && len(result) != tt.wantLen {
+					t.Errorf("GetSlashCommandCompletions(%q) returned %d results, want %d", tt.prefix, len(result), tt.wantLen)
+				}
+			}
+		})
+	}
+}
+
+func TestFormatNumber_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{-1, "-1"},                            // Negative
+		{-1234, "-1,234"},                     // Negative with commas
+		{999, "999"},                          // Just under threshold
+		{1000, "1,000"},                       // Exactly at threshold
+		{10000000000, "10,000,000,000"},       // Large number
+	}
+
+	for _, tt := range tests {
+		result := formatNumber(tt.input)
+		if result != tt.expected {
+			t.Errorf("formatNumber(%d) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
 }

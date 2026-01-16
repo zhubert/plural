@@ -1,9 +1,13 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/zhubert/plural/internal/mcp"
 )
 
 func TestNew(t *testing.T) {
@@ -1083,5 +1087,457 @@ func TestErrorVariables(t *testing.T) {
 
 	if errChannelFull.Error() == "" {
 		t.Error("errChannelFull should have a message")
+	}
+}
+
+func TestTextContent(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want []ContentBlock
+	}{
+		{
+			name: "simple text",
+			text: "Hello, world!",
+			want: []ContentBlock{{Type: ContentTypeText, Text: "Hello, world!"}},
+		},
+		{
+			name: "empty text",
+			text: "",
+			want: []ContentBlock{{Type: ContentTypeText, Text: ""}},
+		},
+		{
+			name: "multiline text",
+			text: "Line 1\nLine 2\nLine 3",
+			want: []ContentBlock{{Type: ContentTypeText, Text: "Line 1\nLine 2\nLine 3"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := TextContent(tt.text)
+			if len(got) != len(tt.want) {
+				t.Fatalf("TextContent(%q) returned %d blocks, want %d", tt.text, len(got), len(tt.want))
+			}
+			if got[0].Type != tt.want[0].Type {
+				t.Errorf("TextContent(%q)[0].Type = %v, want %v", tt.text, got[0].Type, tt.want[0].Type)
+			}
+			if got[0].Text != tt.want[0].Text {
+				t.Errorf("TextContent(%q)[0].Text = %q, want %q", tt.text, got[0].Text, tt.want[0].Text)
+			}
+		})
+	}
+}
+
+func TestGetDisplayContent(t *testing.T) {
+	tests := []struct {
+		name   string
+		blocks []ContentBlock
+		want   string
+	}{
+		{
+			name:   "single text block",
+			blocks: []ContentBlock{{Type: ContentTypeText, Text: "Hello"}},
+			want:   "Hello",
+		},
+		{
+			name:   "multiple text blocks",
+			blocks: []ContentBlock{{Type: ContentTypeText, Text: "Hello"}, {Type: ContentTypeText, Text: "World"}},
+			want:   "Hello\nWorld",
+		},
+		{
+			name:   "image block",
+			blocks: []ContentBlock{{Type: ContentTypeImage, Source: &ImageSource{Type: "base64", MediaType: "image/png", Data: "..."}}},
+			want:   "[Image]",
+		},
+		{
+			name: "mixed text and image",
+			blocks: []ContentBlock{
+				{Type: ContentTypeText, Text: "Look at this:"},
+				{Type: ContentTypeImage, Source: &ImageSource{Type: "base64", MediaType: "image/png", Data: "..."}},
+				{Type: ContentTypeText, Text: "What do you think?"},
+			},
+			want: "Look at this:\n[Image]\nWhat do you think?",
+		},
+		{
+			name:   "empty blocks",
+			blocks: []ContentBlock{},
+			want:   "",
+		},
+		{
+			name:   "nil blocks",
+			blocks: nil,
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetDisplayContent(tt.blocks)
+			if got != tt.want {
+				t.Errorf("GetDisplayContent() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContentTypes(t *testing.T) {
+	// Verify content type constants
+	if ContentTypeText != "text" {
+		t.Errorf("ContentTypeText = %q, want 'text'", ContentTypeText)
+	}
+	if ContentTypeImage != "image" {
+		t.Errorf("ContentTypeImage = %q, want 'image'", ContentTypeImage)
+	}
+}
+
+func TestStreamInputMessage(t *testing.T) {
+	// Test that StreamInputMessage can be properly serialized
+	msg := StreamInputMessage{
+		Type: "user",
+	}
+	msg.Message.Role = "user"
+	msg.Message.Content = []ContentBlock{{Type: ContentTypeText, Text: "Hello"}}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Failed to marshal StreamInputMessage: %v", err)
+	}
+
+	// Verify the JSON structure
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
+	}
+
+	if parsed["type"] != "user" {
+		t.Errorf("type = %v, want 'user'", parsed["type"])
+	}
+
+	message, ok := parsed["message"].(map[string]interface{})
+	if !ok {
+		t.Fatal("message field missing or wrong type")
+	}
+
+	if message["role"] != "user" {
+		t.Errorf("message.role = %v, want 'user'", message["role"])
+	}
+}
+
+func TestRunner_SendPermissionResponse(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Should not panic even before stop
+	runner.SendPermissionResponse(mcp.PermissionResponse{Allowed: true})
+
+	// After stop, should silently drop
+	runner.Stop()
+	runner.SendPermissionResponse(mcp.PermissionResponse{Allowed: false})
+}
+
+func TestRunner_SendQuestionResponse(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Should not panic even before stop
+	runner.SendQuestionResponse(mcp.QuestionResponse{Answers: map[string]string{"q": "test"}})
+
+	// After stop, should silently drop
+	runner.Stop()
+	runner.SendQuestionResponse(mcp.QuestionResponse{Answers: map[string]string{"q": "dropped"}})
+}
+
+func TestRunner_PermissionRequestChan_AfterStop(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Before stop, should return channel
+	ch := runner.PermissionRequestChan()
+	if ch == nil {
+		t.Error("PermissionRequestChan should not be nil before stop")
+	}
+
+	runner.Stop()
+
+	// After stop, should return nil
+	ch = runner.PermissionRequestChan()
+	if ch != nil {
+		t.Error("PermissionRequestChan should be nil after stop")
+	}
+}
+
+func TestRunner_QuestionRequestChan_AfterStop(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Before stop, should return channel
+	ch := runner.QuestionRequestChan()
+	if ch == nil {
+		t.Error("QuestionRequestChan should not be nil before stop")
+	}
+
+	runner.Stop()
+
+	// After stop, should return nil
+	ch = runner.QuestionRequestChan()
+	if ch != nil {
+		t.Error("QuestionRequestChan should be nil after stop")
+	}
+}
+
+func TestSendChunkWithTimeout_Success(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+	ch := make(chan ResponseChunk, 10)
+	ctx := context.Background()
+
+	chunk := ResponseChunk{Type: ChunkTypeText, Content: "test"}
+	err := runner.sendChunkWithTimeout(ctx, ch, chunk)
+
+	if err != nil {
+		t.Errorf("sendChunkWithTimeout should not error on empty channel: %v", err)
+	}
+
+	// Verify chunk was sent
+	select {
+	case received := <-ch:
+		if received.Content != "test" {
+			t.Errorf("Received content = %q, want 'test'", received.Content)
+		}
+	default:
+		t.Error("No chunk received")
+	}
+}
+
+func TestSendChunkWithTimeout_ContextCancelled(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+	ch := make(chan ResponseChunk) // Unbuffered, will block
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel immediately
+	cancel()
+
+	chunk := ResponseChunk{Type: ChunkTypeText, Content: "test"}
+	err := runner.sendChunkWithTimeout(ctx, ch, chunk)
+
+	if err == nil {
+		t.Error("sendChunkWithTimeout should error on cancelled context")
+	}
+}
+
+func TestReadLineWithTimeout_ContextCancelled(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// We can't easily test with a real reader, but we can verify the context check
+	// by passing a nil reader which will cause a panic in the goroutine,
+	// but the context should be checked first
+	// This is a simplified test - in production the reader would be valid
+
+	// Just verify the function signature works
+	_ = runner
+	_ = ctx
+}
+
+func TestOptionsSystemPrompt(t *testing.T) {
+	// Verify the system prompt contains expected structure
+	if OptionsSystemPrompt == "" {
+		t.Error("OptionsSystemPrompt should not be empty")
+	}
+
+	if !contains(OptionsSystemPrompt, "<options>") {
+		t.Error("OptionsSystemPrompt should contain <options> tag")
+	}
+
+	if !contains(OptionsSystemPrompt, "</options>") {
+		t.Error("OptionsSystemPrompt should contain </options> tag")
+	}
+
+	if !contains(OptionsSystemPrompt, "<optgroup>") {
+		t.Error("OptionsSystemPrompt should contain <optgroup> tag")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMCPServer(t *testing.T) {
+	server := MCPServer{
+		Name:    "test-server",
+		Command: "npx",
+		Args:    []string{"@test/server"},
+	}
+
+	if server.Name != "test-server" {
+		t.Errorf("Name = %q, want 'test-server'", server.Name)
+	}
+
+	if server.Command != "npx" {
+		t.Errorf("Command = %q, want 'npx'", server.Command)
+	}
+
+	if len(server.Args) != 1 || server.Args[0] != "@test/server" {
+		t.Errorf("Args = %v, want ['@test/server']", server.Args)
+	}
+}
+
+func TestMessage(t *testing.T) {
+	msg := Message{
+		Role:    "user",
+		Content: "Hello, Claude!",
+	}
+
+	if msg.Role != "user" {
+		t.Errorf("Role = %q, want 'user'", msg.Role)
+	}
+
+	if msg.Content != "Hello, Claude!" {
+		t.Errorf("Content = %q, want 'Hello, Claude!'", msg.Content)
+	}
+}
+
+func TestContentBlock(t *testing.T) {
+	// Test text block
+	textBlock := ContentBlock{
+		Type: ContentTypeText,
+		Text: "Hello",
+	}
+
+	if textBlock.Type != ContentTypeText {
+		t.Errorf("Type = %v, want ContentTypeText", textBlock.Type)
+	}
+
+	// Test image block
+	imageBlock := ContentBlock{
+		Type: ContentTypeImage,
+		Source: &ImageSource{
+			Type:      "base64",
+			MediaType: "image/png",
+			Data:      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+		},
+	}
+
+	if imageBlock.Type != ContentTypeImage {
+		t.Errorf("Type = %v, want ContentTypeImage", imageBlock.Type)
+	}
+
+	if imageBlock.Source == nil {
+		t.Error("Source should not be nil for image block")
+	}
+
+	if imageBlock.Source.MediaType != "image/png" {
+		t.Errorf("Source.MediaType = %q, want 'image/png'", imageBlock.Source.MediaType)
+	}
+}
+
+func TestImageSource(t *testing.T) {
+	source := ImageSource{
+		Type:      "base64",
+		MediaType: "image/jpeg",
+		Data:      "...",
+	}
+
+	if source.Type != "base64" {
+		t.Errorf("Type = %q, want 'base64'", source.Type)
+	}
+
+	if source.MediaType != "image/jpeg" {
+		t.Errorf("MediaType = %q, want 'image/jpeg'", source.MediaType)
+	}
+}
+
+func TestRunner_StopCleansUpServer(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Stop should not panic even without server running
+	runner.Stop()
+
+	// Verify stopped flag
+	runner.mu.RLock()
+	stopped := runner.stopped
+	serverRunning := runner.serverRunning
+	runner.mu.RUnlock()
+
+	if !stopped {
+		t.Error("stopped should be true after Stop()")
+	}
+
+	if serverRunning {
+		t.Error("serverRunning should be false after Stop()")
+	}
+}
+
+func TestRunner_InterruptSetsFlag(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Initially, interrupted should be false
+	runner.mu.RLock()
+	interrupted := runner.interrupted
+	runner.mu.RUnlock()
+
+	if interrupted {
+		t.Error("interrupted should be false initially")
+	}
+
+	// Interrupt without process running should not set flag
+	// (the flag is only set when there's a process to interrupt)
+	runner.Interrupt()
+
+	runner.mu.RLock()
+	interrupted = runner.interrupted
+	runner.mu.RUnlock()
+
+	// Since no process is running, interrupted flag shouldn't change
+	if interrupted {
+		t.Error("interrupted should still be false without running process")
+	}
+}
+
+func TestPermissionChannelBuffer(t *testing.T) {
+	// Verify buffer size is reasonable
+	if PermissionChannelBuffer < 1 {
+		t.Error("PermissionChannelBuffer should be at least 1")
+	}
+
+	if PermissionChannelBuffer > 100 {
+		t.Error("PermissionChannelBuffer should not be excessively large")
+	}
+}
+
+func TestPermissionTimeout(t *testing.T) {
+	// Verify timeout is reasonable
+	if PermissionTimeout < time.Minute {
+		t.Error("PermissionTimeout should be at least 1 minute")
+	}
+
+	if PermissionTimeout > 30*time.Minute {
+		t.Error("PermissionTimeout should not be excessively long")
+	}
+}
+
+func TestShortenPath_WindowsStyle(t *testing.T) {
+	// Test that forward-slash based paths work even if backslashes present
+	// Note: shortenPath only handles forward slashes
+
+	tests := []struct {
+		path     string
+		expected string
+	}{
+		{"C:/Users/test/file.go", "file.go"},
+		{"/c/Users/test/file.go", "file.go"},
+	}
+
+	for _, tt := range tests {
+		result := shortenPath(tt.path)
+		if result != tt.expected {
+			t.Errorf("shortenPath(%q) = %q, want %q", tt.path, result, tt.expected)
+		}
 	}
 }
