@@ -65,6 +65,9 @@ internal/
 │   ├── modal_handlers.go  Modal key handlers
 │   └── types.go           Shared types
 ├── claude/                Claude CLI wrapper (stream-json I/O)
+│   ├── claude.go          Runner: message handling, MCP server
+│   ├── process_manager.go ProcessManager: process lifecycle, auto-recovery
+│   └── runner_interface.go Interfaces for testing
 ├── changelog/             Fetches release notes from GitHub API
 ├── cli/                   Prerequisites checking (claude, git, gh)
 ├── clipboard/             Cross-platform clipboard image reading
@@ -195,9 +198,31 @@ Implementation in `internal/ui/chat.go`:
 - Rendering: `selectionView()` applies highlight style to cells in selection range
 - Clipboard: Dual approach using OSC 52 escape sequence + native `internal/clipboard` package
 
+### Claude Process Management
+
+Claude CLI process management is split across two components for better separation of concerns:
+
+**ProcessManager** (`internal/claude/process_manager.go`):
+- Manages the Claude CLI process lifecycle (start, stop, monitor)
+- Handles stdin/stdout/stderr pipes
+- Implements auto-recovery on process crash (max 3 attempts)
+- Tracks restart attempts and provides reset on successful response
+- Uses callbacks to notify the Runner of process events
+
+**Runner** (`internal/claude/claude.go`):
+- High-level API for Claude interaction
+- Manages message history and streaming state
+- Handles response parsing and routing
+- Manages MCP server for permission prompts
+- Uses ProcessManager internally for process operations
+
+Key interfaces:
+- `ProcessManagerInterface` - enables mocking process management in tests
+- `RunnerInterface` - enables mocking Claude runners in tests
+
 ### Process Error Handling and Recovery
 
-The Claude CLI wrapper (`internal/claude/claude.go`) implements robust error handling:
+The ProcessManager (`internal/claude/process_manager.go`) implements robust error handling:
 
 **Response Read Timeout** (2 minutes):
 - Prevents UI freeze when Claude process hangs mid-response

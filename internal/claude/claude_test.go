@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -976,41 +975,46 @@ func TestConstants(t *testing.T) {
 	}
 }
 
-func TestRunner_RestartTracking(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+func TestProcessManager_RestartTracking(t *testing.T) {
+	// Create a ProcessManager directly to test restart tracking
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{})
 
 	// Initially, restart attempts should be 0
-	runner.mu.RLock()
-	attempts := runner.restartAttempts
-	runner.mu.RUnlock()
-
-	if attempts != 0 {
-		t.Errorf("Expected 0 restart attempts initially, got %d", attempts)
+	if pm.GetRestartAttempts() != 0 {
+		t.Errorf("Expected 0 restart attempts initially, got %d", pm.GetRestartAttempts())
 	}
 
-	// Set restart attempts
-	runner.mu.Lock()
-	runner.restartAttempts = 2
-	runner.mu.Unlock()
+	// Simulate restart attempts (normally done internally)
+	pm.mu.Lock()
+	pm.restartAttempts = 2
+	pm.mu.Unlock()
 
-	runner.mu.RLock()
-	attempts = runner.restartAttempts
-	runner.mu.RUnlock()
+	if pm.GetRestartAttempts() != 2 {
+		t.Errorf("Expected 2 restart attempts, got %d", pm.GetRestartAttempts())
+	}
 
-	if attempts != 2 {
-		t.Errorf("Expected 2 restart attempts, got %d", attempts)
+	// Test reset
+	pm.ResetRestartAttempts()
+	if pm.GetRestartAttempts() != 0 {
+		t.Errorf("Expected 0 restart attempts after reset, got %d", pm.GetRestartAttempts())
 	}
 }
 
-func TestReportFatalError(t *testing.T) {
+func TestHandleFatalError(t *testing.T) {
 	runner := New("session-1", "/tmp", false, nil)
 
-	// Create a channel to receive the error
+	// Create a channel and set it as current response channel
 	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.currentResponseCh = ch
+	runner.mu.Unlock()
 
-	// Call reportFatalError
+	// Call handleFatalError
 	testErr := fmt.Errorf("test fatal error")
-	runner.reportFatalError(ch, false, testErr)
+	runner.handleFatalError(testErr)
 
 	// Should receive an error chunk
 	select {
@@ -1042,7 +1046,7 @@ func TestReportFatalError(t *testing.T) {
 	}
 }
 
-func TestReportFatalError_AlreadyClosed(t *testing.T) {
+func TestHandleFatalError_AlreadyClosed(t *testing.T) {
 	runner := New("session-1", "/tmp", false, nil)
 
 	// Mark as already closed
@@ -1051,9 +1055,12 @@ func TestReportFatalError_AlreadyClosed(t *testing.T) {
 	runner.mu.Unlock()
 
 	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.currentResponseCh = ch
+	runner.mu.Unlock()
 
 	// Should not panic or send anything since already closed
-	runner.reportFatalError(ch, true, fmt.Errorf("test error"))
+	runner.handleFatalError(fmt.Errorf("test error"))
 
 	select {
 	case <-ch:
@@ -1063,11 +1070,11 @@ func TestReportFatalError_AlreadyClosed(t *testing.T) {
 	}
 }
 
-func TestReportFatalError_NilChannel(t *testing.T) {
+func TestHandleFatalError_NilChannel(t *testing.T) {
 	runner := New("session-1", "/tmp", false, nil)
 
 	// Should not panic with nil channel
-	runner.reportFatalError(nil, false, fmt.Errorf("test error"))
+	runner.handleFatalError(fmt.Errorf("test error"))
 }
 
 func TestErrorVariables(t *testing.T) {
@@ -1285,10 +1292,9 @@ func TestRunner_QuestionRequestChan_AfterStop(t *testing.T) {
 func TestSendChunkWithTimeout_Success(t *testing.T) {
 	runner := New("session-1", "/tmp", false, nil)
 	ch := make(chan ResponseChunk, 10)
-	ctx := context.Background()
 
 	chunk := ResponseChunk{Type: ChunkTypeText, Content: "test"}
-	err := runner.sendChunkWithTimeout(ctx, ch, chunk)
+	err := runner.sendChunkWithTimeout(ch, chunk)
 
 	if err != nil {
 		t.Errorf("sendChunkWithTimeout should not error on empty channel: %v", err)
@@ -1305,35 +1311,10 @@ func TestSendChunkWithTimeout_Success(t *testing.T) {
 	}
 }
 
-func TestSendChunkWithTimeout_ContextCancelled(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
-	ch := make(chan ResponseChunk) // Unbuffered, will block
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Cancel immediately
-	cancel()
-
-	chunk := ResponseChunk{Type: ChunkTypeText, Content: "test"}
-	err := runner.sendChunkWithTimeout(ctx, ch, chunk)
-
-	if err == nil {
-		t.Error("sendChunkWithTimeout should error on cancelled context")
-	}
-}
-
-func TestReadLineWithTimeout_ContextCancelled(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	// We can't easily test with a real reader, but we can verify the context check
-	// by passing a nil reader which will cause a panic in the goroutine,
-	// but the context should be checked first
-	// This is a simplified test - in production the reader would be valid
-
-	// Just verify the function signature works
-	_ = runner
-	_ = ctx
+func TestSendChunkWithTimeout_ChannelFull(t *testing.T) {
+	// This test verifies the behavior but would take too long due to timeout
+	// Skip in normal test runs
+	t.Skip("Skipping timeout test - would take ResponseChannelFullTimeout to complete")
 }
 
 func TestOptionsSystemPrompt(t *testing.T) {
@@ -1474,29 +1455,41 @@ func TestRunner_StopCleansUpServer(t *testing.T) {
 	}
 }
 
-func TestRunner_InterruptSetsFlag(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+func TestProcessManager_InterruptSetsFlag(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{})
 
 	// Initially, interrupted should be false
-	runner.mu.RLock()
-	interrupted := runner.interrupted
-	runner.mu.RUnlock()
+	pm.mu.Lock()
+	interrupted := pm.interrupted
+	pm.mu.Unlock()
 
 	if interrupted {
 		t.Error("interrupted should be false initially")
 	}
 
-	// Interrupt without process running should not set flag
-	// (the flag is only set when there's a process to interrupt)
-	runner.Interrupt()
+	// SetInterrupted should set the flag
+	pm.SetInterrupted(true)
 
-	runner.mu.RLock()
-	interrupted = runner.interrupted
-	runner.mu.RUnlock()
+	pm.mu.Lock()
+	interrupted = pm.interrupted
+	pm.mu.Unlock()
 
-	// Since no process is running, interrupted flag shouldn't change
+	if !interrupted {
+		t.Error("interrupted should be true after SetInterrupted(true)")
+	}
+
+	// Reset should clear the flag
+	pm.SetInterrupted(false)
+
+	pm.mu.Lock()
+	interrupted = pm.interrupted
+	pm.mu.Unlock()
+
 	if interrupted {
-		t.Error("interrupted should still be false without running process")
+		t.Error("interrupted should be false after SetInterrupted(false)")
 	}
 }
 
