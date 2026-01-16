@@ -1,17 +1,13 @@
 package claude
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/zhubert/plural/internal/logger"
@@ -171,29 +167,23 @@ type Runner struct {
 	stopOnce       sync.Once // Ensures Stop() is idempotent
 	stopped        bool      // Set to true when Stop() is called, prevents reading from closed channels
 
-	// Persistent process management for stream-json input
-	persistentCmd     *exec.Cmd        // The running Claude CLI process
-	persistentStdin   io.WriteCloser   // Stdin pipe for sending messages
-	persistentStdout  *bufio.Reader    // Stdout reader for responses
-	persistentStderr  io.ReadCloser    // Stderr pipe for errors
-	processRunning    bool             // Whether persistent process is running
-	processMu         sync.Mutex       // Guards process lifecycle operations
+	// Process management via ProcessManager
+	processManager          *ProcessManager    // Manages Claude CLI process lifecycle
 	currentResponseCh       chan ResponseChunk // Current response channel for routing (protected by mu)
 	currentResponseChClosed bool               // Whether currentResponseCh has been closed (protected by mu)
 
 	// Per-session streaming state (all protected by mu)
-	isStreaming  bool                   // Whether this runner is currently streaming
-	streamCtx    context.Context        // Context for current streaming operation
-	streamCancel context.CancelFunc     // Cancel function for current streaming
-	interrupted  bool                   // Whether current operation was interrupted by user
+	isStreaming  bool               // Whether this runner is currently streaming
+	streamCtx    context.Context    // Context for current streaming operation
+	streamCancel context.CancelFunc // Cancel function for current streaming
 
-	// Process lifecycle context - used to signal goroutines to exit
-	processCtx    context.Context    // Context for process goroutines
-	processCancel context.CancelFunc // Cancel function to stop process goroutines
-
-	// Process restart tracking for auto-recovery
-	restartAttempts int       // Number of restart attempts since last successful response
-	lastRestartTime time.Time // Time of last restart attempt
+	// Response building state (protected by mu)
+	fullResponse          strings.Builder // Accumulates response content
+	lastWasToolUse        bool            // Track if last chunk was tool use
+	endsWithNewline       bool            // Track if response ends with \n
+	endsWithDoubleNewline bool            // Track if response ends with \n\n
+	firstChunk            bool            // Track if this is first chunk
+	responseStartTime     time.Time       // When response started
 
 	// External MCP servers to include in config
 	mcpServers []MCPServer
@@ -218,7 +208,7 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 	allowedTools := make([]string, len(DefaultAllowedTools))
 	copy(allowedTools, DefaultAllowedTools)
 
-	return &Runner{
+	r := &Runner{
 		sessionID:      sessionID,
 		workingDir:     workingDir,
 		messages:       msgs,
@@ -228,7 +218,14 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 		permRespChan:   make(chan mcp.PermissionResponse, PermissionChannelBuffer),
 		questReqChan:   make(chan mcp.QuestionRequest, PermissionChannelBuffer),
 		questRespChan:  make(chan mcp.QuestionResponse, PermissionChannelBuffer),
+		firstChunk:     true,
 	}
+
+	// Initialize response builder
+	r.fullResponse.Grow(8192)
+
+	// ProcessManager will be created lazily when first needed (after MCP config is ready)
+	return r
 }
 
 // SessionStarted returns whether the session has been started
@@ -659,556 +656,249 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 	return configPath, nil
 }
 
-// startPersistentProcess starts the Claude CLI process with stream-json input/output.
-// This process stays running and receives messages via stdin.
-func (r *Runner) startPersistentProcess() error {
-	r.processMu.Lock()
-	defer r.processMu.Unlock()
-
-	if r.processRunning {
-		return nil
-	}
-
-	logger.Info("Claude: Starting persistent process for session %s", r.sessionID)
-	startTime := time.Now()
-
-	// Build command arguments
-	r.mu.RLock()
-	sessionStarted := r.sessionStarted
-	allowedTools := make([]string, len(r.allowedTools))
-	copy(allowedTools, r.allowedTools)
-	mcpConfigPath := r.mcpConfigPath
-	r.mu.RUnlock()
-
-	var args []string
-	if sessionStarted {
-		args = []string{
-			"--print",
-			"--output-format", "stream-json",
-			"--input-format", "stream-json",
-			"--verbose",
-			"--resume", r.sessionID,
-		}
-	} else {
-		args = []string{
-			"--print",
-			"--output-format", "stream-json",
-			"--input-format", "stream-json",
-			"--verbose",
-			"--session-id", r.sessionID,
-		}
-	}
-
-	// Add MCP config and permission prompt tool
-	args = append(args,
-		"--mcp-config", mcpConfigPath,
-		"--permission-prompt-tool", "mcp__plural__permission",
-		"--append-system-prompt", OptionsSystemPrompt,
-	)
-
-	// Add pre-allowed tools
-	for _, tool := range allowedTools {
-		args = append(args, "--allowedTools", tool)
-	}
-
-	logger.Log("Claude: Starting persistent process: claude %s", strings.Join(args, " "))
-
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = r.workingDir
-
-	// Get stdin pipe for writing messages
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		logger.Error("Claude: Failed to get stdin pipe: %v", err)
-		return fmt.Errorf("failed to get stdin pipe: %v", err)
-	}
-
-	// Get stdout pipe for reading responses
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		stdin.Close()
-		logger.Error("Claude: Failed to get stdout pipe: %v", err)
-		return fmt.Errorf("failed to get stdout pipe: %v", err)
-	}
-
-	// Get stderr pipe for error messages
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		stdin.Close()
-		stdout.Close()
-		logger.Error("Claude: Failed to get stderr pipe: %v", err)
-		return fmt.Errorf("failed to get stderr pipe: %v", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		stdin.Close()
-		stdout.Close()
-		stderr.Close()
-		logger.Error("Claude: Failed to start persistent process: %v", err)
-		return fmt.Errorf("failed to start process: %v", err)
-	}
-
-	r.persistentCmd = cmd
-	r.persistentStdin = stdin
-	r.persistentStdout = bufio.NewReader(stdout)
-	r.persistentStderr = stderr
-	r.processRunning = true
-
-	// Create context for process goroutines - this allows us to signal them to exit
+// ensureProcessRunning starts the ProcessManager if not already running.
+func (r *Runner) ensureProcessRunning() error {
 	r.mu.Lock()
-	r.processCtx, r.processCancel = context.WithCancel(context.Background())
-	processCtx := r.processCtx
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
-	logger.Info("Claude: Persistent process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
+	// Create ProcessManager if it doesn't exist
+	if r.processManager == nil {
+		config := ProcessConfig{
+			SessionID:      r.sessionID,
+			WorkingDir:     r.workingDir,
+			SessionStarted: r.sessionStarted,
+			AllowedTools:   make([]string, len(r.allowedTools)),
+			MCPConfigPath:  r.mcpConfigPath,
+		}
+		copy(config.AllowedTools, r.allowedTools)
 
-	// Start goroutine to read responses
-	go r.readPersistentResponses(processCtx)
+		r.processManager = NewProcessManager(config, r.createProcessCallbacks())
+	}
 
-	// Start goroutine to monitor for process exit
-	go r.monitorProcessExit(processCtx)
+	// Start the process if not running
+	if !r.processManager.IsRunning() {
+		// Update config before starting (in case allowed tools changed)
+		config := ProcessConfig{
+			SessionID:      r.sessionID,
+			WorkingDir:     r.workingDir,
+			SessionStarted: r.sessionStarted,
+			AllowedTools:   make([]string, len(r.allowedTools)),
+			MCPConfigPath:  r.mcpConfigPath,
+		}
+		copy(config.AllowedTools, r.allowedTools)
+		r.processManager.UpdateConfig(config)
+
+		return r.processManager.Start()
+	}
 
 	return nil
 }
 
-// readResult holds the result of a read operation for timeout handling.
-type readResult struct {
-	line string
-	err  error
+// createProcessCallbacks creates the callbacks for ProcessManager events.
+func (r *Runner) createProcessCallbacks() ProcessCallbacks {
+	return ProcessCallbacks{
+		OnLine:           r.handleProcessLine,
+		OnProcessExit:    r.handleProcessExit,
+		OnProcessHung:    r.handleProcessHung,
+		OnRestartAttempt: r.handleRestartAttempt,
+		OnRestartFailed:  r.handleRestartFailed,
+		OnFatalError:     r.handleFatalError,
+	}
 }
 
-// readPersistentResponses continuously reads from stdout and routes to the current response channel.
-// The ctx parameter allows the caller to signal this goroutine to exit cleanly.
-func (r *Runner) readPersistentResponses(ctx context.Context) {
-	logger.Log("Claude: Response reader started for session %s", r.sessionID)
+// handleProcessLine processes a line of output from the Claude process.
+func (r *Runner) handleProcessLine(line string) {
+	// Parse the JSON message
+	chunks := parseStreamMessage(line)
 
-	var fullResponse strings.Builder
-	fullResponse.Grow(8192) // Pre-allocate for typical response size
-	var lastWasToolUse bool
-	endsWithNewline := false       // Track if response ends with \n
-	endsWithDoubleNewline := false // Track if response ends with \n\n
-	firstChunk := true
-	responseStartTime := time.Now()
+	// Get the current response channel (nil if already closed)
+	r.mu.RLock()
+	ch := r.currentResponseCh
+	if r.currentResponseChClosed {
+		ch = nil
+	}
+	r.mu.RUnlock()
 
-	for {
-		// Check for cancellation first
+	for _, chunk := range chunks {
+		r.mu.Lock()
+		switch chunk.Type {
+		case ChunkTypeText:
+			// Add extra newline after tool use for visual separation
+			if r.lastWasToolUse && r.endsWithNewline && !r.endsWithDoubleNewline {
+				r.fullResponse.WriteString("\n")
+				r.endsWithDoubleNewline = true
+			}
+			r.fullResponse.WriteString(chunk.Content)
+			// Update newline tracking based on content
+			if len(chunk.Content) > 0 {
+				r.endsWithNewline = chunk.Content[len(chunk.Content)-1] == '\n'
+				r.endsWithDoubleNewline = len(chunk.Content) >= 2 && chunk.Content[len(chunk.Content)-2:] == "\n\n"
+			}
+			r.lastWasToolUse = false
+		case ChunkTypeToolUse:
+			// Format tool use line - add newline if needed
+			if r.fullResponse.Len() > 0 && !r.endsWithNewline {
+				r.fullResponse.WriteString("\n")
+			}
+			r.fullResponse.WriteString("● ")
+			r.fullResponse.WriteString(formatToolIcon(chunk.ToolName))
+			r.fullResponse.WriteString("(")
+			r.fullResponse.WriteString(chunk.ToolName)
+			if chunk.ToolInput != "" {
+				r.fullResponse.WriteString(": ")
+				r.fullResponse.WriteString(chunk.ToolInput)
+			}
+			r.fullResponse.WriteString(")\n")
+			r.endsWithNewline = true
+			r.endsWithDoubleNewline = false
+			r.lastWasToolUse = true
+		}
+
+		if r.firstChunk {
+			logger.Log("Claude: First response chunk received after %v", time.Since(r.responseStartTime))
+			r.firstChunk = false
+			// Reset restart attempts on successful response
+			if r.processManager != nil {
+				r.processManager.ResetRestartAttempts()
+			}
+		}
+		r.mu.Unlock()
+
+		// Send to response channel if available with timeout
+		if ch != nil {
+			if err := r.sendChunkWithTimeout(ch, chunk); err != nil {
+				if err == errChannelFull {
+					// Report error to user instead of silently dropping
+					logger.Error("Claude: Response channel full, reporting error")
+					r.sendChunkWithTimeout(ch, ResponseChunk{
+						Type:    ChunkTypeText,
+						Content: "\n[Error: Response buffer full - some output may be lost]\n",
+					})
+				}
+				return
+			}
+		}
+	}
+
+	// Check for result message which indicates end of response
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
+		if msg.Type == "result" {
+			logger.Log("Claude: Result message received, response complete")
+
+			r.mu.Lock()
+			r.sessionStarted = true
+			if r.processManager != nil {
+				r.processManager.MarkSessionStarted()
+				r.processManager.ResetRestartAttempts()
+			}
+			r.messages = append(r.messages, Message{Role: "assistant", Content: r.fullResponse.String()})
+
+			// Signal completion and close channel
+			if ch != nil && !r.currentResponseChClosed {
+				select {
+				case ch <- ResponseChunk{Done: true}:
+				default:
+				}
+				close(ch)
+				r.currentResponseChClosed = true
+			}
+			r.isStreaming = false
+
+			// Reset for next message
+			r.fullResponse.Reset()
+			r.fullResponse.Grow(8192)
+			r.lastWasToolUse = false
+			r.endsWithNewline = false
+			r.endsWithDoubleNewline = false
+			r.firstChunk = true
+			r.responseStartTime = time.Now()
+			r.mu.Unlock()
+		}
+	}
+}
+
+// handleProcessExit is called when the process exits.
+// Returns true if the process should be restarted.
+func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
+	r.mu.Lock()
+	ch := r.currentResponseCh
+	chClosed := r.currentResponseChClosed
+	stopped := r.stopped
+
+	// If stopped, don't do anything
+	if stopped {
+		r.mu.Unlock()
+		return false
+	}
+
+	// Mark streaming as done
+	if ch != nil && !chClosed {
 		select {
-		case <-ctx.Done():
-			logger.Log("Claude: Response reader exiting - context cancelled")
-			return
+		case ch <- ResponseChunk{Done: true}:
 		default:
 		}
-
-		r.processMu.Lock()
-		running := r.processRunning
-		reader := r.persistentStdout
-		r.processMu.Unlock()
-
-		if !running || reader == nil {
-			logger.Log("Claude: Response reader exiting - process not running")
-			return
-		}
-
-		// Read with timeout to detect hung processes
-		line, err := r.readLineWithTimeout(ctx, reader)
-		if err != nil {
-			// Check if we were cancelled during the read
-			select {
-			case <-ctx.Done():
-				logger.Log("Claude: Response reader exiting - context cancelled during read")
-				return
-			default:
-			}
-
-			if err == errReadTimeout {
-				logger.Error("Claude: Read timeout - process may be hung")
-				r.handleProcessHung()
-				return
-			}
-
-			if err == io.EOF {
-				logger.Log("Claude: EOF on stdout - process exited")
-			} else {
-				logger.Log("Claude: Error reading stdout: %v", err)
-			}
-			r.handleProcessExit(err)
-			return
-		}
-
-		if len(line) == 0 {
-			continue
-		}
-
-		if firstChunk {
-			logger.Log("Claude: First response chunk received after %v", time.Since(responseStartTime))
-			firstChunk = false
-			// Reset restart attempts on successful response
-			r.mu.Lock()
-			r.restartAttempts = 0
-			r.mu.Unlock()
-		}
-
-		// Parse the JSON message
-		chunks := parseStreamMessage(line)
-
-		// Get the current response channel (nil if already closed)
-		r.mu.RLock()
-		ch := r.currentResponseCh
-		if r.currentResponseChClosed {
-			ch = nil
-		}
-		r.mu.RUnlock()
-
-		for _, chunk := range chunks {
-			switch chunk.Type {
-			case ChunkTypeText:
-				// Add extra newline after tool use for visual separation
-				if lastWasToolUse && endsWithNewline && !endsWithDoubleNewline {
-					fullResponse.WriteString("\n")
-					endsWithDoubleNewline = true
-				}
-				fullResponse.WriteString(chunk.Content)
-				// Update newline tracking based on content
-				if len(chunk.Content) > 0 {
-					endsWithNewline = chunk.Content[len(chunk.Content)-1] == '\n'
-					endsWithDoubleNewline = len(chunk.Content) >= 2 && chunk.Content[len(chunk.Content)-2:] == "\n\n"
-				}
-				lastWasToolUse = false
-			case ChunkTypeToolUse:
-				// Format tool use line - add newline if needed
-				if fullResponse.Len() > 0 && !endsWithNewline {
-					fullResponse.WriteString("\n")
-				}
-				fullResponse.WriteString("● ")
-				fullResponse.WriteString(formatToolIcon(chunk.ToolName))
-				fullResponse.WriteString("(")
-				fullResponse.WriteString(chunk.ToolName)
-				if chunk.ToolInput != "" {
-					fullResponse.WriteString(": ")
-					fullResponse.WriteString(chunk.ToolInput)
-				}
-				fullResponse.WriteString(")\n")
-				endsWithNewline = true
-				endsWithDoubleNewline = false
-				lastWasToolUse = true
-			}
-
-			// Send to response channel if available with timeout and cancellation check
-			if ch != nil {
-				if err := r.sendChunkWithTimeout(ctx, ch, chunk); err != nil {
-					if err == errChannelFull {
-						// Report error to user instead of silently dropping
-						logger.Error("Claude: Response channel full, reporting error")
-						r.sendChunkWithTimeout(ctx, ch, ResponseChunk{
-							Type:    ChunkTypeText,
-							Content: "\n[Error: Response buffer full - some output may be lost]\n",
-						})
-					}
-					return
-				}
-			}
-		}
-
-		// Check for result message which indicates end of response
-		var msg streamMessage
-		if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
-			if msg.Type == "result" {
-				logger.Log("Claude: Result message received, response complete")
-
-				// Add assistant message to history and reset interrupt flag
-				r.mu.Lock()
-				r.sessionStarted = true
-				r.interrupted = false // Reset in case SIGINT was handled gracefully
-				r.restartAttempts = 0 // Reset restart attempts on successful completion
-				r.messages = append(r.messages, Message{Role: "assistant", Content: fullResponse.String()})
-				r.mu.Unlock()
-
-				// Signal completion and close channel so listeners detect end
-				// This fixes a race condition where GetResponseChan() could return nil
-				// while Bubble Tea is still processing earlier chunks from the buffer
-				r.mu.Lock()
-				if ch != nil && !r.currentResponseChClosed {
-					// Use select to avoid blocking if channel is full
-					select {
-					case ch <- ResponseChunk{Done: true}:
-					default:
-						// Channel might be full, just close it
-					}
-					close(ch)
-					r.currentResponseChClosed = true
-				}
-				r.isStreaming = false
-				r.mu.Unlock()
-
-				// Check for context cancellation after closing
-				select {
-				case <-ctx.Done():
-					logger.Log("Claude: Response reader exiting - context cancelled during completion")
-					return
-				default:
-				}
-
-				// Reset for next message
-				fullResponse.Reset()
-				fullResponse.Grow(8192) // Pre-allocate for next response
-				lastWasToolUse = false
-				endsWithNewline = false
-				endsWithDoubleNewline = false
-				firstChunk = true
-				responseStartTime = time.Now()
-			}
-		}
+		close(ch)
+		r.currentResponseChClosed = true
 	}
+	r.isStreaming = false
+	r.mu.Unlock()
+
+	// Return true to allow ProcessManager to handle restart logic
+	return true
 }
 
-// errReadTimeout is returned when a read operation times out.
-var errReadTimeout = fmt.Errorf("read timeout")
-
-// errChannelFull is returned when the response channel is full for too long.
-var errChannelFull = fmt.Errorf("channel full")
-
-// readLineWithTimeout reads a line with a timeout to detect hung processes.
-func (r *Runner) readLineWithTimeout(ctx context.Context, reader *bufio.Reader) (string, error) {
-	resultCh := make(chan readResult, 1)
-
-	go func() {
-		line, err := reader.ReadString('\n')
-		resultCh <- readResult{line: line, err: err}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	case result := <-resultCh:
-		return result.line, result.err
-	case <-time.After(ResponseReadTimeout):
-		return "", errReadTimeout
-	}
-}
-
-// sendChunkWithTimeout sends a chunk to the response channel with timeout handling.
-func (r *Runner) sendChunkWithTimeout(ctx context.Context, ch chan ResponseChunk, chunk ResponseChunk) error {
-	select {
-	case ch <- chunk:
-		return nil
-	case <-ctx.Done():
-		logger.Log("Claude: Response reader exiting - context cancelled during send")
-		return ctx.Err()
-	case <-time.After(ResponseChannelFullTimeout):
-		logger.Error("Claude: Response channel full after %v timeout", ResponseChannelFullTimeout)
-		return errChannelFull
-	}
-}
-
-// handleProcessHung handles the case when the Claude process appears to be hung.
+// handleProcessHung is called when the process appears to be hung.
 func (r *Runner) handleProcessHung() {
-	r.processMu.Lock()
-	defer r.processMu.Unlock()
-
-	if !r.processRunning {
-		return
-	}
-
-	logger.Error("Claude: Process appears hung for session %s, killing", r.sessionID)
-
-	// Get the response channel to notify
 	r.mu.Lock()
 	ch := r.currentResponseCh
 	chClosed := r.currentResponseChClosed
-	r.mu.Unlock()
 
-	// Kill the hung process
-	if r.persistentCmd != nil && r.persistentCmd.Process != nil {
-		r.persistentCmd.Process.Kill()
-	}
-
-	// Notify via response channel
 	if ch != nil && !chClosed {
-		r.mu.Lock()
-		if !r.currentResponseChClosed {
-			select {
-			case ch <- ResponseChunk{
-				Error: fmt.Errorf("Claude process stopped responding (timeout after %v)", ResponseReadTimeout),
-				Done:  true,
-			}:
-			default:
-			}
-			close(ch)
-			r.currentResponseChClosed = true
+		select {
+		case ch <- ResponseChunk{
+			Error: fmt.Errorf("Claude process stopped responding (timeout after %v)", ResponseReadTimeout),
+			Done:  true,
+		}:
+		default:
 		}
-		r.isStreaming = false
-		r.mu.Unlock()
+		close(ch)
+		r.currentResponseChClosed = true
 	}
-
-	// Clean up
-	if r.persistentStdin != nil {
-		r.persistentStdin.Close()
-		r.persistentStdin = nil
-	}
-	if r.persistentStderr != nil {
-		r.persistentStderr.Close()
-		r.persistentStderr = nil
-	}
-
-	r.persistentCmd = nil
-	r.persistentStdout = nil
-	r.processRunning = false
+	r.isStreaming = false
+	r.mu.Unlock()
 }
 
-// monitorProcessExit waits for the process to exit and handles cleanup.
-// The ctx parameter allows the caller to signal this goroutine to exit cleanly.
-func (r *Runner) monitorProcessExit(ctx context.Context) {
-	r.processMu.Lock()
-	cmd := r.persistentCmd
-	r.processMu.Unlock()
-
-	if cmd == nil {
-		return
-	}
-
-	// Use a channel to detect when Wait() completes
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
-
-	// Wait for either process exit or context cancellation
-	select {
-	case err := <-done:
-		logger.Log("Claude: Persistent process exited: %v", err)
-		r.handleProcessExit(err)
-	case <-ctx.Done():
-		logger.Log("Claude: Process monitor exiting - context cancelled")
-		// Process will be killed by Stop(), no need to handle here
-	}
-}
-
-// handleProcessExit handles cleanup when the persistent process exits.
-// If the exit was unexpected (not user-initiated), it will attempt to restart
-// the process up to MaxProcessRestartAttempts times.
-func (r *Runner) handleProcessExit(err error) {
-	r.processMu.Lock()
-
-	if !r.processRunning {
-		r.processMu.Unlock()
-		return
-	}
-
-	logger.Log("Claude: Handling process exit for session %s", r.sessionID)
-
-	// Check if this was a user-initiated interrupt
+// handleRestartAttempt is called when a restart is being attempted.
+func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Lock()
-	wasInterrupted := r.interrupted
-	r.interrupted = false // Reset for next operation
 	ch := r.currentResponseCh
 	chClosed := r.currentResponseChClosed
-	restartAttempts := r.restartAttempts
-	stopped := r.stopped
 	r.mu.Unlock()
 
-	// Read stderr to get actual error message before closing
-	var stderrContent string
-	if r.persistentStderr != nil {
-		stderrBytes, readErr := io.ReadAll(r.persistentStderr)
-		if readErr != nil {
-			logger.Log("Claude: Failed to read stderr: %v", readErr)
-		} else if len(stderrBytes) > 0 {
-			stderrContent = strings.TrimSpace(string(stderrBytes))
-			logger.Log("Claude: Stderr output: %s", stderrContent)
+	if ch != nil && !chClosed {
+		select {
+		case ch <- ResponseChunk{
+			Type:    ChunkTypeText,
+			Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", attemptNum, MaxProcessRestartAttempts),
+		}:
+		default:
 		}
 	}
-
-	// Clean up pipes
-	if r.persistentStdin != nil {
-		r.persistentStdin.Close()
-		r.persistentStdin = nil
-	}
-	if r.persistentStderr != nil {
-		r.persistentStderr.Close()
-		r.persistentStderr = nil
-	}
-
-	r.persistentCmd = nil
-	r.persistentStdout = nil
-	r.processRunning = false
-	r.processMu.Unlock()
-
-	// If user interrupted or runner is stopped, don't attempt restart
-	if wasInterrupted || stopped {
-		r.mu.Lock()
-		if ch != nil && !chClosed {
-			logger.Log("Claude: Process exit due to user interrupt, not reporting error")
-			select {
-			case ch <- ResponseChunk{Done: true}:
-			default:
-			}
-			close(ch)
-			r.currentResponseChClosed = true
-		}
-		r.isStreaming = false
-		r.mu.Unlock()
-		return
-	}
-
-	// Check if we should attempt restart
-	if restartAttempts < MaxProcessRestartAttempts {
-		r.mu.Lock()
-		r.restartAttempts = restartAttempts + 1
-		r.lastRestartTime = time.Now()
-		r.mu.Unlock()
-
-		logger.Warn("Claude: Process crashed, attempting restart %d/%d for session %s",
-			restartAttempts+1, MaxProcessRestartAttempts, r.sessionID)
-
-		// Notify user about restart attempt
-		if ch != nil && !chClosed {
-			r.mu.Lock()
-			if !r.currentResponseChClosed {
-				select {
-				case ch <- ResponseChunk{
-					Type:    ChunkTypeText,
-					Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", restartAttempts+1, MaxProcessRestartAttempts),
-				}:
-				default:
-				}
-			}
-			r.mu.Unlock()
-		}
-
-		// Wait before restart attempt
-		time.Sleep(ProcessRestartDelay)
-
-		// Attempt restart
-		if err := r.startPersistentProcess(); err != nil {
-			logger.Error("Claude: Failed to restart process: %v", err)
-			r.reportFatalError(ch, chClosed, fmt.Errorf("process crashed and restart failed: %v", err))
-		} else {
-			logger.Info("Claude: Process restarted successfully for session %s", r.sessionID)
-			// Note: The response reader goroutine is started by startPersistentProcess,
-			// so the streaming will continue automatically
-		}
-		return
-	}
-
-	// Max restarts exceeded - report fatal error
-	logger.Error("Claude: Max restart attempts (%d) exceeded for session %s", MaxProcessRestartAttempts, r.sessionID)
-	var exitErr error
-	if stderrContent != "" {
-		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %s", MaxProcessRestartAttempts, stderrContent)
-	} else if err != nil {
-		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %v", MaxProcessRestartAttempts, err)
-	} else {
-		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts exceeded)", MaxProcessRestartAttempts)
-	}
-	r.reportFatalError(ch, chClosed, exitErr)
 }
 
-// reportFatalError sends an error to the response channel and closes it.
-func (r *Runner) reportFatalError(ch chan ResponseChunk, chClosed bool, err error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// handleRestartFailed is called when restart fails.
+func (r *Runner) handleRestartFailed(err error) {
+	logger.Error("Claude: Restart failed: %v", err)
+}
 
-	if ch != nil && !chClosed && !r.currentResponseChClosed {
+// handleFatalError is called when max restarts exceeded or unrecoverable error.
+func (r *Runner) handleFatalError(err error) {
+	r.mu.Lock()
+	ch := r.currentResponseCh
+	chClosed := r.currentResponseChClosed
+
+	if ch != nil && !chClosed {
 		select {
 		case ch <- ResponseChunk{Error: err, Done: true}:
 		default:
@@ -1217,87 +907,37 @@ func (r *Runner) reportFatalError(ch chan ResponseChunk, chClosed bool, err erro
 		r.currentResponseChClosed = true
 	}
 	r.isStreaming = false
+	r.mu.Unlock()
 }
 
-// stopPersistentProcess stops the persistent Claude CLI process
-func (r *Runner) stopPersistentProcess() {
-	// Cancel process context first to signal goroutines to exit
-	// This must be done before acquiring processMu to avoid deadlock
-	r.mu.Lock()
-	if r.processCancel != nil {
-		r.processCancel()
-		r.processCancel = nil
+// sendChunkWithTimeout sends a chunk to the response channel with timeout handling.
+func (r *Runner) sendChunkWithTimeout(ch chan ResponseChunk, chunk ResponseChunk) error {
+	select {
+	case ch <- chunk:
+		return nil
+	case <-time.After(ResponseChannelFullTimeout):
+		logger.Error("Claude: Response channel full after %v timeout", ResponseChannelFullTimeout)
+		return errChannelFull
 	}
-	r.mu.Unlock()
-
-	r.processMu.Lock()
-	defer r.processMu.Unlock()
-
-	if !r.processRunning {
-		return
-	}
-
-	logger.Log("Claude: Stopping persistent process for session %s", r.sessionID)
-
-	// Close stdin to signal EOF to the process
-	if r.persistentStdin != nil {
-		r.persistentStdin.Close()
-		r.persistentStdin = nil
-	}
-
-	// Kill the process if it doesn't exit gracefully
-	if r.persistentCmd != nil && r.persistentCmd.Process != nil {
-		// Give it a moment to exit gracefully, then force kill
-		done := make(chan struct{})
-		go func() {
-			r.persistentCmd.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			logger.Log("Claude: Process exited gracefully")
-		case <-time.After(2 * time.Second):
-			logger.Log("Claude: Force killing process")
-			r.persistentCmd.Process.Kill()
-		}
-	}
-
-	if r.persistentStderr != nil {
-		r.persistentStderr.Close()
-		r.persistentStderr = nil
-	}
-
-	r.persistentCmd = nil
-	r.persistentStdout = nil
-	r.processRunning = false
 }
 
 // Interrupt sends SIGINT to the Claude process to interrupt its current operation.
 // This is used when the user presses Escape to stop a streaming response.
 // Unlike Stop(), this doesn't terminate the process - it just interrupts the current task.
 func (r *Runner) Interrupt() error {
-	r.processMu.Lock()
-	defer r.processMu.Unlock()
+	r.mu.Lock()
+	pm := r.processManager
+	r.mu.Unlock()
 
-	if !r.processRunning || r.persistentCmd == nil || r.persistentCmd.Process == nil {
-		logger.Log("Claude: Interrupt called but process not running")
+	if pm == nil {
+		logger.Log("Claude: Interrupt called but no process manager")
 		return nil
 	}
 
 	// Set interrupted flag so handleProcessExit doesn't report an error
-	r.mu.Lock()
-	r.interrupted = true
-	r.mu.Unlock()
+	pm.SetInterrupted(true)
 
-	logger.Info("Claude: Sending SIGINT to interrupt session %s (pid=%d)", r.sessionID, r.persistentCmd.Process.Pid)
-
-	if err := r.persistentCmd.Process.Signal(syscall.SIGINT); err != nil {
-		logger.Error("Claude: Failed to send SIGINT: %v", err)
-		return fmt.Errorf("failed to send interrupt signal: %w", err)
-	}
-
-	return nil
+	return pm.Interrupt()
 }
 
 // Send sends a message to Claude and streams the response
@@ -1332,8 +972,8 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			return
 		}
 
-		// Start persistent process if not running
-		if err := r.startPersistentProcess(); err != nil {
+		// Start process manager if not running
+		if err := r.ensureProcessRunning(); err != nil {
 			ch <- ResponseChunk{Error: err, Done: true}
 			close(ch)
 			return
@@ -1342,10 +982,13 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		// Set up the response channel for routing
 		r.mu.Lock()
 		r.isStreaming = true
-		r.interrupted = false // Reset interrupt flag for new message
 		r.currentResponseCh = ch
 		r.currentResponseChClosed = false // Reset closed flag for new channel
 		r.streamCtx = cmdCtx
+		r.responseStartTime = time.Now()
+		if r.processManager != nil {
+			r.processManager.SetInterrupted(false) // Reset interrupt flag for new message
+		}
 		r.mu.Unlock()
 
 		// Build the input message
@@ -1364,17 +1007,6 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			return
 		}
 
-		// Write to stdin
-		r.processMu.Lock()
-		stdin := r.persistentStdin
-		r.processMu.Unlock()
-
-		if stdin == nil {
-			ch <- ResponseChunk{Error: fmt.Errorf("process stdin not available"), Done: true}
-			close(ch)
-			return
-		}
-
 		// Log message without base64 image data (which can be huge)
 		hasImage := false
 		for _, block := range content {
@@ -1388,17 +1020,28 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		} else {
 			logger.Log("Claude: Writing message to stdin: %s", string(msgJSON))
 		}
-		if _, err := stdin.Write(append(msgJSON, '\n')); err != nil {
+
+		// Write to process via ProcessManager
+		r.mu.Lock()
+		pm := r.processManager
+		r.mu.Unlock()
+
+		if pm == nil {
+			ch <- ResponseChunk{Error: fmt.Errorf("process manager not available"), Done: true}
+			close(ch)
+			return
+		}
+
+		if err := pm.WriteMessage(append(msgJSON, '\n')); err != nil {
 			logger.Log("Claude: Failed to write to stdin: %v", err)
-			ch <- ResponseChunk{Error: fmt.Errorf("failed to write to process: %v", err), Done: true}
+			ch <- ResponseChunk{Error: err, Done: true}
 			close(ch)
 			return
 		}
 
 		logger.Log("Claude: Message sent in %v, waiting for response", time.Since(sendStartTime))
 
-		// The response will be read by readPersistentResponses goroutine
-		// and routed to this channel.
+		// The response will be read by ProcessManager and routed via callbacks
 	}()
 
 	return ch
@@ -1432,8 +1075,14 @@ func (r *Runner) Stop() {
 	r.stopOnce.Do(func() {
 		logger.Info("Claude: Stopping runner for session %s", r.sessionID)
 
-		// Stop the persistent Claude CLI process first (needs its own lock)
-		r.stopPersistentProcess()
+		// Stop the ProcessManager first
+		r.mu.Lock()
+		pm := r.processManager
+		r.mu.Unlock()
+
+		if pm != nil {
+			pm.Stop()
+		}
 
 		r.mu.Lock()
 		defer r.mu.Unlock()
