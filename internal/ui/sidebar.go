@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"hash/fnv"
 	"path/filepath"
 	"strings"

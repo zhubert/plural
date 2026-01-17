@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,8 +12,24 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/config"
+	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/logger"
 )
+
+// executor is the command executor used by this package.
+// It can be swapped for testing/demos via SetExecutor.
+var executor pexec.CommandExecutor = pexec.NewRealExecutor()
+
+// SetExecutor sets the command executor used by this package.
+// This is primarily used for testing and demo generation.
+func SetExecutor(e pexec.CommandExecutor) {
+	executor = e
+}
+
+// GetExecutor returns the current command executor.
+func GetExecutor() pexec.CommandExecutor {
+	return executor
+}
 
 // validBranchNameRegex matches valid git branch name characters
 // Git branch names cannot contain: space, ~, ^, :, ?, *, [, \, or control characters
@@ -50,9 +67,8 @@ func ValidateBranchName(branch string) error {
 
 // BranchExists checks if a branch already exists in the repo
 func BranchExists(repoPath, branch string) bool {
-	cmd := exec.Command("git", "rev-parse", "--verify", branch)
-	cmd.Dir = repoPath
-	return cmd.Run() == nil
+	_, _, err := executor.Run(context.Background(), repoPath, "git", "rev-parse", "--verify", branch)
+	return err == nil
 }
 
 // GetDefaultBranch returns the default branch name for the remote (e.g., "main" or "master")
@@ -164,10 +180,7 @@ func Create(repoPath string, customBranch string, branchPrefix string) (*config.
 	// Create the worktree with a new branch based on the start point
 	logger.Log("Session: Creating git worktree: branch=%s, path=%s, from=%s", branch, worktreePath, startPoint)
 	worktreeStart := time.Now()
-	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath, startPoint)
-	cmd.Dir = repoPath
-
-	output, err := cmd.CombinedOutput()
+	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "worktree", "add", "-b", branch, worktreePath, startPoint)
 	if err != nil {
 		logger.Error("Session: Failed to create worktree after %v: %s", time.Since(worktreeStart), string(output))
 		return nil, fmt.Errorf("failed to create worktree: %s: %w", string(output), err)
@@ -280,10 +293,7 @@ func ValidateRepo(path string) error {
 	}
 
 	// Check if it's a git repo by running git rev-parse
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
-	cmd.Dir = path
-
-	output, err := cmd.CombinedOutput()
+	output, err := executor.CombinedOutput(context.Background(), path, "git", "rev-parse", "--git-dir")
 	if err != nil {
 		logger.Log("Session: Validation failed after %v - not a git repo: %s", time.Since(startTime), strings.TrimSpace(string(output)))
 		return fmt.Errorf("not a git repository: %s", strings.TrimSpace(string(output)))
@@ -295,10 +305,7 @@ func ValidateRepo(path string) error {
 
 // GetGitRoot returns the git root directory for a path, or empty string if not a git repo
 func GetGitRoot(path string) string {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Dir = path
-
-	output, err := cmd.Output()
+	output, err := executor.Output(context.Background(), path, "git", "rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""
 	}
@@ -315,11 +322,10 @@ func GetCurrentDirGitRoot() string {
 func Delete(sess *config.Session) error {
 	logger.Log("Session: Deleting worktree for session=%s, worktree=%s, branch=%s", sess.ID, sess.WorkTree, sess.Branch)
 
-	// Remove the worktree
-	cmd := exec.Command("git", "worktree", "remove", sess.WorkTree, "--force")
-	cmd.Dir = sess.RepoPath
+	ctx := context.Background()
 
-	output, err := cmd.CombinedOutput()
+	// Remove the worktree
+	output, err := executor.CombinedOutput(ctx, sess.RepoPath, "git", "worktree", "remove", sess.WorkTree, "--force")
 	if err != nil {
 		logger.Error("Session: Failed to remove worktree: %s", string(output))
 		return fmt.Errorf("failed to remove worktree: %s: %w", string(output), err)
@@ -327,17 +333,12 @@ func Delete(sess *config.Session) error {
 	logger.Info("Session: Worktree removed successfully")
 
 	// Prune worktree references (best-effort cleanup)
-	pruneCmd := exec.Command("git", "worktree", "prune")
-	pruneCmd.Dir = sess.RepoPath
-	if output, err := pruneCmd.CombinedOutput(); err != nil {
+	if output, err := executor.CombinedOutput(ctx, sess.RepoPath, "git", "worktree", "prune"); err != nil {
 		logger.Warn("Session: Worktree prune failed (best-effort): %s - %v", string(output), err)
 	}
 
 	// Delete the branch
-	branchCmd := exec.Command("git", "branch", "-D", sess.Branch)
-	branchCmd.Dir = sess.RepoPath
-
-	branchOutput, err := branchCmd.CombinedOutput()
+	branchOutput, err := executor.CombinedOutput(ctx, sess.RepoPath, "git", "branch", "-D", sess.Branch)
 	if err != nil {
 		logger.Warn("Session: Failed to delete branch (may already be deleted): %s", string(branchOutput))
 		// Don't return error - the worktree is already gone, branch deletion is best-effort
@@ -428,14 +429,14 @@ func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
 		return 0, err
 	}
 
+	ctx := context.Background()
 	pruned := 0
 	for _, orphan := range orphans {
 		logger.Log("Session: Pruning orphaned worktree: %s", orphan.Path)
 
 		// Try to remove via git worktree remove first
-		cmd := exec.Command("git", "worktree", "remove", orphan.Path, "--force")
-		cmd.Dir = orphan.RepoPath
-		if err := cmd.Run(); err != nil {
+		_, _, err := executor.Run(ctx, orphan.RepoPath, "git", "worktree", "remove", orphan.Path, "--force")
+		if err != nil {
 			// If git command fails, try direct removal
 			logger.Warn("Session: git worktree remove failed, trying direct removal")
 			if err := os.RemoveAll(orphan.Path); err != nil {
@@ -445,15 +446,11 @@ func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
 		}
 
 		// Prune worktree references
-		pruneCmd := exec.Command("git", "worktree", "prune")
-		pruneCmd.Dir = orphan.RepoPath
-		pruneCmd.Run()
+		executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune")
 
 		// Try to delete the branch
 		branchName := fmt.Sprintf("plural-%s", orphan.ID)
-		branchCmd := exec.Command("git", "branch", "-D", branchName)
-		branchCmd.Dir = orphan.RepoPath
-		branchCmd.Run() // Ignore errors
+		executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName)
 
 		// Delete session messages file
 		if err := config.DeleteSessionMessages(orphan.ID); err != nil {
