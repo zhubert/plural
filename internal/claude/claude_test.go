@@ -366,6 +366,65 @@ func TestParseStreamMessage_Result(t *testing.T) {
 	}
 }
 
+func TestParseStreamMessage_ErrorResult(t *testing.T) {
+	msg := `{"type":"result","subtype":"error_during_execution","result":"Claude ran out of context window"}`
+	chunks := parseStreamMessage(msg)
+
+	// Error result messages are logged but don't produce user-visible chunks in parseStreamMessage
+	// (the error display is handled in handleResponse instead)
+	if len(chunks) != 0 {
+		t.Errorf("Expected 0 chunks for error result, got %d", len(chunks))
+	}
+}
+
+func TestStreamMessage_ErrorsArray(t *testing.T) {
+	// Test that errors array is properly parsed from the JSON
+	jsonMsg := `{"type":"result","subtype":"error_during_execution","errors":["No conversation found with session ID: test-session-id"]}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(msg.Errors) != 1 {
+		t.Errorf("Expected 1 error in Errors array, got %d", len(msg.Errors))
+	}
+
+	if msg.Errors[0] != "No conversation found with session ID: test-session-id" {
+		t.Errorf("Unexpected error message: %q", msg.Errors[0])
+	}
+
+	// Verify Result and Error fields are empty (error is in Errors array)
+	if msg.Result != "" {
+		t.Errorf("Expected empty Result, got %q", msg.Result)
+	}
+
+	if msg.Error != "" {
+		t.Errorf("Expected empty Error, got %q", msg.Error)
+	}
+}
+
+func TestStreamMessage_ErrorsArray_Multiple(t *testing.T) {
+	// Test multiple errors in the array
+	jsonMsg := `{"type":"result","subtype":"error_during_execution","errors":["Error 1","Error 2","Error 3"]}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(msg.Errors) != 3 {
+		t.Errorf("Expected 3 errors in Errors array, got %d", len(msg.Errors))
+	}
+
+	// Test that strings.Join would produce expected result
+	joined := msg.Errors[0] + "; " + msg.Errors[1] + "; " + msg.Errors[2]
+	expected := "Error 1; Error 2; Error 3"
+	if joined != expected {
+		t.Errorf("Joined errors = %q, want %q", joined, expected)
+	}
+}
+
 func TestExtractToolInputDescription_Read(t *testing.T) {
 	input := json.RawMessage(`{"file_path":"/path/to/file.go"}`)
 	desc := extractToolInputDescription("Read", input)

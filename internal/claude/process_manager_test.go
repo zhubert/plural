@@ -574,3 +574,187 @@ func TestProcessManager_MarkSessionStarted_ThreadSafe(t *testing.T) {
 		t.Error("SessionStarted should be true after multiple MarkSessionStarted calls")
 	}
 }
+
+// Helper to check if args slice contains a specific flag
+func containsArg(args []string, flag string) bool {
+	for _, arg := range args {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper to get the value following a flag in args slice
+func getArgValue(args []string, flag string) string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+func TestBuildCommandArgs_NewSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "new-session-uuid",
+		WorkingDir:     "/tmp",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read", "Write"},
+	}
+
+	args := BuildCommandArgs(config)
+
+	// New session should use --session-id, not --resume
+	if !containsArg(args, "--session-id") {
+		t.Error("New session should have --session-id flag")
+	}
+	if containsArg(args, "--resume") {
+		t.Error("New session should not have --resume flag")
+	}
+	if containsArg(args, "--fork-session") {
+		t.Error("New session should not have --fork-session flag")
+	}
+
+	// Verify session ID value
+	if got := getArgValue(args, "--session-id"); got != "new-session-uuid" {
+		t.Errorf("--session-id value = %q, want 'new-session-uuid'", got)
+	}
+
+	// Verify common args
+	if !containsArg(args, "--print") {
+		t.Error("Should have --print flag")
+	}
+	if getArgValue(args, "--output-format") != "stream-json" {
+		t.Error("Should have --output-format stream-json")
+	}
+}
+
+func TestBuildCommandArgs_ResumedSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "resumed-session-uuid",
+		WorkingDir:     "/tmp",
+		SessionStarted: true, // Already started
+		MCPConfigPath:  "/tmp/mcp.json",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Resumed session should use --resume with our session ID
+	if !containsArg(args, "--resume") {
+		t.Error("Resumed session should have --resume flag")
+	}
+	if containsArg(args, "--session-id") {
+		t.Error("Resumed session should not have --session-id flag (using --resume)")
+	}
+	if containsArg(args, "--fork-session") {
+		t.Error("Resumed session should not have --fork-session flag")
+	}
+
+	// Verify resume ID value
+	if got := getArgValue(args, "--resume"); got != "resumed-session-uuid" {
+		t.Errorf("--resume value = %q, want 'resumed-session-uuid'", got)
+	}
+}
+
+func TestBuildCommandArgs_ForkedSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:         "child-session-uuid",
+		WorkingDir:        "/tmp",
+		SessionStarted:    false,
+		MCPConfigPath:     "/tmp/mcp.json",
+		ForkFromSessionID: "parent-session-uuid",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Forked session MUST have all three: --resume (parent), --fork-session, AND --session-id (child)
+	// This is critical: without --session-id, Claude generates its own ID and we can't resume later
+	if !containsArg(args, "--resume") {
+		t.Error("Forked session should have --resume flag")
+	}
+	if !containsArg(args, "--fork-session") {
+		t.Error("Forked session should have --fork-session flag")
+	}
+	if !containsArg(args, "--session-id") {
+		t.Fatal("CRITICAL: Forked session MUST have --session-id flag to ensure we can resume later")
+	}
+
+	// Verify the values are correct
+	if got := getArgValue(args, "--resume"); got != "parent-session-uuid" {
+		t.Errorf("--resume value = %q, want 'parent-session-uuid'", got)
+	}
+	if got := getArgValue(args, "--session-id"); got != "child-session-uuid" {
+		t.Errorf("--session-id value = %q, want 'child-session-uuid'", got)
+	}
+}
+
+func TestBuildCommandArgs_ForkedSession_CanResumeAfterInterrupt(t *testing.T) {
+	// This test simulates the bug scenario:
+	// 1. Fork a session (first message)
+	// 2. User interrupts
+	// 3. User sends another message (needs to resume)
+
+	childSessionID := "child-session-uuid"
+	parentSessionID := "parent-session-uuid"
+
+	// Step 1: First message in forked session
+	forkConfig := ProcessConfig{
+		SessionID:         childSessionID,
+		SessionStarted:    false,
+		ForkFromSessionID: parentSessionID,
+		MCPConfigPath:     "/tmp/mcp.json",
+	}
+	forkArgs := BuildCommandArgs(forkConfig)
+
+	// Verify fork uses --session-id with child's ID
+	if !containsArg(forkArgs, "--session-id") {
+		t.Fatal("Fork must pass --session-id to Claude CLI")
+	}
+	if got := getArgValue(forkArgs, "--session-id"); got != childSessionID {
+		t.Fatalf("Fork --session-id = %q, want %q", got, childSessionID)
+	}
+
+	// Step 2: Simulate interrupt - session is now started
+	// Step 3: Second message needs to resume
+	resumeConfig := ProcessConfig{
+		SessionID:         childSessionID,
+		SessionStarted:    true, // Marked as started after first response
+		ForkFromSessionID: parentSessionID, // Still set, but shouldn't matter
+		MCPConfigPath:     "/tmp/mcp.json",
+	}
+	resumeArgs := BuildCommandArgs(resumeConfig)
+
+	// Verify resume uses --resume with child's ID (not parent's)
+	if !containsArg(resumeArgs, "--resume") {
+		t.Fatal("Resume must have --resume flag")
+	}
+	if got := getArgValue(resumeArgs, "--resume"); got != childSessionID {
+		t.Fatalf("Resume --resume = %q, want %q (child ID, not parent)", got, childSessionID)
+	}
+	if containsArg(resumeArgs, "--fork-session") {
+		t.Error("Resume should not have --fork-session (only used on first message)")
+	}
+}
+
+func TestBuildCommandArgs_SessionStarted_TakesPriority(t *testing.T) {
+	// When SessionStarted is true, it should take priority over ForkFromSessionID
+	// This ensures we resume our own session, not try to fork again
+	config := ProcessConfig{
+		SessionID:         "child-uuid",
+		SessionStarted:    true, // Takes priority
+		ForkFromSessionID: "parent-uuid", // Should be ignored
+		MCPConfigPath:     "/tmp/mcp.json",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Should resume our own session
+	if got := getArgValue(args, "--resume"); got != "child-uuid" {
+		t.Errorf("When SessionStarted=true, --resume should use child ID, got %q", got)
+	}
+	if containsArg(args, "--fork-session") {
+		t.Error("When SessionStarted=true, should not have --fork-session")
+	}
+}

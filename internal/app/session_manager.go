@@ -200,10 +200,19 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	sm.runners[sess.ID] = runner
 
 	// If this is a forked session that hasn't started yet, set up to fork from parent
-	// to inherit the parent's conversation history in Claude
+	// to inherit the parent's conversation history in Claude.
+	// We only fork if the parent session was actually started (has a Claude session to fork from).
+	// If the parent was never started, there's no Claude session file to fork from.
 	if !sess.Started && sess.ParentID != "" {
-		runner.SetForkFromSession(sess.ParentID)
-		logger.Log("SessionManager: Session %s will fork from parent %s", sess.ID, sess.ParentID)
+		parentSess := sm.config.GetSession(sess.ParentID)
+		if parentSess != nil && parentSess.Started {
+			runner.SetForkFromSession(sess.ParentID)
+			logger.Log("SessionManager: Session %s will fork from parent %s", sess.ID, sess.ParentID)
+		} else if parentSess == nil {
+			logger.Log("SessionManager: Parent session %s not found, starting as new session", sess.ParentID)
+		} else {
+			logger.Log("SessionManager: Parent session %s not started yet, starting as new session", sess.ParentID)
+		}
 	}
 
 	// Load allowed tools from config (global + per-repo)

@@ -188,6 +188,7 @@ type Runner struct {
 	endsWithDoubleNewline bool            // Track if response ends with \n\n
 	firstChunk            bool            // Track if this is first chunk
 	responseStartTime     time.Time       // When response started
+	responseComplete      bool            // Track if result message was received (response is done)
 
 	// External MCP servers to include in config
 	mcpServers []MCPServer
@@ -400,8 +401,10 @@ type streamMessage struct {
 			Content   json.RawMessage `json:"content,omitempty"`   // tool result content (can be string or array)
 		} `json:"content"`
 	} `json:"message"`
-	Result    string `json:"result,omitempty"` // Final result text
-	SessionID string `json:"session_id,omitempty"`
+	Result    string   `json:"result,omitempty"`    // Final result text
+	Error     string   `json:"error,omitempty"`     // Error message (alternative to result)
+	Errors    []string `json:"errors,omitempty"`    // Error messages array (used by error_during_execution)
+	SessionID string   `json:"session_id,omitempty"`
 }
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output
@@ -483,8 +486,8 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 	case "result":
 		// Final result - the actual result text is in msg.Result
-		// but we've already captured text chunks, so just log completion
-		logger.Log("Claude: Result received, subtype=%s", msg.Subtype)
+		// For error results, the error message is in msg.Result
+		logger.Log("Claude: Result received, subtype=%s, result=%s", msg.Subtype, msg.Result)
 	}
 
 	return chunks
@@ -772,10 +775,6 @@ func (r *Runner) handleProcessLine(line string) {
 		if r.firstChunk {
 			logger.Log("Claude: First response chunk received after %v", time.Since(r.responseStartTime))
 			r.firstChunk = false
-			// Reset restart attempts on successful response
-			if r.processManager != nil {
-				r.processManager.ResetRestartAttempts()
-			}
 		}
 		r.mu.Unlock()
 
@@ -799,14 +798,43 @@ func (r *Runner) handleProcessLine(line string) {
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
 		if msg.Type == "result" {
-			logger.Log("Claude: Result message received, response complete")
+			// Log detailed info for debugging
+			logger.Log("Claude: Result message received, subtype=%s, result=%q, error=%q, raw=%s",
+				msg.Subtype, msg.Result, msg.Error, strings.TrimSpace(line))
 
 			r.mu.Lock()
 			r.sessionStarted = true
+			r.responseComplete = true // Mark that response finished - process exit after this is expected
 			if r.processManager != nil {
 				r.processManager.MarkSessionStarted()
 				r.processManager.ResetRestartAttempts()
 			}
+
+			// Determine error message from Result, Error, or Errors fields
+			errorText := msg.Result
+			if errorText == "" {
+				errorText = msg.Error
+			}
+			if errorText == "" && len(msg.Errors) > 0 {
+				errorText = strings.Join(msg.Errors, "; ")
+			}
+
+			// If this is an error result, send the error message to the user
+			// Check for various error subtypes that Claude CLI might use
+			isError := msg.Subtype == "error_during_execution" ||
+				msg.Subtype == "error" ||
+				strings.Contains(msg.Subtype, "error")
+			if isError && errorText != "" {
+				if ch != nil && !r.currentResponseChClosed {
+					errorMsg := fmt.Sprintf("\n[Error: %s]\n", errorText)
+					r.fullResponse.WriteString(errorMsg)
+					select {
+					case ch <- ResponseChunk{Type: ChunkTypeText, Content: errorMsg}:
+					default:
+					}
+				}
+			}
+
 			r.messages = append(r.messages, Message{Role: "assistant", Content: r.fullResponse.String()})
 
 			// Signal completion and close channel
@@ -840,9 +868,18 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 	ch := r.currentResponseCh
 	chClosed := r.currentResponseChClosed
 	stopped := r.stopped
+	responseComplete := r.responseComplete
 
 	// If stopped, don't do anything
 	if stopped {
+		r.mu.Unlock()
+		return false
+	}
+
+	// If response was already complete (we got a result message), the process
+	// exiting is expected behavior - don't restart
+	if responseComplete {
+		logger.Log("Claude: Process exited after response complete, not restarting")
 		r.mu.Unlock()
 		return false
 	}
@@ -1001,6 +1038,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		r.currentResponseChClosed = false // Reset closed flag for new channel
 		r.streamCtx = cmdCtx
 		r.responseStartTime = time.Now()
+		r.responseComplete = false // Reset for new message - we haven't received result yet
 		if r.processManager != nil {
 			r.processManager.SetInterrupted(false) // Reset interrupt flag for new message
 		}

@@ -129,6 +129,58 @@ func NewProcessManager(config ProcessConfig, callbacks ProcessCallbacks) *Proces
 	}
 }
 
+// BuildCommandArgs builds the command line arguments for the Claude CLI based on the config.
+// This is exported for testing purposes to verify correct argument construction.
+func BuildCommandArgs(config ProcessConfig) []string {
+	var args []string
+	if config.SessionStarted {
+		// Session already started - resume our own session
+		args = []string{
+			"--print",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+			"--resume", config.SessionID,
+		}
+	} else if config.ForkFromSessionID != "" {
+		// Forked session - resume parent and fork to inherit conversation history
+		// We must pass --session-id to ensure Claude uses our UUID for the forked session,
+		// otherwise Claude generates its own ID and we can't resume later.
+		args = []string{
+			"--print",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+			"--resume", config.ForkFromSessionID,
+			"--fork-session",
+			"--session-id", config.SessionID,
+		}
+	} else {
+		// New session
+		args = []string{
+			"--print",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+			"--session-id", config.SessionID,
+		}
+	}
+
+	// Add MCP config and permission prompt tool
+	args = append(args,
+		"--mcp-config", config.MCPConfigPath,
+		"--permission-prompt-tool", "mcp__plural__permission",
+		"--append-system-prompt", OptionsSystemPrompt,
+	)
+
+	// Add pre-allowed tools
+	for _, tool := range config.AllowedTools {
+		args = append(args, "--allowedTools", tool)
+	}
+
+	return args
+}
+
 // Start starts the persistent Claude CLI process.
 func (pm *ProcessManager) Start() error {
 	pm.mu.Lock()
@@ -146,48 +198,11 @@ func (pm *ProcessManager) Start() error {
 	startTime := time.Now()
 
 	// Build command arguments
-	var args []string
-	if pm.config.SessionStarted {
-		// Session already started - resume our own session
-		args = []string{
-			"--print",
-			"--output-format", "stream-json",
-			"--input-format", "stream-json",
-			"--verbose",
-			"--resume", pm.config.SessionID,
-		}
-	} else if pm.config.ForkFromSessionID != "" {
-		// Forked session - resume parent and fork to inherit conversation history
-		args = []string{
-			"--print",
-			"--output-format", "stream-json",
-			"--input-format", "stream-json",
-			"--verbose",
-			"--resume", pm.config.ForkFromSessionID,
-			"--fork-session",
-		}
-		logger.Log("ProcessManager: Forking session from parent %s", pm.config.ForkFromSessionID)
-	} else {
-		// New session
-		args = []string{
-			"--print",
-			"--output-format", "stream-json",
-			"--input-format", "stream-json",
-			"--verbose",
-			"--session-id", pm.config.SessionID,
-		}
-	}
+	args := BuildCommandArgs(pm.config)
 
-	// Add MCP config and permission prompt tool
-	args = append(args,
-		"--mcp-config", pm.config.MCPConfigPath,
-		"--permission-prompt-tool", "mcp__plural__permission",
-		"--append-system-prompt", OptionsSystemPrompt,
-	)
-
-	// Add pre-allowed tools
-	for _, tool := range pm.config.AllowedTools {
-		args = append(args, "--allowedTools", tool)
+	// Log fork operation if applicable
+	if pm.config.ForkFromSessionID != "" {
+		logger.Log("ProcessManager: Forking session from parent %s to new session %s", pm.config.ForkFromSessionID, pm.config.SessionID)
 	}
 
 	logger.Log("ProcessManager: Starting process: claude %s", strings.Join(args, " "))

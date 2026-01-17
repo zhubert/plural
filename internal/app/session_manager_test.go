@@ -510,3 +510,85 @@ func TestSessionManager_Select_NonForkedSession(t *testing.T) {
 	}
 }
 
+func TestSessionManager_Select_ForkedSession_ParentNotStarted(t *testing.T) {
+	// If parent session hasn't been started yet (no Claude session to fork from),
+	// we should NOT try to fork - just start as a new session
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:       "parent-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree1",
+				Branch:   "plural-parent",
+				Name:     "repo/parent",
+				Started:  false, // Parent NOT started - no Claude session to fork from
+			},
+			{
+				ID:       "child-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree2",
+				Branch:   "plural-child",
+				Name:     "repo/child",
+				Started:  false,
+				ParentID: "parent-session",
+			},
+		},
+	}
+	sm := NewSessionManager(cfg)
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	childSess := sm.GetSession("child-session")
+	result := sm.Select(childSess, "", "", "")
+
+	trackingRunner, ok := result.Runner.(*trackingMockRunner)
+	if !ok {
+		t.Fatal("Expected trackingMockRunner")
+	}
+
+	// SetForkFromSession should NOT have been called (parent not started)
+	if trackingRunner.forkFromSessionID != "" {
+		t.Errorf("Expected SetForkFromSession NOT called when parent not started, got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
+func TestSessionManager_Select_ForkedSession_ParentNotFound(t *testing.T) {
+	// If parent session doesn't exist at all, we should NOT try to fork
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			// Note: no parent session in config
+			{
+				ID:       "child-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree2",
+				Branch:   "plural-child",
+				Name:     "repo/child",
+				Started:  false,
+				ParentID: "nonexistent-parent", // Parent doesn't exist
+			},
+		},
+	}
+	sm := NewSessionManager(cfg)
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	childSess := sm.GetSession("child-session")
+	result := sm.Select(childSess, "", "", "")
+
+	trackingRunner, ok := result.Runner.(*trackingMockRunner)
+	if !ok {
+		t.Fatal("Expected trackingMockRunner")
+	}
+
+	// SetForkFromSession should NOT have been called (parent not found)
+	if trackingRunner.forkFromSessionID != "" {
+		t.Errorf("Expected SetForkFromSession NOT called when parent not found, got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
