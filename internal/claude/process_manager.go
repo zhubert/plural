@@ -61,11 +61,12 @@ type ProcessManagerInterface interface {
 
 // ProcessConfig holds the configuration for starting a Claude CLI process.
 type ProcessConfig struct {
-	SessionID      string
-	WorkingDir     string
-	SessionStarted bool
-	AllowedTools   []string
-	MCPConfigPath  string
+	SessionID         string
+	WorkingDir        string
+	SessionStarted    bool
+	AllowedTools      []string
+	MCPConfigPath     string
+	ForkFromSessionID string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -147,6 +148,7 @@ func (pm *ProcessManager) Start() error {
 	// Build command arguments
 	var args []string
 	if pm.config.SessionStarted {
+		// Session already started - resume our own session
 		args = []string{
 			"--print",
 			"--output-format", "stream-json",
@@ -154,7 +156,19 @@ func (pm *ProcessManager) Start() error {
 			"--verbose",
 			"--resume", pm.config.SessionID,
 		}
+	} else if pm.config.ForkFromSessionID != "" {
+		// Forked session - resume parent and fork to inherit conversation history
+		args = []string{
+			"--print",
+			"--output-format", "stream-json",
+			"--input-format", "stream-json",
+			"--verbose",
+			"--resume", pm.config.ForkFromSessionID,
+			"--fork-session",
+		}
+		logger.Log("ProcessManager: Forking session from parent %s", pm.config.ForkFromSessionID)
 	} else {
+		// New session
 		args = []string{
 			"--print",
 			"--output-format", "stream-json",

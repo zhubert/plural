@@ -167,8 +167,12 @@ type Runner struct {
 	stopOnce       sync.Once // Ensures Stop() is idempotent
 	stopped        bool      // Set to true when Stop() is called, prevents reading from closed channels
 
+	// Fork support: when set, first CLI invocation uses --resume <parentID> --fork-session
+	// to inherit the parent's conversation history while creating a new session
+	forkFromSessionID string
+
 	// Process management via ProcessManager
-	processManager          *ProcessManager    // Manages Claude CLI process lifecycle
+	processManager *ProcessManager // Manages Claude CLI process lifecycle
 	currentResponseCh       chan ResponseChunk // Current response channel for routing (protected by mu)
 	currentResponseChClosed bool               // Whether currentResponseCh has been closed (protected by mu)
 
@@ -274,6 +278,15 @@ func (r *Runner) SetMCPServers(servers []MCPServer) {
 	logger.Log("Claude: Set %d external MCP servers for session %s", len(servers), r.sessionID)
 }
 
+// SetForkFromSession sets the parent session ID to fork from.
+// When set and the session hasn't started yet, the CLI will use
+// --resume <parentID> --fork-session to inherit the parent's conversation history.
+func (r *Runner) SetForkFromSession(parentSessionID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.forkFromSessionID = parentSessionID
+	logger.Log("Claude: Set fork from session %s for session %s", parentSessionID, r.sessionID)
+}
 
 // PermissionRequestChan returns the channel for receiving permission requests.
 // Returns nil if the runner has been stopped to prevent reading from closed channel.
@@ -664,11 +677,12 @@ func (r *Runner) ensureProcessRunning() error {
 	// Create ProcessManager if it doesn't exist
 	if r.processManager == nil {
 		config := ProcessConfig{
-			SessionID:      r.sessionID,
-			WorkingDir:     r.workingDir,
-			SessionStarted: r.sessionStarted,
-			AllowedTools:   make([]string, len(r.allowedTools)),
-			MCPConfigPath:  r.mcpConfigPath,
+			SessionID:         r.sessionID,
+			WorkingDir:        r.workingDir,
+			SessionStarted:    r.sessionStarted,
+			AllowedTools:      make([]string, len(r.allowedTools)),
+			MCPConfigPath:     r.mcpConfigPath,
+			ForkFromSessionID: r.forkFromSessionID,
 		}
 		copy(config.AllowedTools, r.allowedTools)
 
@@ -679,11 +693,12 @@ func (r *Runner) ensureProcessRunning() error {
 	if !r.processManager.IsRunning() {
 		// Update config before starting (in case allowed tools changed)
 		config := ProcessConfig{
-			SessionID:      r.sessionID,
-			WorkingDir:     r.workingDir,
-			SessionStarted: r.sessionStarted,
-			AllowedTools:   make([]string, len(r.allowedTools)),
-			MCPConfigPath:  r.mcpConfigPath,
+			SessionID:         r.sessionID,
+			WorkingDir:        r.workingDir,
+			SessionStarted:    r.sessionStarted,
+			AllowedTools:      make([]string, len(r.allowedTools)),
+			MCPConfigPath:     r.mcpConfigPath,
+			ForkFromSessionID: r.forkFromSessionID,
 		}
 		copy(config.AllowedTools, r.allowedTools)
 		r.processManager.UpdateConfig(config)

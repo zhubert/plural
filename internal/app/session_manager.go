@@ -189,6 +189,13 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
 	sm.runners[sess.ID] = runner
 
+	// If this is a forked session that hasn't started yet, set up to fork from parent
+	// to inherit the parent's conversation history in Claude
+	if !sess.Started && sess.ParentID != "" {
+		runner.SetForkFromSession(sess.ParentID)
+		logger.Log("SessionManager: Session %s will fork from parent %s", sess.ID, sess.ParentID)
+	}
+
 	// Load allowed tools from config (global + per-repo)
 	allowedTools := sm.config.GetAllowedToolsForRepo(sess.RepoPath)
 	if len(allowedTools) > 0 {

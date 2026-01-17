@@ -236,6 +236,11 @@ func (m *MockRunner) SetMCPServers(servers []MCPServer) {
 	m.mcpServers = servers
 }
 
+// SetForkFromSession implements RunnerInterface.
+// In mock, this is a no-op since we don't spawn real processes.
+func (m *MockRunner) SetForkFromSession(parentSessionID string) {
+	// No-op for mock
+}
 
 // PermissionRequestChan implements RunnerInterface.
 func (m *MockRunner) PermissionRequestChan() <-chan mcp.PermissionRequest {
