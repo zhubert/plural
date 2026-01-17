@@ -25,6 +25,7 @@ type RunnerInterface interface {
 	SetAllowedTools(tools []string)
 	AddAllowedTool(tool string)
 	SetMCPServers(servers []MCPServer)
+	SetForkFromSession(parentSessionID string)
 
 	// Permission/Question channels
 	PermissionRequestChan() <-chan mcp.PermissionRequest

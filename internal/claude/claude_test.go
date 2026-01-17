@@ -138,6 +138,26 @@ func TestRunner_SetMCPServers(t *testing.T) {
 	}
 }
 
+func TestRunner_SetForkFromSession(t *testing.T) {
+	runner := New("child-session", "/tmp", false, nil)
+
+	// Initially no fork parent
+	runner.mu.RLock()
+	if runner.forkFromSessionID != "" {
+		t.Errorf("Expected empty forkFromSessionID initially, got %q", runner.forkFromSessionID)
+	}
+	runner.mu.RUnlock()
+
+	// Set fork parent
+	runner.SetForkFromSession("parent-session")
+
+	runner.mu.RLock()
+	if runner.forkFromSessionID != "parent-session" {
+		t.Errorf("Expected forkFromSessionID 'parent-session', got %q", runner.forkFromSessionID)
+	}
+	runner.mu.RUnlock()
+}
+
 func TestRunner_IsStreaming(t *testing.T) {
 	runner := New("session-1", "/tmp", false, nil)
 

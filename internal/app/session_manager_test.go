@@ -370,3 +370,143 @@ func TestSessionManager_AddAllowedTool_NoRunner(t *testing.T) {
 	sm.AddAllowedTool("session-1", "Bash(git:*)")
 }
 
+// trackingMockRunner tracks SetForkFromSession calls for testing
+type trackingMockRunner struct {
+	*claude.MockRunner
+	forkFromSessionID string
+}
+
+func newTrackingMockRunner(sessionID string, sessionStarted bool, msgs []claude.Message) *trackingMockRunner {
+	return &trackingMockRunner{
+		MockRunner: claude.NewMockRunner(sessionID, sessionStarted, msgs),
+	}
+}
+
+func (m *trackingMockRunner) SetForkFromSession(parentSessionID string) {
+	m.forkFromSessionID = parentSessionID
+}
+
+func TestSessionManager_Select_ForkedSession(t *testing.T) {
+	// Create config with a forked child session
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:       "parent-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree1",
+				Branch:   "plural-parent",
+				Name:     "repo/parent",
+				Started:  true,
+			},
+			{
+				ID:       "child-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree2",
+				Branch:   "plural-child",
+				Name:     "repo/child",
+				Started:  false, // Not started yet
+				ParentID: "parent-session",
+			},
+		},
+	}
+	sm := NewSessionManager(cfg)
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	childSess := sm.GetSession("child-session")
+	result := sm.Select(childSess, "", "", "")
+
+	trackingRunner, ok := result.Runner.(*trackingMockRunner)
+	if !ok {
+		t.Fatal("Expected trackingMockRunner")
+	}
+
+	// SetForkFromSession should have been called with parent ID
+	if trackingRunner.forkFromSessionID != "parent-session" {
+		t.Errorf("Expected SetForkFromSession called with 'parent-session', got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
+func TestSessionManager_Select_ForkedSession_AlreadyStarted(t *testing.T) {
+	// If session already started, don't set fork (would use resume instead)
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:       "parent-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree1",
+				Branch:   "plural-parent",
+				Name:     "repo/parent",
+				Started:  true,
+			},
+			{
+				ID:       "child-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree2",
+				Branch:   "plural-child",
+				Name:     "repo/child",
+				Started:  true, // Already started
+				ParentID: "parent-session",
+			},
+		},
+	}
+	sm := NewSessionManager(cfg)
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	childSess := sm.GetSession("child-session")
+	result := sm.Select(childSess, "", "", "")
+
+	trackingRunner, ok := result.Runner.(*trackingMockRunner)
+	if !ok {
+		t.Fatal("Expected trackingMockRunner")
+	}
+
+	// SetForkFromSession should NOT have been called (session already started)
+	if trackingRunner.forkFromSessionID != "" {
+		t.Errorf("Expected SetForkFromSession NOT called for started session, got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
+func TestSessionManager_Select_NonForkedSession(t *testing.T) {
+	// Session without parent should not set fork
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:       "session-1",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree1",
+				Branch:   "plural-test",
+				Name:     "repo/session1",
+				Started:  false,
+				ParentID: "", // No parent
+			},
+		},
+	}
+	sm := NewSessionManager(cfg)
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	sess := sm.GetSession("session-1")
+	result := sm.Select(sess, "", "", "")
+
+	trackingRunner, ok := result.Runner.(*trackingMockRunner)
+	if !ok {
+		t.Fatal("Expected trackingMockRunner")
+	}
+
+	// SetForkFromSession should NOT have been called (no parent)
+	if trackingRunner.forkFromSessionID != "" {
+		t.Errorf("Expected SetForkFromSession NOT called for non-forked session, got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
