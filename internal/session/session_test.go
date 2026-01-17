@@ -742,6 +742,14 @@ func createTestRepoWithRemote(t *testing.T) (localPath string, remotePath string
 		t.Fatalf("Failed to init bare repo: %v", err)
 	}
 
+	// Set the bare repo's HEAD to point to main (required for clones to work correctly)
+	cmd = exec.Command("git", "symbolic-ref", "HEAD", "refs/heads/main")
+	cmd.Dir = remoteDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remoteDir)
+		t.Fatalf("Failed to set bare repo HEAD: %v", err)
+	}
+
 	// Create the "local" repository
 	localDir, err := os.MkdirTemp("", "plural-local-test-*")
 	if err != nil {
