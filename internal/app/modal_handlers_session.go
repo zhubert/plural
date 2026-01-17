@@ -190,10 +190,18 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
-		logger.Log("App: Forking session %s, copyMessages=%v, branch=%q, prefix=%q", state.ParentSessionID, state.CopyMessages, branchName, branchPrefix)
+		// Get parent session to fork from its branch
+		parentSess := m.config.GetSession(state.ParentSessionID)
+		if parentSess == nil {
+			m.modal.SetError("Parent session not found")
+			return m, nil
+		}
 
-		// Create new session
-		sess, err := session.Create(state.RepoPath, branchName, branchPrefix)
+		logger.Log("App: Forking session %s (branch=%s), copyMessages=%v, newBranch=%q, prefix=%q",
+			state.ParentSessionID, parentSess.Branch, state.CopyMessages, branchName, branchPrefix)
+
+		// Create new session forked from parent's branch
+		sess, err := session.CreateFromBranch(state.RepoPath, parentSess.Branch, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create forked session: %v", err)
 			m.modal.SetError(err.Error())

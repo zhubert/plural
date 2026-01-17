@@ -55,13 +55,77 @@ func BranchExists(repoPath, branch string) bool {
 	return cmd.Run() == nil
 }
 
+// GetDefaultBranch returns the default branch name for the remote (e.g., "main" or "master")
+// Returns "main" as fallback if it cannot be determined
+func GetDefaultBranch(repoPath string) string {
+	// Try to get the default branch from origin's HEAD reference
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err == nil {
+		// Output is like "refs/remotes/origin/main"
+		ref := strings.TrimSpace(string(output))
+		if strings.HasPrefix(ref, "refs/remotes/origin/") {
+			return strings.TrimPrefix(ref, "refs/remotes/origin/")
+		}
+	}
+
+	// Fallback: check if origin/main exists
+	cmd = exec.Command("git", "rev-parse", "--verify", "origin/main")
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return "main"
+	}
+
+	// Fallback: check if origin/master exists
+	cmd = exec.Command("git", "rev-parse", "--verify", "origin/master")
+	cmd.Dir = repoPath
+	if cmd.Run() == nil {
+		return "master"
+	}
+
+	// Last resort fallback
+	return "main"
+}
+
+// FetchOrigin fetches the latest changes from origin
+// Returns nil if successful, or if there's no remote (local-only repo)
+func FetchOrigin(repoPath string) error {
+	// First check if origin remote exists
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		// No origin remote - this is a local-only repo, which is fine
+		logger.Log("Session: No origin remote found, skipping fetch")
+		return nil
+	}
+
+	logger.Log("Session: Fetching from origin")
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = repoPath
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Warn("Session: Failed to fetch from origin: %s", string(output))
+		// Don't fail session creation if fetch fails - just log a warning
+		// This allows offline usage and handles network issues gracefully
+		return nil
+	}
+	logger.Log("Session: Fetch completed successfully")
+	return nil
+}
+
 // Create creates a new session with a git worktree for the given repo path.
 // If customBranch is provided, it will be used as the branch name; otherwise
 // a branch named "plural-<UUID>" will be created.
 // The branchPrefix is prepended to auto-generated branch names (e.g., "zhubert/").
+// The worktree is created from origin's default branch (after fetching) to ensure
+// it's based on the latest remote state.
 func Create(repoPath string, customBranch string, branchPrefix string) (*config.Session, error) {
 	startTime := time.Now()
 	logger.Log("Session: Creating new session for repo=%s, customBranch=%q, branchPrefix=%q", repoPath, customBranch, branchPrefix)
+
+	// Fetch from origin to ensure we have the latest commits
+	FetchOrigin(repoPath)
 
 	// Generate UUID for this session
 	id := uuid.New().String()
@@ -83,10 +147,24 @@ func Create(repoPath string, customBranch string, branchPrefix string) (*config.
 	repoParent := filepath.Dir(repoPath)
 	worktreePath := filepath.Join(repoParent, ".plural-worktrees", id)
 
-	// Create the worktree with a new branch
-	logger.Log("Session: Creating git worktree: branch=%s, path=%s", branch, worktreePath)
+	// Determine the starting point for the new branch
+	// Prefer origin's default branch if it exists, otherwise fall back to HEAD
+	defaultBranch := GetDefaultBranch(repoPath)
+	startPoint := fmt.Sprintf("origin/%s", defaultBranch)
+
+	// Check if the remote branch exists
+	checkCmd := exec.Command("git", "rev-parse", "--verify", startPoint)
+	checkCmd.Dir = repoPath
+	if checkCmd.Run() != nil {
+		// Remote branch doesn't exist (local-only repo), fall back to HEAD
+		logger.Log("Session: Remote branch %s not found, falling back to HEAD", startPoint)
+		startPoint = "HEAD"
+	}
+
+	// Create the worktree with a new branch based on the start point
+	logger.Log("Session: Creating git worktree: branch=%s, path=%s, from=%s", branch, worktreePath, startPoint)
 	worktreeStart := time.Now()
-	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath)
+	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath, startPoint)
 	cmd.Dir = repoPath
 
 	output, err := cmd.CombinedOutput()
@@ -119,6 +197,74 @@ func Create(repoPath string, customBranch string, branchPrefix string) (*config.
 	}
 
 	logger.Info("Session: Session created successfully: id=%s, name=%s, total_time=%v", id, session.Name, time.Since(startTime))
+	return session, nil
+}
+
+// CreateFromBranch creates a new session forked from a specific branch.
+// This is used when forking an existing session - the new worktree is created
+// from the source branch's current state rather than from origin/main.
+// If customBranch is provided, it will be used as the new branch name; otherwise
+// a branch named "plural-<UUID>" will be created.
+func CreateFromBranch(repoPath string, sourceBranch string, customBranch string, branchPrefix string) (*config.Session, error) {
+	startTime := time.Now()
+	logger.Log("Session: Creating forked session for repo=%s, sourceBranch=%q, customBranch=%q, branchPrefix=%q",
+		repoPath, sourceBranch, customBranch, branchPrefix)
+
+	// Generate UUID for this session
+	id := uuid.New().String()
+	shortID := id[:8]
+
+	// Get repo name from path
+	repoName := filepath.Base(repoPath)
+
+	// Branch name: use custom if provided, otherwise plural-<UUID>
+	var branch string
+	if customBranch != "" {
+		branch = branchPrefix + customBranch
+	} else {
+		branch = branchPrefix + fmt.Sprintf("plural-%s", id)
+	}
+
+	// Worktree path: sibling to repo in .plural-worktrees directory
+	repoParent := filepath.Dir(repoPath)
+	worktreePath := filepath.Join(repoParent, ".plural-worktrees", id)
+
+	// Create the worktree with a new branch based on the source branch
+	logger.Log("Session: Creating git worktree: branch=%s, path=%s, from=%s", branch, worktreePath, sourceBranch)
+	worktreeStart := time.Now()
+	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath, sourceBranch)
+	cmd.Dir = repoPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Error("Session: Failed to create forked worktree after %v: %s", time.Since(worktreeStart), string(output))
+		return nil, fmt.Errorf("failed to create worktree: %s: %w", string(output), err)
+	}
+	logger.Debug("Session: Git worktree created in %v", time.Since(worktreeStart))
+
+	// Display name: use the full branch name for clarity
+	var displayName string
+	if customBranch != "" {
+		displayName = branchPrefix + customBranch
+	} else {
+		if branchPrefix != "" {
+			displayName = branchPrefix + shortID
+		} else {
+			displayName = shortID
+		}
+	}
+
+	session := &config.Session{
+		ID:        id,
+		RepoPath:  repoPath,
+		WorkTree:  worktreePath,
+		Branch:    branch,
+		Name:      fmt.Sprintf("%s/%s", repoName, displayName),
+		CreatedAt: time.Now(),
+	}
+
+	logger.Info("Session: Forked session created successfully: id=%s, name=%s, from=%s, total_time=%v",
+		id, session.Name, sourceBranch, time.Since(startTime))
 	return session, nil
 }
 
