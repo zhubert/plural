@@ -8,8 +8,24 @@ import (
 	"os/exec"
 	"strings"
 
+	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/logger"
 )
+
+// executor is the command executor used by this package.
+// It can be swapped for testing/demos via SetExecutor.
+var executor pexec.CommandExecutor = pexec.NewRealExecutor()
+
+// SetExecutor sets the command executor used by this package.
+// This is primarily used for testing and demo generation.
+func SetExecutor(e pexec.CommandExecutor) {
+	executor = e
+}
+
+// GetExecutor returns the current command executor.
+func GetExecutor() pexec.CommandExecutor {
+	return executor
+}
 
 // Configuration constants for git operations
 const (
@@ -50,10 +66,10 @@ type WorktreeStatus struct {
 func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	status := &WorktreeStatus{}
 
+	ctx := context.Background()
+
 	// Get list of changed files using git status --porcelain
-	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = worktreePath
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, worktreePath, "git", "status", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
@@ -101,24 +117,18 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	}
 
 	// Get diff (use --no-ext-diff to ensure output goes to stdout even if external diff is configured)
-	cmd = exec.Command("git", "diff", "--no-ext-diff", "HEAD")
-	cmd.Dir = worktreePath
-	diffOutput, err := cmd.Output()
+	diffOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
 		// If HEAD doesn't exist (new repo), try diff without HEAD
 		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
-		cmd = exec.Command("git", "diff", "--no-ext-diff")
-		cmd.Dir = worktreePath
-		diffOutput, err = cmd.Output()
+		diffOutput, err = executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
 		if err != nil {
 			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
 		}
 	}
 
 	// Also include staged changes in diff-like format
-	cmd = exec.Command("git", "diff", "--no-ext-diff", "--cached")
-	cmd.Dir = worktreePath
-	cachedDiff, err := cmd.Output()
+	cachedDiff, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
 	}
@@ -211,9 +221,7 @@ func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[
 func generateUntrackedFileDiff(worktreePath, file string) string {
 	// Use git diff --no-index to compare /dev/null with the new file
 	// This produces a proper diff format showing the file as new
-	cmd := exec.Command("git", "diff", "--no-ext-diff", "--no-index", "/dev/null", file)
-	cmd.Dir = worktreePath
-	output, err := cmd.Output()
+	output, err := executor.Output(context.Background(), worktreePath, "git", "diff", "--no-ext-diff", "--no-index", "/dev/null", file)
 	if err != nil {
 		// git diff --no-index returns exit code 1 when files differ, which is expected
 		// Only treat it as an error if there's no output
@@ -229,17 +237,15 @@ func generateUntrackedFileDiff(worktreePath, file string) string {
 func CommitAll(worktreePath, message string) error {
 	logger.Log("Git: Committing all changes in %s", worktreePath)
 
+	ctx := context.Background()
+
 	// Stage all changes
-	cmd := exec.Command("git", "add", "-A")
-	cmd.Dir = worktreePath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := executor.CombinedOutput(ctx, worktreePath, "git", "add", "-A"); err != nil {
 		return fmt.Errorf("git add failed: %s - %w", string(output), err)
 	}
 
 	// Commit
-	cmd = exec.Command("git", "commit", "-m", message)
-	cmd.Dir = worktreePath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := executor.CombinedOutput(ctx, worktreePath, "git", "commit", "-m", message); err != nil {
 		return fmt.Errorf("git commit failed: %s - %w", string(output), err)
 	}
 
@@ -258,9 +264,7 @@ func GenerateCommitMessage(worktreePath string) (string, error) {
 	}
 
 	// Get the diff stats for a better message (use --no-ext-diff to ensure output goes to stdout)
-	cmd := exec.Command("git", "diff", "--no-ext-diff", "--stat", "HEAD")
-	cmd.Dir = worktreePath
-	statOutput, err := cmd.Output()
+	statOutput, err := executor.Output(context.Background(), worktreePath, "git", "diff", "--no-ext-diff", "--stat", "HEAD")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --stat failed (best-effort): %v", err)
 	}
@@ -468,18 +472,16 @@ Diff:
 
 // HasRemoteOrigin checks if the repository has a remote named "origin"
 func HasRemoteOrigin(repoPath string) bool {
-	cmd := exec.Command("git", "remote", "get-url", "origin")
-	cmd.Dir = repoPath
-	err := cmd.Run()
+	_, _, err := executor.Run(context.Background(), repoPath, "git", "remote", "get-url", "origin")
 	return err == nil
 }
 
 // GetDefaultBranch returns the default branch name (main or master)
 func GetDefaultBranch(repoPath string) string {
+	ctx := context.Background()
+
 	// Try to get the default branch from origin
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		ref := strings.TrimSpace(string(output))
@@ -490,9 +492,8 @@ func GetDefaultBranch(repoPath string) string {
 	}
 
 	// Fallback: check if main exists, otherwise use master
-	cmd = exec.Command("git", "rev-parse", "--verify", "main")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err == nil {
+	_, _, err = executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "main")
+	if err == nil {
 		return "main"
 	}
 
@@ -501,9 +502,7 @@ func GetDefaultBranch(repoPath string) string {
 
 // GetConflictedFiles returns the list of files with merge conflicts in a repo
 func GetConflictedFiles(repoPath string) ([]string, error) {
-	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=U")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := executor.Output(context.Background(), repoPath, "git", "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conflicted files: %w", err)
 	}
@@ -519,9 +518,7 @@ func GetConflictedFiles(repoPath string) ([]string, error) {
 
 // AbortMerge aborts an in-progress merge
 func AbortMerge(repoPath string) error {
-	cmd := exec.Command("git", "merge", "--abort")
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
+	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "merge", "--abort")
 	if err != nil {
 		return fmt.Errorf("failed to abort merge: %s - %w", string(output), err)
 	}
@@ -533,17 +530,15 @@ func AbortMerge(repoPath string) error {
 func CommitConflictResolution(repoPath, message string) error {
 	logger.Log("Git: Committing conflict resolution in %s", repoPath)
 
+	ctx := context.Background()
+
 	// Stage all changes
-	cmd := exec.Command("git", "add", "-A")
-	cmd.Dir = repoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := executor.CombinedOutput(ctx, repoPath, "git", "add", "-A"); err != nil {
 		return fmt.Errorf("git add failed: %s - %w", string(output), err)
 	}
 
 	// Commit
-	cmd = exec.Command("git", "commit", "-m", message)
-	cmd.Dir = repoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := executor.CombinedOutput(ctx, repoPath, "git", "commit", "-m", message); err != nil {
 		return fmt.Errorf("git commit failed: %s - %w", string(output), err)
 	}
 
@@ -932,17 +927,11 @@ type GitHubIssue struct {
 // FetchGitHubIssues fetches open issues from a GitHub repository using the gh CLI.
 // The repoPath is used as the working directory to determine which repo to query.
 func FetchGitHubIssues(repoPath string) ([]GitHubIssue, error) {
-	cmd := exec.Command("gh", "issue", "list",
+	output, err := executor.Output(context.Background(), repoPath, "gh", "issue", "list",
 		"--json", "number,title,body,url",
 		"--state", "open",
 	)
-	cmd.Dir = repoPath
-
-	output, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("gh issue list failed: %s", string(exitErr.Stderr))
-		}
 		return nil, fmt.Errorf("gh issue list failed: %w", err)
 	}
 
@@ -957,10 +946,7 @@ func FetchGitHubIssues(repoPath string) ([]GitHubIssue, error) {
 // RenameBranch renames a git branch in the given worktree.
 // The worktree must have the branch checked out.
 func RenameBranch(worktreePath, oldName, newName string) error {
-	cmd := exec.Command("git", "branch", "-m", oldName, newName)
-	cmd.Dir = worktreePath
-
-	output, err := cmd.CombinedOutput()
+	output, err := executor.CombinedOutput(context.Background(), worktreePath, "git", "branch", "-m", oldName, newName)
 	if err != nil {
 		return fmt.Errorf("git branch rename failed: %s: %w", string(output), err)
 	}

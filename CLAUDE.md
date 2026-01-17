@@ -53,7 +53,7 @@ Log levels: Debug, Info, Warn, Error. Default shows Info+. Use `--debug` for ver
 ### Package Structure
 
 ```
-main.go                    Entry point, Bubble Tea setup, mcp-server subcommand
+main.go                    Entry point, Bubble Tea setup, mcp-server/demo subcommands
 
 internal/
 ├── app/                   Main Bubble Tea model
@@ -72,6 +72,12 @@ internal/
 ├── cli/                   Prerequisites checking (claude, git, gh)
 ├── clipboard/             Cross-platform clipboard image reading
 ├── config/                Persists to ~/.plural/
+├── demo/                  Demo generation infrastructure
+│   ├── scenario.go        Scenario definition types and step builders
+│   ├── executor.go        Executes scenarios step-by-step, captures frames
+│   ├── vhs.go             VHS tape and asciinema cast generation
+│   └── scenarios/         Built-in demo scenarios
+├── exec/                  Command executor abstraction for testability
 ├── git/                   Git operations for merge/PR workflow
 ├── logger/                Thread-safe file logger
 ├── mcp/                   MCP server for permissions via Unix socket IPC
@@ -250,6 +256,111 @@ ResponseReadTimeout = 2 * time.Minute       // Timeout for hung process detectio
 MaxProcessRestartAttempts = 3               // Max auto-restart attempts
 ProcessRestartDelay = 500 * time.Millisecond // Delay between restarts
 ResponseChannelFullTimeout = 10 * time.Second // Before reporting full channel
+```
+
+### Demo Generation
+
+Plural includes infrastructure for generating demo recordings programmatically. This uses mock runners (same as tests) to simulate Claude responses without real processes.
+
+**CLI Commands:**
+```bash
+plural demo list              # List available scenarios
+plural demo run basic         # Run scenario, print frames to stdout
+plural demo generate basic    # Generate VHS tape file
+plural demo cast basic        # Generate asciinema cast file
+
+# Options
+-o, --output <file>           # Output file path
+-w, --width <int>             # Terminal width (default: 120)
+-h, --height <int>            # Terminal height (default: 40)
+--no-capture-all              # Don't capture frame after every step
+```
+
+**Rendering demos:**
+```bash
+# VHS (Charmbracelet tool) - renders to GIF/MP4
+vhs basic.tape
+
+# asciinema - plays in terminal or web player
+asciinema play basic.cast
+```
+
+**Creating new scenarios** in `internal/demo/scenarios/`:
+```go
+var MyScenario = &demo.Scenario{
+    Name:        "my-demo",
+    Description: "Demonstrates feature X",
+    Width:       120,
+    Height:      40,
+    Setup: &demo.ScenarioSetup{
+        Repos:    []string{"/demo/repo"},
+        Sessions: []config.Session{...},
+    },
+    Steps: []demo.Step{
+        demo.Wait(500 * time.Millisecond),
+        demo.Annotate("Press Enter to select"),
+        demo.Key("enter"),
+        demo.Type("Hello Claude"),
+        demo.Key("enter"),
+        demo.StreamingTextResponse("I'll help you...", 10),
+        demo.Permission("Bash", "ls -la"),
+        demo.Key("y"),
+    },
+}
+```
+
+**Step types:**
+- `Wait(duration)` - Pause for timing
+- `Key(key)` / `KeyWithDesc(key, desc)` - Single key press
+- `Type(text)` / `TypeWithDesc(text, desc)` - Type characters
+- `TextResponse(text)` - Simple Claude response
+- `StreamingTextResponse(text, chunkSize)` - Streaming response
+- `StartStreaming(initialText)` - Start streaming without completing (for parallel work demos)
+- `Permission(tool, desc)` - Simulate permission request
+- `Question(questions...)` - Simulate question request
+- `Annotate(text)` - Add caption to next frame
+- `Capture()` - Force frame capture
+
+**Git Command Mocking:**
+The demo executor uses a MockExecutor to intercept git commands, enabling demos of fork/merge operations without real filesystem changes. Common git commands are pre-mocked with sensible defaults. Custom responses can be added via `executor.AddMockResponse()`.
+
+### Command Executor Pattern
+
+The `internal/exec` package provides a `CommandExecutor` interface for abstracting command execution:
+
+```go
+type CommandExecutor interface {
+    Run(ctx, dir, name string, args ...string) (stdout, stderr []byte, err error)
+    Output(ctx, dir, name string, args ...string) ([]byte, error)
+    CombinedOutput(ctx, dir, name string, args ...string) ([]byte, error)
+    Start(ctx, dir, name string, args ...string) (CommandHandle, error)
+}
+```
+
+**Implementations:**
+- `RealExecutor` - Wraps `os/exec.Command` for production use
+- `MockExecutor` - Returns pre-recorded responses for testing/demos
+
+**Usage in packages:**
+```go
+// In session or git package
+var executor pexec.CommandExecutor = pexec.NewRealExecutor()
+
+func SetExecutor(e pexec.CommandExecutor) { executor = e }
+func GetExecutor() pexec.CommandExecutor { return executor }
+
+// Use in functions
+output, err := executor.CombinedOutput(ctx, dir, "git", "status")
+```
+
+**Adding mock responses:**
+```go
+mock := pexec.NewMockExecutor(nil)
+mock.AddPrefixMatch("git", []string{"status"}, pexec.MockResponse{
+    Stdout: []byte("On branch main\n"),
+})
+session.SetExecutor(mock)
+git.SetExecutor(mock)
 ```
 
 ---

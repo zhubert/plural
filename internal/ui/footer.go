@@ -90,7 +90,7 @@ func (f *Footer) View() string {
 			parts = append(parts, key+desc)
 		}
 		content := strings.Join(parts, footerSeparator())
-		return FooterStyle.Width(f.width).Render(content)
+		return FooterStyle.Width(f.width).MaxHeight(1).Render(content)
 	}
 
 	// Show search-specific shortcuts when in search mode
@@ -106,7 +106,7 @@ func (f *Footer) View() string {
 			parts = append(parts, key+desc)
 		}
 		content := strings.Join(parts, footerSeparator())
-		return FooterStyle.Width(f.width).Render(content)
+		return FooterStyle.Width(f.width).MaxHeight(1).Render(content)
 	}
 
 	// Show permission-specific shortcuts when pending permission in chat
@@ -199,5 +199,6 @@ func (f *Footer) View() string {
 
 	content := strings.Join(parts, footerSeparator())
 
-	return FooterStyle.Width(f.width).Render(content)
+	// Use MaxHeight(1) to ensure footer never wraps to multiple lines
+	return FooterStyle.Width(f.width).MaxHeight(1).Render(content)
 }

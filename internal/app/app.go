@@ -1225,6 +1225,11 @@ func (m *Model) hasAnyStreamingSessions() bool {
 	return m.sessionMgr.HasActiveStreaming()
 }
 
+// HasActiveStreaming returns true if any session is currently streaming (public for demos).
+func (m *Model) HasActiveStreaming() bool {
+	return m.sessionMgr.HasActiveStreaming()
+}
+
 // detectOptionsInSession scans the runner's messages for numbered options
 func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInterface) {
 	msgs := runner.GetMessages()
@@ -1459,4 +1464,69 @@ func (m *Model) fetchGitHubIssues(repoPath string) tea.Cmd {
 			Error:    err,
 		}
 	}
+}
+
+// =============================================================================
+// Public Accessors (for demo/testing)
+// =============================================================================
+
+// ActiveSession returns the currently active session, or nil if none.
+func (m *Model) ActiveSession() *config.Session {
+	return m.activeSession
+}
+
+// SessionMgr returns the session manager.
+func (m *Model) SessionMgr() *SessionManager {
+	return m.sessionMgr
+}
+
+// RenderToString renders the current view as a string.
+// This is useful for demos and testing.
+func (m *Model) RenderToString() string {
+	if m.width == 0 || m.height == 0 {
+		return "Loading..."
+	}
+
+	// Update footer context for conditional bindings
+	hasSession := m.sidebar.SelectedSession() != nil
+	sidebarFocused := m.focus == FocusSidebar
+	hasPendingPermission := m.activeSession != nil && m.sessionState().GetPendingPermission(m.activeSession.ID) != nil
+	hasPendingQuestion := m.activeSession != nil && m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil
+	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
+	viewChangesMode := m.chat.IsInViewChangesMode()
+	searchMode := m.sidebar.IsSearchMode()
+	hasDetectedOptions := m.activeSession != nil && m.sessionState().HasDetectedOptions(m.activeSession.ID)
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, hasDetectedOptions)
+
+	header := m.header.View()
+	footer := m.footer.View()
+
+	// Render panels side by side
+	sidebarView := m.sidebar.View()
+	chatView := m.chat.View()
+
+	panels := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		sidebarView,
+		chatView,
+	)
+
+	view := lipgloss.JoinVertical(
+		lipgloss.Left,
+		header,
+		panels,
+		footer,
+	)
+
+	// Overlay modal if visible
+	if m.modal.IsVisible() {
+		modalView := m.modal.View(m.width, m.height)
+		return lipgloss.Place(
+			m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			modalView,
+		)
+	}
+
+	return view
 }

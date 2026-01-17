@@ -11,6 +11,8 @@ import (
 	"github.com/zhubert/plural/internal/app"
 	"github.com/zhubert/plural/internal/cli"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/demo"
+	"github.com/zhubert/plural/internal/demo/scenarios"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/process"
@@ -25,10 +27,16 @@ var (
 )
 
 func main() {
-	// Check for subcommand
-	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
-		runMCPServer()
-		return
+	// Check for subcommands
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "mcp-server":
+			runMCPServer()
+			return
+		case "demo":
+			runDemo()
+			return
+		}
 	}
 
 	// Custom usage function for standard help format
@@ -302,4 +310,168 @@ func extractSessionID(socketPath string) string {
 		return strings.TrimPrefix(base, "plural-")
 	}
 	return ""
+}
+
+// runDemo runs the demo generation subcommand
+func runDemo() {
+	demoCmd := flag.NewFlagSet("demo", flag.ExitOnError)
+	demoCmd.Usage = func() {
+		fmt.Fprintf(os.Stderr, `plural demo - Generate demo recordings of Plural
+
+Usage: plural demo <command> [options]
+
+Commands:
+  list                    List available demo scenarios
+  run <scenario>          Run a scenario and output to stdout (for testing)
+  generate <scenario>     Generate a VHS tape file for rendering
+  cast <scenario>         Generate an asciinema cast file
+
+Options:
+  -o, --output <file>     Output file (default: demo.tape, demo.cast, etc.)
+  -w, --width <int>       Terminal width (default: 120)
+  -h, --height <int>      Terminal height (default: 40)
+      --capture-all       Capture frame after every step (for debugging)
+
+Examples:
+  plural demo list
+  plural demo generate basic -o demo.tape
+  plural demo cast basic -o demo.cast
+
+After generating a .tape file, render with VHS:
+  vhs demo.tape
+
+After generating a .cast file, play with asciinema:
+  asciinema play demo.cast
+`)
+	}
+
+	if len(os.Args) < 3 {
+		demoCmd.Usage()
+		os.Exit(1)
+	}
+
+	command := os.Args[2]
+
+	// Parse remaining args
+	output := demoCmd.String("output", "", "Output file")
+	demoCmd.StringVar(output, "o", "", "Output file")
+	width := demoCmd.Int("width", 120, "Terminal width")
+	demoCmd.IntVar(width, "w", 120, "Terminal width")
+	height := demoCmd.Int("height", 40, "Terminal height")
+	demoCmd.IntVar(height, "h", 40, "Terminal height")
+	captureAll := demoCmd.Bool("capture-all", false, "Capture frame after every step (for debugging)")
+	demoCmd.Parse(os.Args[3:])
+
+	switch command {
+	case "list":
+		fmt.Println("Available demo scenarios:")
+		fmt.Println()
+		for _, s := range scenarios.All() {
+			fmt.Printf("  %-15s %s\n", s.Name, s.Description)
+		}
+		return
+
+	case "run", "generate", "cast":
+		args := demoCmd.Args()
+		if len(args) < 1 {
+			fmt.Fprintf(os.Stderr, "Error: scenario name required\n")
+			fmt.Fprintf(os.Stderr, "Run 'plural demo list' to see available scenarios\n")
+			os.Exit(1)
+		}
+
+		scenarioName := args[0]
+		scenario := scenarios.Get(scenarioName)
+		if scenario == nil {
+			fmt.Fprintf(os.Stderr, "Error: unknown scenario %q\n", scenarioName)
+			fmt.Fprintf(os.Stderr, "Run 'plural demo list' to see available scenarios\n")
+			os.Exit(1)
+		}
+
+		// Override dimensions if specified
+		if *width > 0 {
+			scenario.Width = *width
+		}
+		if *height > 0 {
+			scenario.Height = *height
+		}
+
+		// Configure executor
+		execCfg := demo.DefaultExecutorConfig()
+		execCfg.CaptureEveryStep = *captureAll
+
+		// Run the scenario
+		executor := demo.NewExecutor(execCfg)
+		frames, err := executor.Run(scenario)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error running scenario: %v\n", err)
+			os.Exit(1)
+		}
+
+		switch command {
+		case "run":
+			// Just print frames to stdout for testing
+			fmt.Printf("Captured %d frames\n", len(frames))
+			for i, f := range frames {
+				fmt.Printf("\n=== Frame %d (delay: %v) ===\n", i, f.Delay)
+				if f.Annotation != "" {
+					fmt.Printf("Annotation: %s\n", f.Annotation)
+				}
+				fmt.Println(f.Content)
+			}
+
+		case "generate":
+			// Generate VHS tape
+			outputFile := *output
+			if outputFile == "" {
+				outputFile = scenarioName + ".tape"
+			}
+
+			f, err := os.Create(outputFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating output file: %v\n", err)
+				os.Exit(1)
+			}
+			defer f.Close()
+
+			vhsCfg := demo.DefaultVHSConfig()
+			vhsCfg.Output = strings.TrimSuffix(outputFile, ".tape") + ".gif"
+			vhsCfg.Width = scenario.Width
+			vhsCfg.Height = scenario.Height
+
+			if err := demo.GenerateVHSTape(f, frames, vhsCfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Error generating VHS tape: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("Generated %s (%d frames)\n", outputFile, len(frames))
+			fmt.Printf("Render with: vhs %s\n", outputFile)
+
+		case "cast":
+			// Generate asciinema cast
+			outputFile := *output
+			if outputFile == "" {
+				outputFile = scenarioName + ".cast"
+			}
+
+			f, err := os.Create(outputFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating output file: %v\n", err)
+				os.Exit(1)
+			}
+			defer f.Close()
+
+			if err := demo.GenerateASCIICast(f, frames, scenario.Width, scenario.Height); err != nil {
+				fmt.Fprintf(os.Stderr, "Error generating cast file: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("Generated %s (%d frames)\n", outputFile, len(frames))
+			fmt.Printf("Play with: asciinema play %s\n", outputFile)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown demo command: %s\n", command)
+		demoCmd.Usage()
+		os.Exit(1)
+	}
 }
