@@ -2,6 +2,8 @@ package scenarios
 
 import (
 	"testing"
+
+	"github.com/zhubert/plural/internal/demo"
 )
 
 func TestAll(t *testing.T) {
@@ -112,23 +114,16 @@ func TestComprehensiveScenario(t *testing.T) {
 		t.Errorf("Comprehensive scenario should have at least 2 sessions, got %d", len(scenario.Setup.Sessions))
 	}
 
-	// Should have both permission and question steps
-	hasPermission := false
-	hasQuestion := false
+	// Should have a StartStreaming step (to demonstrate parallel work)
+	hasStartStreaming := false
 	for _, step := range scenario.Steps {
-		if step.Type == 4 { // StepPermission
-			hasPermission = true
-		}
-		if step.Type == 5 { // StepQuestion
-			hasQuestion = true
+		if step.Type == demo.StepStartStreaming {
+			hasStartStreaming = true
 		}
 	}
 
-	if !hasPermission {
-		t.Error("Comprehensive scenario should have a permission step")
-	}
-	if !hasQuestion {
-		t.Error("Comprehensive scenario should have a question step")
+	if !hasStartStreaming {
+		t.Error("Comprehensive scenario should have a StartStreaming step to demonstrate parallel work")
 	}
 }
 

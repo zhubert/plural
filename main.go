@@ -330,7 +330,7 @@ Options:
   -o, --output <file>     Output file (default: demo.tape, demo.cast, etc.)
   -w, --width <int>       Terminal width (default: 120)
   -h, --height <int>      Terminal height (default: 40)
-      --no-capture-all    Don't capture frame after every step
+      --capture-all       Capture frame after every step (for debugging)
 
 Examples:
   plural demo list
@@ -359,7 +359,7 @@ After generating a .cast file, play with asciinema:
 	demoCmd.IntVar(width, "w", 120, "Terminal width")
 	height := demoCmd.Int("height", 40, "Terminal height")
 	demoCmd.IntVar(height, "h", 40, "Terminal height")
-	noCaptureAll := demoCmd.Bool("no-capture-all", false, "Don't capture frame after every step")
+	captureAll := demoCmd.Bool("capture-all", false, "Capture frame after every step (for debugging)")
 	demoCmd.Parse(os.Args[3:])
 
 	switch command {
@@ -397,7 +397,7 @@ After generating a .cast file, play with asciinema:
 
 		// Configure executor
 		execCfg := demo.DefaultExecutorConfig()
-		execCfg.CaptureEveryStep = !*noCaptureAll
+		execCfg.CaptureEveryStep = *captureAll
 
 		// Run the scenario
 		executor := demo.NewExecutor(execCfg)

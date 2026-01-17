@@ -31,6 +31,9 @@ const (
 	StepCapture
 	// StepAnnotate adds an annotation/caption to the current frame.
 	StepAnnotate
+	// StepStartStreaming starts a streaming response without completing it.
+	// This leaves the session in a "waiting" state with spinner showing.
+	StepStartStreaming
 )
 
 // Step represents a single action in a demo scenario.
@@ -246,5 +249,24 @@ func Annotate(text string) Step {
 func Capture() Step {
 	return Step{
 		Type: StepCapture,
+	}
+}
+
+// StartStreaming starts a streaming response without completing it.
+// This leaves the session in a "waiting/streaming" state, showing the spinner.
+// Use this to demonstrate parallel work - start a task in one session, then
+// switch to another session while the first is still "processing".
+// The optional initialText parameter adds some initial streaming content.
+func StartStreaming(initialText string) Step {
+	var chunks []claude.ResponseChunk
+	if initialText != "" {
+		chunks = []claude.ResponseChunk{
+			{Type: claude.ChunkTypeText, Content: initialText},
+		}
+	}
+	// Note: No Done chunk - this keeps the session streaming
+	return Step{
+		Type:   StepStartStreaming,
+		Chunks: chunks,
 	}
 }

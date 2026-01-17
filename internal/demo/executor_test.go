@@ -10,8 +10,8 @@ import (
 func TestExecutorDefaultConfig(t *testing.T) {
 	cfg := DefaultExecutorConfig()
 
-	if !cfg.CaptureEveryStep {
-		t.Error("CaptureEveryStep should be true by default")
+	if cfg.CaptureEveryStep {
+		t.Error("CaptureEveryStep should be false by default")
 	}
 
 	if cfg.TypeDelay != 50*time.Millisecond {

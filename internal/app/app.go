@@ -1225,6 +1225,11 @@ func (m *Model) hasAnyStreamingSessions() bool {
 	return m.sessionMgr.HasActiveStreaming()
 }
 
+// HasActiveStreaming returns true if any session is currently streaming (public for demos).
+func (m *Model) HasActiveStreaming() bool {
+	return m.sessionMgr.HasActiveStreaming()
+}
+
 // detectOptionsInSession scans the runner's messages for numbered options
 func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInterface) {
 	msgs := runner.GetMessages()

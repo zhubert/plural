@@ -33,27 +33,26 @@ var Basic = &demo.Scenario{
 		Focus: "sidebar",
 	},
 	Steps: []demo.Step{
-		// Initial pause to show the interface
+		// Show the initial interface
 		demo.Wait(1 * time.Second),
 
-		// Annotate what's happening
-		demo.Annotate("Press Enter to select the session"),
-		demo.KeyWithDesc("enter", "Select session"),
+		// Select the session
+		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Type a message
-		demo.Annotate("Type a message to Claude"),
 		demo.Type("Add a hello world function to main.go"),
-		demo.Wait(500 * time.Millisecond),
+		demo.Wait(300 * time.Millisecond),
+		demo.Capture(), // Show the typed message
 
 		// Send the message
-		demo.Annotate("Press Enter to send"),
 		demo.Key("enter"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(), // Show message sent (appears in chat)
 
 		// Simulate Claude's streaming response
-		demo.Annotate("Claude responds..."),
-		demo.StreamingTextResponse(`I'll add a hello world function to main.go for you.
+		demo.TextResponse(`I'll add a hello world function to main.go for you.
 
 `+"```"+`go
 func helloWorld() string {
@@ -61,9 +60,9 @@ func helloWorld() string {
 }
 `+"```"+`
 
-I've added the `+"`helloWorld`"+` function. Would you like me to also add a test for it?`, 10),
+I've added the `+"`helloWorld`"+` function. Would you like me to also add a test for it?`),
 
-		// Final pause
+		// Final pause to show completed response
 		demo.Wait(2 * time.Second),
 	},
 }
@@ -102,36 +101,49 @@ var Parallel = &demo.Scenario{
 	},
 	Steps: []demo.Step{
 		demo.Wait(1 * time.Second),
+		demo.Capture(),
 
 		// Select first session
-		demo.Annotate("Select the API session"),
 		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Send task to first session
 		demo.Type("Add a /users endpoint"),
-		demo.Key("enter"),
 		demo.Wait(300 * time.Millisecond),
+		demo.Capture(),
 
-		// Claude starts responding
-		demo.StreamingTextResponse("I'll create a /users endpoint with CRUD operations...", 8),
+		demo.Key("enter"),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
-		// Switch to second session while first is "working"
-		demo.Annotate("Switch to UI session with Tab + arrow keys"),
+		// Claude responds
+		demo.TextResponse("I'll create a /users endpoint with CRUD operations. Here's the implementation:\n\n```go\nfunc (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {\n    users, err := h.store.ListUsers(r.Context())\n    if err != nil {\n        http.Error(w, err.Error(), 500)\n        return\n    }\n    json.NewEncoder(w).Encode(users)\n}\n```"),
+
+		demo.Wait(800 * time.Millisecond),
+
+		// Switch to second session
 		demo.Key("tab"),
 		demo.Wait(200 * time.Millisecond),
 		demo.Key("down"),
 		demo.Wait(200 * time.Millisecond),
+		demo.Capture(),
+
 		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Send task to second session
 		demo.Type("Create a UserList component"),
-		demo.Key("enter"),
 		demo.Wait(300 * time.Millisecond),
+		demo.Capture(),
+
+		demo.Key("enter"),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Second session responds
-		demo.StreamingTextResponse("I'll create a UserList React component that displays users in a table...", 8),
+		demo.TextResponse("I'll create a UserList React component:\n\n```tsx\nexport function UserList() {\n  const { data: users } = useQuery(['users'], fetchUsers);\n  return (\n    <table>\n      <thead><tr><th>Name</th><th>Email</th></tr></thead>\n      <tbody>\n        {users?.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.email}</td></tr>)}\n      </tbody>\n    </table>\n  );\n}\n```"),
 
 		demo.Wait(2 * time.Second),
 	},
@@ -162,28 +174,33 @@ var Permission = &demo.Scenario{
 	},
 	Steps: []demo.Step{
 		demo.Wait(1 * time.Second),
+		demo.Capture(),
 
 		// Select session
 		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Request tests
 		demo.Type("Run the test suite"),
-		demo.Key("enter"),
 		demo.Wait(300 * time.Millisecond),
+		demo.Capture(),
+
+		demo.Key("enter"),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Claude requests permission
-		demo.Annotate("Claude requests permission to run a command"),
 		demo.Permission("Bash", "go test ./..."),
-		demo.Wait(1 * time.Second),
+		demo.Wait(800 * time.Millisecond),
 
 		// Approve with 'y'
-		demo.Annotate("Press 'y' to allow, 'n' to deny, 'a' to always allow"),
 		demo.Key("y"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
 
 		// Claude responds after permission
-		demo.StreamingTextResponse(`Running tests...
+		demo.TextResponse(`Running tests...
 
 `+"```"+`
 ok  	github.com/user/myproject/pkg/api	0.042s
@@ -191,7 +208,7 @@ ok  	github.com/user/myproject/pkg/models	0.038s
 ok  	github.com/user/myproject/pkg/utils	0.025s
 `+"```"+`
 
-All tests passed! The test suite completed successfully.`, 10),
+All tests passed! The test suite completed successfully.`),
 
 		demo.Wait(2 * time.Second),
 	},

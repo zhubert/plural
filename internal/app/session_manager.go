@@ -38,10 +38,11 @@ func defaultRunnerFactory(sessionID, workingDir string, sessionStarted bool, ini
 // state coordination, and message persistence. It encapsulates the relationship
 // between sessions, runners, and per-session state.
 type SessionManager struct {
-	config        *config.Config
-	stateManager  *SessionStateManager
-	runners       map[string]claude.RunnerInterface
-	runnerFactory RunnerFactory
+	config           *config.Config
+	stateManager     *SessionStateManager
+	runners          map[string]claude.RunnerInterface
+	runnerFactory    RunnerFactory
+	skipMessageLoad  bool // Skip loading messages from disk (for demos/tests)
 }
 
 // NewSessionManager creates a new session manager.
@@ -57,6 +58,12 @@ func NewSessionManager(cfg *config.Config) *SessionManager {
 // SetRunnerFactory sets a custom runner factory (for testing).
 func (sm *SessionManager) SetRunnerFactory(factory RunnerFactory) {
 	sm.runnerFactory = factory
+}
+
+// SetSkipMessageLoad configures whether to skip loading messages from disk.
+// This is useful for demos and tests where clean state is needed.
+func (sm *SessionManager) SetSkipMessageLoad(skip bool) {
+	sm.skipMessageLoad = skip
 }
 
 // StateManager returns the underlying session state manager for direct state access.
@@ -169,21 +176,24 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 
 	logger.Log("SessionManager: Creating new runner for session %s", sess.ID)
 
-	// Load saved messages from disk
-	savedMsgs, err := config.LoadSessionMessages(sess.ID)
-	if err != nil {
-		logger.Log("SessionManager: Warning - failed to load session messages for %s: %v", sess.ID, err)
-		savedMsgs = []config.Message{}
-	} else {
-		logger.Log("SessionManager: Loaded %d saved messages for session %s", len(savedMsgs), sess.ID)
-	}
-
 	var initialMsgs []claude.Message
-	for _, msg := range savedMsgs {
-		initialMsgs = append(initialMsgs, claude.Message{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+
+	// Load saved messages from disk (unless skipped for demos/tests)
+	if !sm.skipMessageLoad {
+		savedMsgs, err := config.LoadSessionMessages(sess.ID)
+		if err != nil {
+			logger.Log("SessionManager: Warning - failed to load session messages for %s: %v", sess.ID, err)
+		} else {
+			logger.Log("SessionManager: Loaded %d saved messages for session %s", len(savedMsgs), sess.ID)
+			for _, msg := range savedMsgs {
+				initialMsgs = append(initialMsgs, claude.Message{
+					Role:    msg.Role,
+					Content: msg.Content,
+				})
+			}
+		}
+	} else {
+		logger.Log("SessionManager: Skipping message load for session %s (demo/test mode)", sess.ID)
 	}
 
 	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)

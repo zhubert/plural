@@ -9,6 +9,7 @@ import (
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/ui"
 )
 
 // Frame represents a captured frame from the demo.
@@ -37,7 +38,7 @@ type ExecutorConfig struct {
 // DefaultExecutorConfig returns the default executor configuration.
 func DefaultExecutorConfig() ExecutorConfig {
 	return ExecutorConfig{
-		CaptureEveryStep:   true,
+		CaptureEveryStep:   false, // Don't capture every step by default for cleaner demos
 		TypeDelay:          50 * time.Millisecond,
 		KeyDelay:           100 * time.Millisecond,
 		ResponseChunkDelay: 30 * time.Millisecond,
@@ -130,7 +131,8 @@ func (e *Executor) setup(scenario *Scenario) error {
 		Height: scenario.Height,
 	})
 
-	// Inject mock runner factory
+	// Configure for demo mode: skip loading saved messages and use mock runners
+	e.model.SessionMgr().SetSkipMessageLoad(true)
 	e.model.SessionMgr().SetRunnerFactory(e.factory.Create)
 
 	return nil
@@ -140,7 +142,12 @@ func (e *Executor) setup(scenario *Scenario) error {
 func (e *Executor) executeStep(index int, step Step) error {
 	switch step.Type {
 	case StepWait:
-		e.captureFrame(index, step.Duration)
+		// If there's active streaming, capture animated frames to show spinner
+		if e.model.HasActiveStreaming() && step.Duration >= 300*time.Millisecond {
+			e.captureAnimatedFrames(index, step.Duration, 300*time.Millisecond)
+		} else {
+			e.captureFrame(index, step.Duration)
+		}
 
 	case StepKey:
 		e.sendKey(step.Key)
@@ -192,7 +199,24 @@ func (e *Executor) executeStep(index int, step Step) error {
 		// Don't capture, annotation applies to next frame
 
 	case StepCapture:
+		// Send tick messages before capture to ensure spinner is up-to-date
+		if e.model.HasActiveStreaming() {
+			e.sendTickMessages()
+		}
 		e.captureFrame(index, 0)
+
+	case StepStartStreaming:
+		session := e.model.ActiveSession()
+		if session == nil {
+			return fmt.Errorf("no active session for start streaming")
+		}
+
+		// Send any initial content chunks (but not Done)
+		for _, chunk := range step.Chunks {
+			e.simulateResponse(session.ID, chunk)
+		}
+		// Don't send Done chunk - leave session in streaming state
+		// Don't capture - let the next step capture with spinner showing
 	}
 
 	return nil
@@ -212,6 +236,40 @@ func (e *Executor) captureFrame(stepIndex int, delay time.Duration) {
 
 	// Clear annotation after use
 	e.currentAnnotation = ""
+}
+
+// captureAnimatedFrames captures multiple frames with spinner animation.
+// This is used for Wait steps when streaming is active to show animated spinners.
+func (e *Executor) captureAnimatedFrames(stepIndex int, totalDuration time.Duration, frameInterval time.Duration) {
+	if frameInterval <= 0 {
+		frameInterval = 300 * time.Millisecond // Match SidebarTick interval
+	}
+
+	numFrames := int(totalDuration / frameInterval)
+	if numFrames < 1 {
+		numFrames = 1
+	}
+
+	delayPerFrame := totalDuration / time.Duration(numFrames)
+
+	for i := 0; i < numFrames; i++ {
+		// Send tick messages to advance spinner animation
+		e.sendTickMessages()
+
+		// Capture the frame
+		e.captureFrame(stepIndex, delayPerFrame)
+	}
+}
+
+// sendTickMessages sends tick messages to animate spinners.
+func (e *Executor) sendTickMessages() {
+	// Send sidebar tick to advance spinner
+	result, _ := e.model.Update(ui.SidebarTickMsg(time.Now()))
+	e.model = result.(*app.Model)
+
+	// Send stopwatch tick for chat spinner
+	result, _ = e.model.Update(ui.StopwatchTickMsg(time.Now()))
+	e.model = result.(*app.Model)
 }
 
 // sendKey sends a key press to the model.
