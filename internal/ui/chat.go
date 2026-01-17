@@ -91,6 +91,9 @@ type Chat struct {
 	lastClickX    int
 	lastClickY    int
 	clickCount    int
+
+	// Selection flash animation (brief highlight after copy, then clear)
+	selectionFlashFrame int // -1 = inactive, 0 = flash visible, 1+ = done
 }
 
 // NewChat creates a new chat panel
@@ -118,6 +121,7 @@ func NewChat() *Chat {
 		messages:             []claude.Message{},
 		lastToolUsePos:       -1,
 		completionFlashFrame: -1,
+		selectionFlashFrame:  -1,
 	}
 	c.updateContent()
 	return c
@@ -884,6 +888,17 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		cmd := c.handleCompletionFlashTick()
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		return c, tea.Batch(cmds...)
+
+	case SelectionFlashTickMsg:
+		if c.selectionFlashFrame >= 0 {
+			c.selectionFlashFrame++
+			if c.selectionFlashFrame >= 1 {
+				// Flash complete - clear the selection
+				c.SelectionClear()
+				c.selectionFlashFrame = -1
+			}
 		}
 		return c, tea.Batch(cmds...)
 	}

@@ -1725,3 +1725,213 @@ func TestChat_SelectParagraph_ValidPosition(t *testing.T) {
 		t.Errorf("Expected selectionStartLine 0, got %d", chat.selectionStartLine)
 	}
 }
+
+// =============================================================================
+// Selection Flash Animation Tests
+// =============================================================================
+
+func TestChat_SelectionFlashFrameInitialization(t *testing.T) {
+	chat := NewChat()
+
+	// New chat should have selectionFlashFrame initialized to -1
+	if chat.selectionFlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame -1, got %d", chat.selectionFlashFrame)
+	}
+
+	if chat.IsSelectionFlashing() {
+		t.Error("New chat should not be selection flashing")
+	}
+}
+
+func TestChat_IsSelectionFlashing(t *testing.T) {
+	chat := NewChat()
+
+	// Initially not flashing
+	if chat.IsSelectionFlashing() {
+		t.Error("Expected not flashing initially")
+	}
+
+	// When selectionFlashFrame is 0, should be flashing
+	chat.selectionFlashFrame = 0
+	if !chat.IsSelectionFlashing() {
+		t.Error("Expected flashing when selectionFlashFrame is 0")
+	}
+
+	// When selectionFlashFrame is 1, should still be considered flashing
+	chat.selectionFlashFrame = 1
+	if !chat.IsSelectionFlashing() {
+		t.Error("Expected flashing when selectionFlashFrame is 1")
+	}
+
+	// When selectionFlashFrame is -1, should not be flashing
+	chat.selectionFlashFrame = -1
+	if chat.IsSelectionFlashing() {
+		t.Error("Expected not flashing when selectionFlashFrame is -1")
+	}
+}
+
+func TestChat_CopySelectedText_StartsFlashAnimation(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a valid selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 0
+
+	// Initially not flashing
+	if chat.selectionFlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame -1 initially, got %d", chat.selectionFlashFrame)
+	}
+
+	// Copy selected text should start flash animation
+	cmd := chat.CopySelectedText()
+
+	// Flash frame should now be 0 (animation started)
+	if chat.selectionFlashFrame != 0 {
+		t.Errorf("Expected selectionFlashFrame 0 after copy, got %d", chat.selectionFlashFrame)
+	}
+
+	// Should return a command (batch of clipboard + flash tick)
+	if cmd == nil {
+		t.Error("Expected non-nil command from CopySelectedText with valid selection")
+	}
+}
+
+func TestChat_SelectionFlashTickMsg_ClearsSelection(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a selection and start flash
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 0
+	chat.selectionFlashFrame = 0
+
+	// Verify selection exists
+	if !chat.HasTextSelection() {
+		t.Error("Expected selection to exist before tick")
+	}
+
+	// Process the flash tick message
+	_, _ = chat.Update(SelectionFlashTickMsg(time.Now()))
+
+	// After tick, selectionFlashFrame should increment
+	// Since frame was 0, it becomes 1, which triggers clear and reset to -1
+	if chat.selectionFlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame -1 after tick clears, got %d", chat.selectionFlashFrame)
+	}
+
+	// Selection should be cleared
+	if chat.HasTextSelection() {
+		t.Error("Expected selection to be cleared after flash tick")
+	}
+}
+
+func TestChat_SelectionFlashTickMsg_DoesNothingWhenNotFlashing(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a selection but don't start flash
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 10
+	chat.selectionEndLine = 0
+	chat.selectionFlashFrame = -1 // Not flashing
+
+	// Process the flash tick message
+	_, _ = chat.Update(SelectionFlashTickMsg(time.Now()))
+
+	// Selection should still exist (tick should be ignored when not flashing)
+	if !chat.HasTextSelection() {
+		t.Error("Expected selection to still exist when not flashing")
+	}
+
+	// Flash frame should still be -1
+	if chat.selectionFlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame to remain -1, got %d", chat.selectionFlashFrame)
+	}
+}
+
+func TestSelectionFlashTick(t *testing.T) {
+	// Verify SelectionFlashTick returns a command
+	cmd := SelectionFlashTick()
+	if cmd == nil {
+		t.Error("Expected non-nil command from SelectionFlashTick")
+	}
+}
+
+func TestChat_SelectionFlash_ClearsAfterCopy(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a valid selection
+	chat.StartSelection(0, 0)
+	chat.EndSelection(10, 0)
+	chat.SelectionStop()
+
+	// Verify selection exists
+	if !chat.HasTextSelection() {
+		t.Error("Expected selection to exist")
+	}
+
+	// Start copy (which starts flash)
+	_ = chat.CopySelectedText()
+
+	// Flash should be active
+	if !chat.IsSelectionFlashing() {
+		t.Error("Expected flash to be active after copy")
+	}
+
+	// Process flash tick to complete the flash and clear selection
+	_, _ = chat.Update(SelectionFlashTickMsg(time.Now()))
+
+	// After flash completes, selection should be cleared
+	if chat.HasTextSelection() {
+		t.Error("Expected selection to be cleared after flash completes")
+	}
+
+	// Flash should no longer be active
+	if chat.IsSelectionFlashing() {
+		t.Error("Expected flash to be inactive after tick")
+	}
+}
+
+func TestChat_SelectionView_UsesFlashStyle(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(40, 10)
+	chat.SetSession("test", nil)
+
+	// Create a valid selection
+	chat.selectionStartCol = 0
+	chat.selectionStartLine = 0
+	chat.selectionEndCol = 5
+	chat.selectionEndLine = 0
+
+	testView := "Hello World"
+
+	// Test with normal selection (no flash)
+	chat.selectionFlashFrame = -1
+	result1 := chat.selectionView(testView)
+
+	// Test with flash active
+	chat.selectionFlashFrame = 0
+	result2 := chat.selectionView(testView)
+
+	// Both should produce output (we can't easily verify colors in text output)
+	if result1 == "" {
+		t.Error("Expected non-empty result for normal selection")
+	}
+	if result2 == "" {
+		t.Error("Expected non-empty result for flash selection")
+	}
+
+	// Note: We can't easily test that the colors are different without
+	// parsing ANSI codes, but we verified the code paths execute
+}
