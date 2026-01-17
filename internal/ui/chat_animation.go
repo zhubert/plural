@@ -14,6 +14,9 @@ type StopwatchTickMsg time.Time
 // CompletionFlashTickMsg is sent to animate the completion checkmark flash
 type CompletionFlashTickMsg time.Time
 
+// SelectionFlashTickMsg is sent to animate the selection copy flash
+type SelectionFlashTickMsg time.Time
+
 // thinkingVerbs are playful status messages that cycle while waiting for Claude
 var thinkingVerbs = []string{
 	"Thinking",
@@ -65,6 +68,13 @@ func CompletionFlashTick() tea.Cmd {
 	})
 }
 
+// SelectionFlashTick returns a command that sends a selection flash tick
+func SelectionFlashTick() tea.Cmd {
+	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
+		return SelectionFlashTickMsg(t)
+	})
+}
+
 // StartCompletionFlash starts the completion checkmark flash animation
 func (c *Chat) StartCompletionFlash() tea.Cmd {
 	c.completionFlashFrame = 0
@@ -75,6 +85,11 @@ func (c *Chat) StartCompletionFlash() tea.Cmd {
 // IsCompletionFlashing returns whether the completion flash animation is active
 func (c *Chat) IsCompletionFlashing() bool {
 	return c.completionFlashFrame >= 0
+}
+
+// IsSelectionFlashing returns whether the selection flash animation is active
+func (c *Chat) IsSelectionFlashing() bool {
+	return c.selectionFlashFrame >= 0
 }
 
 // renderSpinner renders the shimmering spinner with the thinking verb.

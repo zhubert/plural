@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 	"time"
 
@@ -264,7 +265,7 @@ func (c *Chat) GetSelectedText() string {
 	return strings.TrimSpace(result.String())
 }
 
-// CopySelectedText copies the selected text to the clipboard
+// CopySelectedText copies the selected text to the clipboard and starts flash animation
 func (c *Chat) CopySelectedText() tea.Cmd {
 	if !c.HasTextSelection() {
 		return nil
@@ -275,6 +276,9 @@ func (c *Chat) CopySelectedText() tea.Cmd {
 		return nil
 	}
 
+	// Start the selection flash animation
+	c.selectionFlashFrame = 0
+
 	return tea.Batch(
 		// OSC 52 escape sequence (works in modern terminals)
 		tea.SetClipboard(selectedText),
@@ -283,6 +287,8 @@ func (c *Chat) CopySelectedText() tea.Cmd {
 			_ = clipboard.WriteText(selectedText)
 			return nil
 		},
+		// Start flash animation timer
+		SelectionFlashTick(),
 	)
 }
 
@@ -306,9 +312,17 @@ func (c *Chat) selectionView(view string) string {
 	// Get normalized selection coordinates
 	startCol, startLine, endCol, endLine := c.selectionArea()
 
-	// Get selection style colors
-	selBg := TextSelectionStyle.GetBackground()
-	selFg := TextSelectionStyle.GetForeground()
+	// Get selection style colors - use flash style during copy animation
+	var selBg, selFg color.Color
+	if c.selectionFlashFrame == 0 {
+		// Flash frame - use bright green to indicate successful copy
+		selBg = TextSelectionFlashStyle.GetBackground()
+		selFg = TextSelectionFlashStyle.GetForeground()
+	} else {
+		// Normal selection
+		selBg = TextSelectionStyle.GetBackground()
+		selFg = TextSelectionStyle.GetForeground()
+	}
 
 	// Apply selection highlighting
 	for y := startLine; y <= endLine && y < height; y++ {

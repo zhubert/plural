@@ -264,4 +264,9 @@ var (
 	TextSelectionStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("#4C1D95")). // Purple background
 				Foreground(lipgloss.Color("#F9FAFB"))  // Light text
+
+	// TextSelectionFlashStyle is used briefly when text is copied to indicate success
+	TextSelectionFlashStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("#10B981")). // Green background (success)
+				Foreground(lipgloss.Color("#FFFFFF"))  // White text
 )
