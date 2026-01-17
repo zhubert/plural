@@ -249,8 +249,8 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			branchName = fmt.Sprintf("option-%d", opt.Number)
 		}
 
-		// Create new session
-		sess, err := session.Create(parentSession.RepoPath, branchName, branchPrefix)
+		// Create new session forked from parent's branch
+		sess, err := session.CreateFromBranch(parentSession.RepoPath, parentSession.Branch, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create parallel session for option %d: %v", opt.Number, err)
 			m.chat.AppendStreaming(fmt.Sprintf("[Error creating session for option %d: %v]\n", opt.Number, err))

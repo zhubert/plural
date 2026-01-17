@@ -702,3 +702,312 @@ func TestCreate_BranchPrefixWithCustomBranch(t *testing.T) {
 		t.Errorf("Session name %q should contain %q", session.Name, expectedBranch)
 	}
 }
+
+func TestGetDefaultBranch_LocalOnly(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Local-only repo has no remote, should return "main" as fallback
+	branch := GetDefaultBranch(repoPath)
+	if branch != "main" {
+		t.Errorf("GetDefaultBranch for local-only repo = %q, want %q", branch, "main")
+	}
+}
+
+func TestFetchOrigin_NoRemote(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Fetch on a repo with no remote should succeed (no-op)
+	err := FetchOrigin(repoPath)
+	if err != nil {
+		t.Errorf("FetchOrigin on local-only repo should not error: %v", err)
+	}
+}
+
+// createTestRepoWithRemote creates a test repo with a simulated "origin" remote
+func createTestRepoWithRemote(t *testing.T) (localPath string, remotePath string) {
+	t.Helper()
+
+	// Create the "remote" repository (bare repo to simulate GitHub)
+	remoteDir, err := os.MkdirTemp("", "plural-remote-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create remote temp dir: %v", err)
+	}
+
+	cmd := exec.Command("git", "init", "--bare")
+	cmd.Dir = remoteDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remoteDir)
+		t.Fatalf("Failed to init bare repo: %v", err)
+	}
+
+	// Create the "local" repository
+	localDir, err := os.MkdirTemp("", "plural-local-test-*")
+	if err != nil {
+		os.RemoveAll(remoteDir)
+		t.Fatalf("Failed to create local temp dir: %v", err)
+	}
+
+	// Initialize local repo
+	cmd = exec.Command("git", "init")
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remoteDir)
+		os.RemoveAll(localDir)
+		t.Fatalf("Failed to init local repo: %v", err)
+	}
+
+	// Configure git user
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = localDir
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = localDir
+	cmd.Run()
+
+	// Create initial commit
+	testFile := filepath.Join(localDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("initial content"), 0644); err != nil {
+		os.RemoveAll(remoteDir)
+		os.RemoveAll(localDir)
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = localDir
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remoteDir)
+		os.RemoveAll(localDir)
+		t.Fatalf("Failed to create initial commit: %v", err)
+	}
+
+	// Rename branch to main (in case git defaults to master)
+	cmd = exec.Command("git", "branch", "-M", "main")
+	cmd.Dir = localDir
+	cmd.Run()
+
+	// Add remote
+	cmd = exec.Command("git", "remote", "add", "origin", remoteDir)
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remoteDir)
+		os.RemoveAll(localDir)
+		t.Fatalf("Failed to add remote: %v", err)
+	}
+
+	// Push to remote
+	cmd = exec.Command("git", "push", "-u", "origin", "main")
+	cmd.Dir = localDir
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remoteDir)
+		os.RemoveAll(localDir)
+		t.Fatalf("Failed to push to remote: %v", err)
+	}
+
+	return localDir, remoteDir
+}
+
+func TestGetDefaultBranch_WithRemote(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+
+	branch := GetDefaultBranch(localPath)
+	if branch != "main" {
+		t.Errorf("GetDefaultBranch = %q, want %q", branch, "main")
+	}
+}
+
+func TestFetchOrigin_WithRemote(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+
+	err := FetchOrigin(localPath)
+	if err != nil {
+		t.Errorf("FetchOrigin failed: %v", err)
+	}
+}
+
+func TestCreate_UsesOriginMain(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Add a new commit to the "remote" (simulating someone else pushing)
+	// First clone the remote to make a change
+	cloneDir, err := os.MkdirTemp("", "plural-clone-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create clone temp dir: %v", err)
+	}
+	defer os.RemoveAll(cloneDir)
+
+	cmd := exec.Command("git", "clone", remotePath, cloneDir)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to clone: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = cloneDir
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = cloneDir
+	cmd.Run()
+
+	// Make a change and push
+	newFile := filepath.Join(cloneDir, "new-file.txt")
+	if err := os.WriteFile(newFile, []byte("new content from remote"), 0644); err != nil {
+		t.Fatalf("Failed to create new file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = cloneDir
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Remote commit")
+	cmd.Dir = cloneDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	cmd = exec.Command("git", "push", "origin", "main")
+	cmd.Dir = cloneDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to push: %v", err)
+	}
+
+	// Get the remote's latest commit SHA
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = cloneDir
+	remoteHead, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get remote HEAD: %v", err)
+	}
+	remoteHeadSHA := strings.TrimSpace(string(remoteHead))
+
+	// Now the local repo is behind the remote
+	// Creating a session should fetch and use the remote's latest commit
+	session, err := Create(localPath, "", "")
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// The worktree should have the new file from the remote
+	worktreeNewFile := filepath.Join(session.WorkTree, "new-file.txt")
+	if _, err := os.Stat(worktreeNewFile); os.IsNotExist(err) {
+		t.Error("Worktree should have the new file from remote - fetch and branch from origin/main is working")
+	}
+
+	// Verify the worktree is based on the remote commit, not the stale local main
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = session.WorkTree
+	worktreeHead, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get worktree HEAD: %v", err)
+	}
+	worktreeHeadSHA := strings.TrimSpace(string(worktreeHead))
+
+	if worktreeHeadSHA != remoteHeadSHA {
+		t.Errorf("Worktree HEAD = %s, want remote HEAD %s", worktreeHeadSHA, remoteHeadSHA)
+	}
+}
+
+func TestCreateFromBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a first session (simulating a parent session)
+	parentSession, err := Create(repoPath, "parent-branch", "")
+	if err != nil {
+		t.Fatalf("Failed to create parent session: %v", err)
+	}
+
+	// Make a change in the parent session's worktree
+	newFile := filepath.Join(parentSession.WorkTree, "parent-change.txt")
+	if err := os.WriteFile(newFile, []byte("change from parent session"), 0644); err != nil {
+		t.Fatalf("Failed to create file in parent worktree: %v", err)
+	}
+
+	// Commit the change in the parent session
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = parentSession.WorkTree
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Parent session change")
+	cmd.Dir = parentSession.WorkTree
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit in parent session: %v", err)
+	}
+
+	// Get the parent session's HEAD commit
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = parentSession.WorkTree
+	parentHead, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get parent HEAD: %v", err)
+	}
+	parentHeadSHA := strings.TrimSpace(string(parentHead))
+
+	// Create a forked session from the parent's branch
+	forkedSession, err := CreateFromBranch(repoPath, parentSession.Branch, "forked-branch", "")
+	if err != nil {
+		t.Fatalf("CreateFromBranch failed: %v", err)
+	}
+
+	// Verify the forked session has the parent's changes
+	forkedFile := filepath.Join(forkedSession.WorkTree, "parent-change.txt")
+	if _, err := os.Stat(forkedFile); os.IsNotExist(err) {
+		t.Error("Forked session should have the parent's changes")
+	}
+
+	// Verify the forked session is based on the parent's commit
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = forkedSession.WorkTree
+	forkedHead, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get forked HEAD: %v", err)
+	}
+	forkedHeadSHA := strings.TrimSpace(string(forkedHead))
+
+	if forkedHeadSHA != parentHeadSHA {
+		t.Errorf("Forked session HEAD = %s, want parent HEAD %s", forkedHeadSHA, parentHeadSHA)
+	}
+
+	// Verify the forked session has the expected branch name
+	if forkedSession.Branch != "forked-branch" {
+		t.Errorf("Forked session branch = %q, want %q", forkedSession.Branch, "forked-branch")
+	}
+}
+
+func TestCreateFromBranch_WithBranchPrefix(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a first session
+	parentSession, err := Create(repoPath, "", "")
+	if err != nil {
+		t.Fatalf("Failed to create parent session: %v", err)
+	}
+
+	// Create a forked session with a branch prefix
+	branchPrefix := "user/"
+	forkedSession, err := CreateFromBranch(repoPath, parentSession.Branch, "my-fork", branchPrefix)
+	if err != nil {
+		t.Fatalf("CreateFromBranch with prefix failed: %v", err)
+	}
+
+	expectedBranch := branchPrefix + "my-fork"
+	if forkedSession.Branch != expectedBranch {
+		t.Errorf("Forked session branch = %q, want %q", forkedSession.Branch, expectedBranch)
+	}
+}
