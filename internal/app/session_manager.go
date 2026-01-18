@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sync"
 	"time"
 
 	"github.com/zhubert/plural/internal/claude"
@@ -45,6 +46,7 @@ type SessionManager struct {
 	runners          map[string]claude.RunnerInterface
 	runnerFactory    RunnerFactory
 	skipMessageLoad  bool // Skip loading messages from disk (for demos/tests)
+	mu               sync.RWMutex // Protects runners map
 }
 
 // NewSessionManager creates a new session manager.
@@ -76,16 +78,28 @@ func (sm *SessionManager) StateManager() *SessionStateManager {
 
 // GetRunner returns the runner for a session, or nil if none exists.
 func (sm *SessionManager) GetRunner(sessionID string) claude.RunnerInterface {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	return sm.runners[sessionID]
 }
 
-// GetRunners returns all runners (for iteration, e.g., checking streaming status).
+// GetRunners returns a copy of all runners (for safe iteration).
+// The returned map is a snapshot - concurrent modifications to the original
+// will not affect it.
 func (sm *SessionManager) GetRunners() map[string]claude.RunnerInterface {
-	return sm.runners
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	copy := make(map[string]claude.RunnerInterface, len(sm.runners))
+	for k, v := range sm.runners {
+		copy[k] = v
+	}
+	return copy
 }
 
 // HasActiveStreaming returns true if any session is currently streaming.
 func (sm *SessionManager) HasActiveStreaming() bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	for _, runner := range sm.runners {
 		if runner.IsStreaming() {
 			return true
@@ -177,10 +191,13 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 
 // getOrCreateRunner returns an existing runner or creates a new one for the session.
 func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerInterface {
+	sm.mu.RLock()
 	if runner, exists := sm.runners[sess.ID]; exists {
+		sm.mu.RUnlock()
 		logger.Log("SessionManager: Reusing existing runner for session %s", sess.ID)
 		return runner
 	}
+	sm.mu.RUnlock()
 
 	logger.Log("SessionManager: Creating new runner for session %s", sess.ID)
 
@@ -205,7 +222,9 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	}
 
 	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
+	sm.mu.Lock()
 	sm.runners[sess.ID] = runner
+	sm.mu.Unlock()
 
 	// If this is a forked session that hasn't started yet, set up to fork from parent
 	// to inherit the parent's conversation history in Claude.
@@ -250,7 +269,9 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 
 // SaveMessages saves the current messages from a runner to disk.
 func (sm *SessionManager) SaveMessages(sessionID string) {
+	sm.mu.RLock()
 	runner, exists := sm.runners[sessionID]
+	sm.mu.RUnlock()
 	if !exists || runner == nil {
 		return
 	}
@@ -289,6 +310,7 @@ func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner claude.Run
 // Returns the runner if it existed (so caller can check if it was active).
 func (sm *SessionManager) DeleteSession(sessionID string) claude.RunnerInterface {
 	// Stop and remove runner
+	sm.mu.Lock()
 	var runner claude.RunnerInterface
 	if r, exists := sm.runners[sessionID]; exists {
 		logger.Log("SessionManager: Stopping runner for deleted session %s", sessionID)
@@ -296,6 +318,7 @@ func (sm *SessionManager) DeleteSession(sessionID string) claude.RunnerInterface
 		runner = r
 		delete(sm.runners, sessionID)
 	}
+	sm.mu.Unlock()
 
 	// Clean up all per-session state (this also cancels in-progress operations)
 	sm.stateManager.Delete(sessionID)
@@ -313,7 +336,10 @@ func (sm *SessionManager) AddAllowedTool(sessionID string, tool string) {
 	sm.config.AddRepoAllowedTool(sess.RepoPath, tool)
 	sm.config.Save()
 
-	if runner, exists := sm.runners[sessionID]; exists {
+	sm.mu.RLock()
+	runner, exists := sm.runners[sessionID]
+	sm.mu.RUnlock()
+	if exists {
 		runner.AddAllowedTool(tool)
 	}
 
@@ -322,6 +348,8 @@ func (sm *SessionManager) AddAllowedTool(sessionID string, tool string) {
 
 // SetRunner sets a runner for a session (used when manually creating runners).
 func (sm *SessionManager) SetRunner(sessionID string, runner claude.RunnerInterface) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	sm.runners[sessionID] = runner
 }
 
@@ -329,6 +357,8 @@ func (sm *SessionManager) SetRunner(sessionID string, runner claude.RunnerInterf
 // application is exiting to ensure all Claude CLI processes are terminated
 // and resources are cleaned up.
 func (sm *SessionManager) Shutdown() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	logger.Log("SessionManager: Shutting down all runners (%d total)", len(sm.runners))
 	for sessionID, runner := range sm.runners {
 		logger.Log("SessionManager: Stopping runner for session %s", sessionID)

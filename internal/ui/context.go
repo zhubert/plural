@@ -44,8 +44,21 @@ func (v *ViewContext) Log(format string, args ...interface{}) {
 	logger.Log(format, args...)
 }
 
-// UpdateTerminalSize recalculates all dimensions when terminal size changes
+// UpdateTerminalSize recalculates all dimensions when terminal size changes.
+// This method is thread-safe and should be called from the main event loop
+// when the terminal is resized.
 func (v *ViewContext) UpdateTerminalSize(width, height int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	// Validate dimensions to prevent negative layout values
+	if width < MinTerminalWidth {
+		width = MinTerminalWidth
+	}
+	if height < MinTerminalHeight {
+		height = MinTerminalHeight
+	}
+
 	v.TerminalWidth = width
 	v.TerminalHeight = height
 

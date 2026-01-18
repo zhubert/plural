@@ -71,27 +71,75 @@ type ProcessConfig struct {
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
 // This allows the Runner to respond to process events without tight coupling.
+//
+// Callback Threading Model:
+// All callbacks are invoked from the ProcessManager's internal goroutines.
+// Implementations should be thread-safe and avoid blocking operations that
+// could delay process management.
+//
+// Callback Invocation Order:
+// 1. OnLine: Called repeatedly as stdout produces lines
+// 2. On process exit (one of):
+//   - OnProcessExit: Called when process exits, return value determines restart
+//   - OnProcessHung: Called when read timeout is exceeded
+//
+// 3. If restarting:
+//   - OnRestartAttempt: Called before each restart attempt
+//   - OnRestartFailed: Called if restart fails
+//   - OnFatalError: Called when max restarts exceeded
+//
+// Example implementation:
+//
+//	callbacks := ProcessCallbacks{
+//	    OnLine: func(line string) {
+//	        // Parse JSON and route to response channels
+//	        chunks := parseStreamMessage(line)
+//	        for _, chunk := range chunks {
+//	            responseCh <- chunk
+//	        }
+//	    },
+//	    OnProcessExit: func(err error, stderr string) bool {
+//	        // Return true to allow restart, false to prevent
+//	        return !userInterrupted && !responseComplete
+//	    },
+//	    OnFatalError: func(err error) {
+//	        // Send error to user via response channel
+//	        responseCh <- ResponseChunk{Error: err, Done: true}
+//	    },
+//	}
 type ProcessCallbacks struct {
 	// OnLine is called for each line read from stdout.
+	// The line includes the trailing newline.
+	// This callback is called synchronously from the output reader goroutine.
 	OnLine func(line string)
 
 	// OnProcessExit is called when the process exits unexpectedly.
 	// The error parameter contains the exit reason (may be nil for clean exit).
 	// The stderrContent contains any stderr output from the process.
-	// Returns true if the process should be restarted.
+	// Returns true if the process should be restarted, false to prevent restart.
+	// Returning false is appropriate when:
+	//   - The user interrupted the operation (e.g., pressed Escape)
+	//   - The response was already complete (result message received)
+	//   - The ProcessManager was explicitly stopped
 	OnProcessExit func(err error, stderrContent string) bool
 
-	// OnProcessHung is called when the process appears to be hung (no output for timeout).
+	// OnProcessHung is called when the process appears to be hung
+	// (no output received within ResponseReadTimeout).
+	// The ProcessManager will kill the hung process after invoking this callback.
 	OnProcessHung func()
 
 	// OnRestartAttempt is called when a restart is being attempted.
 	// attemptNum is 1-indexed (1, 2, 3, ...).
+	// This is called before the actual restart attempt.
 	OnRestartAttempt func(attemptNum int)
 
-	// OnRestartFailed is called when restart fails.
+	// OnRestartFailed is called when a restart attempt fails.
+	// This is followed by OnFatalError if max attempts are exceeded.
 	OnRestartFailed func(err error)
 
 	// OnFatalError is called when max restarts exceeded or unrecoverable error.
+	// After this callback, the ProcessManager will not attempt further restarts.
+	// The Runner should clean up and report the error to the user.
 	OnFatalError func(err error)
 }
 

@@ -20,6 +20,11 @@ type SelectionCopyMsg struct {
 	x, y         int
 }
 
+// ClipboardErrorMsg is sent when clipboard operations fail
+type ClipboardErrorMsg struct {
+	Error error
+}
+
 const (
 	doubleClickThreshold = 500 * time.Millisecond
 	clickTolerance       = 2 // pixels
@@ -283,10 +288,11 @@ func (c *Chat) CopySelectedText() tea.Cmd {
 	return tea.Batch(
 		// OSC 52 escape sequence (works in modern terminals)
 		tea.SetClipboard(selectedText),
-		// Native clipboard fallback
+		// Native clipboard fallback - returns error message if it fails
 		func() tea.Msg {
 			if err := clipboard.WriteText(selectedText); err != nil {
 				logger.Log("Failed to write to clipboard: %v", err)
+				return ClipboardErrorMsg{Error: err}
 			}
 			return nil
 		},
