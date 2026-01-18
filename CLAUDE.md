@@ -204,6 +204,35 @@ Implementation in `internal/ui/chat.go`:
 - Rendering: `selectionView()` applies highlight style to cells in selection range
 - Clipboard: Dual approach using OSC 52 escape sequence + native `internal/clipboard` package
 
+### Flash Messages
+
+The footer supports temporary flash messages for user notifications (errors, warnings, info, success):
+
+**Types** (`internal/ui/footer.go`):
+- `FlashError` - Red background, ✕ icon
+- `FlashWarning` - Amber background, ⚠ icon
+- `FlashInfo` - Blue background, ℹ icon
+- `FlashSuccess` - Green background, ✓ icon
+
+**Usage from app** (`internal/app/app.go`):
+```go
+// Show an error message (auto-dismisses after 5 seconds)
+cmds = append(cmds, m.ShowFlashError("Failed to save file"))
+
+// Show other types
+cmds = append(cmds, m.ShowFlashWarning("Connection unstable"))
+cmds = append(cmds, m.ShowFlashInfo("Processing..."))
+cmds = append(cmds, m.ShowFlashSuccess("File saved"))
+
+// Custom duration via footer directly
+m.footer.SetFlashWithDuration("Custom message", ui.FlashInfo, 10*time.Second)
+```
+
+**Behavior**:
+- Flash messages replace the keybindings in the footer while active
+- Auto-dismiss after `DefaultFlashDuration` (5 seconds)
+- `FlashTickMsg` handles expiration checking via periodic ticks
+
 ### Claude Process Management
 
 Claude CLI process management is split across two components for better separation of concerns:

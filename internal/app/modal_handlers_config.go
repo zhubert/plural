@@ -26,7 +26,11 @@ func (m *Model) handleMCPServersModal(key string, msg tea.KeyPressMsg, state *ui
 			} else {
 				m.config.RemoveRepoMCPServer(server.RepoPath, server.Name)
 			}
-			m.config.Save()
+			if err := m.config.Save(); err != nil {
+				logger.Log("App: Failed to save config after MCP server deletion: %v", err)
+				m.modal.Hide()
+				return m, m.ShowFlashError("Failed to save configuration")
+			}
 			m.showMCPServersModal() // Refresh the modal
 		}
 		return m, nil
@@ -63,7 +67,11 @@ func (m *Model) handleAddMCPServerModal(key string, msg tea.KeyPressMsg, state *
 		} else {
 			m.config.AddRepoMCPServer(repoPath, server)
 		}
-		m.config.Save()
+		if err := m.config.Save(); err != nil {
+			logger.Log("App: Failed to save MCP server config: %v", err)
+			m.modal.Hide()
+			return m, m.ShowFlashError("Failed to save MCP server configuration")
+		}
 		m.modal.Hide()
 		return m, nil
 	}

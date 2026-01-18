@@ -213,13 +213,16 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		}
 
 		// Copy messages if requested
+		var messageCopyFailed bool
 		if state.CopyMessages {
 			parentMsgs, err := config.LoadSessionMessages(state.ParentSessionID)
 			if err != nil {
 				logger.Log("App: Warning - failed to load parent session messages: %v", err)
+				messageCopyFailed = true
 			} else if len(parentMsgs) > 0 {
 				if err := config.SaveSessionMessages(sess.ID, parentMsgs, config.MaxSessionMessageLines); err != nil {
 					logger.Log("App: Warning - failed to save forked session messages: %v", err)
+					messageCopyFailed = true
 				} else {
 					logger.Log("App: Copied %d messages from parent session", len(parentMsgs))
 				}
@@ -240,6 +243,11 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
 		m.modal.Hide()
+
+		// Show warning if message copy failed (after modal is hidden)
+		if messageCopyFailed {
+			return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
+		}
 		return m, nil
 	}
 	// Forward other keys (tab, shift+tab, space, up, down, etc.) to modal for handling

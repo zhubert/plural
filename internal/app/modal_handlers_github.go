@@ -98,6 +98,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 
 	var createdSessions []issueSessionInfo
 	var firstSession *config.Session
+	var failedIssues []int
 
 	for _, issue := range issues {
 		// Create branch name from issue number
@@ -114,6 +115,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 		sess, err := session.Create(repoPath, branchName, branchPrefix, session.BasePointOrigin)
 		if err != nil {
 			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
+			failedIssues = append(failedIssues, issue.Number)
 			continue
 		}
 
@@ -139,13 +141,23 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 	}
 
 	// Save config and update sidebar
+	var cmds []tea.Cmd
 	if err := m.config.Save(); err != nil {
 		logger.Log("App: Failed to save config: %v", err)
+		cmds = append(cmds, m.ShowFlashError("Failed to save configuration"))
 	}
 	m.sidebar.SetSessions(m.config.GetSessions())
 
+	// Show flash message for any failed session creations
+	if len(failedIssues) > 0 {
+		if len(failedIssues) == 1 {
+			cmds = append(cmds, m.ShowFlashError(fmt.Sprintf("Failed to create session for issue #%d", failedIssues[0])))
+		} else {
+			cmds = append(cmds, m.ShowFlashError(fmt.Sprintf("Failed to create sessions for %d issues", len(failedIssues))))
+		}
+	}
+
 	// Start all sessions in parallel (similar to createParallelSessions)
-	var cmds []tea.Cmd
 	if len(createdSessions) > 0 {
 		for _, info := range createdSessions {
 			sess := info.Session
