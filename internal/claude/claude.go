@@ -149,7 +149,23 @@ If you have multiple groups of options (e.g., high priority and low priority ite
 </optgroup>
 </options>`
 
-// Runner manages a Claude Code CLI session
+// Runner manages a Claude Code CLI session.
+//
+// MCP Channel Architecture:
+// The Runner uses pairs of channels to communicate with the MCP server for interactive
+// prompts (permissions, questions, plan approvals). Each pair has a request channel
+// (populated by the MCP server) and a response channel (populated by the TUI).
+//
+// Channel Flow:
+//  1. MCP server receives permission/question/plan request from Claude
+//  2. MCP server sends request to the appropriate reqChan
+//  3. Runner reads from reqChan and displays prompt to user (via TUI)
+//  4. User responds, TUI sends response to respChan
+//  5. MCP server reads from respChan and returns result to Claude
+//
+// All channels have a buffer of PermissionChannelBuffer (1) to allow the MCP server
+// to send a request without blocking, while still limiting how many can queue up.
+// Only one request of each type can be pending at a time.
 type Runner struct {
 	sessionID      string
 	workingDir     string
@@ -160,14 +176,21 @@ type Runner struct {
 	socketServer   *mcp.SocketServer // Socket server for MCP communication (persistent)
 	mcpConfigPath  string            // Path to MCP config file (persistent)
 	serverRunning  bool              // Whether the socket server is running
-	permReqChan      chan mcp.PermissionRequest
-	permRespChan     chan mcp.PermissionResponse
-	questReqChan     chan mcp.QuestionRequest
-	questRespChan    chan mcp.QuestionResponse
-	planReqChan      chan mcp.PlanApprovalRequest
-	planRespChan     chan mcp.PlanApprovalResponse
-	stopOnce         sync.Once // Ensures Stop() is idempotent
-	stopped          bool      // Set to true when Stop() is called, prevents reading from closed channels
+
+	// MCP interactive prompt channels. Each pair handles one type of interaction:
+	// - Permission: Tool use authorization (y/n/always)
+	// - Question: Multiple-choice questions from Claude
+	// - PlanApproval: Plan mode approval requests
+	// See PermissionChannelBuffer constant for buffer size rationale.
+	permReqChan    chan mcp.PermissionRequest
+	permRespChan   chan mcp.PermissionResponse
+	questReqChan   chan mcp.QuestionRequest
+	questRespChan  chan mcp.QuestionResponse
+	planReqChan    chan mcp.PlanApprovalRequest
+	planRespChan   chan mcp.PlanApprovalResponse
+
+	stopOnce sync.Once // Ensures Stop() is idempotent
+	stopped  bool      // Set to true when Stop() is called, prevents reading from closed channels
 
 	// Fork support: when set, first CLI invocation uses --resume <parentID> --fork-session
 	// to inherit the parent's conversation history while creating a new session

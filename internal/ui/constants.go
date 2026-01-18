@@ -15,6 +15,12 @@ const (
 	// SidebarWidthRatio is the denominator for sidebar width (1/3 of total width)
 	SidebarWidthRatio = 3
 
+	// MinTerminalWidth is the minimum supported terminal width
+	MinTerminalWidth = 40
+
+	// MinTerminalHeight is the minimum supported terminal height
+	MinTerminalHeight = 10
+
 	// TextareaHeight is the number of lines for the chat input textarea
 	TextareaHeight = 3
 

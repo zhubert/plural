@@ -13,13 +13,13 @@ import (
 func TestSessionStateManager_GetCreatesState(t *testing.T) {
 	m := NewSessionStateManager()
 
-	state := m.Get("session-1")
+	state := m.GetOrCreate("session-1")
 	if state == nil {
 		t.Fatal("expected non-nil state")
 	}
 
 	// Getting the same session should return the same state
-	state2 := m.Get("session-1")
+	state2 := m.GetOrCreate("session-1")
 	if state != state2 {
 		t.Error("expected same state object on second Get")
 	}
@@ -35,7 +35,7 @@ func TestSessionStateManager_GetIfExistsDoesNotCreate(t *testing.T) {
 	}
 
 	// Create the session
-	m.Get("session-1")
+	m.GetOrCreate("session-1")
 
 	// Now it should exist
 	state = m.GetIfExists("session-1")
@@ -48,7 +48,7 @@ func TestSessionStateManager_Delete(t *testing.T) {
 	m := NewSessionStateManager()
 
 	// Create and then delete
-	m.Get("session-1")
+	m.GetOrCreate("session-1")
 	m.Delete("session-1")
 
 	// Should be gone
@@ -284,7 +284,7 @@ func TestSessionStateManager_ConcurrentAccess(t *testing.T) {
 			for j := 0; j < numOperations; j++ {
 				switch j % 6 {
 				case 0:
-					m.Get(sessionID)
+					m.GetOrCreate(sessionID)
 				case 1:
 					m.SetPendingPermission(sessionID, &mcp.PermissionRequest{ID: "perm"})
 					m.ClearPendingPermission(sessionID)

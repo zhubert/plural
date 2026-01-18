@@ -61,18 +61,12 @@ func NewSessionStateManager() *SessionStateManager {
 	}
 }
 
-// Get returns the state for a session, creating it if it doesn't exist.
-func (m *SessionStateManager) Get(sessionID string) *SessionState {
+// GetOrCreate returns the state for a session, creating it if it doesn't exist.
+// Use GetIfExists when you don't want to create state for sessions that haven't been accessed.
+func (m *SessionStateManager) GetOrCreate(sessionID string) *SessionState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state
-	}
-
-	state := &SessionState{}
-	m.states[sessionID] = state
-	return state
+	return m.getOrCreate(sessionID)
 }
 
 // GetIfExists returns the state for a session if it exists, nil otherwise.

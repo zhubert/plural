@@ -173,16 +173,22 @@ func applyTextareaStyles(ti *textarea.Model) {
 
 // SetSize sets the chat panel dimensions
 func (c *Chat) SetSize(width, height int) {
+	// Check if viewport width changed - if so, invalidate message cache
+	// since messages are wrapped based on viewport width
+	ctx := GetViewContext()
+	newInnerWidth := ctx.InnerWidth(width)
+	if c.viewport.Width() != newInnerWidth && c.viewport.Width() > 0 {
+		c.messageCache = nil // Clear cache to force re-render at new width
+	}
+
 	c.width = width
 	c.height = height
-
-	ctx := GetViewContext()
 
 	// Chat panel height (excluding input area which is separate)
 	chatPanelHeight := height - InputTotalHeight
 
 	// Calculate inner dimensions for the chat panel (accounting for borders)
-	innerWidth := ctx.InnerWidth(width)
+	innerWidth := newInnerWidth
 	viewportHeight := ctx.InnerHeight(chatPanelHeight)
 
 	if viewportHeight < 1 {

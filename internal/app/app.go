@@ -512,6 +512,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, ui.FlashTick())
 		}
 		return m, tea.Batch(cmds...)
+	case ui.ClipboardErrorMsg:
+		// Show error message when clipboard write fails
+		m.footer.SetFlash("Failed to copy to clipboard", ui.FlashError)
+		cmds = append(cmds, ui.FlashTick())
+		return m, tea.Batch(cmds...)
 	}
 
 	// Route scroll keys and mouse wheel to chat panel even when sidebar is focused
