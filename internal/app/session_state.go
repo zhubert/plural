@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
 )
@@ -41,6 +42,9 @@ type SessionState struct {
 
 	// Initial message to send when session is first selected (for issue imports)
 	InitialMessage string
+
+	// Current todo list from TodoWrite tool
+	CurrentTodoList *claude.TodoList
 }
 
 // SessionStateManager provides thread-safe access to per-session state.
@@ -108,6 +112,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		state.PendingQuestion = nil
 		state.PendingPlanApproval = nil
 		state.DetectedOptions = nil
+		state.CurrentTodoList = nil
 
 		delete(m.states, sessionID)
 	}
@@ -579,6 +584,47 @@ func (m *SessionStateManager) HasInitialMessage(sessionID string) bool {
 
 	if state, exists := m.states[sessionID]; exists {
 		return state.InitialMessage != ""
+	}
+	return false
+}
+
+// SetTodoList sets the current todo list for a session.
+func (m *SessionStateManager) SetTodoList(sessionID string, list *claude.TodoList) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := m.getOrCreate(sessionID)
+	state.CurrentTodoList = list
+}
+
+// GetTodoList returns the current todo list for a session.
+func (m *SessionStateManager) GetTodoList(sessionID string) *claude.TodoList {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.CurrentTodoList
+	}
+	return nil
+}
+
+// ClearTodoList clears the todo list for a session.
+func (m *SessionStateManager) ClearTodoList(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		state.CurrentTodoList = nil
+	}
+}
+
+// HasTodoList returns whether a session has a todo list.
+func (m *SessionStateManager) HasTodoList(sessionID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.CurrentTodoList != nil && len(state.CurrentTodoList.Items) > 0
 	}
 	return false
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	pclaude "github.com/zhubert/plural/internal/claude"
 )
 
 // optionsTagStripPattern matches <options>...</options> blocks for stripping from display.
@@ -372,4 +373,89 @@ func renderPermissionPrompt(tool, description string, wrapWidth int) string {
 		boxWidth = 80
 	}
 	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
+}
+
+// renderTodoList renders the todo list from a TodoWrite tool call
+func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
+	if list == nil || len(list.Items) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Title with progress summary
+	pending, inProgress, completed := list.CountByStatus()
+	total := len(list.Items)
+
+	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	sb.WriteString(titleStyle.Render("📋 Task Progress"))
+
+	// Progress indicator
+	progressStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+	sb.WriteString(progressStyle.Render(fmt.Sprintf(" (%d/%d)", completed, total)))
+	sb.WriteString("\n\n")
+
+	// Render each todo item
+	for _, item := range list.Items {
+		var marker string
+		var contentStyle lipgloss.Style
+
+		switch item.Status {
+		case pclaude.TodoStatusCompleted:
+			marker = TodoCompletedMarkerStyle.Render("✓")
+			contentStyle = TodoCompletedContentStyle
+		case pclaude.TodoStatusInProgress:
+			// Use a single-width character for consistent alignment
+			marker = TodoInProgressMarkerStyle.Render("▸")
+			contentStyle = TodoInProgressContentStyle
+		default: // pending
+			marker = TodoPendingMarkerStyle.Render("○")
+			contentStyle = TodoPendingContentStyle
+		}
+
+		sb.WriteString(marker)
+		sb.WriteString(" ")
+
+		// For in-progress items, show the activeForm if available
+		content := item.Content
+		if item.Status == pclaude.TodoStatusInProgress && item.ActiveForm != "" {
+			content = item.ActiveForm
+		}
+
+		// Wrap long content
+		maxContentWidth := wrapWidth - 8 // Account for marker and padding
+		if maxContentWidth < 20 {
+			maxContentWidth = 20
+		}
+		wrappedContent := wrapText(content, maxContentWidth)
+
+		// Handle multi-line wrapped content - indent continuation lines
+		lines := strings.Split(wrappedContent, "\n")
+		for i, line := range lines {
+			if i > 0 {
+				sb.WriteString("   ") // Indent continuation lines
+			}
+			sb.WriteString(contentStyle.Render(line))
+			if i < len(lines)-1 {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Show summary hint if tasks are in progress
+	if inProgress > 0 || pending > 0 {
+		// Add a blank line before the summary
+		summaryStyle := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
+		if inProgress > 0 {
+			sb.WriteString(summaryStyle.Render(fmt.Sprintf("Working on %d task(s)...", inProgress)))
+		}
+	}
+
+	// Wrap in a box
+	boxWidth := wrapWidth
+	if boxWidth > 80 {
+		boxWidth = 80
+	}
+	return TodoListBoxStyle.Width(boxWidth).Render(sb.String())
 }

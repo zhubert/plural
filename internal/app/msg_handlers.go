@@ -139,6 +139,12 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 			m.chat.MarkLastToolUseComplete()
 		case claude.ChunkTypeText:
 			m.chat.AppendStreaming(chunk.Content)
+		case claude.ChunkTypeTodoUpdate:
+			// Update the todo list display
+			if chunk.TodoList != nil {
+				m.sessionState().SetTodoList(sessionID, chunk.TodoList)
+				m.chat.SetTodoList(chunk.TodoList)
+			}
 		default:
 			// For backwards compatibility, treat unknown types as text
 			if chunk.Content != "" {
@@ -189,6 +195,12 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 			}
 		}
 		m.sessionState().AppendStreaming(sessionID, chunk.Content)
+
+	case claude.ChunkTypeTodoUpdate:
+		// Store todo list for non-active session
+		if chunk.TodoList != nil {
+			m.sessionState().SetTodoList(sessionID, chunk.TodoList)
+		}
 
 	default:
 		if chunk.Content != "" {
