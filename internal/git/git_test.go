@@ -1171,6 +1171,16 @@ func createTestRepoWithRemote(t *testing.T) (repoPath, remotePath string, cleanu
 		t.Fatalf("Failed to push to remote: %v", err)
 	}
 
+	// Set the bare repo's HEAD to point to main (important for CI where default may be master)
+	cmd = exec.Command("git", "symbolic-ref", "HEAD", "refs/heads/main")
+	cmd.Dir = remotePath
+	cmd.Run()
+
+	// Set up origin/HEAD in local repo so GetDefaultBranch works correctly
+	cmd = exec.Command("git", "remote", "set-head", "origin", "main")
+	cmd.Dir = repoPath
+	cmd.Run()
+
 	cleanup = func() {
 		os.RemoveAll(repoPath)
 		os.RemoveAll(remotePath)
