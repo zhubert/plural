@@ -579,9 +579,34 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		cmd.Dir = repoPath
 		output, err = cmd.CombinedOutput()
 		if err != nil {
-			// Pull failed - could be diverged history, let the user know but continue
-			// The merge might still work if the divergence is resolvable
-			ch <- Result{Output: string(output) + "\nWarning: Pull failed, continuing with merge...\n"}
+			outputStr := string(output)
+			// Check if pull failed because there's no remote/tracking (local-only repo)
+			// In that case, it's safe to continue with the merge
+			if strings.Contains(outputStr, "no tracking information") ||
+				strings.Contains(outputStr, "There is no tracking information") ||
+				strings.Contains(outputStr, "does not appear to be a git repository") {
+				ch <- Result{Output: outputStr + "\nNo remote configured, continuing with local merge...\n"}
+			} else {
+				// Pull failed due to diverged history or other issues
+				// This is dangerous - commits could be lost if we continue
+				hint := fmt.Sprintf(`
+Your local %s branch has diverged from origin/%s.
+This can cause commits to be lost if we merge now.
+
+To fix this, sync your local %s branch first:
+  cd %s
+  git checkout %s
+  git pull --rebase   # or: git reset --hard origin/%s
+
+Then try merging again.
+`, defaultBranch, defaultBranch, defaultBranch, repoPath, defaultBranch, defaultBranch)
+				ch <- Result{
+					Output: outputStr + hint,
+					Error:  fmt.Errorf("local %s has diverged from origin - sync required before merge", defaultBranch),
+					Done:   true,
+				}
+				return
+			}
 		} else {
 			ch <- Result{Output: string(output)}
 		}

@@ -1087,3 +1087,296 @@ func TestMergeToParent_NoChangesToCommit(t *testing.T) {
 		t.Error("Expected 'No uncommitted changes' message")
 	}
 }
+
+// createTestRepoWithRemote creates a test repo with a "remote" (bare repo) for testing pull scenarios
+func createTestRepoWithRemote(t *testing.T) (repoPath, remotePath string, cleanup func()) {
+	t.Helper()
+
+	// Create a bare "remote" repository
+	remotePath, err := os.MkdirTemp("", "plural-git-remote-*")
+	if err != nil {
+		t.Fatalf("Failed to create remote temp dir: %v", err)
+	}
+
+	cmd := exec.Command("git", "init", "--bare")
+	cmd.Dir = remotePath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remotePath)
+		t.Fatalf("Failed to init bare repo: %v", err)
+	}
+
+	// Create the local repo
+	repoPath, err = os.MkdirTemp("", "plural-git-local-*")
+	if err != nil {
+		os.RemoveAll(remotePath)
+		t.Fatalf("Failed to create local temp dir: %v", err)
+	}
+
+	cmd = exec.Command("git", "init")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remotePath)
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to init local repo: %v", err)
+	}
+
+	// Configure git user
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Create initial commit
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("initial content"), 0644); err != nil {
+		os.RemoveAll(remotePath)
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remotePath)
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to initial commit: %v", err)
+	}
+
+	// Add remote and push
+	cmd = exec.Command("git", "remote", "add", "origin", remotePath)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remotePath)
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to add remote: %v", err)
+	}
+
+	// Rename branch to main and push
+	cmd = exec.Command("git", "branch", "-M", "main")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "push", "-u", "origin", "main")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		os.RemoveAll(remotePath)
+		os.RemoveAll(repoPath)
+		t.Fatalf("Failed to push to remote: %v", err)
+	}
+
+	cleanup = func() {
+		os.RemoveAll(repoPath)
+		os.RemoveAll(remotePath)
+	}
+
+	return repoPath, remotePath, cleanup
+}
+
+func TestMergeToMain_PullFailsDiverged(t *testing.T) {
+	repoPath, remotePath, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+	_ = remotePath
+
+	// Create a feature branch from main
+	cmd := exec.Command("git", "checkout", "-b", "feature-diverged")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create feature branch: %v", err)
+	}
+
+	// Make a change on the feature branch
+	featureFile := filepath.Join(repoPath, "feature.txt")
+	if err := os.WriteFile(featureFile, []byte("feature content"), 0644); err != nil {
+		t.Fatalf("Failed to create feature file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Feature commit")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit feature: %v", err)
+	}
+
+	// Now simulate diverged history:
+	// Clone the remote to a second location, make a commit, push
+	tempClone, err := os.MkdirTemp("", "plural-git-clone-*")
+	if err != nil {
+		t.Fatalf("Failed to create clone temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempClone)
+
+	cmd = exec.Command("git", "clone", remotePath, tempClone)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to clone: %v", err)
+	}
+
+	// Configure git user in clone
+	cmd = exec.Command("git", "config", "user.email", "other@example.com")
+	cmd.Dir = tempClone
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Other User")
+	cmd.Dir = tempClone
+	cmd.Run()
+
+	// Make a commit in the clone and push
+	otherFile := filepath.Join(tempClone, "other.txt")
+	if err := os.WriteFile(otherFile, []byte("other content"), 0644); err != nil {
+		t.Fatalf("Failed to create other file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = tempClone
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Other commit")
+	cmd.Dir = tempClone
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit in clone: %v", err)
+	}
+
+	cmd = exec.Command("git", "push")
+	cmd.Dir = tempClone
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to push from clone: %v", err)
+	}
+
+	// Now back in our original repo, make a LOCAL commit on main (creating divergence)
+	cmd = exec.Command("git", "checkout", "main")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout main: %v", err)
+	}
+
+	localFile := filepath.Join(repoPath, "local.txt")
+	if err := os.WriteFile(localFile, []byte("local content"), 0644); err != nil {
+		t.Fatalf("Failed to create local file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Local commit causing divergence")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to make local commit: %v", err)
+	}
+
+	// Switch back to feature branch for the merge
+	cmd = exec.Command("git", "checkout", "feature-diverged")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout feature: %v", err)
+	}
+
+	// Try to merge - should fail because local main has diverged from origin/main
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := MergeToMain(ctx, repoPath, repoPath, "feature-diverged", "")
+
+	var hadDivergedError bool
+	var sawHelpfulMessage bool
+	for result := range ch {
+		if result.Error != nil && strings.Contains(result.Error.Error(), "diverged") {
+			hadDivergedError = true
+		}
+		if strings.Contains(result.Output, "sync your local") {
+			sawHelpfulMessage = true
+		}
+	}
+
+	if !hadDivergedError {
+		t.Error("Expected merge to fail with 'diverged' error when local main has diverged from origin")
+	}
+
+	if !sawHelpfulMessage {
+		t.Error("Expected helpful message about syncing local branch")
+	}
+}
+
+func TestMergeToMain_PullFailsNoRemote(t *testing.T) {
+	// Create a local-only repo (no remote)
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Get the default branch name
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	output, _ := cmd.Output()
+	defaultBranch := strings.TrimSpace(string(output))
+	if defaultBranch == "" {
+		defaultBranch = "master"
+	}
+
+	// Create a feature branch
+	cmd = exec.Command("git", "checkout", "-b", "feature-no-remote")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create feature branch: %v", err)
+	}
+
+	// Make a change on the feature branch
+	featureFile := filepath.Join(repoPath, "feature.txt")
+	if err := os.WriteFile(featureFile, []byte("feature content"), 0644); err != nil {
+		t.Fatalf("Failed to create feature file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Feature commit")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit feature: %v", err)
+	}
+
+	// Try to merge - should succeed even though pull fails (no remote)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := MergeToMain(ctx, repoPath, repoPath, "feature-no-remote", "")
+
+	var sawNoRemoteMessage bool
+	var lastResult Result
+	for result := range ch {
+		lastResult = result
+		if strings.Contains(result.Output, "No remote configured") ||
+			strings.Contains(result.Output, "no tracking information") {
+			sawNoRemoteMessage = true
+		}
+	}
+
+	if lastResult.Error != nil {
+		t.Errorf("Expected merge to succeed for local-only repo, got error: %v", lastResult.Error)
+	}
+
+	if !lastResult.Done {
+		t.Error("Expected merge to complete with Done=true")
+	}
+
+	if !sawNoRemoteMessage {
+		t.Error("Expected message about no remote/tracking info")
+	}
+
+	// Verify the merge actually happened - feature file should exist on main
+	cmd = exec.Command("git", "checkout", defaultBranch)
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	if _, err := os.Stat(filepath.Join(repoPath, "feature.txt")); os.IsNotExist(err) {
+		t.Error("feature.txt should exist on main after merge")
+	}
+}
