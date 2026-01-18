@@ -157,3 +157,23 @@ type QuestionResponse struct {
 	ID      interface{}       `json:"id"`      // Correlates with request ID
 	Answers map[string]string `json:"answers"` // Map of question text to selected option label
 }
+
+// AllowedPrompt represents a Bash permission that Claude is requesting as part of the plan
+type AllowedPrompt struct {
+	Tool   string `json:"tool"`   // Tool name (typically "Bash")
+	Prompt string `json:"prompt"` // Description of the action (e.g., "run tests")
+}
+
+// PlanApprovalRequest represents an ExitPlanMode request sent to the TUI
+type PlanApprovalRequest struct {
+	ID             interface{}     `json:"id"`             // JSON-RPC request ID for response correlation
+	Plan           string          `json:"plan"`           // The plan content (markdown)
+	AllowedPrompts []AllowedPrompt `json:"allowedPrompts"` // Bash permissions being requested
+	Arguments      map[string]interface{} `json:"arguments"` // Original arguments for the response
+}
+
+// PlanApprovalResponse represents the user's response to a plan approval request
+type PlanApprovalResponse struct {
+	ID       interface{} `json:"id"`       // Correlates with request ID
+	Approved bool        `json:"approved"` // Whether the plan was approved
+}

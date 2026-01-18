@@ -27,11 +27,13 @@ type RunnerInterface interface {
 	SetMCPServers(servers []MCPServer)
 	SetForkFromSession(parentSessionID string)
 
-	// Permission/Question channels
+	// Permission/Question/Plan channels
 	PermissionRequestChan() <-chan mcp.PermissionRequest
 	SendPermissionResponse(resp mcp.PermissionResponse)
 	QuestionRequestChan() <-chan mcp.QuestionRequest
 	SendQuestionResponse(resp mcp.QuestionResponse)
+	PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest
+	SendPlanApprovalResponse(resp mcp.PlanApprovalResponse)
 
 	// Lifecycle
 	Stop()

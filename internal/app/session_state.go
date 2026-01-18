@@ -13,9 +13,10 @@ import (
 // This consolidates what was previously 11 separate maps in the Model,
 // making it easier to manage session lifecycle and avoid race conditions.
 type SessionState struct {
-	// Permission and question handling
-	PendingPermission *mcp.PermissionRequest
-	PendingQuestion   *mcp.QuestionRequest
+	// Permission, question, and plan approval handling
+	PendingPermission   *mcp.PermissionRequest
+	PendingQuestion     *mcp.QuestionRequest
+	PendingPlanApproval *mcp.PlanApprovalRequest
 
 	// Merge/PR operation state
 	MergeChan   <-chan git.Result
@@ -105,6 +106,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		// Clear other references
 		state.PendingPermission = nil
 		state.PendingQuestion = nil
+		state.PendingPlanApproval = nil
 		state.DetectedOptions = nil
 
 		delete(m.states, sessionID)
@@ -167,6 +169,36 @@ func (m *SessionStateManager) GetPendingQuestion(sessionID string) *mcp.Question
 
 	if state, exists := m.states[sessionID]; exists {
 		return state.PendingQuestion
+	}
+	return nil
+}
+
+// SetPendingPlanApproval sets the pending plan approval for a session.
+func (m *SessionStateManager) SetPendingPlanApproval(sessionID string, req *mcp.PlanApprovalRequest) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state := m.getOrCreate(sessionID)
+	state.PendingPlanApproval = req
+}
+
+// ClearPendingPlanApproval clears the pending plan approval for a session.
+func (m *SessionStateManager) ClearPendingPlanApproval(sessionID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		state.PendingPlanApproval = nil
+	}
+}
+
+// GetPendingPlanApproval returns the pending plan approval for a session.
+func (m *SessionStateManager) GetPendingPlanApproval(sessionID string) *mcp.PlanApprovalRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists {
+		return state.PendingPlanApproval
 	}
 	return nil
 }

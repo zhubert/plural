@@ -160,12 +160,14 @@ type Runner struct {
 	socketServer   *mcp.SocketServer // Socket server for MCP communication (persistent)
 	mcpConfigPath  string            // Path to MCP config file (persistent)
 	serverRunning  bool              // Whether the socket server is running
-	permReqChan    chan mcp.PermissionRequest
-	permRespChan   chan mcp.PermissionResponse
-	questReqChan   chan mcp.QuestionRequest
-	questRespChan  chan mcp.QuestionResponse
-	stopOnce       sync.Once // Ensures Stop() is idempotent
-	stopped        bool      // Set to true when Stop() is called, prevents reading from closed channels
+	permReqChan      chan mcp.PermissionRequest
+	permRespChan     chan mcp.PermissionResponse
+	questReqChan     chan mcp.QuestionRequest
+	questRespChan    chan mcp.QuestionResponse
+	planReqChan      chan mcp.PlanApprovalRequest
+	planRespChan     chan mcp.PlanApprovalResponse
+	stopOnce         sync.Once // Ensures Stop() is idempotent
+	stopped          bool      // Set to true when Stop() is called, prevents reading from closed channels
 
 	// Fork support: when set, first CLI invocation uses --resume <parentID> --fork-session
 	// to inherit the parent's conversation history while creating a new session
@@ -223,6 +225,8 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 		permRespChan:   make(chan mcp.PermissionResponse, PermissionChannelBuffer),
 		questReqChan:   make(chan mcp.QuestionRequest, PermissionChannelBuffer),
 		questRespChan:  make(chan mcp.QuestionResponse, PermissionChannelBuffer),
+		planReqChan:    make(chan mcp.PlanApprovalRequest, PermissionChannelBuffer),
+		planRespChan:   make(chan mcp.PlanApprovalResponse, PermissionChannelBuffer),
 		firstChunk:     true,
 	}
 
@@ -350,6 +354,38 @@ func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	case ch <- resp:
 	default:
 		logger.Log("Claude: SendQuestionResponse channel full or closed, ignoring")
+	}
+}
+
+// PlanApprovalRequestChan returns the channel for receiving plan approval requests.
+// Returns nil if the runner has been stopped to prevent reading from closed channel.
+func (r *Runner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped {
+		return nil
+	}
+	return r.planReqChan
+}
+
+// SendPlanApprovalResponse sends a response to a plan approval request.
+// Safe to call even if the runner has been stopped - will silently drop the response.
+func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	ch := r.planRespChan
+	r.mu.RUnlock()
+
+	if stopped || ch == nil {
+		logger.Log("Claude: SendPlanApprovalResponse called on stopped runner, ignoring")
+		return
+	}
+
+	// Use non-blocking send to avoid deadlock if channel is closed between check and send
+	select {
+	case ch <- resp:
+	default:
+		logger.Log("Claude: SendPlanApprovalResponse channel full or closed, ignoring")
 	}
 }
 
@@ -604,7 +640,7 @@ func (r *Runner) ensureServerRunning() error {
 	startTime := time.Now()
 
 	// Create socket server
-	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan, r.questReqChan, r.questRespChan)
+	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan, r.questReqChan, r.questRespChan, r.planReqChan, r.planRespChan)
 	if err != nil {
 		logger.Error("Claude: Failed to create socket server: %v", err)
 		return fmt.Errorf("failed to start permission server: %v", err)
@@ -1189,6 +1225,16 @@ func (r *Runner) Stop() {
 		if r.questRespChan != nil {
 			close(r.questRespChan)
 			r.questRespChan = nil
+		}
+
+		// Close plan approval channels to unblock any waiting goroutines
+		if r.planReqChan != nil {
+			close(r.planReqChan)
+			r.planReqChan = nil
+		}
+		if r.planRespChan != nil {
+			close(r.planRespChan)
+			r.planRespChan = nil
 		}
 
 		logger.Info("Claude: Runner stopped for session %s", r.sessionID)

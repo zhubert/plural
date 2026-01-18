@@ -31,16 +31,19 @@ type MockRunner struct {
 	responseQueue []ResponseChunk
 	responseChan  chan ResponseChunk
 
-	// Permission/Question channels
+	// Permission/Question/Plan channels
 	permReqChan   chan mcp.PermissionRequest
 	permRespChan  chan mcp.PermissionResponse
 	questReqChan  chan mcp.QuestionRequest
 	questRespChan chan mcp.QuestionResponse
+	planReqChan   chan mcp.PlanApprovalRequest
+	planRespChan  chan mcp.PlanApprovalResponse
 
 	// Callbacks for test assertions
-	OnSend           func(content []ContentBlock)
-	OnPermissionResp func(resp mcp.PermissionResponse)
-	OnQuestionResp   func(resp mcp.QuestionResponse)
+	OnSend             func(content []ContentBlock)
+	OnPermissionResp   func(resp mcp.PermissionResponse)
+	OnQuestionResp     func(resp mcp.QuestionResponse)
+	OnPlanApprovalResp func(resp mcp.PlanApprovalResponse)
 
 	stopped bool
 }
@@ -63,6 +66,8 @@ func NewMockRunner(sessionID string, sessionStarted bool, initialMessages []Mess
 		permRespChan:   make(chan mcp.PermissionResponse, 1),
 		questReqChan:   make(chan mcp.QuestionRequest, 1),
 		questRespChan:  make(chan mcp.QuestionResponse, 1),
+		planReqChan:    make(chan mcp.PlanApprovalRequest, 1),
+		planRespChan:   make(chan mcp.PlanApprovalResponse, 1),
 	}
 }
 
@@ -101,6 +106,17 @@ func (m *MockRunner) SimulateQuestionRequest(req mcp.QuestionRequest) {
 		return
 	}
 	m.questReqChan <- req
+}
+
+// SimulatePlanApprovalRequest triggers a plan approval request that the UI will receive.
+func (m *MockRunner) SimulatePlanApprovalRequest(req mcp.PlanApprovalRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	m.mu.RUnlock()
+	if stopped {
+		return
+	}
+	m.planReqChan <- req
 }
 
 // SessionStarted implements RunnerInterface.
@@ -302,6 +318,36 @@ func (m *MockRunner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	}
 }
 
+// PlanApprovalRequestChan implements RunnerInterface.
+func (m *MockRunner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.planReqChan
+}
+
+// SendPlanApprovalResponse implements RunnerInterface.
+func (m *MockRunner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
+	m.mu.RLock()
+	stopped := m.stopped
+	m.mu.RUnlock()
+
+	if stopped {
+		return
+	}
+
+	if m.OnPlanApprovalResp != nil {
+		m.OnPlanApprovalResp(resp)
+	}
+
+	select {
+	case m.planRespChan <- resp:
+	default:
+	}
+}
+
 // Stop implements RunnerInterface.
 func (m *MockRunner) Stop() {
 	m.mu.Lock()
@@ -324,6 +370,12 @@ func (m *MockRunner) Stop() {
 	}
 	if m.questRespChan != nil {
 		close(m.questRespChan)
+	}
+	if m.planReqChan != nil {
+		close(m.planReqChan)
+	}
+	if m.planRespChan != nil {
+		close(m.planRespChan)
 	}
 	if m.responseChan != nil {
 		// Only close if we control it

@@ -531,6 +531,12 @@ func regenerateStyles() {
 		BorderForeground(ColorInfo).
 		Padding(0, 1)
 
+	// Update plan approval prompt styles
+	PlanApprovalBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorInfo).
+		Padding(1, 2)
+
 	// Update markdown styles
 	MarkdownH1Style = lipgloss.NewStyle().
 		Bold(true).
