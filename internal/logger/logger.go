@@ -178,6 +178,21 @@ func Close() {
 	}
 }
 
+// Reset resets the logger state, allowing reinitialization.
+// This is primarily for testing purposes.
+func Reset() {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if logFile != nil {
+		logFile.Close()
+		logFile = nil
+	}
+	initDone = false
+	once = sync.Once{}
+	logPath = ""
+}
+
 // ClearLogs removes all plural log files from /tmp
 func ClearLogs() (int, error) {
 	count := 0
