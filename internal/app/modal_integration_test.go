@@ -240,15 +240,23 @@ func TestNewSessionModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected initial focus on repo list (0), got %d", state.Focus)
 	}
 
-	// Tab to branch input
+	// Tab to base selection (Focus == 1)
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.NewSessionState)
 
 	if state.Focus != 1 {
-		t.Errorf("Expected focus on branch input (1) after tab, got %d", state.Focus)
+		t.Errorf("Expected focus on base selection (1) after tab, got %d", state.Focus)
 	}
 
-	// Tab back to repo list
+	// Tab to branch input (Focus == 2)
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.NewSessionState)
+
+	if state.Focus != 2 {
+		t.Errorf("Expected focus on branch input (2) after second tab, got %d", state.Focus)
+	}
+
+	// Tab back to repo list (Focus == 0)
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.NewSessionState)
 

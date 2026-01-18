@@ -13,8 +13,10 @@ import (
 type NewSessionState struct {
 	RepoOptions []string
 	RepoIndex   int
+	BaseOptions []string // Options for base branch selection
+	BaseIndex   int      // Selected base option index
 	BranchInput textinput.Model
-	Focus       int // 0=repo list, 1=branch input
+	Focus       int // 0=repo list, 1=base selection, 2=branch input
 }
 
 func (*NewSessionState) modalState() {}
@@ -22,7 +24,7 @@ func (*NewSessionState) modalState() {}
 func (s *NewSessionState) Title() string { return "New Session" }
 
 func (s *NewSessionState) Help() string {
-	return "up/down select repo  Tab: branch name  Enter: create"
+	return "up/down: select  Tab: next field  Enter: create"
 }
 
 func (s *NewSessionState) Render() string {
@@ -43,6 +45,14 @@ func (s *NewSessionState) Render() string {
 		repoList = RenderSelectableListWithFocus(s.RepoOptions, s.RepoIndex, s.Focus == 0, "* ")
 	}
 
+	// Base branch selection section
+	baseLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Base branch:")
+
+	baseList := RenderSelectableListWithFocus(s.BaseOptions, s.BaseIndex, s.Focus == 1, "> ")
+
 	// Branch name input section
 	branchLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
@@ -50,7 +60,7 @@ func (s *NewSessionState) Render() string {
 		Render("Branch name:")
 
 	branchInputStyle := lipgloss.NewStyle()
-	if s.Focus == 1 {
+	if s.Focus == 2 {
 		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 	} else {
 		branchInputStyle = branchInputStyle.PaddingLeft(2)
@@ -59,40 +69,63 @@ func (s *NewSessionState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, branchLabel, branchView, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, baseLabel, baseList, branchLabel, branchView, help)
 }
 
 func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case "up", "k":
-			if s.Focus == 0 && s.RepoIndex > 0 {
-				s.RepoIndex--
+			switch s.Focus {
+			case 0: // Repo list
+				if s.RepoIndex > 0 {
+					s.RepoIndex--
+				}
+			case 1: // Base selection
+				if s.BaseIndex > 0 {
+					s.BaseIndex--
+				}
 			}
 		case "down", "j":
-			if s.Focus == 0 && s.RepoIndex < len(s.RepoOptions)-1 {
-				s.RepoIndex++
+			switch s.Focus {
+			case 0: // Repo list
+				if s.RepoIndex < len(s.RepoOptions)-1 {
+					s.RepoIndex++
+				}
+			case 1: // Base selection
+				if s.BaseIndex < len(s.BaseOptions)-1 {
+					s.BaseIndex++
+				}
 			}
 		case "tab":
-			if s.Focus == 0 {
+			switch s.Focus {
+			case 0:
 				s.Focus = 1
+			case 1:
+				s.Focus = 2
 				s.BranchInput.Focus()
-			} else {
+			case 2:
 				s.Focus = 0
 				s.BranchInput.Blur()
 			}
 			return s, nil
 		case "shift+tab":
-			if s.Focus == 1 {
-				s.Focus = 0
+			switch s.Focus {
+			case 2:
+				s.Focus = 1
 				s.BranchInput.Blur()
+			case 1:
+				s.Focus = 0
+			case 0:
+				s.Focus = 2
+				s.BranchInput.Focus()
 			}
 			return s, nil
 		}
 	}
 
 	// Handle branch input updates when focused
-	if s.Focus == 1 {
+	if s.Focus == 2 {
 		var cmd tea.Cmd
 		s.BranchInput, cmd = s.BranchInput.Update(msg)
 		return s, cmd
@@ -114,6 +147,11 @@ func (s *NewSessionState) GetBranchName() string {
 	return s.BranchInput.Value()
 }
 
+// GetBaseIndex returns the selected base option index
+func (s *NewSessionState) GetBaseIndex() int {
+	return s.BaseIndex
+}
+
 // NewNewSessionState creates a new NewSessionState with proper initialization
 func NewNewSessionState(repos []string) *NewSessionState {
 	branchInput := textinput.New()
@@ -124,6 +162,11 @@ func NewNewSessionState(repos []string) *NewSessionState {
 	return &NewSessionState{
 		RepoOptions: repos,
 		RepoIndex:   0,
+		BaseOptions: []string{
+			"From remote default branch (latest)",
+			"From current local branch",
+		},
+		BaseIndex:   0,
 		BranchInput: branchInput,
 		Focus:       0,
 	}

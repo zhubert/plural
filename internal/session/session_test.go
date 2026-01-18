@@ -73,7 +73,7 @@ func TestCreate(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -122,12 +122,12 @@ func TestCreate_MultipleSessions(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create multiple sessions
-	session1, err := Create(repoPath, "", "")
+	session1, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create session1 failed: %v", err)
 	}
 
-	session2, err := Create(repoPath, "", "")
+	session2, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create session2 failed: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestCreate_InvalidRepo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Try to create session in non-git directory
-	_, err = Create(tmpDir, "", "")
+	_, err = Create(tmpDir, "", "", BasePointHead)
 	if err == nil {
 		t.Error("Create should fail for non-git directory")
 	}
@@ -290,7 +290,7 @@ func TestSessionName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestBranchName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestWorktreePath_Location(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestCreate_CustomBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	customBranch := "feature/my-cool-feature"
-	session, err := Create(repoPath, customBranch, "")
+	session, err := Create(repoPath, customBranch, "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create with custom branch failed: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestDelete(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session first
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestDelete_AlreadyDeletedBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestFindOrphanedWorktrees(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -584,7 +584,7 @@ func TestPruneOrphanedWorktrees(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "", "")
+	session, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -640,7 +640,7 @@ func TestCreate_CustomBranchDisplayName(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	customBranch := "feature/my-feature"
-	session, err := Create(repoPath, customBranch, "")
+	session, err := Create(repoPath, customBranch, "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -657,7 +657,7 @@ func TestCreate_BranchPrefix(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	branchPrefix := "zhubert/"
-	session, err := Create(repoPath, "", branchPrefix)
+	session, err := Create(repoPath, "", branchPrefix, BasePointHead)
 	if err != nil {
 		t.Fatalf("Create with branch prefix failed: %v", err)
 	}
@@ -686,7 +686,7 @@ func TestCreate_BranchPrefixWithCustomBranch(t *testing.T) {
 
 	branchPrefix := "zhubert/"
 	customBranch := "issue-42"
-	session, err := Create(repoPath, customBranch, branchPrefix)
+	session, err := Create(repoPath, customBranch, branchPrefix, BasePointHead)
 	if err != nil {
 		t.Fatalf("Create with branch prefix and custom branch failed: %v", err)
 	}
@@ -903,7 +903,7 @@ func TestCreate_UsesOriginMain(t *testing.T) {
 
 	// Now the local repo is behind the remote
 	// Creating a session should fetch and use the remote's latest commit
-	session, err := Create(localPath, "", "")
+	session, err := Create(localPath, "", "", BasePointOrigin)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -934,7 +934,7 @@ func TestCreateFromBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a first session (simulating a parent session)
-	parentSession, err := Create(repoPath, "parent-branch", "")
+	parentSession, err := Create(repoPath, "parent-branch", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Failed to create parent session: %v", err)
 	}
@@ -1002,7 +1002,7 @@ func TestCreateFromBranch_WithBranchPrefix(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a first session
-	parentSession, err := Create(repoPath, "", "")
+	parentSession, err := Create(repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Failed to create parent session: %v", err)
 	}
@@ -1017,5 +1017,122 @@ func TestCreateFromBranch_WithBranchPrefix(t *testing.T) {
 	expectedBranch := branchPrefix + "my-fork"
 	if forkedSession.Branch != expectedBranch {
 		t.Errorf("Forked session branch = %q, want %q", forkedSession.Branch, expectedBranch)
+	}
+}
+
+func TestCreate_FromCurrentBranch(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Create a local branch with changes that are NOT pushed to remote
+	cmd := exec.Command("git", "checkout", "-b", "local-feature")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create local branch: %v", err)
+	}
+
+	// Add a local-only file
+	localFile := filepath.Join(localPath, "local-only.txt")
+	if err := os.WriteFile(localFile, []byte("local only content"), 0644); err != nil {
+		t.Fatalf("Failed to create local file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = localPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Local commit")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Get the local HEAD SHA
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = localPath
+	localHead, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get local HEAD: %v", err)
+	}
+	localHeadSHA := strings.TrimSpace(string(localHead))
+
+	// Create a session from the current branch (fromOrigin=false)
+	session, err := Create(localPath, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create from current branch failed: %v", err)
+	}
+
+	// Verify the session has the local-only file
+	sessionLocalFile := filepath.Join(session.WorkTree, "local-only.txt")
+	if _, err := os.Stat(sessionLocalFile); os.IsNotExist(err) {
+		t.Error("Session should have the local-only file when created from current branch")
+	}
+
+	// Verify the session is based on the local commit
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = session.WorkTree
+	sessionHead, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get session HEAD: %v", err)
+	}
+	sessionHeadSHA := strings.TrimSpace(string(sessionHead))
+
+	if sessionHeadSHA != localHeadSHA {
+		t.Errorf("Session HEAD = %s, want local HEAD %s", sessionHeadSHA, localHeadSHA)
+	}
+}
+
+func TestCreate_FromOriginVsCurrentBranch(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Create a local branch with changes that are NOT pushed to remote
+	cmd := exec.Command("git", "checkout", "-b", "local-feature")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create local branch: %v", err)
+	}
+
+	localFile := filepath.Join(localPath, "local-only.txt")
+	if err := os.WriteFile(localFile, []byte("local content"), 0644); err != nil {
+		t.Fatalf("Failed to create local file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = localPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Local commit")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Create a session from origin (fromOrigin=true)
+	sessionFromOrigin, err := Create(localPath, "from-origin", "", BasePointOrigin)
+	if err != nil {
+		t.Fatalf("Create from origin failed: %v", err)
+	}
+
+	// Create a session from current branch (fromOrigin=false)
+	sessionFromCurrent, err := Create(localPath, "from-current", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create from current branch failed: %v", err)
+	}
+
+	// The session from origin should NOT have the local-only file
+	originLocalFile := filepath.Join(sessionFromOrigin.WorkTree, "local-only.txt")
+	if _, err := os.Stat(originLocalFile); !os.IsNotExist(err) {
+		t.Error("Session from origin should NOT have the local-only file")
+	}
+
+	// The session from current branch SHOULD have the local-only file
+	currentLocalFile := filepath.Join(sessionFromCurrent.WorkTree, "local-only.txt")
+	if _, err := os.Stat(currentLocalFile); os.IsNotExist(err) {
+		t.Error("Session from current branch SHOULD have the local-only file")
 	}
 }

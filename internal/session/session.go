@@ -31,6 +31,16 @@ func GetExecutor() pexec.CommandExecutor {
 	return executor
 }
 
+// BasePoint specifies where to branch from when creating a new session
+type BasePoint string
+
+const (
+	// BasePointOrigin branches from origin's default branch (after fetching)
+	BasePointOrigin BasePoint = "origin"
+	// BasePointHead branches from the current local HEAD
+	BasePointHead BasePoint = "head"
+)
+
 // validBranchNameRegex matches valid git branch name characters
 // Git branch names cannot contain: space, ~, ^, :, ?, *, [, \, or control characters
 // They also cannot start with - or end with .lock
@@ -134,14 +144,12 @@ func FetchOrigin(repoPath string) error {
 // If customBranch is provided, it will be used as the branch name; otherwise
 // a branch named "plural-<UUID>" will be created.
 // The branchPrefix is prepended to auto-generated branch names (e.g., "zhubert/").
-// The worktree is created from origin's default branch (after fetching) to ensure
-// it's based on the latest remote state.
-func Create(repoPath string, customBranch string, branchPrefix string) (*config.Session, error) {
+// The basePoint specifies where to branch from:
+//   - BasePointOrigin: fetches from origin and branches from origin's default branch
+//   - BasePointHead: branches from the current local HEAD
+func Create(repoPath string, customBranch string, branchPrefix string, basePoint BasePoint) (*config.Session, error) {
 	startTime := time.Now()
-	logger.Log("Session: Creating new session for repo=%s, customBranch=%q, branchPrefix=%q", repoPath, customBranch, branchPrefix)
-
-	// Fetch from origin to ensure we have the latest commits
-	FetchOrigin(repoPath)
+	logger.Log("Session: Creating new session for repo=%s, customBranch=%q, branchPrefix=%q, basePoint=%v", repoPath, customBranch, branchPrefix, basePoint)
 
 	// Generate UUID for this session
 	id := uuid.New().String()
@@ -164,17 +172,30 @@ func Create(repoPath string, customBranch string, branchPrefix string) (*config.
 	worktreePath := filepath.Join(repoParent, ".plural-worktrees", id)
 
 	// Determine the starting point for the new branch
-	// Prefer origin's default branch if it exists, otherwise fall back to HEAD
-	defaultBranch := GetDefaultBranch(repoPath)
-	startPoint := fmt.Sprintf("origin/%s", defaultBranch)
+	var startPoint string
+	switch basePoint {
+	case BasePointOrigin:
+		// Fetch from origin to ensure we have the latest commits
+		FetchOrigin(repoPath)
 
-	// Check if the remote branch exists
-	checkCmd := exec.Command("git", "rev-parse", "--verify", startPoint)
-	checkCmd.Dir = repoPath
-	if checkCmd.Run() != nil {
-		// Remote branch doesn't exist (local-only repo), fall back to HEAD
-		logger.Log("Session: Remote branch %s not found, falling back to HEAD", startPoint)
+		// Prefer origin's default branch if it exists, otherwise fall back to HEAD
+		defaultBranch := GetDefaultBranch(repoPath)
+		startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+
+		// Check if the remote branch exists
+		checkCmd := exec.Command("git", "rev-parse", "--verify", startPoint)
+		checkCmd.Dir = repoPath
+		if checkCmd.Run() != nil {
+			// Remote branch doesn't exist (local-only repo), fall back to HEAD
+			logger.Log("Session: Remote branch %s not found, falling back to HEAD", startPoint)
+			startPoint = "HEAD"
+		}
+	case BasePointHead:
+		fallthrough
+	default:
+		// Use current branch (HEAD)
 		startPoint = "HEAD"
+		logger.Log("Session: Using current branch (HEAD) as base")
 	}
 
 	// Create the worktree with a new branch based on the start point
