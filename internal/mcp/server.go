@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -357,15 +358,19 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 
 // handleExitPlanMode handles the ExitPlanMode tool specially to show a plan approval UI
 func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]interface{}) {
-	logger.Log("MCP: Handling ExitPlanMode")
+	logger.Log("MCP: Handling ExitPlanMode with arguments: %v", arguments)
 
-	// Extract plan content
+	// Extract plan content - try multiple sources
 	plan, _ := arguments["plan"].(string)
 	if plan == "" {
-		// If no plan field, the plan might be in a different location
-		logger.Log("MCP: ExitPlanMode missing 'plan' field, approving without review")
-		s.sendPermissionResult(reqID, true, arguments, "")
-		return
+		// Try to get file path from arguments (Claude Code stores plans in ~/.claude/plans/)
+		if filePath, ok := arguments["filePath"].(string); ok && filePath != "" {
+			logger.Log("MCP: ExitPlanMode has filePath: %s, reading from file", filePath)
+			plan = readPlanFromPath(filePath)
+		} else {
+			logger.Log("MCP: ExitPlanMode missing both 'plan' and 'filePath' fields")
+			plan = "*No plan content provided. Please check the plan file manually.*"
+		}
 	}
 
 	// Parse allowedPrompts if present
@@ -539,6 +544,23 @@ func (s *Server) send(resp JSONRPCResponse) {
 	} else {
 		logger.Log("MCP: Sent: %s", string(data))
 	}
+}
+
+// readPlanFromPath attempts to read the plan from the specified file path.
+// Returns the file contents if found, or an error message if not.
+func readPlanFromPath(planPath string) string {
+	content, err := os.ReadFile(planPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logger.Log("MCP: Plan file not found at %s", planPath)
+			return fmt.Sprintf("*Plan file not found at %s*", planPath)
+		}
+		logger.Log("MCP: Failed to read plan file: %v", err)
+		return fmt.Sprintf("*Error reading plan file: %v*", err)
+	}
+
+	logger.Log("MCP: Successfully read plan file (%d bytes) from %s", len(content), planPath)
+	return string(content)
 }
 
 // buildToolDescription creates a human-readable description for known tools

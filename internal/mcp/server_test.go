@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -712,4 +713,155 @@ func TestServer_addAllowedTool(t *testing.T) {
 			t.Error("Edit should be allowed after adding")
 		}
 	})
+}
+
+func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
+	// This test verifies that when ExitPlanMode is called without a plan field,
+	// it still sends a request to the TUI for approval rather than auto-approving.
+	// This is a regression test for the auto-approval bug.
+
+	t.Run("valid plan passes through", func(t *testing.T) {
+		planApprovalChan := make(chan PlanApprovalRequest, 1)
+		planResponseChan := make(chan PlanApprovalResponse, 1)
+		var buf strings.Builder
+
+		s := &Server{
+			planApprovalChan: planApprovalChan,
+			planResponseChan: planResponseChan,
+			writer:           &buf,
+		}
+
+		go func() {
+			req := <-planApprovalChan
+			wantPlan := "# My Plan\n\n1. Do something"
+			if req.Plan != wantPlan {
+				t.Errorf("PlanApprovalRequest.Plan = %q, want %q", req.Plan, wantPlan)
+			}
+			planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: false}
+		}()
+
+		s.handleExitPlanMode("test-id", map[string]interface{}{"plan": "# My Plan\n\n1. Do something"})
+	})
+
+	t.Run("missing plan and filePath shows placeholder", func(t *testing.T) {
+		planApprovalChan := make(chan PlanApprovalRequest, 1)
+		planResponseChan := make(chan PlanApprovalResponse, 1)
+		var buf strings.Builder
+
+		s := &Server{
+			planApprovalChan: planApprovalChan,
+			planResponseChan: planResponseChan,
+			writer:           &buf,
+		}
+
+		go func() {
+			req := <-planApprovalChan
+			// Should show placeholder message when neither plan nor filePath provided
+			if !strings.Contains(req.Plan, "No plan content provided") {
+				t.Errorf("Expected 'No plan content provided' message, got: %q", req.Plan)
+			}
+			planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: false}
+		}()
+
+		// Missing both plan and filePath should show placeholder
+		s.handleExitPlanMode("test-id", map[string]interface{}{})
+	})
+
+	t.Run("filePath argument reads from specified file", func(t *testing.T) {
+		// Create a temp file with a whimsical name (like Claude Code uses)
+		tmpDir := t.TempDir()
+		planContent := "# Plan from ~/.claude/plans/\n\nThis is a plan with a whimsical name."
+		planPath := tmpDir + "/dancing-purple-elephant.md"
+		if err := os.WriteFile(planPath, []byte(planContent), 0644); err != nil {
+			t.Fatalf("Failed to write plan file: %v", err)
+		}
+
+		planApprovalChan := make(chan PlanApprovalRequest, 1)
+		planResponseChan := make(chan PlanApprovalResponse, 1)
+		var buf strings.Builder
+
+		s := &Server{
+			planApprovalChan: planApprovalChan,
+			planResponseChan: planResponseChan,
+			writer:           &buf,
+		}
+
+		go func() {
+			req := <-planApprovalChan
+			if req.Plan != planContent {
+				t.Errorf("PlanApprovalRequest.Plan = %q, want %q", req.Plan, planContent)
+			}
+			planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: false}
+		}()
+
+		// filePath argument should be used to read the plan
+		s.handleExitPlanMode("test-id", map[string]interface{}{
+			"filePath": planPath,
+		})
+	})
+}
+
+func TestReadPlanFromPath(t *testing.T) {
+	t.Run("reads existing file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		planContent := "# Test Plan\n\n1. Step one\n2. Step two"
+		planPath := tmpDir + "/whimsical-dancing-unicorn.md"
+		if err := os.WriteFile(planPath, []byte(planContent), 0644); err != nil {
+			t.Fatalf("Failed to write plan file: %v", err)
+		}
+
+		result := readPlanFromPath(planPath)
+		if result != planContent {
+			t.Errorf("readPlanFromPath() = %q, want %q", result, planContent)
+		}
+	})
+
+	t.Run("returns error message when file missing", func(t *testing.T) {
+		result := readPlanFromPath("/nonexistent/path/plan.md")
+		if !strings.Contains(result, "Plan file not found") {
+			t.Errorf("Expected 'Plan file not found' message, got: %q", result)
+		}
+	})
+}
+
+func TestHandleExitPlanMode_ParsesAllowedPrompts(t *testing.T) {
+	planApprovalChan := make(chan PlanApprovalRequest, 1)
+	planResponseChan := make(chan PlanApprovalResponse, 1)
+	var buf strings.Builder
+
+	s := &Server{
+		planApprovalChan: planApprovalChan,
+		planResponseChan: planResponseChan,
+		writer:           &buf,
+	}
+
+	arguments := map[string]interface{}{
+		"plan": "Test plan",
+		"allowedPrompts": []interface{}{
+			map[string]interface{}{
+				"tool":   "Bash",
+				"prompt": "run tests",
+			},
+			map[string]interface{}{
+				"tool":   "Bash",
+				"prompt": "build project",
+			},
+		},
+	}
+
+	go func() {
+		req := <-planApprovalChan
+		if len(req.AllowedPrompts) != 2 {
+			t.Errorf("Expected 2 allowed prompts, got %d", len(req.AllowedPrompts))
+		}
+		if req.AllowedPrompts[0].Tool != "Bash" {
+			t.Errorf("Expected first prompt tool to be 'Bash', got %q", req.AllowedPrompts[0].Tool)
+		}
+		if req.AllowedPrompts[0].Prompt != "run tests" {
+			t.Errorf("Expected first prompt to be 'run tests', got %q", req.AllowedPrompts[0].Prompt)
+		}
+		planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: true}
+	}()
+
+	s.handleExitPlanMode("test-id", arguments)
 }
