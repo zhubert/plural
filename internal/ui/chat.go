@@ -65,6 +65,12 @@ type Chat struct {
 	selectedOptionIdx  int               // Currently highlighted option
 	questionAnswers    map[string]string // Collected answers (question text -> selected label)
 
+	// Pending plan approval prompt
+	hasPendingPlanApproval bool
+	pendingPlan            string             // The plan content (markdown)
+	pendingAllowedPrompts  []mcp.AllowedPrompt // Requested Bash permissions
+	planScrollOffset       int                 // Scroll offset for viewing the plan
+
 	// View changes mode - temporary overlay showing git diff with file navigation
 	viewChangesMode      bool           // Whether we're showing the diff overlay
 	viewChangesViewport  viewport.Model // Viewport for diff scrolling
@@ -418,6 +424,41 @@ func (c *Chat) GetQuestionAnswers() map[string]string {
 	return c.questionAnswers
 }
 
+// SetPendingPlanApproval sets the pending plan approval to display
+func (c *Chat) SetPendingPlanApproval(plan string, allowedPrompts []mcp.AllowedPrompt) {
+	c.hasPendingPlanApproval = true
+	c.pendingPlan = plan
+	c.pendingAllowedPrompts = allowedPrompts
+	c.planScrollOffset = 0
+	c.updateContent()
+}
+
+// ClearPendingPlanApproval clears the pending plan approval prompt
+func (c *Chat) ClearPendingPlanApproval() {
+	c.hasPendingPlanApproval = false
+	c.pendingPlan = ""
+	c.pendingAllowedPrompts = nil
+	c.planScrollOffset = 0
+	c.updateContent()
+}
+
+// HasPendingPlanApproval returns whether there's a pending plan approval prompt
+func (c *Chat) HasPendingPlanApproval() bool {
+	return c.hasPendingPlanApproval
+}
+
+// ScrollPlan scrolls the plan view by the given delta
+func (c *Chat) ScrollPlan(delta int) {
+	if !c.hasPendingPlanApproval {
+		return
+	}
+	c.planScrollOffset += delta
+	if c.planScrollOffset < 0 {
+		c.planScrollOffset = 0
+	}
+	c.updateContent()
+}
+
 // MoveQuestionSelection moves the selection up or down
 func (c *Chat) MoveQuestionSelection(delta int) {
 	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
@@ -635,6 +676,93 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	return QuestionBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
+// renderPlanApprovalPrompt renders the inline plan approval prompt
+func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
+	if !c.hasPendingPlanApproval {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Title
+	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	sb.WriteString(titleStyle.Render("📋 Plan Approval Required"))
+	sb.WriteString("\n\n")
+
+	// Plan content - show with scrolling
+	planLines := strings.Split(c.pendingPlan, "\n")
+	maxVisibleLines := 20 // Maximum lines to show at once
+
+	// Calculate visible range
+	startLine := c.planScrollOffset
+	if startLine >= len(planLines) {
+		startLine = len(planLines) - 1
+		if startLine < 0 {
+			startLine = 0
+		}
+	}
+	endLine := startLine + maxVisibleLines
+	if endLine > len(planLines) {
+		endLine = len(planLines)
+	}
+
+	// Show scroll indicators if needed
+	if startLine > 0 {
+		scrollHint := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
+		sb.WriteString(scrollHint.Render(fmt.Sprintf("  ↑ %d more lines above", startLine)))
+		sb.WriteString("\n")
+	}
+
+	// Render visible lines
+	contentStyle := lipgloss.NewStyle().Foreground(ColorText)
+	for i := startLine; i < endLine; i++ {
+		sb.WriteString(contentStyle.Render(planLines[i]))
+		sb.WriteString("\n")
+	}
+
+	if endLine < len(planLines) {
+		scrollHint := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
+		sb.WriteString(scrollHint.Render(fmt.Sprintf("  ↓ %d more lines below", len(planLines)-endLine)))
+		sb.WriteString("\n")
+	}
+
+	// Show allowed prompts if any
+	if len(c.pendingAllowedPrompts) > 0 {
+		sb.WriteString("\n")
+		promptsHeader := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
+		sb.WriteString(promptsHeader.Render("Requested permissions:"))
+		sb.WriteString("\n")
+
+		promptStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+		for _, prompt := range c.pendingAllowedPrompts {
+			sb.WriteString(promptStyle.Render(fmt.Sprintf("  • %s: %s", prompt.Tool, prompt.Prompt)))
+			sb.WriteString("\n")
+		}
+	}
+
+	sb.WriteString("\n")
+
+	// Keyboard hints
+	keyStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	hintStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+
+	sb.WriteString(keyStyle.Render("[y]"))
+	sb.WriteString(hintStyle.Render(" Approve  "))
+	sb.WriteString(keyStyle.Render("[n]"))
+	sb.WriteString(hintStyle.Render(" Reject  "))
+	if len(planLines) > maxVisibleLines {
+		sb.WriteString(keyStyle.Render("[↑/↓]"))
+		sb.WriteString(hintStyle.Render(" Scroll"))
+	}
+
+	// Wrap in a box
+	boxWidth := wrapWidth
+	if boxWidth > 100 {
+		boxWidth = 100
+	}
+	return PlanApprovalBoxStyle.Width(boxWidth).Render(sb.String())
+}
+
 func (c *Chat) updateContent() {
 	var sb strings.Builder
 
@@ -760,6 +888,14 @@ func (c *Chat) updateContent() {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(c.renderQuestionPrompt(wrapWidth))
+		}
+
+		// Show pending plan approval prompt
+		if c.hasPendingPlanApproval {
+			if len(c.messages) > 0 || c.streaming != "" || c.waiting || c.hasPendingPermission || c.hasPendingQuestion {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(c.renderPlanApprovalPrompt(wrapWidth))
 		}
 	}
 

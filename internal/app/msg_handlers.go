@@ -416,6 +416,37 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 		m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
 		m.listenForSessionPermission(msg.SessionID, runner),
 		m.listenForSessionQuestion(msg.SessionID, runner),
+		m.listenForSessionPlanApproval(msg.SessionID, runner),
+	)
+}
+
+// handlePlanApprovalRequestMsg handles plan approval requests from Claude.
+func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Model, tea.Cmd) {
+	// Get the runner for this session
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	exists := runner != nil
+	if !exists {
+		logger.Log("App: Received plan approval request for unknown session %s", msg.SessionID)
+		return m, nil
+	}
+
+	// Store plan approval request for this session
+	logger.Log("App: Plan approval request for session %s: plan %d chars, %d allowed prompts",
+		msg.SessionID, len(msg.Request.Plan), len(msg.Request.AllowedPrompts))
+	m.sessionState().SetPendingPlanApproval(msg.SessionID, &msg.Request)
+	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for plan approval
+
+	// If this is the active session, show plan approval in chat
+	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
+		m.chat.SetPendingPlanApproval(msg.Request.Plan, msg.Request.AllowedPrompts)
+	}
+
+	// Continue listening for more requests and responses
+	return m, tea.Batch(
+		m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
+		m.listenForSessionPermission(msg.SessionID, runner),
+		m.listenForSessionQuestion(msg.SessionID, runner),
+		m.listenForSessionPlanApproval(msg.SessionID, runner),
 	)
 }
 

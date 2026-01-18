@@ -177,6 +177,14 @@ var (
 		Padding(0, 1)
 )
 
+// Plan approval prompt styles
+var (
+	PlanApprovalBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorInfo).
+		Padding(1, 2)
+)
+
 // Markdown rendering styles
 var (
 	// Headers

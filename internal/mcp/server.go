@@ -30,26 +30,30 @@ const (
 
 // Server implements an MCP server for handling permission prompts
 type Server struct {
-	reader       *bufio.Reader
-	writer       io.Writer
-	requestChan  chan<- PermissionRequest  // Send permission requests to TUI
-	responseChan <-chan PermissionResponse // Receive responses from TUI
-	questionChan chan<- QuestionRequest    // Send question requests to TUI
-	answerChan   <-chan QuestionResponse   // Receive answers from TUI
-	allowedTools []string                  // Pre-allowed tools for this session
-	mu           sync.Mutex
+	reader           *bufio.Reader
+	writer           io.Writer
+	requestChan      chan<- PermissionRequest      // Send permission requests to TUI
+	responseChan     <-chan PermissionResponse     // Receive responses from TUI
+	questionChan     chan<- QuestionRequest        // Send question requests to TUI
+	answerChan       <-chan QuestionResponse       // Receive answers from TUI
+	planApprovalChan chan<- PlanApprovalRequest    // Send plan approval requests to TUI
+	planResponseChan <-chan PlanApprovalResponse   // Receive plan approval responses from TUI
+	allowedTools     []string                      // Pre-allowed tools for this session
+	mu               sync.Mutex
 }
 
 // NewServer creates a new MCP server
-func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, allowedTools []string) *Server {
+func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, planApprovalChan chan<- PlanApprovalRequest, planResponseChan <-chan PlanApprovalResponse, allowedTools []string) *Server {
 	return &Server{
-		reader:       bufio.NewReader(r),
-		writer:       w,
-		requestChan:  reqChan,
-		responseChan: respChan,
-		questionChan: questionChan,
-		answerChan:   answerChan,
-		allowedTools: allowedTools,
+		reader:           bufio.NewReader(r),
+		writer:           w,
+		requestChan:      reqChan,
+		responseChan:     respChan,
+		questionChan:     questionChan,
+		answerChan:       answerChan,
+		planApprovalChan: planApprovalChan,
+		planResponseChan: planResponseChan,
+		allowedTools:     allowedTools,
 	}
 }
 
@@ -201,6 +205,12 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 		return
 	}
 
+	// Special handling for ExitPlanMode - show plan approval UI instead of permission prompt
+	if tool == "ExitPlanMode" {
+		s.handleExitPlanMode(req.ID, arguments)
+		return
+	}
+
 	// Check if tool is pre-allowed
 	if s.isToolAllowed(tool) {
 		logger.Log("MCP: Tool %s is pre-allowed", tool)
@@ -343,6 +353,78 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 	}
 
 	s.sendPermissionResult(reqID, true, updatedInput, "")
+}
+
+// handleExitPlanMode handles the ExitPlanMode tool specially to show a plan approval UI
+func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]interface{}) {
+	logger.Log("MCP: Handling ExitPlanMode")
+
+	// Extract plan content
+	plan, _ := arguments["plan"].(string)
+	if plan == "" {
+		// If no plan field, the plan might be in a different location
+		logger.Log("MCP: ExitPlanMode missing 'plan' field, approving without review")
+		s.sendPermissionResult(reqID, true, arguments, "")
+		return
+	}
+
+	// Parse allowedPrompts if present
+	var allowedPrompts []AllowedPrompt
+	if promptsRaw, ok := arguments["allowedPrompts"].([]interface{}); ok {
+		for _, p := range promptsRaw {
+			pMap, ok := p.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			prompt := AllowedPrompt{}
+			if tool, ok := pMap["tool"].(string); ok {
+				prompt.Tool = tool
+			}
+			if desc, ok := pMap["prompt"].(string); ok {
+				prompt.Prompt = desc
+			}
+			if prompt.Tool != "" && prompt.Prompt != "" {
+				allowedPrompts = append(allowedPrompts, prompt)
+			}
+		}
+	}
+
+	logger.Log("MCP: Parsed plan (%d chars) with %d allowed prompts, sending to TUI", len(plan), len(allowedPrompts))
+
+	// Send plan approval request to TUI
+	planReq := PlanApprovalRequest{
+		ID:             reqID,
+		Plan:           plan,
+		AllowedPrompts: allowedPrompts,
+		Arguments:      arguments,
+	}
+
+	// Send to TUI with timeout
+	select {
+	case s.planApprovalChan <- planReq:
+		logger.Log("MCP: Waiting for TUI plan approval...")
+	case <-time.After(ChannelSendTimeout):
+		logger.Log("MCP: Timeout sending plan approval request to TUI")
+		s.sendPermissionResult(reqID, false, arguments, "TUI not responding")
+		return
+	}
+
+	// Wait for approval with timeout
+	var response PlanApprovalResponse
+	select {
+	case response = <-s.planResponseChan:
+		logger.Log("MCP: Received TUI plan approval response: approved=%v", response.Approved)
+	case <-time.After(ChannelReceiveTimeout):
+		logger.Log("MCP: Timeout waiting for TUI plan approval")
+		s.sendPermissionResult(reqID, false, arguments, "Plan approval request timed out")
+		return
+	}
+
+	if response.Approved {
+		s.sendPermissionResult(reqID, true, arguments, "")
+	} else {
+		s.sendPermissionResult(reqID, false, arguments, "Plan rejected by user")
+	}
 }
 
 func (s *Server) isToolAllowed(tool string) bool {

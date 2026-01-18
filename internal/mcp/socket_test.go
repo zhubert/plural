@@ -157,8 +157,10 @@ func TestNewSocketServer(t *testing.T) {
 	permRespCh := make(chan PermissionResponse, 1)
 	questReqCh := make(chan QuestionRequest, 1)
 	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
 
-	server, err := NewSocketServer("test-session-123", permReqCh, permRespCh, questReqCh, questRespCh)
+	server, err := NewSocketServer("test-session-123", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
 	if err != nil {
 		t.Fatalf("NewSocketServer failed: %v", err)
 	}
@@ -180,8 +182,10 @@ func TestSocketServer_Close(t *testing.T) {
 	permRespCh := make(chan PermissionResponse, 1)
 	questReqCh := make(chan QuestionRequest, 1)
 	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
 
-	server, err := NewSocketServer("test-close-session", permReqCh, permRespCh, questReqCh, questRespCh)
+	server, err := NewSocketServer("test-close-session", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
 	if err != nil {
 		t.Fatalf("NewSocketServer failed: %v", err)
 	}
@@ -201,8 +205,10 @@ func TestSocketClientServer_Integration(t *testing.T) {
 	permRespCh := make(chan PermissionResponse, 1)
 	questReqCh := make(chan QuestionRequest, 1)
 	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
 
-	server, err := NewSocketServer("test-integration", permReqCh, permRespCh, questReqCh, questRespCh)
+	server, err := NewSocketServer("test-integration", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
 	if err != nil {
 		t.Fatalf("NewSocketServer failed: %v", err)
 	}
@@ -277,8 +283,10 @@ func TestSocketClientServer_Question(t *testing.T) {
 	permRespCh := make(chan PermissionResponse, 1)
 	questReqCh := make(chan QuestionRequest, 1)
 	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
 
-	server, err := NewSocketServer("test-question", permReqCh, permRespCh, questReqCh, questRespCh)
+	server, err := NewSocketServer("test-question", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
 	if err != nil {
 		t.Fatalf("NewSocketServer failed: %v", err)
 	}

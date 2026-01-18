@@ -26,33 +26,38 @@ const (
 type MessageType string
 
 const (
-	MessageTypePermission MessageType = "permission"
-	MessageTypeQuestion   MessageType = "question"
+	MessageTypePermission   MessageType = "permission"
+	MessageTypeQuestion     MessageType = "question"
+	MessageTypePlanApproval MessageType = "planApproval"
 )
 
-// SocketMessage wraps permission or question requests/responses
+// SocketMessage wraps permission, question, or plan approval requests/responses
 type SocketMessage struct {
-	Type     MessageType      `json:"type"`
-	PermReq  *PermissionRequest  `json:"permReq,omitempty"`
-	PermResp *PermissionResponse `json:"permResp,omitempty"`
-	QuestReq *QuestionRequest    `json:"questReq,omitempty"`
-	QuestResp *QuestionResponse  `json:"questResp,omitempty"`
+	Type      MessageType          `json:"type"`
+	PermReq   *PermissionRequest   `json:"permReq,omitempty"`
+	PermResp  *PermissionResponse  `json:"permResp,omitempty"`
+	QuestReq  *QuestionRequest     `json:"questReq,omitempty"`
+	QuestResp *QuestionResponse    `json:"questResp,omitempty"`
+	PlanReq   *PlanApprovalRequest  `json:"planReq,omitempty"`
+	PlanResp  *PlanApprovalResponse `json:"planResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
 type SocketServer struct {
-	socketPath  string
-	listener    net.Listener
-	requestCh   chan<- PermissionRequest
-	responseCh  <-chan PermissionResponse
-	questionCh  chan<- QuestionRequest
-	answerCh    <-chan QuestionResponse
-	closed      bool          // Set to true when Close() is called
-	closedMu    sync.RWMutex  // Guards closed flag
+	socketPath    string
+	listener      net.Listener
+	requestCh     chan<- PermissionRequest
+	responseCh    <-chan PermissionResponse
+	questionCh    chan<- QuestionRequest
+	answerCh      <-chan QuestionResponse
+	planReqCh     chan<- PlanApprovalRequest
+	planRespCh    <-chan PlanApprovalResponse
+	closed        bool         // Set to true when Close() is called
+	closedMu      sync.RWMutex // Guards closed flag
 }
 
 // NewSocketServer creates a new socket server for the given session
-func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse) (*SocketServer, error) {
+func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
 	socketPath := filepath.Join(os.TempDir(), "plural-"+sessionID+".sock")
 
 	// Remove existing socket if present
@@ -66,12 +71,14 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 	logger.Log("MCP Socket: Listening on %s", socketPath)
 
 	return &SocketServer{
-		socketPath:  socketPath,
-		listener:    listener,
-		requestCh:   reqCh,
-		responseCh:  respCh,
-		questionCh:  questCh,
-		answerCh:    ansCh,
+		socketPath: socketPath,
+		listener:   listener,
+		requestCh:  reqCh,
+		responseCh: respCh,
+		questionCh: questCh,
+		answerCh:   ansCh,
+		planReqCh:  planReqCh,
+		planRespCh: planRespCh,
 	}, nil
 }
 
@@ -164,6 +171,8 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 			s.handlePermissionMessage(conn, msg.PermReq)
 		case MessageTypeQuestion:
 			s.handleQuestionMessage(conn, msg.QuestReq)
+		case MessageTypePlanApproval:
+			s.handlePlanApprovalMessage(conn, msg.PlanReq)
 		default:
 			logger.Log("MCP Socket: Unknown message type: %s", msg.Type)
 		}
@@ -287,6 +296,62 @@ func (s *SocketServer) sendQuestionResponse(conn net.Conn, resp QuestionResponse
 	}
 }
 
+func (s *SocketServer) handlePlanApprovalMessage(conn net.Conn, req *PlanApprovalRequest) {
+	if req == nil {
+		logger.Log("MCP Socket: Nil plan approval request, sending reject response")
+		s.sendPlanApprovalResponse(conn, PlanApprovalResponse{
+			Approved: false,
+		})
+		return
+	}
+
+	logger.Log("MCP Socket: Received plan approval request with %d chars", len(req.Plan))
+
+	// Send to TUI (non-blocking with timeout)
+	select {
+	case s.planReqCh <- *req:
+		// Request sent successfully
+	case <-time.After(SocketReadTimeout):
+		logger.Log("MCP Socket: Timeout sending plan approval request to TUI")
+		s.sendPlanApprovalResponse(conn, PlanApprovalResponse{
+			ID:       req.ID,
+			Approved: false,
+		})
+		return
+	}
+
+	// Wait for response with timeout
+	select {
+	case resp := <-s.planRespCh:
+		s.sendPlanApprovalResponse(conn, resp)
+		logger.Log("MCP Socket: Sent plan approval response: approved=%v", resp.Approved)
+
+	case <-time.After(PermissionResponseTimeout):
+		logger.Log("MCP Socket: Timeout waiting for plan approval response")
+		s.sendPlanApprovalResponse(conn, PlanApprovalResponse{
+			ID:       req.ID,
+			Approved: false,
+		})
+	}
+}
+
+func (s *SocketServer) sendPlanApprovalResponse(conn net.Conn, resp PlanApprovalResponse) {
+	msg := SocketMessage{
+		Type:     MessageTypePlanApproval,
+		PlanResp: &resp,
+	}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		logger.Log("MCP Socket: Failed to marshal plan approval response: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		logger.Log("MCP Socket: Write error: %v", err)
+	}
+}
+
 // Close shuts down the socket server
 func (s *SocketServer) Close() error {
 	logger.Log("MCP Socket: Closing")
@@ -398,6 +463,42 @@ func (c *SocketClient) SendQuestionRequest(req QuestionRequest) (QuestionRespons
 	}
 
 	return *respMsg.QuestResp, nil
+}
+
+// SendPlanApprovalRequest sends a plan approval request and waits for response
+func (c *SocketClient) SendPlanApprovalRequest(req PlanApprovalRequest) (PlanApprovalResponse, error) {
+	msg := SocketMessage{
+		Type:    MessageTypePlanApproval,
+		PlanReq: &req,
+	}
+
+	// Send request
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return PlanApprovalResponse{}, err
+	}
+
+	_, err = c.conn.Write(append(reqJSON, '\n'))
+	if err != nil {
+		return PlanApprovalResponse{}, err
+	}
+
+	// Read response
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return PlanApprovalResponse{}, err
+	}
+
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return PlanApprovalResponse{}, err
+	}
+
+	if respMsg.PlanResp == nil {
+		return PlanApprovalResponse{}, fmt.Errorf("expected plan approval response, got nil")
+	}
+
+	return *respMsg.PlanResp, nil
 }
 
 // Close closes the client connection

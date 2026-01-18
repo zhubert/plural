@@ -106,6 +106,12 @@ type QuestionRequestMsg struct {
 	Request   mcp.QuestionRequest
 }
 
+// PlanApprovalRequestMsg is sent when Claude calls ExitPlanMode
+type PlanApprovalRequestMsg struct {
+	SessionID string
+	Request   mcp.PlanApprovalRequest
+}
+
 // MergeResultMsg is sent when a merge/PR operation produces output
 type MergeResultMsg struct {
 	SessionID string
@@ -342,6 +348,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
+			// Plan approval response
+			if m.sessionState().GetPendingPlanApproval(m.activeSession.ID) != nil {
+				switch key {
+				case "y", "Y":
+					return m.submitPlanApprovalResponse(m.activeSession.ID, true)
+				case "n", "N":
+					return m.submitPlanApprovalResponse(m.activeSession.ID, false)
+				case "up", "k":
+					m.chat.ScrollPlan(-3)
+					return m, nil
+				case "down", "j":
+					m.chat.ScrollPlan(3)
+					return m, nil
+				}
+			}
+
 			// Ctrl+V for image pasting (fallback for terminals that send raw key presses)
 			if key == "ctrl+v" {
 				return m.handleImagePaste()
@@ -414,6 +436,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case QuestionRequestMsg:
 		return m.handleQuestionRequestMsg(msg)
+
+	case PlanApprovalRequestMsg:
+		return m.handlePlanApprovalRequestMsg(msg)
 
 	case CommitMessageGeneratedMsg:
 		// Commit message generation completed
@@ -1150,6 +1175,66 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
 		m.listenForSessionPermission(sessionID, runner),
 		m.listenForSessionQuestion(sessionID, runner),
+		m.listenForSessionPlanApproval(sessionID, runner),
+	)
+}
+
+// listenForSessionPlanApproval creates a command that waits for plan approval requests
+func (m *Model) listenForSessionPlanApproval(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	if runner == nil {
+		return nil
+	}
+
+	ch := runner.PlanApprovalRequestChan()
+	if ch == nil {
+		// Runner has been stopped, don't create a goroutine that would block forever
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return PlanApprovalRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// submitPlanApprovalResponse sends the plan approval response back to Claude
+func (m *Model) submitPlanApprovalResponse(sessionID string, approved bool) (tea.Model, tea.Cmd) {
+	runner := m.sessionMgr.GetRunner(sessionID)
+	if runner == nil {
+		logger.Log("App: Plan approval response for unknown session %s", sessionID)
+		return m, nil
+	}
+
+	req := m.sessionState().GetPendingPlanApproval(sessionID)
+	if req == nil {
+		logger.Log("App: No pending plan approval for session %s", sessionID)
+		return m, nil
+	}
+
+	logger.Log("App: Plan approval response for session %s: approved=%v", sessionID, approved)
+
+	// Build response
+	resp := mcp.PlanApprovalResponse{
+		ID:       req.ID,
+		Approved: approved,
+	}
+
+	// Send response
+	runner.SendPlanApprovalResponse(resp)
+
+	// Clear pending plan approval
+	m.sessionState().ClearPendingPlanApproval(sessionID)
+	m.sidebar.SetPendingPermission(sessionID, false)
+	m.chat.ClearPendingPlanApproval()
+
+	// Continue listening for responses and more requests
+	return m, tea.Batch(
+		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
+		m.listenForSessionPermission(sessionID, runner),
+		m.listenForSessionQuestion(sessionID, runner),
+		m.listenForSessionPlanApproval(sessionID, runner),
 	)
 }
 

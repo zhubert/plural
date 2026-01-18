@@ -258,6 +258,8 @@ func runMCPServer() {
 	respChan := make(chan mcp.PermissionResponse)
 	questionChan := make(chan mcp.QuestionRequest)
 	answerChan := make(chan mcp.QuestionResponse)
+	planApprovalChan := make(chan mcp.PlanApprovalRequest)
+	planResponseChan := make(chan mcp.PlanApprovalResponse)
 
 	// Start goroutine to handle permission requests via socket
 	go func() {
@@ -292,8 +294,24 @@ func runMCPServer() {
 		}
 	}()
 
+	// Start goroutine to handle plan approval requests via socket
+	go func() {
+		for req := range planApprovalChan {
+			resp, err := client.SendPlanApprovalRequest(req)
+			if err != nil {
+				// On error, reject the plan
+				planResponseChan <- mcp.PlanApprovalResponse{
+					ID:       req.ID,
+					Approved: false,
+				}
+			} else {
+				planResponseChan <- resp
+			}
+		}
+	}()
+
 	// Run MCP server on stdin/stdout
-	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, nil)
+	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, nil)
 	if err := server.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 		os.Exit(1)
