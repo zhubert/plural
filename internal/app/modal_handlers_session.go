@@ -77,8 +77,12 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			m.modal.SetError("Branch already exists: " + fullBranchName)
 			return m, nil
 		}
-		logger.Log("App: Creating new session for repo=%s, branch=%q, prefix=%q", repoPath, branchName, branchPrefix)
-		sess, err := session.Create(repoPath, branchName, branchPrefix)
+		basePoint := session.BasePointOrigin
+		if state.GetBaseIndex() == 1 {
+			basePoint = session.BasePointHead
+		}
+		logger.Log("App: Creating new session for repo=%s, branch=%q, prefix=%q, basePoint=%v", repoPath, branchName, branchPrefix, basePoint)
+		sess, err := session.Create(repoPath, branchName, branchPrefix, basePoint)
 		if err != nil {
 			logger.Log("App: Failed to create session: %v", err)
 			m.modal.SetError(err.Error())

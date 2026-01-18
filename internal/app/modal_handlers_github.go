@@ -110,8 +110,8 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			continue
 		}
 
-		// Create new session
-		sess, err := session.Create(repoPath, branchName, branchPrefix)
+		// Create new session (always from origin for issue-based sessions)
+		sess, err := session.Create(repoPath, branchName, branchPrefix, session.BasePointOrigin)
 		if err != nil {
 			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
 			continue
