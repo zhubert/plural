@@ -152,11 +152,7 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 	}
 
 	// Continue listening for more chunks from this session
-	return m, tea.Batch(
-		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
-		m.listenForSessionPermission(sessionID, runner),
-		m.listenForSessionQuestion(sessionID, runner),
-	)
+	return m, tea.Batch(m.sessionListeners(sessionID, runner, nil)...)
 }
 
 // handleNonActiveSessionStreaming handles streaming content for non-active sessions.
@@ -354,13 +350,11 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: pendingMsg}}
 	responseChan := runner.SendContent(ctx, content)
 
-	return m, tea.Batch(
-		m.listenForSessionResponse(msg.SessionID, responseChan),
-		m.listenForSessionPermission(msg.SessionID, runner),
-		m.listenForSessionQuestion(msg.SessionID, runner),
+	cmds := append(m.sessionListeners(msg.SessionID, runner, responseChan),
 		ui.SidebarTick(),
 		ui.StopwatchTick(),
 	)
+	return m, tea.Batch(cmds...)
 }
 
 // handlePermissionRequestMsg handles permission requests from Claude.
@@ -383,12 +377,8 @@ func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model,
 		m.chat.SetPendingPermission(msg.Request.Tool, msg.Request.Description)
 	}
 
-	// Continue listening for more permission requests and responses
-	return m, tea.Batch(
-		m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
-		m.listenForSessionPermission(msg.SessionID, runner),
-		m.listenForSessionQuestion(msg.SessionID, runner),
-	)
+	// Continue listening for session events
+	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
 }
 
 // handleQuestionRequestMsg handles question requests from Claude.
@@ -411,13 +401,8 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 		m.chat.SetPendingQuestion(msg.Request.Questions)
 	}
 
-	// Continue listening for more requests and responses
-	return m, tea.Batch(
-		m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
-		m.listenForSessionPermission(msg.SessionID, runner),
-		m.listenForSessionQuestion(msg.SessionID, runner),
-		m.listenForSessionPlanApproval(msg.SessionID, runner),
-	)
+	// Continue listening for session events
+	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
 }
 
 // handlePlanApprovalRequestMsg handles plan approval requests from Claude.
@@ -441,13 +426,8 @@ func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Mo
 		m.chat.SetPendingPlanApproval(msg.Request.Plan, msg.Request.AllowedPrompts)
 	}
 
-	// Continue listening for more requests and responses
-	return m, tea.Batch(
-		m.listenForSessionResponse(msg.SessionID, runner.GetResponseChan()),
-		m.listenForSessionPermission(msg.SessionID, runner),
-		m.listenForSessionQuestion(msg.SessionID, runner),
-		m.listenForSessionPlanApproval(msg.SessionID, runner),
-	)
+	// Continue listening for session events
+	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
 }
 
 // handleGitHubIssuesFetchedMsg handles fetched GitHub issues.
