@@ -689,8 +689,9 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	sb.WriteString(titleStyle.Render("📋 Plan Approval Required"))
 	sb.WriteString("\n\n")
 
-	// Plan content - show with scrolling
-	planLines := strings.Split(c.pendingPlan, "\n")
+	// Render plan as markdown
+	renderedPlan := renderMarkdown(c.pendingPlan, wrapWidth-4) // -4 for box padding
+	planLines := strings.Split(renderedPlan, "\n")
 	maxVisibleLines := 20 // Maximum lines to show at once
 
 	// Calculate visible range
@@ -713,10 +714,9 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 		sb.WriteString("\n")
 	}
 
-	// Render visible lines
-	contentStyle := lipgloss.NewStyle().Foreground(ColorText)
+	// Render visible lines (already markdown-rendered)
 	for i := startLine; i < endLine; i++ {
-		sb.WriteString(contentStyle.Render(planLines[i]))
+		sb.WriteString(planLines[i])
 		sb.WriteString("\n")
 	}
 

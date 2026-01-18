@@ -17,12 +17,13 @@ type SelectResult struct {
 	HeaderName string // Branch name if custom, otherwise session name
 
 	// State to restore
-	WaitStart  time.Time
-	IsWaiting  bool
-	Permission *mcp.PermissionRequest
-	Question   *mcp.QuestionRequest
-	Streaming  string
-	SavedInput string
+	WaitStart    time.Time
+	IsWaiting    bool
+	Permission   *mcp.PermissionRequest
+	Question     *mcp.QuestionRequest
+	PlanApproval *mcp.PlanApprovalRequest
+	Streaming    string
+	SavedInput   string
 }
 
 // RunnerFactory creates a runner for a session.
@@ -152,6 +153,9 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 
 	// Get pending question
 	result.Question = sm.stateManager.GetPendingQuestion(sess.ID)
+
+	// Get pending plan approval
+	result.PlanApproval = sm.stateManager.GetPendingPlanApproval(sess.ID)
 
 	// Get streaming content (and clear it from state manager)
 	if streaming := sm.stateManager.GetStreaming(sess.ID); streaming != "" {
