@@ -11,7 +11,6 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.3
 	github.com/gen2brain/beeep v0.11.2
 	github.com/google/uuid v1.6.0
-	github.com/muesli/reflow v0.3.0
 	github.com/rivo/uniseg v0.4.7
 	golang.design/x/clipboard v0.7.1
 )

@@ -87,6 +87,54 @@ func TestWrapText(t *testing.T) {
 	}
 }
 
+func TestWrapTextWithANSI(t *testing.T) {
+	// Test that ANSI escape codes don't affect visible line length calculation
+	// The tool use line "⏺ Searching(Grep: pattern...)" was wrapping incorrectly
+	// because ANSI codes were being counted towards the line width
+
+	// ANSI escape code for cyan text
+	cyan := "\x1b[36m"
+	reset := "\x1b[0m"
+
+	tests := []struct {
+		name          string
+		text          string
+		width         int
+		shouldNotWrap bool // if true, result should have no newlines
+	}{
+		{
+			name:          "styled text within visible width should not wrap",
+			text:          cyan + "Searching" + reset + "(Grep: short)",
+			width:         40,
+			shouldNotWrap: true,
+		},
+		{
+			name:          "tool use line with ANSI codes",
+			text:          "⏺ " + cyan + "Searching" + reset + "(Grep: pattern...)",
+			width:         80,
+			shouldNotWrap: true,
+		},
+		{
+			name:          "multiple ANSI codes should not affect wrapping",
+			text:          cyan + "First" + reset + " " + cyan + "Second" + reset + " " + cyan + "Third" + reset,
+			width:         30,
+			shouldNotWrap: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := wrapText(tt.text, tt.width)
+			hasNewline := strings.Contains(result, "\n")
+
+			if tt.shouldNotWrap && hasNewline {
+				t.Errorf("wrapText with ANSI codes should not have wrapped at width %d\nInput: %q\nOutput: %q",
+					tt.width, tt.text, result)
+			}
+		})
+	}
+}
+
 func TestHighlightDiff(t *testing.T) {
 	tests := []struct {
 		name  string
