@@ -91,6 +91,18 @@
             font-style: normal;
         }
 
+        .hero-pitch .tagline {
+            color: var(--text);
+            font-size: 1.4rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .hero-pitch .tagline-sub {
+            color: var(--text-muted);
+            font-size: 1rem;
+        }
+
         /* Demo GIF */
         .demo-container {
             margin: 2rem 0 3rem;
@@ -167,85 +179,6 @@
         .copy-btn.copied {
             background: var(--secondary);
             color: var(--bg);
-        }
-
-        /* Benefits Section */
-        .benefits {
-            margin: 3rem 0;
-        }
-
-        .benefits h2 {
-            color: var(--text);
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1.5rem;
-            text-align: center;
-        }
-
-        .benefits-grid {
-            display: grid;
-            gap: 1px;
-            background: var(--border);
-            border-radius: 6px;
-            overflow: hidden;
-        }
-
-        .benefit {
-            background: var(--bg-panel);
-            padding: 1.25rem;
-        }
-
-        .benefit-header {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .benefit-icon {
-            color: var(--primary);
-            font-size: 1rem;
-        }
-
-        .benefit h3 {
-            color: var(--text);
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-
-        .benefit p {
-            color: var(--text-muted);
-            font-size: 0.8rem;
-            padding-left: 1.75rem;
-        }
-
-        /* Use Cases */
-        .use-cases {
-            margin: 3rem 0;
-            background: var(--bg-panel);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 1.5rem;
-        }
-
-        .use-cases h2 {
-            color: var(--text);
-            font-size: 0.9rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-        }
-
-        .use-case {
-            margin: 0.75rem 0;
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            padding-left: 1rem;
-            border-left: 2px solid var(--border);
-        }
-
-        .use-case strong {
-            color: var(--text);
-            font-weight: 500;
         }
 
         /* Links */
@@ -349,8 +282,9 @@
         </div>
 
         <div class="hero-pitch fade-in">
-            <p>Run multiple Claude sessions on the same codebase—each in its own git branch. When Claude offers different approaches, fork the session and try them all in parallel. Switch freely. Merge the winner.</p>
-            <p style="margin-top: 0.75rem; font-size: 0.8rem;">Requires <a href="https://docs.anthropic.com/en/docs/claude-code" style="color: var(--secondary); text-decoration: none;">Claude Code CLI</a> installed and authenticated.</p>
+            <p class="tagline">stop waiting for claude to finish.</p>
+            <p class="tagline-sub">run parallel sessions, each in its own branch.</p>
+            <p style="margin-top: 1.5rem; font-size: 0.8rem;">Requires <a href="https://docs.anthropic.com/en/docs/claude-code" style="color: var(--secondary); text-decoration: none;">Claude Code CLI</a> installed and authenticated.</p>
         </div>
 
         <section class="install fade-in">
@@ -359,68 +293,9 @@
                 <button class="copy-btn" onclick="copyCommand(this, 'brew tap zhubert/tap && brew install plural')">copy</button>
                 <code><span class="prompt">$</span> brew tap zhubert/tap && brew install plural</code>
             </div>
-        </section>
-
-        <section class="install fade-in">
-            <h2>install via nix</h2>
-            <div class="command-block">
-                <button class="copy-btn" onclick="copyCommand(this, 'nix profile install github:zhubert/plural')">copy</button>
-                <code><span class="prompt">$</span> nix profile install github:zhubert/plural</code>
-            </div>
-        </section>
-
-        <section class="install fade-in">
-            <h2>install via devbox</h2>
-            <div class="command-block">
-                <button class="copy-btn" onclick="copyCommand(this, 'devbox global add github:zhubert/plural')">copy</button>
-                <code><span class="prompt">$</span> devbox global add github:zhubert/plural</code>
-            </div>
-        </section>
-
-        <section class="use-cases fade-in">
-            <h2>what you can do</h2>
-            <div class="use-case"><strong>Import GitHub issues:</strong> Import issues from your repo and have Claude automatically start working on each fix.</div>
-            <div class="use-case"><strong>Branch on options:</strong> When Claude presents numbered options, automatically fork into parallel sessions to explore each approach.</div>
-            <div class="use-case"><strong>Parallel exploration:</strong> Manually fork a session to try different approaches to the same problem. Compare results, pick the best.</div>
-            <div class="use-case"><strong>Bug + feature:</strong> Fix a production bug in one session while continuing feature work in another.</div>
-            <div class="use-case"><strong>Multi-repo work:</strong> Coordinate changes across frontend and backend repos simultaneously.</div>
-            <div class="use-case"><strong>Code review assist:</strong> Have Claude explain a PR in one session while you implement feedback in another.</div>
-            <div class="use-case"><strong>Safe experiments:</strong> Let Claude try risky refactors in isolation. Delete the branch if it doesn't work out.</div>
-            <div class="use-case"><strong>Review before merge:</strong> View all changes in a session before merging or creating a PR.</div>
-        </section>
-
-        <section class="benefits fade-in">
-            <h2>how it works</h2>
-            <div class="benefits-grid">
-                <div class="benefit">
-                    <div class="benefit-header">
-                        <span class="benefit-icon">◇</span>
-                        <h3>git worktree isolation</h3>
-                    </div>
-                    <p>Each session creates a branch and worktree. Claude edits files there, not in your working directory. Merge when you're ready.</p>
-                </div>
-                <div class="benefit">
-                    <div class="benefit-header">
-                        <span class="benefit-icon">◈</span>
-                        <h3>independent processes</h3>
-                    </div>
-                    <p>Each session runs its own Claude CLI process. Send messages to one while another is working. No waiting.</p>
-                </div>
-                <div class="benefit">
-                    <div class="benefit-header">
-                        <span class="benefit-icon">⑂</span>
-                        <h3>conversation history</h3>
-                    </div>
-                    <p>Forked sessions inherit full conversation history. Child sessions know everything the parent discussed.</p>
-                </div>
-                <div class="benefit">
-                    <div class="benefit-header">
-                        <span class="benefit-icon">◆</span>
-                        <h3>non-blocking permissions</h3>
-                    </div>
-                    <p>Permission prompts appear inline per-session. Approve when you're ready, or switch to a different session first.</p>
-                </div>
-            </div>
+            <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+                <a href="https://github.com/zhubert/plural#installation" style="color: var(--text-muted); text-decoration: underline;">Other install options</a> (nix, devbox, go install)
+            </p>
         </section>
 
         <nav class="links fade-in">
