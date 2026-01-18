@@ -1020,15 +1020,12 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	// Start Claude request with content blocks
 	responseChan := runner.SendContent(ctx, content)
 
-	// Return commands to listen for response, permission requests, and question requests
-	// Also start the spinner and stopwatch ticks
-	return m, tea.Batch(
-		m.listenForSessionResponse(sessionID, responseChan),
-		m.listenForSessionPermission(sessionID, runner),
-		m.listenForSessionQuestion(sessionID, runner),
+	// Return commands to listen for session events plus UI ticks
+	cmds := append(m.sessionListeners(sessionID, runner, responseChan),
 		ui.SidebarTick(),
 		ui.StopwatchTick(),
 	)
+	return m, tea.Batch(cmds...)
 }
 
 // handlePermissionResponse handles y/n/a key presses for permission prompts
@@ -1075,12 +1072,30 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPermission()
 
-	// Continue listening for responses, permissions, and questions
-	return m, tea.Batch(
-		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
+	// Continue listening for session events
+	return m, tea.Batch(m.sessionListeners(sessionID, runner, nil)...)
+}
+
+// sessionListeners returns all the listener commands for a session.
+// This bundles response, permission, question, and plan approval listeners together
+// so adding a new listener type only requires changing this one function.
+// If responseChan is provided, it will be used instead of runner.GetResponseChan().
+func (m *Model) sessionListeners(sessionID string, runner claude.RunnerInterface, responseChan <-chan claude.ResponseChunk) []tea.Cmd {
+	if runner == nil {
+		return nil
+	}
+
+	ch := responseChan
+	if ch == nil {
+		ch = runner.GetResponseChan()
+	}
+
+	return []tea.Cmd{
+		m.listenForSessionResponse(sessionID, ch),
 		m.listenForSessionPermission(sessionID, runner),
 		m.listenForSessionQuestion(sessionID, runner),
-	)
+		m.listenForSessionPlanApproval(sessionID, runner),
+	}
 }
 
 // listenForSessionResponse creates a command to listen for responses from a specific session
@@ -1170,13 +1185,8 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingQuestion()
 
-	// Continue listening for responses and more requests
-	return m, tea.Batch(
-		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
-		m.listenForSessionPermission(sessionID, runner),
-		m.listenForSessionQuestion(sessionID, runner),
-		m.listenForSessionPlanApproval(sessionID, runner),
-	)
+	// Continue listening for session events
+	return m, tea.Batch(m.sessionListeners(sessionID, runner, nil)...)
 }
 
 // listenForSessionPlanApproval creates a command that waits for plan approval requests
@@ -1229,13 +1239,8 @@ func (m *Model) submitPlanApprovalResponse(sessionID string, approved bool) (tea
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPlanApproval()
 
-	// Continue listening for responses and more requests
-	return m, tea.Batch(
-		m.listenForSessionResponse(sessionID, runner.GetResponseChan()),
-		m.listenForSessionPermission(sessionID, runner),
-		m.listenForSessionQuestion(sessionID, runner),
-		m.listenForSessionPlanApproval(sessionID, runner),
-	)
+	// Continue listening for session events
+	return m, tea.Batch(m.sessionListeners(sessionID, runner, nil)...)
 }
 
 func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {

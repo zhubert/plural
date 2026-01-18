@@ -299,13 +299,11 @@ Please resolve these merge conflicts by:
 	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: prompt}}
 	responseChan := runner.SendContent(ctx, content)
 
-	return m, tea.Batch(
-		m.listenForSessionResponse(sess.ID, responseChan),
-		m.listenForSessionPermission(sess.ID, runner),
-		m.listenForSessionQuestion(sess.ID, runner),
+	cmds := append(m.sessionListeners(sess.ID, runner, responseChan),
 		ui.SidebarTick(),
 		ui.StopwatchTick(),
 	)
+	return m, tea.Batch(cmds...)
 }
 
 // handleAbortMerge aborts the in-progress merge.

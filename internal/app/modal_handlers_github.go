@@ -172,11 +172,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			responseChan := runner.SendContent(ctx, content)
 
 			// Add listeners for this session
-			cmds = append(cmds,
-				m.listenForSessionResponse(sess.ID, responseChan),
-				m.listenForSessionPermission(sess.ID, runner),
-				m.listenForSessionQuestion(sess.ID, runner),
-			)
+			cmds = append(cmds, m.sessionListeners(sess.ID, runner, responseChan)...)
 		}
 
 		// Switch to the first session's UI
@@ -332,11 +328,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			responseChan := runner.SendContent(ctx, content)
 
 			// Add listeners for this session
-			cmds = append(cmds,
-				m.listenForSessionResponse(sess.ID, responseChan),
-				m.listenForSessionPermission(sess.ID, runner),
-				m.listenForSessionQuestion(sess.ID, runner),
-			)
+			cmds = append(cmds, m.sessionListeners(sess.ID, runner, responseChan)...)
 		}
 
 		// Switch to the first session's UI
