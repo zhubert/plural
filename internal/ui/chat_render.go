@@ -11,7 +11,6 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/muesli/reflow/wordwrap"
 )
 
 // optionsTagStripPattern matches <options>...</options> blocks for stripping from display.
@@ -190,7 +189,9 @@ func wrapText(text string, width int) string {
 	if width <= 0 {
 		return text
 	}
-	return wordwrap.String(text, width)
+	// Use lipgloss.Wrap which properly preserves ANSI escape codes
+	// The third parameter specifies breakpoint characters (space for word boundaries)
+	return lipgloss.Wrap(text, width, " ")
 }
 
 // renderMarkdownLine renders a single line with markdown formatting
