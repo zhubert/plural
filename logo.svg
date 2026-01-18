@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 110">
+  <defs>
+    <!-- Main gradient: magenta to cyan -->
+    <linearGradient id="synthGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#FF00FF"/>
+      <stop offset="50%" style="stop-color:#E040FB"/>
+      <stop offset="100%" style="stop-color:#00FFFF"/>
+    </linearGradient>
+
+    <!-- Glow filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Scan line pattern -->
+    <pattern id="scanlines" patternUnits="userSpaceOnUse" width="4" height="4">
+      <line x1="0" y1="0" x2="4" y2="0" stroke="rgba(0,0,0,0.3)" stroke-width="2"/>
+    </pattern>
+  </defs>
+
+  <!-- Main text with glow -->
+  <g filter="url(#glow)">
+    <text x="50%" y="65"
+          font-family="'JetBrains Mono', 'SF Mono', 'Fira Code', monospace"
+          font-size="72"
+          font-weight="700"
+          fill="url(#synthGradient)"
+          letter-spacing="-2"
+          text-anchor="middle">
+      plural
+    </text>
+  </g>
+
+  <!-- Scan lines overlay on text -->
+  <text x="50%" y="65"
+        font-family="'JetBrains Mono', 'SF Mono', 'Fira Code', monospace"
+        font-size="72"
+        font-weight="700"
+        fill="url(#scanlines)"
+        letter-spacing="-2"
+        text-anchor="middle">
+    plural
+  </text>
+
+  <!-- Subtitle -->
+  <text x="50%" y="95"
+        font-family="'JetBrains Mono', 'SF Mono', 'Fira Code', monospace"
+        font-size="14"
+        fill="#9CA3AF"
+        letter-spacing="0.5"
+        text-anchor="middle">
+    parallel claude code sessions
+  </text>
+</svg>

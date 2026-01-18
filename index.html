@@ -49,37 +49,22 @@
             padding: 2rem 1.5rem;
         }
 
-        /* ASCII Header */
-        .ascii-header {
+        /* Logo Header */
+        .logo-header {
             text-align: center;
             padding: 1.5rem 0 1rem;
         }
 
-        .ascii-logo {
-            color: var(--primary);
-            font-size: 0.9rem;
-            line-height: 1.2;
-            letter-spacing: 0;
-            white-space: pre;
-            display: inline-block;
-            text-align: left;
+        .logo-svg {
+            width: 100%;
+            max-width: 500px;
+            height: auto;
         }
 
         @media (max-width: 480px) {
-            .ascii-logo {
-                font-size: 0.6rem;
+            .logo-svg {
+                max-width: 320px;
             }
-        }
-
-        .tagline {
-            color: var(--text-muted);
-            margin-top: 1.5rem;
-            font-size: 0.9rem;
-            text-align: center;
-        }
-
-        .tagline span {
-            color: var(--secondary);
         }
 
         /* Hero pitch */
@@ -355,14 +340,8 @@
 </head>
 <body>
     <div class="container">
-        <header class="ascii-header fade-in">
-            <pre class="ascii-logo">██████╗ ██╗     ██╗   ██╗██████╗  █████╗ ██╗
-██╔══██╗██║     ██║   ██║██╔══██╗██╔══██╗██║
-██████╔╝██║     ██║   ██║██████╔╝███████║██║
-██╔═══╝ ██║     ██║   ██║██╔══██╗██╔══██║██║
-██║     ███████╗╚██████╔╝██║  ██║██║  ██║███████╗
-╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝</pre>
-            <p class="tagline">parallel claude code sessions</p>
+        <header class="logo-header fade-in">
+            <img src="logo.svg" alt="plural" class="logo-svg">
         </header>
 
         <div class="demo-container fade-in">
@@ -450,7 +429,7 @@
         </nav>
 
         <footer>
-            <p>built with <a href="https://charm.land/bubbletea">bubble tea</a> · mit license</p>
+            <p>made by <a href="https://www.zhubert.com">zack</a> · mit license</p>
         </footer>
     </div>
 
