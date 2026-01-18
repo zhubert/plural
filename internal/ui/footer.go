@@ -2,9 +2,47 @@ package ui
 
 import (
 	"strings"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// FlashType represents the type of flash message
+type FlashType int
+
+const (
+	FlashError FlashType = iota
+	FlashWarning
+	FlashInfo
+	FlashSuccess
+)
+
+// DefaultFlashDuration is how long flash messages are shown before auto-dismissing
+const DefaultFlashDuration = 5 * time.Second
+
+// FlashMessage represents a temporary message shown in the footer
+type FlashMessage struct {
+	Text      string
+	Type      FlashType
+	CreatedAt time.Time
+	Duration  time.Duration
+}
+
+// IsExpired returns true if the flash message should be dismissed
+func (f *FlashMessage) IsExpired() bool {
+	return time.Since(f.CreatedAt) >= f.Duration
+}
+
+// FlashTickMsg is sent periodically to check for expired flash messages
+type FlashTickMsg struct{}
+
+// FlashTick returns a command that sends a FlashTickMsg after a delay
+func FlashTick() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(time.Time) tea.Msg {
+		return FlashTickMsg{}
+	})
+}
 
 // KeyBinding represents a keyboard shortcut
 type KeyBinding struct {
@@ -24,6 +62,7 @@ type Footer struct {
 	viewChangesMode    bool // Whether showing view changes overlay
 	searchMode         bool // Whether sidebar is in search mode
 	hasDetectedOptions bool // Whether chat has detected options for parallel exploration
+	flashMessage       *FlashMessage // Current flash message, if any
 }
 
 // NewFooter creates a new footer
@@ -65,6 +104,92 @@ func (f *Footer) SetBindings(bindings []KeyBinding) {
 	f.bindings = bindings
 }
 
+// SetFlash sets a flash message to display in the footer
+func (f *Footer) SetFlash(text string, flashType FlashType) {
+	f.flashMessage = &FlashMessage{
+		Text:      text,
+		Type:      flashType,
+		CreatedAt: time.Now(),
+		Duration:  DefaultFlashDuration,
+	}
+}
+
+// SetFlashWithDuration sets a flash message with a custom duration
+func (f *Footer) SetFlashWithDuration(text string, flashType FlashType, duration time.Duration) {
+	f.flashMessage = &FlashMessage{
+		Text:      text,
+		Type:      flashType,
+		CreatedAt: time.Now(),
+		Duration:  duration,
+	}
+}
+
+// ClearFlash removes the current flash message
+func (f *Footer) ClearFlash() {
+	f.flashMessage = nil
+}
+
+// HasFlash returns true if there is an active flash message
+func (f *Footer) HasFlash() bool {
+	return f.flashMessage != nil
+}
+
+// ClearIfExpired clears the flash message if it has expired
+// Returns true if the flash was cleared
+func (f *Footer) ClearIfExpired() bool {
+	if f.flashMessage != nil && f.flashMessage.IsExpired() {
+		f.flashMessage = nil
+		return true
+	}
+	return false
+}
+
+// flashStyle returns the appropriate style for the flash message type
+func (f *Footer) flashStyle() lipgloss.Style {
+	baseStyle := lipgloss.NewStyle().
+		Bold(true).
+		Padding(0, 1).
+		Width(f.width).
+		MaxHeight(1)
+
+	switch f.flashMessage.Type {
+	case FlashError:
+		return baseStyle.
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#DC2626")) // Red background
+	case FlashWarning:
+		return baseStyle.
+			Foreground(lipgloss.Color("#1F2937")).
+			Background(lipgloss.Color("#F59E0B")) // Amber background
+	case FlashSuccess:
+		return baseStyle.
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#059669")) // Green background
+	case FlashInfo:
+		fallthrough
+	default:
+		return baseStyle.
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#0284C7")) // Blue background
+	}
+}
+
+// flashIcon returns an icon prefix for the flash message type
+func (f *Footer) flashIcon() string {
+	switch f.flashMessage.Type {
+	case FlashError:
+		return "✕ "
+	case FlashWarning:
+		return "⚠ "
+	case FlashSuccess:
+		return "✓ "
+	case FlashInfo:
+		fallthrough
+	default:
+		return "ℹ "
+	}
+}
+
 // footerSeparator returns the separator string between footer key bindings
 func footerSeparator() string {
 	sepStyle := lipgloss.NewStyle().
@@ -74,6 +199,11 @@ func footerSeparator() string {
 
 // View renders the footer
 func (f *Footer) View() string {
+	// If there's a flash message, show it instead of keybindings
+	if f.flashMessage != nil {
+		return f.flashStyle().Render(f.flashIcon() + f.flashMessage.Text)
+	}
+
 	var parts []string
 
 	// Show view-changes-specific shortcuts when in view changes mode

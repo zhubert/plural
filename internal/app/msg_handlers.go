@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -262,6 +261,8 @@ func (m *Model) handleMergeError(sessionID string, result git.Result, isActiveSe
 
 // handleMergeDone handles successful completion of merge operations.
 func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
 	if isActiveSession {
 		m.chat.FinishStreaming()
 	} else {
@@ -291,9 +292,7 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 			// Merge conversation history from child to parent
 			if err := m.mergeConversationHistory(sessionID, childSess.ParentID); err != nil {
 				logger.Log("App: Failed to merge conversation history: %v", err)
-				if isActiveSession {
-					m.chat.AppendStreaming(fmt.Sprintf("\n[Warning: Failed to merge conversation history: %v]\n", err))
-				}
+				cmds = append(cmds, m.ShowFlashWarning("Failed to merge conversation history"))
 			} else {
 				logger.Log("App: Merged conversation history from %s to parent %s", sessionID, childSess.ParentID)
 			}
@@ -302,12 +301,18 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 		logger.Log("App: Marked session %s as merged to parent", sessionID)
 	}
 
-	m.config.Save()
+	if err := m.config.Save(); err != nil {
+		logger.Log("App: Failed to save config after merge: %v", err)
+		cmds = append(cmds, m.ShowFlashError("Failed to save session state"))
+	}
 	// Update sidebar with new session status
 	m.sidebar.SetSessions(m.config.GetSessions())
 	// Clean up merge state for this session
 	m.sessionState().StopMerge(sessionID)
 
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 

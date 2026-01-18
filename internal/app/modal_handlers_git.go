@@ -30,6 +30,11 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			logger.Log("App: Merge already in progress for session %s", sess.ID)
 			return m, nil
 		}
+		// Check if there's already a pending commit message generation
+		if m.pendingCommitSession == sess.ID {
+			logger.Log("App: Commit message generation already pending for session %s", sess.ID)
+			return m, nil
+		}
 		logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s, worktree=%s", option, sess.ID, sess.Branch, sess.WorkTree)
 		m.modal.Hide()
 		if m.activeSession == nil || m.activeSession.ID != sess.ID {
@@ -72,6 +77,8 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		}
 
 		if status.HasChanges {
+			// Finish any existing streaming before starting merge operation
+			m.chat.FinishStreaming()
 			// Generate commit message and show edit modal
 			m.chat.AppendStreaming("Generating commit message with Claude...\n")
 			m.pendingCommitSession = sess.ID
@@ -80,6 +87,8 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		}
 
 		// No changes - proceed directly with merge/PR/push
+		// Finish any existing streaming before starting merge operation
+		m.chat.FinishStreaming()
 		ctx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
@@ -150,6 +159,8 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		m.pendingParentSession = ""
 
 		// Proceed with merge/PR/push using the edited commit message
+		// Finish any existing streaming before starting merge operation
+		m.chat.FinishStreaming()
 		ctx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:

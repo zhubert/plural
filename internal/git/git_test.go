@@ -1171,6 +1171,16 @@ func createTestRepoWithRemote(t *testing.T) (repoPath, remotePath string, cleanu
 		t.Fatalf("Failed to push to remote: %v", err)
 	}
 
+	// Set the bare repo's HEAD to point to main (important for CI where default may be master)
+	cmd = exec.Command("git", "symbolic-ref", "HEAD", "refs/heads/main")
+	cmd.Dir = remotePath
+	cmd.Run()
+
+	// Set up origin/HEAD in local repo so GetDefaultBranch works correctly
+	cmd = exec.Command("git", "remote", "set-head", "origin", "main")
+	cmd.Dir = repoPath
+	cmd.Run()
+
 	cleanup = func() {
 		os.RemoveAll(repoPath)
 		os.RemoveAll(remotePath)
@@ -1273,6 +1283,26 @@ func TestMergeToMain_PullFailsDiverged(t *testing.T) {
 		t.Fatalf("Failed to make local commit: %v", err)
 	}
 
+	// Fetch from origin to update refs
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to fetch from origin: %v", err)
+	}
+
+	// Verify diverged state exists before we test
+	cmd = exec.Command("git", "rev-list", "--left-right", "--count", "main...origin/main")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to check divergence: %v", err)
+	}
+	// Output should be "1\t1" (1 commit on each side)
+	counts := strings.TrimSpace(string(output))
+	if !strings.Contains(counts, "1") {
+		t.Fatalf("Expected diverged state but got counts: %q", counts)
+	}
+
 	// Switch back to feature branch for the merge
 	cmd = exec.Command("git", "checkout", "feature-diverged")
 	cmd.Dir = repoPath
@@ -1288,9 +1318,14 @@ func TestMergeToMain_PullFailsDiverged(t *testing.T) {
 
 	var hadDivergedError bool
 	var sawHelpfulMessage bool
+	var allOutput []string
 	for result := range ch {
-		if result.Error != nil && strings.Contains(result.Error.Error(), "diverged") {
-			hadDivergedError = true
+		allOutput = append(allOutput, result.Output)
+		if result.Error != nil {
+			allOutput = append(allOutput, "Error: "+result.Error.Error())
+			if strings.Contains(result.Error.Error(), "diverged") {
+				hadDivergedError = true
+			}
 		}
 		if strings.Contains(result.Output, "sync your local") {
 			sawHelpfulMessage = true
@@ -1298,11 +1333,11 @@ func TestMergeToMain_PullFailsDiverged(t *testing.T) {
 	}
 
 	if !hadDivergedError {
-		t.Error("Expected merge to fail with 'diverged' error when local main has diverged from origin")
+		t.Errorf("Expected merge to fail with 'diverged' error when local main has diverged from origin.\nAll output:\n%s", strings.Join(allOutput, "\n"))
 	}
 
 	if !sawHelpfulMessage {
-		t.Error("Expected helpful message about syncing local branch")
+		t.Errorf("Expected helpful message about syncing local branch.\nAll output:\n%s", strings.Join(allOutput, "\n"))
 	}
 }
 

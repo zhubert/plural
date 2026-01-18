@@ -501,6 +501,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.chat = chat
 		cmds = append(cmds, cmd)
 		return m, tea.Batch(cmds...)
+	case ui.FlashTickMsg:
+		// Check if flash message has expired
+		if m.footer.ClearIfExpired() {
+			// Flash cleared, no need to continue ticking
+			return m, tea.Batch(cmds...)
+		}
+		// Flash still active, continue ticking
+		if m.footer.HasFlash() {
+			cmds = append(cmds, ui.FlashTick())
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	// Route scroll keys and mouse wheel to chat panel even when sidebar is focused
@@ -1633,4 +1644,34 @@ func (m *Model) RenderToString() string {
 	}
 
 	return view
+}
+
+// =============================================================================
+// Flash Message Helpers
+// =============================================================================
+
+// ShowFlash displays a flash message in the footer and returns a command to start the auto-dismiss timer
+func (m *Model) ShowFlash(text string, flashType ui.FlashType) tea.Cmd {
+	m.footer.SetFlash(text, flashType)
+	return ui.FlashTick()
+}
+
+// ShowFlashError displays an error flash message
+func (m *Model) ShowFlashError(text string) tea.Cmd {
+	return m.ShowFlash(text, ui.FlashError)
+}
+
+// ShowFlashWarning displays a warning flash message
+func (m *Model) ShowFlashWarning(text string) tea.Cmd {
+	return m.ShowFlash(text, ui.FlashWarning)
+}
+
+// ShowFlashInfo displays an info flash message
+func (m *Model) ShowFlashInfo(text string) tea.Cmd {
+	return m.ShowFlash(text, ui.FlashInfo)
+}
+
+// ShowFlashSuccess displays a success flash message
+func (m *Model) ShowFlashSuccess(text string) tea.Cmd {
+	return m.ShowFlash(text, ui.FlashSuccess)
 }
