@@ -869,6 +869,13 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.ClearPendingQuestion()
 	}
 
+	// Restore pending plan approval
+	if result.PlanApproval != nil {
+		m.chat.SetPendingPlanApproval(result.PlanApproval.Plan, result.PlanApproval.AllowedPrompts)
+	} else {
+		m.chat.ClearPendingPlanApproval()
+	}
+
 	// Restore streaming content
 	if result.Streaming != "" {
 		m.chat.SetStreaming(result.Streaming)
