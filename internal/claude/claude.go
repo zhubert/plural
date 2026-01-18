@@ -1024,14 +1024,9 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			return
 		}
 
-		// Start process manager if not running
-		if err := r.ensureProcessRunning(); err != nil {
-			ch <- ResponseChunk{Error: err, Done: true}
-			close(ch)
-			return
-		}
-
-		// Set up the response channel for routing
+		// Set up the response channel for routing BEFORE starting the process.
+		// This is critical because the process might crash immediately after starting,
+		// and handleFatalError needs the channel to report the error to the user.
 		r.mu.Lock()
 		r.isStreaming = true
 		r.currentResponseCh = ch
@@ -1043,6 +1038,20 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			r.processManager.SetInterrupted(false) // Reset interrupt flag for new message
 		}
 		r.mu.Unlock()
+
+		// Start process manager if not running
+		if err := r.ensureProcessRunning(); err != nil {
+			// Clean up state since we're aborting
+			r.mu.Lock()
+			r.isStreaming = false
+			r.currentResponseCh = nil
+			r.currentResponseChClosed = true
+			r.mu.Unlock()
+
+			ch <- ResponseChunk{Error: err, Done: true}
+			close(ch)
+			return
+		}
 
 		// Build the input message
 		inputMsg := StreamInputMessage{
