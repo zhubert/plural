@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
 	"github.com/zhubert/plural/internal/clipboard"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 // SelectionCopyMsg is sent after a delay to handle copying selected text
@@ -284,7 +285,9 @@ func (c *Chat) CopySelectedText() tea.Cmd {
 		tea.SetClipboard(selectedText),
 		// Native clipboard fallback
 		func() tea.Msg {
-			_ = clipboard.WriteText(selectedText)
+			if err := clipboard.WriteText(selectedText); err != nil {
+				logger.Log("Failed to write to clipboard: %v", err)
+			}
 			return nil
 		},
 		// Start flash animation timer

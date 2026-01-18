@@ -170,8 +170,12 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	}
 
 	// Log the full arguments for debugging
-	argsJSON, _ := json.Marshal(params.Arguments)
-	logger.Log("MCP: Permission tool called with arguments: %s", string(argsJSON))
+	argsJSON, err := json.Marshal(params.Arguments)
+	if err != nil {
+		logger.Log("MCP: Permission tool called (failed to marshal arguments: %v)", err)
+	} else {
+		logger.Log("MCP: Permission tool called with arguments: %s", string(argsJSON))
+	}
 
 	// Extract permission request details from Claude Code's format
 	var tool, description string
