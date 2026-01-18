@@ -245,10 +245,7 @@ func CreateFromBranch(repoPath string, sourceBranch string, customBranch string,
 	// Create the worktree with a new branch based on the source branch
 	logger.Log("Session: Creating git worktree: branch=%s, path=%s, from=%s", branch, worktreePath, sourceBranch)
 	worktreeStart := time.Now()
-	cmd := exec.Command("git", "worktree", "add", "-b", branch, worktreePath, sourceBranch)
-	cmd.Dir = repoPath
-
-	output, err := cmd.CombinedOutput()
+	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "worktree", "add", "-b", branch, worktreePath, sourceBranch)
 	if err != nil {
 		logger.Error("Session: Failed to create forked worktree after %v: %s", time.Since(worktreeStart), string(output))
 		return nil, fmt.Errorf("failed to create worktree: %s: %w", string(output), err)

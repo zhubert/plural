@@ -216,14 +216,79 @@ func (e *Executor) setupMockResponses(scenario *Scenario) {
 		Stdout: []byte(""),
 	})
 
-	// git status --porcelain (check for changes)
+	// git status --porcelain (check for changes) - return realistic file changes
 	e.mockExecutor.AddPrefixMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
-		Stdout: []byte(""), // No changes by default
+		Stdout: []byte(`M  src/services/search.py
+M  src/models/task.py
+A  src/api/tasks.py
+A  db/migrations/add_search_index.sql
+A  tests/test_search.py
+`),
 	})
 
-	// git diff commands
+	// git diff commands - return realistic diff content
+	diffContent := `diff --git a/src/services/search.py b/src/services/search.py
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/src/services/search.py
+@@ -0,0 +1,45 @@
++from sqlalchemy import text
++from models import Task
++
++class SearchService:
++    """Full-text search service using PostgreSQL tsvector."""
++
++    def __init__(self, db):
++        self.db = db
++
++    def search_tasks(self, query: str, user_id: int) -> list[Task]:
++        """Search tasks using PostgreSQL full-text search."""
++        sql = text("""
++            SELECT * FROM tasks
++            WHERE user_id = :user_id
++            AND search_vector @@ plainto_tsquery('english', :query)
++            ORDER BY ts_rank(search_vector, plainto_tsquery('english', :query)) DESC
++        """)
++        return self.db.execute(sql, {"user_id": user_id, "query": query}).fetchall()
+
+diff --git a/src/models/task.py b/src/models/task.py
+index 1234567..89abcde 100644
+--- a/src/models/task.py
++++ b/src/models/task.py
+@@ -1,5 +1,6 @@
+ from sqlalchemy import Column, Integer, String, DateTime
++from sqlalchemy.dialects.postgresql import TSVECTOR
+ from database import Base
+
+ class Task(Base):
+@@ -8,6 +9,7 @@ class Task(Base):
+     title = Column(String(255), nullable=False)
+     description = Column(String(1000))
+     due_date = Column(DateTime)
++    search_vector = Column(TSVECTOR)
+     created_at = Column(DateTime, default=datetime.utcnow)
+
+diff --git a/db/migrations/add_search_index.sql b/db/migrations/add_search_index.sql
+new file mode 100644
+index 0000000..def4567
+--- /dev/null
++++ b/db/migrations/add_search_index.sql
+@@ -0,0 +1,12 @@
++-- Add full-text search support to tasks table
++ALTER TABLE tasks ADD COLUMN search_vector tsvector;
++
++-- Create GIN index for fast full-text search
++CREATE INDEX idx_tasks_search ON tasks USING GIN(search_vector);
++
++-- Create trigger to automatically update search vector
++CREATE TRIGGER tasks_search_update
++    BEFORE INSERT OR UPDATE ON tasks
++    FOR EACH ROW EXECUTE FUNCTION
++    tsvector_update_trigger(search_vector, 'pg_catalog.english', title, description);
+`
 	e.mockExecutor.AddPrefixMatch("git", []string{"diff"}, pexec.MockResponse{
-		Stdout: []byte(""),
+		Stdout: []byte(diffContent),
 	})
 
 	// git add -A (stage all)
@@ -310,12 +375,35 @@ func (e *Executor) executeStep(index int, step Step) error {
 			return fmt.Errorf("no active session for response")
 		}
 
+		// First pass: collect the full response text and send non-Done chunks
+		var fullResponse string
+		var doneChunk *claude.ResponseChunk
 		for _, chunk := range step.Chunks {
+			if chunk.Type == claude.ChunkTypeText {
+				fullResponse += chunk.Content
+			}
+			if chunk.Done {
+				// Save Done chunk for later - we need to add assistant message first
+				doneChunk = &chunk
+				continue
+			}
 			e.simulateResponse(session.ID, chunk)
 			if e.config.CaptureEveryStep && chunk.Type == claude.ChunkTypeText {
 				e.captureFrame(index, e.config.ResponseChunkDelay)
 			}
 		}
+
+		// Add the assistant message to the mock runner BEFORE sending Done chunk
+		// This is needed for detectOptionsInSession to find the options
+		if mock := e.factory.GetMock(session.ID); mock != nil && fullResponse != "" {
+			mock.AddAssistantMessage(fullResponse)
+		}
+
+		// Now send the Done chunk to trigger handleClaudeDone -> detectOptionsInSession
+		if doneChunk != nil {
+			e.simulateResponse(session.ID, *doneChunk)
+		}
+
 		// Always capture after response completes
 		e.captureFrame(index, 200*time.Millisecond)
 

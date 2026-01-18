@@ -8,209 +8,320 @@ import (
 	"github.com/zhubert/plural/internal/demo"
 )
 
-// Basic demonstrates the core Plural workflow:
-// - Selecting a session
-// - Sending a message to Claude
-// - Receiving a response
+// Basic demonstrates a user workflow for working on a feature and merging:
+// - Starting with multiple repos and sessions in various states (realistic to-do app context)
+// - Selecting a session and sending a message to Claude
+// - Viewing the changed files
+// - Merging to main
 var Basic = &demo.Scenario{
 	Name:        "basic",
-	Description: "Basic session workflow - select, send message, receive response",
+	Description: "Work on feature, view files, merge to main",
 	Width:       120,
 	Height:      40,
 	Setup: &demo.ScenarioSetup{
-		Repos: []string{"/home/user/myproject"},
+		Repos: []string{"/home/user/todo-app", "/home/user/todo-api"},
 		Sessions: []config.Session{
+			// Active session for user to work on
 			{
-				ID:        "demo-session-1",
-				RepoPath:  "/home/user/myproject",
-				WorkTree:  "/home/user/.plural-worktrees/demo-session-1",
-				Branch:    "plural-feature",
-				Name:      "myproject/feature",
-				CreatedAt: time.Now(),
+				ID:        "session-notifications",
+				RepoPath:  "/home/user/todo-app",
+				WorkTree:  "/home/user/.plural-worktrees/session-notifications",
+				Branch:    "plural-push-notifications",
+				Name:      "push-notifications",
+				CreatedAt: time.Now().Add(-1 * time.Hour),
+				Started:   true,
+			},
+			// Completed frontend session
+			{
+				ID:        "session-darkmode",
+				RepoPath:  "/home/user/todo-app",
+				WorkTree:  "/home/user/.plural-worktrees/session-darkmode",
+				Branch:    "plural-dark-mode",
+				Name:      "dark-mode-theme",
+				CreatedAt: time.Now().Add(-48 * time.Hour),
+				Started:   true,
+			},
+			// Another frontend session
+			{
+				ID:        "session-duedate",
+				RepoPath:  "/home/user/todo-app",
+				WorkTree:  "/home/user/.plural-worktrees/session-duedate",
+				Branch:    "plural-fix-due-date-sort",
+				Name:      "fix-due-date-sort",
+				CreatedAt: time.Now().Add(-24 * time.Hour),
+				Started:   true,
+			},
+			// API session
+			{
+				ID:        "session-api-auth",
+				RepoPath:  "/home/user/todo-api",
+				WorkTree:  "/home/user/.plural-worktrees/session-api-auth",
+				Branch:    "plural-oauth-login",
+				Name:      "oauth-login",
+				CreatedAt: time.Now().Add(-4 * time.Hour),
 				Started:   true,
 			},
 		},
 		Focus: "sidebar",
 	},
 	Steps: []demo.Step{
-		// Show the initial interface
+		// Initial view - show the interface with existing repos and sessions
 		demo.Wait(1 * time.Second),
+		demo.Capture(),
 
-		// Select the session
+		// Select the push-notifications session
 		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
 		demo.Capture(),
 
-		// Type a message
-		demo.Type("Add a hello world function to main.go"),
+		// Type a message to Claude
+		demo.Type("Add push notification support for task reminders"),
 		demo.Wait(300 * time.Millisecond),
-		demo.Capture(), // Show the typed message
+		demo.Capture(),
 
 		// Send the message
 		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
-		demo.Capture(), // Show message sent (appears in chat)
 
-		// Simulate Claude's streaming response
-		demo.TextResponse(`I'll add a hello world function to main.go for you.
+		// Claude responds with streaming
+		demo.StreamingTextResponse(`I'll add push notification support for task reminders. Let me implement this feature.
 
-`+"```"+`go
-func helloWorld() string {
-    return "Hello, World!"
-}
-`+"```"+`
+First, I'll create the notification service and integrate it with the task scheduler.
 
-I've added the `+"`helloWorld`"+` function. Would you like me to also add a test for it?`),
+I've made the following changes:
+- Created NotificationService class with FCM integration
+- Added TaskReminderWorker for background processing
+- Updated TaskModel to include reminder settings
+- Added notification preferences to user settings
 
-		// Final pause to show completed response
-		demo.Wait(2 * time.Second),
-	},
-}
-
-// Parallel demonstrates running multiple sessions in parallel:
-// - Starting with two sessions
-// - Working on different tasks simultaneously
-var Parallel = &demo.Scenario{
-	Name:        "parallel",
-	Description: "Parallel sessions - work on multiple tasks simultaneously",
-	Width:       120,
-	Height:      40,
-	Setup: &demo.ScenarioSetup{
-		Repos: []string{"/home/user/myproject"},
-		Sessions: []config.Session{
-			{
-				ID:        "session-api",
-				RepoPath:  "/home/user/myproject",
-				WorkTree:  "/home/user/.plural-worktrees/session-api",
-				Branch:    "plural-api",
-				Name:      "myproject/api",
-				CreatedAt: time.Now(),
-				Started:   true,
-			},
-			{
-				ID:        "session-ui",
-				RepoPath:  "/home/user/myproject",
-				WorkTree:  "/home/user/.plural-worktrees/session-ui",
-				Branch:    "plural-ui",
-				Name:      "myproject/ui",
-				CreatedAt: time.Now(),
-				Started:   true,
-			},
-		},
-		Focus: "sidebar",
-	},
-	Steps: []demo.Step{
+The implementation is complete. You can now set reminders on tasks and users will receive push notifications.`, 50),
 		demo.Wait(1 * time.Second),
 		demo.Capture(),
 
-		// Select first session
-		demo.Key("enter"),
-		demo.Wait(500 * time.Millisecond),
-		demo.Capture(),
-
-		// Send task to first session
-		demo.Type("Add a /users endpoint"),
+		// Switch focus back to sidebar
+		demo.KeyWithDesc("tab", "Focus sidebar"),
 		demo.Wait(300 * time.Millisecond),
-		demo.Capture(),
 
-		demo.Key("enter"),
+		// View the changed files (v key)
+		demo.KeyWithDesc("v", "View changed files"),
 		demo.Wait(500 * time.Millisecond),
 		demo.Capture(),
 
-		// Claude responds
-		demo.TextResponse("I'll create a /users endpoint with CRUD operations. Here's the implementation:\n\n```go\nfunc (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {\n    users, err := h.store.ListUsers(r.Context())\n    if err != nil {\n        http.Error(w, err.Error(), 500)\n        return\n    }\n    json.NewEncoder(w).Encode(users)\n}\n```"),
-
-		demo.Wait(800 * time.Millisecond),
-
-		// Switch to second session
-		demo.Key("tab"),
-		demo.Wait(200 * time.Millisecond),
+		// Navigate through files
 		demo.Key("down"),
-		demo.Wait(200 * time.Millisecond),
-		demo.Capture(),
-
-		demo.Key("enter"),
-		demo.Wait(500 * time.Millisecond),
-		demo.Capture(),
-
-		// Send task to second session
-		demo.Type("Create a UserList component"),
+		demo.Wait(300 * time.Millisecond),
+		demo.Key("down"),
 		demo.Wait(300 * time.Millisecond),
 		demo.Capture(),
 
+		// Exit view changes mode
+		demo.Key("escape"),
+		demo.Wait(300 * time.Millisecond),
+
+		// Open merge modal (m key) - focus returns to sidebar after escape
+		demo.KeyWithDesc("m", "Open merge options"),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
+
+		// Select "Merge to main" (first option)
 		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
 		demo.Capture(),
 
-		// Second session responds
-		demo.TextResponse("I'll create a UserList React component:\n\n```tsx\nexport function UserList() {\n  const { data: users } = useQuery(['users'], fetchUsers);\n  return (\n    <table>\n      <thead><tr><th>Name</th><th>Email</th></tr></thead>\n      <tbody>\n        {users?.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.email}</td></tr>)}\n      </tbody>\n    </table>\n  );\n}\n```"),
-
+		// Final pause
 		demo.Wait(2 * time.Second),
 	},
 }
 
-// Permission demonstrates the permission system:
-// - Claude requesting permission to run a command
-// - User approving/denying
-var Permission = &demo.Scenario{
-	Name:        "permission",
-	Description: "Permission system - approve or deny Claude's tool requests",
+// Comprehensive demonstrates the explore options workflow:
+// - Starting with multiple repos and sessions in various states (realistic to-do app context)
+// - Asking Claude a question that produces multiple options
+// - Using Ctrl+P to explore ALL options at once (forking into parallel sessions)
+// - Reviewing child sessions with Claude's implementation
+// - Viewing files and submitting a PR for the preferred option
+var Comprehensive = &demo.Scenario{
+	Name:        "comprehensive",
+	Description: "Explore options workflow - fork all options, review children, create PR",
 	Width:       120,
 	Height:      40,
 	Setup: &demo.ScenarioSetup{
-		Repos: []string{"/home/user/myproject"},
+		Repos: []string{"/home/user/todo-app", "/home/user/todo-api"},
 		Sessions: []config.Session{
+			// Session where user will ask about approaches
 			{
-				ID:        "demo-session",
-				RepoPath:  "/home/user/myproject",
-				WorkTree:  "/home/user/.plural-worktrees/demo-session",
-				Branch:    "plural-tests",
-				Name:      "myproject/tests",
-				CreatedAt: time.Now(),
+				ID:        "session-search",
+				RepoPath:  "/home/user/todo-app",
+				WorkTree:  "/home/user/.plural-worktrees/session-search",
+				Branch:    "plural-task-search",
+				Name:      "task-search",
+				CreatedAt: time.Now().Add(-1 * time.Hour),
+				Started:   true,
+			},
+			// Older completed sessions
+			{
+				ID:        "session-recurring",
+				RepoPath:  "/home/user/todo-app",
+				WorkTree:  "/home/user/.plural-worktrees/session-recurring",
+				Branch:    "plural-recurring-tasks",
+				Name:      "recurring-tasks",
+				CreatedAt: time.Now().Add(-72 * time.Hour),
+				Started:   true,
+			},
+			{
+				ID:        "session-export",
+				RepoPath:  "/home/user/todo-app",
+				WorkTree:  "/home/user/.plural-worktrees/session-export",
+				Branch:    "plural-export-csv",
+				Name:      "export-csv",
+				CreatedAt: time.Now().Add(-48 * time.Hour),
+				Started:   true,
+			},
+			{
+				ID:        "session-api-cache",
+				RepoPath:  "/home/user/todo-api",
+				WorkTree:  "/home/user/.plural-worktrees/session-api-cache",
+				Branch:    "plural-redis-cache",
+				Name:      "redis-cache",
+				CreatedAt: time.Now().Add(-24 * time.Hour),
 				Started:   true,
 			},
 		},
 		Focus: "sidebar",
 	},
 	Steps: []demo.Step{
+		// Initial view - show existing repos and sessions
+		demo.Wait(2 * time.Second),
+		demo.Capture(),
+
+		// Select the task-search session
+		demo.Key("enter"),
 		demo.Wait(1 * time.Second),
 		demo.Capture(),
 
-		// Select session
+		// Ask Claude about search implementation approaches
+		demo.Type("What are the best approaches for implementing task search?"),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
+
+		// Send the message
 		demo.Key("enter"),
-		demo.Wait(500 * time.Millisecond),
-		demo.Capture(),
+		demo.Wait(1 * time.Second),
 
-		// Request tests
-		demo.Type("Run the test suite"),
-		demo.Wait(300 * time.Millisecond),
-		demo.Capture(),
+		// Claude responds with numbered options
+		demo.StreamingTextResponse(`There are several approaches for implementing task search, each with different trade-offs:
 
-		demo.Key("enter"),
-		demo.Wait(500 * time.Millisecond),
-		demo.Capture(),
+<options>
+1. Full-Text Search with PostgreSQL - Use PostgreSQL's built-in tsvector/tsquery for full-text search, simple to implement with existing database
+2. Elasticsearch Integration - Deploy Elasticsearch for advanced search features like fuzzy matching, relevance scoring, and faceted search
+3. Client-Side Filtering - Implement search entirely in the browser using existing task data, zero backend changes needed
+</options>
 
-		// Claude requests permission
-		demo.Permission("Bash", "go test ./..."),
-		demo.Wait(800 * time.Millisecond),
-
-		// Approve with 'y'
-		demo.Key("y"),
-		demo.Wait(500 * time.Millisecond),
-		demo.Capture(),
-
-		// Claude responds after permission
-		demo.TextResponse(`Running tests...
-
-`+"```"+`
-ok  	github.com/user/myproject/pkg/api	0.042s
-ok  	github.com/user/myproject/pkg/models	0.038s
-ok  	github.com/user/myproject/pkg/utils	0.025s
-`+"```"+`
-
-All tests passed! The test suite completed successfully.`),
+Each approach varies in complexity, scalability, and feature richness. Would you like me to implement any of these?`, 30),
 
 		demo.Wait(2 * time.Second),
+		demo.Capture(),
+
+		// Press Ctrl+P to explore options (works from chat focus)
+		demo.KeyWithDesc("ctrl+p", "Explore options"),
+		demo.Wait(1 * time.Second),
+		demo.Capture(),
+
+		// Select ALL options - start with option 1
+		demo.Key("space"),
+		demo.Wait(400 * time.Millisecond),
+
+		// Move down and select option 2
+		demo.Key("down"),
+		demo.Wait(400 * time.Millisecond),
+		demo.Key("space"),
+		demo.Wait(400 * time.Millisecond),
+
+		// Move down and select option 3
+		demo.Key("down"),
+		demo.Wait(400 * time.Millisecond),
+		demo.Key("space"),
+		demo.Wait(500 * time.Millisecond),
+		demo.Capture(),
+
+		// Press Enter to fork all selected options
+		demo.Key("enter"),
+		demo.Wait(1500 * time.Millisecond),
+		demo.Capture(),
+
+		// Navigate to first child session (down arrow)
+		demo.Key("down"),
+		demo.Wait(800 * time.Millisecond),
+		demo.Capture(),
+
+		// Select the child session to review it
+		demo.Key("enter"),
+		demo.Wait(1 * time.Second),
+		demo.Capture(),
+
+		// Claude responds with the implementation in the child session
+		demo.StreamingTextResponse(`I'll implement PostgreSQL full-text search for task search. Here's my implementation:
+
+I've made the following changes:
+
+**db/migrations/add_search_index.sql** - Added GIN index for full-text search
+**src/models/task.py** - Added search vector column and trigger
+**src/services/search.py** - New search service with tsvector/tsquery
+**src/api/tasks.py** - Added /tasks/search endpoint
+**tests/test_search.py** - Unit tests for search functionality
+
+The implementation uses PostgreSQL's built-in full-text search with:
+- Automatic indexing via triggers
+- Relevance-based ranking
+- Support for prefix matching and phrase queries
+
+You can now search tasks with: GET /tasks/search?q=meeting+notes`, 25),
+
+		demo.Wait(2 * time.Second),
+		demo.Capture(),
+
+		// Switch focus back to sidebar for shortcuts
+		demo.KeyWithDesc("tab", "Focus sidebar"),
+		demo.Wait(500 * time.Millisecond),
+
+		// View changed files for this option (v key)
+		demo.KeyWithDesc("v", "View changed files"),
+		demo.Wait(1 * time.Second),
+		demo.Capture(),
+
+		// Navigate through files
+		demo.Key("down"),
+		demo.Wait(600 * time.Millisecond),
+		demo.Key("down"),
+		demo.Wait(600 * time.Millisecond),
+		demo.Capture(),
+
+		// Exit view changes
+		demo.Key("escape"),
+		demo.Wait(500 * time.Millisecond),
+
+		// Ensure focus is on sidebar for merge shortcut
+		demo.Key("tab"),
+		demo.Wait(300 * time.Millisecond),
+
+		// Open merge modal for PR (m key)
+		demo.KeyWithDesc("m", "Open merge options"),
+		demo.Wait(1 * time.Second),
+		demo.Capture(),
+
+		// Navigate to "Create PR" option
+		demo.Key("down"),
+		demo.Wait(400 * time.Millisecond),
+		demo.Key("down"),
+		demo.Wait(400 * time.Millisecond),
+		demo.Capture(),
+
+		// Select Create PR
+		demo.Key("enter"),
+		demo.Wait(1 * time.Second),
+		demo.Capture(),
+
+		// Final pause
+		demo.Wait(3 * time.Second),
 	},
 }
 
@@ -218,8 +329,6 @@ All tests passed! The test suite completed successfully.`),
 func All() []*demo.Scenario {
 	return []*demo.Scenario{
 		Basic,
-		Parallel,
-		Permission,
 		Comprehensive,
 	}
 }

@@ -352,7 +352,8 @@ After generating a .cast file, play with asciinema:
 
 	command := os.Args[2]
 
-	// Parse remaining args
+	// Parse flags - need to handle scenario name which may appear before or after flags
+	// Go's flag package stops at first non-flag arg, so we extract scenario first
 	output := demoCmd.String("output", "", "Output file")
 	demoCmd.StringVar(output, "o", "", "Output file")
 	width := demoCmd.Int("width", 120, "Terminal width")
@@ -360,7 +361,27 @@ After generating a .cast file, play with asciinema:
 	height := demoCmd.Int("height", 40, "Terminal height")
 	demoCmd.IntVar(height, "h", 40, "Terminal height")
 	captureAll := demoCmd.Bool("capture-all", false, "Capture frame after every step (for debugging)")
-	demoCmd.Parse(os.Args[3:])
+
+	// Separate scenario name from flags so flags can appear after scenario name
+	// e.g., "plural demo cast basic -o foo.cast" should work
+	remainingArgs := os.Args[3:]
+	var scenarioName string
+	var flagArgs []string
+	for i := 0; i < len(remainingArgs); i++ {
+		arg := remainingArgs[i]
+		if strings.HasPrefix(arg, "-") {
+			flagArgs = append(flagArgs, arg)
+			// If this flag takes a value, include the next arg too
+			if i+1 < len(remainingArgs) && !strings.HasPrefix(remainingArgs[i+1], "-") &&
+				(arg == "-o" || arg == "--output" || arg == "-w" || arg == "--width" || arg == "-h" || arg == "--height") {
+				i++
+				flagArgs = append(flagArgs, remainingArgs[i])
+			}
+		} else if scenarioName == "" {
+			scenarioName = arg
+		}
+	}
+	demoCmd.Parse(flagArgs)
 
 	switch command {
 	case "list":
@@ -372,14 +393,12 @@ After generating a .cast file, play with asciinema:
 		return
 
 	case "run", "generate", "cast":
-		args := demoCmd.Args()
-		if len(args) < 1 {
+		if scenarioName == "" {
 			fmt.Fprintf(os.Stderr, "Error: scenario name required\n")
 			fmt.Fprintf(os.Stderr, "Run 'plural demo list' to see available scenarios\n")
 			os.Exit(1)
 		}
 
-		scenarioName := args[0]
 		scenario := scenarios.Get(scenarioName)
 		if scenario == nil {
 			fmt.Fprintf(os.Stderr, "Error: unknown scenario %q\n", scenarioName)

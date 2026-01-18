@@ -9,8 +9,8 @@ import (
 func TestAll(t *testing.T) {
 	scenarios := All()
 
-	if len(scenarios) == 0 {
-		t.Error("All() should return at least one scenario")
+	if len(scenarios) != 2 {
+		t.Errorf("All() should return 2 scenarios, got %d", len(scenarios))
 	}
 
 	// Verify each scenario is valid
@@ -27,8 +27,7 @@ func TestGet(t *testing.T) {
 		wantFound bool
 	}{
 		{"basic", true},
-		{"parallel", true},
-		{"permission", true},
+		{"comprehensive", true},
 		{"nonexistent", false},
 	}
 
@@ -66,39 +65,41 @@ func TestBasicScenario(t *testing.T) {
 	if len(scenario.Setup.Sessions) == 0 {
 		t.Error("Setup.Sessions should not be empty")
 	}
-}
 
-func TestParallelScenario(t *testing.T) {
-	scenario := Parallel
-
-	if scenario.Name != "parallel" {
-		t.Errorf("Name = %v, want 'parallel'", scenario.Name)
+	// Should have multiple repos
+	if len(scenario.Setup.Repos) < 2 {
+		t.Errorf("Basic scenario should have multiple repos, got %d", len(scenario.Setup.Repos))
 	}
 
-	// Should have multiple sessions for parallel demo
-	if len(scenario.Setup.Sessions) < 2 {
-		t.Errorf("Parallel scenario should have at least 2 sessions, got %d", len(scenario.Setup.Sessions))
-	}
-}
-
-func TestPermissionScenario(t *testing.T) {
-	scenario := Permission
-
-	if scenario.Name != "permission" {
-		t.Errorf("Name = %v, want 'permission'", scenario.Name)
+	// Should have multiple sessions across repos
+	if len(scenario.Setup.Sessions) < 3 {
+		t.Errorf("Basic scenario should have at least 3 sessions, got %d", len(scenario.Setup.Sessions))
 	}
 
-	// Should have a permission step
-	hasPermission := false
+	// Should have a streaming response step (for Claude's response)
+	hasStreamingResponse := false
 	for _, step := range scenario.Steps {
-		if step.Type == 4 { // StepPermission
-			hasPermission = true
+		if step.Type == demo.StepResponse && len(step.Chunks) > 0 {
+			hasStreamingResponse = true
 			break
 		}
 	}
 
-	if !hasPermission {
-		t.Error("Permission scenario should have a permission step")
+	if !hasStreamingResponse {
+		t.Error("Basic scenario should have a streaming response step")
+	}
+
+	// Should have type steps (for user typing message)
+	hasTypeStep := false
+	for _, step := range scenario.Steps {
+		if step.Type == demo.StepTypeText {
+			hasTypeStep = true
+			break
+		}
+	}
+
+	if !hasTypeStep {
+		t.Error("Basic scenario should have a Type step for user input")
 	}
 }
 
@@ -109,27 +110,51 @@ func TestComprehensiveScenario(t *testing.T) {
 		t.Errorf("Name = %v, want 'comprehensive'", scenario.Name)
 	}
 
-	// Should have multiple sessions
-	if len(scenario.Setup.Sessions) < 2 {
-		t.Errorf("Comprehensive scenario should have at least 2 sessions, got %d", len(scenario.Setup.Sessions))
+	if scenario.Width != 120 {
+		t.Errorf("Width = %v, want 120", scenario.Width)
 	}
 
-	// Should have a StartStreaming step (to demonstrate parallel work)
-	hasStartStreaming := false
+	if len(scenario.Steps) == 0 {
+		t.Error("Steps should not be empty")
+	}
+
+	if scenario.Setup == nil {
+		t.Error("Setup should not be nil")
+	}
+
+	// Should have multiple repos
+	if len(scenario.Setup.Repos) < 2 {
+		t.Errorf("Comprehensive scenario should have multiple repos, got %d", len(scenario.Setup.Repos))
+	}
+
+	// Should have multiple sessions (at least 3 for variety)
+	if len(scenario.Setup.Sessions) < 3 {
+		t.Errorf("Comprehensive scenario should have at least 3 sessions, got %d", len(scenario.Setup.Sessions))
+	}
+
+	// Should have a streaming response step (for Claude's options response)
+	hasStreamingResponse := false
 	for _, step := range scenario.Steps {
-		if step.Type == demo.StepStartStreaming {
-			hasStartStreaming = true
+		if step.Type == demo.StepResponse && len(step.Chunks) > 0 {
+			hasStreamingResponse = true
+			break
 		}
 	}
 
-	if !hasStartStreaming {
-		t.Error("Comprehensive scenario should have a StartStreaming step to demonstrate parallel work")
+	if !hasStreamingResponse {
+		t.Error("Comprehensive scenario should have a streaming response step")
 	}
-}
 
-func TestGetComprehensive(t *testing.T) {
-	scenario := Get("comprehensive")
-	if scenario == nil {
-		t.Error("Get('comprehensive') should return a scenario")
+	// Should have type steps (for user typing question)
+	hasTypeStep := false
+	for _, step := range scenario.Steps {
+		if step.Type == demo.StepTypeText {
+			hasTypeStep = true
+			break
+		}
+	}
+
+	if !hasTypeStep {
+		t.Error("Comprehensive scenario should have a Type step for user input")
 	}
 }
