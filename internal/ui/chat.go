@@ -9,7 +9,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/zhubert/plural/internal/claude"
+	pclaude "github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
@@ -35,7 +35,7 @@ type Chat struct {
 	width       int
 	height      int
 	focused     bool
-	messages    []claude.Message
+	messages    []pclaude.Message
 	streaming   string // Current streaming response
 	sessionName string
 	hasSession  bool
@@ -85,6 +85,10 @@ type Chat struct {
 	// Queued message waiting to be sent after streaming completes
 	queuedMessage string
 
+	// Todo list display state
+	hasTodoList     bool
+	currentTodoList *pclaude.TodoList
+
 	// Text selection state
 	selectionStartCol  int
 	selectionStartLine int
@@ -124,7 +128,7 @@ func NewChat() *Chat {
 	c := &Chat{
 		viewport:             vp,
 		input:                ti,
-		messages:             []claude.Message{},
+		messages:             []pclaude.Message{},
 		lastToolUsePos:       -1,
 		completionFlashFrame: -1,
 		selectionFlashFrame:  -1,
@@ -217,7 +221,7 @@ func (c *Chat) RefreshStyles() {
 }
 
 // SetSession sets the current session info
-func (c *Chat) SetSession(name string, messages []claude.Message) {
+func (c *Chat) SetSession(name string, messages []pclaude.Message) {
 	c.sessionName = name
 	c.messages = messages
 	c.hasSession = true
@@ -245,6 +249,8 @@ func (c *Chat) ClearSession() {
 	c.waiting = false
 	c.completionFlashFrame = -1
 	c.queuedMessage = ""
+	c.hasTodoList = false
+	c.currentTodoList = nil
 	c.updateContent()
 }
 
@@ -296,7 +302,7 @@ func (c *Chat) MarkLastToolUseComplete() {
 // FinishStreaming completes the streaming and adds to messages
 func (c *Chat) FinishStreaming() {
 	if c.streaming != "" {
-		c.messages = append(c.messages, claude.Message{
+		c.messages = append(c.messages, pclaude.Message{
 			Role:    "assistant",
 			Content: c.streaming,
 		})
@@ -307,7 +313,7 @@ func (c *Chat) FinishStreaming() {
 
 // AddUserMessage adds a user message
 func (c *Chat) AddUserMessage(content string) {
-	c.messages = append(c.messages, claude.Message{
+	c.messages = append(c.messages, pclaude.Message{
 		Role:    "user",
 		Content: content,
 	})
@@ -316,7 +322,7 @@ func (c *Chat) AddUserMessage(content string) {
 
 // AddSystemMessage adds a system/assistant message (for local command responses)
 func (c *Chat) AddSystemMessage(content string) {
-	c.messages = append(c.messages, claude.Message{
+	c.messages = append(c.messages, pclaude.Message{
 		Role:    "assistant",
 		Content: content,
 	})
@@ -363,7 +369,7 @@ func (c *Chat) GetStreaming() string {
 }
 
 // GetMessages returns the conversation messages
-func (c *Chat) GetMessages() []claude.Message {
+func (c *Chat) GetMessages() []pclaude.Message {
 	return c.messages
 }
 
@@ -556,6 +562,30 @@ func (c *Chat) GetPendingImage() (data []byte, mediaType string) {
 // GetPendingImageSizeKB returns the pending image size in KB
 func (c *Chat) GetPendingImageSizeKB() int {
 	return c.pendingImageSize / 1024
+}
+
+// SetTodoList sets the current todo list to display
+func (c *Chat) SetTodoList(list *pclaude.TodoList) {
+	c.hasTodoList = list != nil && len(list.Items) > 0
+	c.currentTodoList = list
+	c.updateContent()
+}
+
+// ClearTodoList clears the todo list display
+func (c *Chat) ClearTodoList() {
+	c.hasTodoList = false
+	c.currentTodoList = nil
+	c.updateContent()
+}
+
+// HasTodoList returns whether there's a todo list to display
+func (c *Chat) HasTodoList() bool {
+	return c.hasTodoList
+}
+
+// GetTodoList returns the current todo list
+func (c *Chat) GetTodoList() *pclaude.TodoList {
+	return c.currentTodoList
 }
 
 // GetToolIcon returns an appropriate icon for the tool type
@@ -872,6 +902,14 @@ func (c *Chat) updateContent() {
 			sb.WriteString(queuedStyle.Render("You (queued):"))
 			sb.WriteString("\n")
 			sb.WriteString(queuedStyle.Render(c.queuedMessage))
+		}
+
+		// Show todo list if present
+		if c.hasTodoList && c.currentTodoList != nil {
+			if len(c.messages) > 0 || c.streaming != "" || c.waiting {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(renderTodoList(c.currentTodoList, wrapWidth))
 		}
 
 		// Show pending permission prompt

@@ -185,6 +185,37 @@ var (
 		Padding(1, 2)
 )
 
+// Todo list styles
+var (
+	// Box style for the todo list container
+	TodoListBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorInfo).
+		Padding(0, 1)
+
+	// Marker styles for different states
+	TodoCompletedMarkerStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#4ADE80")) // Green checkmark
+
+	TodoInProgressMarkerStyle = lipgloss.NewStyle().
+		Foreground(ColorSecondary) // Cyan hourglass
+
+	TodoPendingMarkerStyle = lipgloss.NewStyle().
+		Foreground(ColorMuted) // Gray circle
+
+	// Content styles for different states
+	TodoCompletedContentStyle = lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Strikethrough(true)
+
+	TodoInProgressContentStyle = lipgloss.NewStyle().
+		Foreground(ColorText).
+		Bold(true)
+
+	TodoPendingContentStyle = lipgloss.NewStyle().
+		Foreground(ColorTextMuted)
+)
+
 // Markdown rendering styles
 var (
 	// Headers

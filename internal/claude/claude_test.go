@@ -624,7 +624,8 @@ func TestFormatToolIcon(t *testing.T) {
 		{"Task", "Delegating"},
 		{"WebFetch", "Fetching"},
 		{"WebSearch", "Searching"},
-		{"TodoWrite", "Planning"},
+		// Note: TodoWrite is handled specially via ChunkTypeTodoUpdate, not through formatToolIcon
+		{"TodoWrite", "Using"}, // Falls through to default since not in switch
 		{"UnknownTool", "Using"},
 	}
 
@@ -1611,5 +1612,71 @@ func TestShortenPath_WindowsStyle(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("shortenPath(%q) = %q, want %q", tt.path, result, tt.expected)
 		}
+	}
+}
+
+func TestParseStreamMessage_TodoWrite(t *testing.T) {
+	// Test that TodoWrite tool_use produces ChunkTypeTodoUpdate
+	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Task 1","status":"pending","activeForm":"Working on task 1"},{"content":"Task 2","status":"in_progress","activeForm":"Doing task 2"},{"content":"Task 3","status":"completed","activeForm":"Done"}]}}]}}`
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+
+	if chunks[0].Type != ChunkTypeTodoUpdate {
+		t.Errorf("Expected ChunkTypeTodoUpdate, got %v", chunks[0].Type)
+	}
+
+	if chunks[0].TodoList == nil {
+		t.Fatal("Expected non-nil TodoList")
+	}
+
+	if len(chunks[0].TodoList.Items) != 3 {
+		t.Errorf("Expected 3 todo items, got %d", len(chunks[0].TodoList.Items))
+	}
+
+	// Verify first item
+	if chunks[0].TodoList.Items[0].Content != "Task 1" {
+		t.Errorf("First item Content = %q, want %q", chunks[0].TodoList.Items[0].Content, "Task 1")
+	}
+	if chunks[0].TodoList.Items[0].Status != TodoStatusPending {
+		t.Errorf("First item Status = %q, want %q", chunks[0].TodoList.Items[0].Status, TodoStatusPending)
+	}
+
+	// Verify second item
+	if chunks[0].TodoList.Items[1].Status != TodoStatusInProgress {
+		t.Errorf("Second item Status = %q, want %q", chunks[0].TodoList.Items[1].Status, TodoStatusInProgress)
+	}
+
+	// Verify third item
+	if chunks[0].TodoList.Items[2].Status != TodoStatusCompleted {
+		t.Errorf("Third item Status = %q, want %q", chunks[0].TodoList.Items[2].Status, TodoStatusCompleted)
+	}
+}
+
+func TestParseStreamMessage_TodoWrite_InvalidInput(t *testing.T) {
+	// Test that TodoWrite with invalid input falls back to regular tool use
+	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"invalid":"data"}}]}}`
+	chunks := parseStreamMessage(msg)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+
+	// Should fall back to ChunkTypeToolUse since parsing failed
+	if chunks[0].Type != ChunkTypeToolUse {
+		t.Errorf("Expected ChunkTypeToolUse for invalid TodoWrite, got %v", chunks[0].Type)
+	}
+
+	if chunks[0].ToolName != "TodoWrite" {
+		t.Errorf("Expected tool name 'TodoWrite', got %q", chunks[0].ToolName)
+	}
+}
+
+func TestChunkTypeTodoUpdate(t *testing.T) {
+	// Verify the constant value
+	if ChunkTypeTodoUpdate != "todo_update" {
+		t.Errorf("ChunkTypeTodoUpdate = %q, want %q", ChunkTypeTodoUpdate, "todo_update")
 	}
 }

@@ -410,6 +410,7 @@ const (
 	ChunkTypeText       ChunkType = "text"        // Regular text content
 	ChunkTypeToolUse    ChunkType = "tool_use"    // Claude is calling a tool
 	ChunkTypeToolResult ChunkType = "tool_result" // Tool execution result
+	ChunkTypeTodoUpdate ChunkType = "todo_update" // TodoWrite tool call with todo list
 )
 
 // ResponseChunk represents a chunk of streaming response
@@ -418,6 +419,7 @@ type ResponseChunk struct {
 	Content   string    // Text content (for text chunks and status)
 	ToolName  string    // Tool being used (for tool_use chunks)
 	ToolInput string    // Brief description of tool input
+	TodoList  *TodoList // Todo list (for ChunkTypeTodoUpdate)
 	Done      bool
 	Error     error
 }
@@ -492,6 +494,22 @@ func parseStreamMessage(line string) []ResponseChunk {
 					})
 				}
 			case "tool_use":
+				// Handle TodoWrite specially - parse and return the full todo list
+				if content.Name == "TodoWrite" {
+					todoList, err := ParseTodoWriteInput(content.Input)
+					if err != nil {
+						logger.Log("Claude: Failed to parse TodoWrite input: %v", err)
+						// Fall through to regular tool use display on parse error
+					} else {
+						chunks = append(chunks, ResponseChunk{
+							Type:     ChunkTypeTodoUpdate,
+							TodoList: todoList,
+						})
+						logger.Log("Claude: TodoWrite with %d items", len(todoList.Items))
+						continue
+					}
+				}
+
 				// Extract a brief description from the tool input
 				inputDesc := extractToolInputDescription(content.Name, content.Input)
 				chunks = append(chunks, ResponseChunk{
@@ -1262,8 +1280,8 @@ func formatToolIcon(toolName string) string {
 		return "Fetching"
 	case "WebSearch":
 		return "Searching"
-	case "TodoWrite":
-		return "Planning"
+	// Note: TodoWrite is handled specially via ChunkTypeTodoUpdate,
+	// so it won't reach this function in normal operation
 	default:
 		return "Using"
 	}

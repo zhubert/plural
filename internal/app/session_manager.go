@@ -22,6 +22,7 @@ type SelectResult struct {
 	Permission   *mcp.PermissionRequest
 	Question     *mcp.QuestionRequest
 	PlanApproval *mcp.PlanApprovalRequest
+	TodoList     *claude.TodoList
 	Streaming    string
 	SavedInput   string
 }
@@ -156,6 +157,9 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 
 	// Get pending plan approval
 	result.PlanApproval = sm.stateManager.GetPendingPlanApproval(sess.ID)
+
+	// Get todo list
+	result.TodoList = sm.stateManager.GetTodoList(sess.ID)
 
 	// Get streaming content (and clear it from state manager)
 	if streaming := sm.stateManager.GetStreaming(sess.ID); streaming != "" {

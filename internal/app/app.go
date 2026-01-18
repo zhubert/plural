@@ -876,6 +876,13 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.ClearPendingPlanApproval()
 	}
 
+	// Restore todo list
+	if result.TodoList != nil {
+		m.chat.SetTodoList(result.TodoList)
+	} else {
+		m.chat.ClearTodoList()
+	}
+
 	// Restore streaming content
 	if result.Streaming != "" {
 		m.chat.SetStreaming(result.Streaming)
