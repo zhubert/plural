@@ -573,6 +573,19 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		}
 		ch <- Result{Output: string(output)}
 
+		// Pull latest changes from origin
+		ch <- Result{Output: fmt.Sprintf("Pulling latest %s from origin...\n", defaultBranch)}
+		cmd = exec.CommandContext(ctx, "git", "pull", "--ff-only")
+		cmd.Dir = repoPath
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			// Pull failed - could be diverged history, let the user know but continue
+			// The merge might still work if the divergence is resolvable
+			ch <- Result{Output: string(output) + "\nWarning: Pull failed, continuing with merge...\n"}
+		} else {
+			ch <- Result{Output: string(output)}
+		}
+
 		// Merge the branch
 		ch <- Result{Output: fmt.Sprintf("Merging %s...\n", branch)}
 		cmd = exec.CommandContext(ctx, "git", "merge", branch, "--no-edit")
