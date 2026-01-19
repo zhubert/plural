@@ -38,7 +38,8 @@ var (
 	tableSeparatorPattern = regexp.MustCompile(`^\s*\|[\s\-:]+\|[\s\-:|]*$`)
 )
 
-// highlightCode applies syntax highlighting to code using chroma
+// highlightCode applies syntax highlighting to code using chroma.
+// The syntax style is determined by the current theme's SyntaxStyle field.
 func highlightCode(code, language string) string {
 	lexer := lexers.Get(language)
 	if lexer == nil {
@@ -46,7 +47,9 @@ func highlightCode(code, language string) string {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get(DefaultSyntaxStyle)
+	// Use the current theme's syntax style
+	syntaxStyle := CurrentTheme().GetSyntaxStyle()
+	style := styles.Get(syntaxStyle)
 	if style == nil {
 		style = styles.Fallback
 	}

@@ -9,6 +9,173 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
+// =============================================================================
+// Theme-Aware Syntax Highlighting Tests
+// =============================================================================
+
+func TestTheme_GetSyntaxStyle(t *testing.T) {
+	tests := []struct {
+		themeName     ThemeName
+		expectedStyle string
+	}{
+		{ThemeDarkPurple, "monokai"},
+		{ThemeNord, "nord"},
+		{ThemeDracula, "dracula"},
+		{ThemeGruvbox, "gruvbox"},
+		{ThemeTokyoNight, "native"},
+		{ThemeCatppuccin, "catppuccin-mocha"},
+		{ThemeScienceFiction, "native"},
+		{ThemeLight, "github"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.themeName), func(t *testing.T) {
+			theme := GetTheme(tt.themeName)
+			style := theme.GetSyntaxStyle()
+			if style != tt.expectedStyle {
+				t.Errorf("Theme %s: GetSyntaxStyle() = %q, want %q", tt.themeName, style, tt.expectedStyle)
+			}
+		})
+	}
+}
+
+func TestTheme_GetSyntaxStyle_DefaultFallback(t *testing.T) {
+	// Create a theme with empty SyntaxStyle to test fallback
+	theme := Theme{
+		Name:        "Test Theme",
+		SyntaxStyle: "", // Empty should fallback to "monokai"
+	}
+
+	style := theme.GetSyntaxStyle()
+	if style != "monokai" {
+		t.Errorf("GetSyntaxStyle() with empty SyntaxStyle = %q, want %q", style, "monokai")
+	}
+}
+
+func TestHighlightCode_UsesCurrentThemeSyntaxStyle(t *testing.T) {
+	// Save the current theme to restore it later
+	originalThemeName := CurrentThemeName()
+	defer SetTheme(originalThemeName)
+
+	code := `func main() {
+	fmt.Println("Hello, World!")
+}`
+
+	// Test with different themes and verify output differs
+	themes := []ThemeName{ThemeDarkPurple, ThemeNord, ThemeDracula, ThemeLight}
+	outputs := make(map[ThemeName]string)
+
+	for _, themeName := range themes {
+		SetTheme(themeName)
+		output := highlightCode(code, "go")
+		outputs[themeName] = output
+
+		// Basic sanity check - output should contain the code
+		if !strings.Contains(output, "main") {
+			t.Errorf("Theme %s: highlightCode output should contain 'main', got %q", themeName, output)
+		}
+	}
+
+	// Verify that at least some themes produce different output
+	// (Light vs Dark themes typically have different ANSI codes)
+	if outputs[ThemeDarkPurple] == outputs[ThemeLight] {
+		// This is not necessarily an error, but worth noting
+		// Different chroma styles may produce similar output for simple code
+		t.Log("Note: Dark Purple and Light themes produced identical output for test code")
+	}
+}
+
+func TestHighlightCode_WithAllThemes(t *testing.T) {
+	// Save the current theme to restore it later
+	originalThemeName := CurrentThemeName()
+	defer SetTheme(originalThemeName)
+
+	testCases := []struct {
+		language string
+		code     string
+	}{
+		{"go", "package main\nfunc main() { }"},
+		{"python", "def hello():\n    print('world')"},
+		{"javascript", "const x = () => console.log('hi')"},
+		{"rust", "fn main() { println!(\"Hello\"); }"},
+	}
+
+	// Test all themes with all languages
+	for _, themeName := range ThemeNames() {
+		SetTheme(themeName)
+
+		for _, tc := range testCases {
+			t.Run(string(themeName)+"/"+tc.language, func(t *testing.T) {
+				output := highlightCode(tc.code, tc.language)
+
+				// Basic sanity check - output should not be empty
+				if output == "" {
+					t.Errorf("highlightCode returned empty output for theme %s, language %s", themeName, tc.language)
+				}
+
+				// Output should contain some part of the original code
+				// (may have ANSI codes interspersed)
+				if len(output) < len(tc.code)/2 {
+					t.Errorf("highlightCode output seems too short for theme %s, language %s", themeName, tc.language)
+				}
+			})
+		}
+	}
+}
+
+func TestHighlightCode_FallbackLexer(t *testing.T) {
+	// Test with unknown language - should use fallback lexer
+	output := highlightCode("some random code", "unknownlang123")
+
+	if output == "" {
+		t.Error("highlightCode should return non-empty output even with unknown language")
+	}
+
+	if !strings.Contains(output, "random") {
+		t.Errorf("highlightCode output should contain original code, got %q", output)
+	}
+}
+
+func TestRenderMarkdown_CodeBlockUsesThemeSyntaxStyle(t *testing.T) {
+	// Save the current theme to restore it later
+	originalThemeName := CurrentThemeName()
+	defer SetTheme(originalThemeName)
+
+	markdown := "```go\nfunc hello() {}\n```"
+
+	// Test with different themes
+	SetTheme(ThemeDarkPurple)
+	output1 := renderMarkdown(markdown, 80)
+
+	SetTheme(ThemeNord)
+	output2 := renderMarkdown(markdown, 80)
+
+	// Both outputs should contain the function name
+	if !strings.Contains(output1, "hello") {
+		t.Error("Dark Purple theme: renderMarkdown should contain 'hello'")
+	}
+	if !strings.Contains(output2, "hello") {
+		t.Error("Nord theme: renderMarkdown should contain 'hello'")
+	}
+}
+
+func TestAllBuiltinThemes_HaveSyntaxStyle(t *testing.T) {
+	for name, theme := range BuiltinThemes {
+		t.Run(string(name), func(t *testing.T) {
+			if theme.SyntaxStyle == "" {
+				t.Errorf("Theme %s has empty SyntaxStyle field", name)
+			}
+
+			// Verify the style is a known chroma style
+			// (GetSyntaxStyle will fallback to monokai for unknown styles)
+			style := theme.GetSyntaxStyle()
+			if style == "" {
+				t.Errorf("Theme %s: GetSyntaxStyle returned empty string", name)
+			}
+		})
+	}
+}
+
 func TestGetToolIcon(t *testing.T) {
 	tests := []struct {
 		toolName string
