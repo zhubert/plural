@@ -206,6 +206,6 @@ func NewImportIssuesState(repoPath, repoName string) *ImportIssuesState {
 		Loading:       true,
 		SelectedIndex: 0,
 		ScrollOffset:  0,
-		maxVisible:    10,
+		maxVisible:    IssuesModalMaxVisible,
 	}
 }

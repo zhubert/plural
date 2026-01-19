@@ -212,7 +212,7 @@ func NewChangelogState(entries []ChangelogEntry) *ChangelogState {
 	return &ChangelogState{
 		Entries:         entries,
 		ScrollOffset:    0,
-		maxVisibleLines: 15,
+		maxVisibleLines: ChangelogModalMaxVisible,
 	}
 }
 
@@ -430,7 +430,7 @@ func (s *SettingsState) GetNotificationsEnabled() bool {
 func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool) *SettingsState {
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
-	prefixInput.CharLimit = 50
+	prefixInput.CharLimit = BranchPrefixCharLimit
 	prefixInput.SetWidth(ModalInputWidth)
 	prefixInput.SetValue(currentBranchPrefix)
 	prefixInput.Focus()

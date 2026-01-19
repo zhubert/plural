@@ -41,6 +41,10 @@ const (
 	BasePointHead BasePoint = "head"
 )
 
+// MaxBranchNameValidation is the maximum length for user-provided branch names.
+// This is more permissive than git.MaxBranchNameLength which is for auto-generated names.
+const MaxBranchNameValidation = 100
+
 // validBranchNameRegex matches valid git branch name characters
 // Git branch names cannot contain: space, ~, ^, :, ?, *, [, \, or control characters
 // They also cannot start with - or end with .lock
@@ -52,8 +56,8 @@ func ValidateBranchName(branch string) error {
 		return nil // Empty is allowed (will use default)
 	}
 
-	if len(branch) > 100 {
-		return fmt.Errorf("branch name too long (max 100 characters)")
+	if len(branch) > MaxBranchNameValidation {
+		return fmt.Errorf("branch name too long (max %d characters)", MaxBranchNameValidation)
 	}
 
 	if strings.HasPrefix(branch, "-") {

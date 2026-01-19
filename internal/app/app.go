@@ -279,8 +279,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Debug: log paste content to understand what's being pasted
 		content := msg.Content
 		preview := content
-		if len(preview) > 100 {
-			preview = preview[:100] + "..."
+		if len(preview) > ui.PasteContentPreviewLen {
+			preview = preview[:ui.PasteContentPreviewLen] + "..."
 		}
 		logger.Log("App: PasteMsg received: len=%d, preview=%q", len(content), preview)
 
@@ -1025,8 +1025,8 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	}
 
 	inputPreview := input
-	if len(inputPreview) > 50 {
-		inputPreview = inputPreview[:50] + "..."
+	if len(inputPreview) > ui.InputMessagePreviewLen {
+		inputPreview = inputPreview[:ui.InputMessagePreviewLen] + "..."
 	}
 	logger.Log("App: Sending message to session %s: %q, hasImage=%v", m.activeSession.ID, inputPreview, hasImage)
 

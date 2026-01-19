@@ -186,9 +186,30 @@ func initModalStyles() {
 	)
 }
 
-// init ensures modal styles are initialized
+// initModalConstants initializes the modal constants in the modals package.
+// This should be called once at startup.
+func initModalConstants() {
+	modals.SetConstants(modals.ModalConstants{
+		HelpModalMaxVisible:        HelpModalMaxVisible,
+		IssuesModalMaxVisible:      IssuesModalMaxVisible,
+		SearchModalMaxVisible:      SearchModalMaxVisible,
+		ChangelogModalMaxVisible:   ChangelogModalMaxVisible,
+		BranchNameCharLimit:        BranchNameCharLimit,
+		SessionNameCharLimit:       SessionNameCharLimit,
+		SearchInputCharLimit:       SearchInputCharLimit,
+		MCPServerNameCharLimit:     MCPServerNameCharLimit,
+		MCPCommandCharLimit:        MCPCommandCharLimit,
+		MCPArgsCharLimit:           MCPArgsCharLimit,
+		PluginSearchCharLimit:      PluginSearchCharLimit,
+		MarketplaceSourceCharLimit: MarketplaceSourceCharLimit,
+		BranchPrefixCharLimit:      BranchPrefixCharLimit,
+	})
+}
+
+// init ensures modal styles and constants are initialized
 func init() {
 	initModalStyles()
+	initModalConstants()
 }
 
 // RefreshModalStyles refreshes the modal styles after a theme change.

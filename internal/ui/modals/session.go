@@ -156,7 +156,7 @@ func (s *NewSessionState) GetBaseIndex() int {
 func NewNewSessionState(repos []string) *NewSessionState {
 	branchInput := textinput.New()
 	branchInput.Placeholder = "optional branch name (leave empty for auto)"
-	branchInput.CharLimit = 100
+	branchInput.CharLimit = BranchNameCharLimit
 	branchInput.SetWidth(ModalInputWidth)
 
 	return &NewSessionState{
@@ -313,7 +313,7 @@ func (s *ForkSessionState) ShouldCopyMessages() bool {
 func NewForkSessionState(parentSessionName, parentSessionID, repoPath string) *ForkSessionState {
 	branchInput := textinput.New()
 	branchInput.Placeholder = "optional branch name (leave empty for auto)"
-	branchInput.CharLimit = 100
+	branchInput.CharLimit = BranchNameCharLimit
 	branchInput.SetWidth(ModalInputWidth)
 
 	return &ForkSessionState{
@@ -398,7 +398,7 @@ func (s *RenameSessionState) GetNewName() string {
 func NewRenameSessionState(sessionID, currentName string) *RenameSessionState {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "enter new name"
-	nameInput.CharLimit = 100
+	nameInput.CharLimit = SessionNameCharLimit
 	nameInput.SetWidth(ModalInputWidth)
 	nameInput.SetValue(currentName)
 	nameInput.Focus()

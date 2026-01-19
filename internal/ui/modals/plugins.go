@@ -471,7 +471,7 @@ func (s *PluginsState) GetSelectedAvailablePlugin() *PluginDisplay {
 func NewPluginsState() *PluginsState {
 	searchInput := textinput.New()
 	searchInput.Placeholder = "filter plugins..."
-	searchInput.CharLimit = 50
+	searchInput.CharLimit = PluginSearchCharLimit
 	searchInput.SetWidth(30)
 	// Don't focus by default - Tab toggles focus
 
@@ -491,7 +491,7 @@ func NewPluginsState() *PluginsState {
 func NewPluginsStateWithData(marketplaces []MarketplaceDisplay, plugins []PluginDisplay) *PluginsState {
 	searchInput := textinput.New()
 	searchInput.Placeholder = "filter plugins..."
-	searchInput.CharLimit = 50
+	searchInput.CharLimit = PluginSearchCharLimit
 	searchInput.SetWidth(30)
 	// Don't focus by default - Tab toggles focus
 
@@ -573,7 +573,7 @@ func (s *AddMarketplaceState) GetValue() string {
 func NewAddMarketplaceState() *AddMarketplaceState {
 	sourceInput := textinput.New()
 	sourceInput.Placeholder = "owner/repo or https://..."
-	sourceInput.CharLimit = 200
+	sourceInput.CharLimit = MarketplaceSourceCharLimit
 	sourceInput.SetWidth(ModalInputWidth)
 	sourceInput.Focus()
 
