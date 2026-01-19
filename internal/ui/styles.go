@@ -11,7 +11,7 @@ var (
 	ColorBorderFocus = lipgloss.Color("#7C3AED") // Purple when focused
 	ColorBg          = lipgloss.Color("#1F2937") // Dark background
 	ColorText        = lipgloss.Color("#F9FAFB") // Light text
-	ColorTextMuted   = lipgloss.Color("#9CA3AF") // Muted text
+	ColorTextMuted   = lipgloss.Color("#B0B8C4") // Muted text
 	ColorTextInverse = lipgloss.Color("#1F2937") // Dark text for light backgrounds
 	ColorUser        = lipgloss.Color("#A78BFA") // Light purple for user messages
 	ColorAssistant   = lipgloss.Color("#22D3EE") // Bright cyan for assistant messages
