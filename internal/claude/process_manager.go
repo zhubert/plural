@@ -14,9 +14,6 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
-// errReadTimeout is returned when a read operation times out.
-var errReadTimeout = fmt.Errorf("read timeout")
-
 // errChannelFull is returned when the response channel is full for too long.
 var errChannelFull = fmt.Errorf("channel full")
 
@@ -79,10 +76,7 @@ type ProcessConfig struct {
 //
 // Callback Invocation Order:
 // 1. OnLine: Called repeatedly as stdout produces lines
-// 2. On process exit (one of):
-//   - OnProcessExit: Called when process exits, return value determines restart
-//   - OnProcessHung: Called when read timeout is exceeded
-//
+// 2. OnProcessExit: Called when process exits, return value determines restart
 // 3. If restarting:
 //   - OnRestartAttempt: Called before each restart attempt
 //   - OnRestartFailed: Called if restart fails
@@ -122,11 +116,6 @@ type ProcessCallbacks struct {
 	//   - The response was already complete (result message received)
 	//   - The ProcessManager was explicitly stopped
 	OnProcessExit func(err error, stderrContent string) bool
-
-	// OnProcessHung is called when the process appears to be hung
-	// (no output received within ResponseReadTimeout).
-	// The ProcessManager will kill the hung process after invoking this callback.
-	OnProcessHung func()
 
 	// OnRestartAttempt is called when a restart is being attempted.
 	// attemptNum is 1-indexed (1, 2, 3, ...).
@@ -488,8 +477,7 @@ func (pm *ProcessManager) readOutput() {
 			return
 		}
 
-		// Read with timeout to detect hung processes
-		line, err := pm.readLineWithTimeout(reader)
+		line, err := pm.readLine(reader)
 		if err != nil {
 			// Check if we were cancelled during the read
 			select {
@@ -497,12 +485,6 @@ func (pm *ProcessManager) readOutput() {
 				logger.Log("ProcessManager: Output reader exiting - context cancelled during read")
 				return
 			default:
-			}
-
-			if err == errReadTimeout {
-				logger.Error("ProcessManager: Read timeout - process may be hung")
-				pm.handleHung()
-				return
 			}
 
 			if err == io.EOF {
@@ -525,23 +507,22 @@ func (pm *ProcessManager) readOutput() {
 	}
 }
 
-// readLineWithTimeout reads a line with a timeout to detect hung processes.
+// readLine reads a line from the reader, blocking until data is available.
 //
-// IMPORTANT: When a timeout occurs, the spawned goroutine doing ReadString() cannot
-// be cancelled (Go's blocking I/O limitation). However, this is acceptable because:
-// 1. On timeout, handleHung() kills the process, which unblocks the read with EOF
-// 2. On context cancel, stdin is closed by Stop(), which also unblocks with EOF
-// 3. The goroutine will exit once the read completes (success or EOF)
+// IMPORTANT: The spawned goroutine doing ReadString() cannot be cancelled
+// (Go's blocking I/O limitation). However, this is acceptable because:
+// 1. On context cancel, stdin is closed by Stop(), which unblocks the read with EOF
+// 2. The goroutine will exit once the read completes (success or EOF)
 //
 // The channel is buffered (size 1) so the goroutine can always send its result
-// even if we've already returned due to timeout/cancel, preventing a goroutine leak.
-func (pm *ProcessManager) readLineWithTimeout(reader *bufio.Reader) (string, error) {
+// even if we've already returned due to cancel, preventing a goroutine leak.
+func (pm *ProcessManager) readLine(reader *bufio.Reader) (string, error) {
 	resultCh := make(chan readResult, 1)
 
 	go func() {
 		line, err := reader.ReadString('\n')
 		// Non-blocking send - channel is buffered so this always succeeds
-		// even if the main function has returned due to timeout/cancel
+		// even if the main function has returned due to cancel
 		resultCh <- readResult{line: line, err: err}
 	}()
 
@@ -552,9 +533,6 @@ func (pm *ProcessManager) readLineWithTimeout(reader *bufio.Reader) (string, err
 		return "", pm.ctx.Err()
 	case result := <-resultCh:
 		return result.line, result.err
-	case <-time.After(ResponseReadTimeout):
-		// Timeout - handleHung() will kill the process, unblocking the read
-		return "", errReadTimeout
 	}
 }
 
@@ -582,31 +560,6 @@ func (pm *ProcessManager) monitorExit() {
 	case <-pm.ctx.Done():
 		logger.Log("ProcessManager: Process monitor exiting - context cancelled")
 	}
-}
-
-// handleHung handles the case when the process appears to be hung.
-func (pm *ProcessManager) handleHung() {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-
-	if !pm.running {
-		return
-	}
-
-	logger.Error("ProcessManager: Process appears hung for session %s, killing", pm.config.SessionID)
-
-	// Kill the hung process
-	if pm.cmd != nil && pm.cmd.Process != nil {
-		pm.cmd.Process.Kill()
-	}
-
-	// Invoke callback
-	if pm.callbacks.OnProcessHung != nil {
-		pm.callbacks.OnProcessHung()
-	}
-
-	// Clean up
-	pm.cleanupLocked()
 }
 
 // handleExit handles cleanup and potential restart when the process exits.
