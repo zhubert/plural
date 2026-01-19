@@ -1053,10 +1053,18 @@ func GetDiffStats(worktreePath string) (*DiffStats, error) {
 		return stats, nil
 	}
 
+	// Track untracked files to count their lines separately
+	var untrackedFiles []string
+
 	lines := strings.Split(statusOutput, "\n")
 	for _, line := range lines {
 		if len(line) > 2 {
 			stats.FilesChanged++
+			// Check if this is an untracked file (status "??")
+			if len(line) >= 2 && line[0] == '?' && line[1] == '?' {
+				filename := strings.TrimSpace(line[3:])
+				untrackedFiles = append(untrackedFiles, filename)
+			}
 		}
 	}
 
@@ -1100,7 +1108,54 @@ func GetDiffStats(worktreePath string) (*DiffStats, error) {
 	parseNumstat(numstatOutput)
 	parseNumstat(cachedOutput)
 
+	// Count lines in untracked files (all lines are additions)
+	// git diff --numstat doesn't include untracked files
+	for _, filename := range untrackedFiles {
+		lineCount, err := countFileLines(worktreePath, filename)
+		if err != nil {
+			logger.Log("Git: Warning - failed to count lines in untracked file %s: %v", filename, err)
+			continue
+		}
+		stats.Additions += lineCount
+	}
+
 	return stats, nil
+}
+
+// countFileLines counts the number of lines in a file using git ls-files to check
+// if it's a text file, then wc -l for line count. For binary files, returns 0.
+func countFileLines(worktreePath, filename string) (int, error) {
+	ctx := context.Background()
+
+	// Use git diff --no-index --numstat to get line count for untracked file
+	// This compares /dev/null with the file, giving us the additions count
+	output, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-index", "--numstat", "/dev/null", filename)
+	if err != nil {
+		// git diff --no-index returns exit code 1 when files differ, which is expected
+		// Only treat it as an error if there's no output
+		if len(output) == 0 {
+			return 0, err
+		}
+	}
+
+	// Parse numstat output: "additions<tab>deletions<tab>filename"
+	line := strings.TrimSpace(string(output))
+	if line == "" {
+		return 0, nil
+	}
+
+	parts := strings.Split(line, "\t")
+	if len(parts) >= 1 {
+		// Binary files show "-" for additions
+		if parts[0] == "-" {
+			return 0, nil // Binary file
+		}
+		var count int
+		fmt.Sscanf(parts[0], "%d", &count)
+		return count, nil
+	}
+
+	return 0, nil
 }
 
 // GitHubIssue represents a GitHub issue fetched via the gh CLI

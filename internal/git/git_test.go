@@ -1484,8 +1484,10 @@ func TestGetDiffStats_WithNewFile(t *testing.T) {
 		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
 	}
 
-	// Untracked files don't appear in git diff --numstat, so additions may be 0
-	// but the file count should still be correct
+	// Untracked files should now have their lines counted as additions
+	if stats.Additions != 3 {
+		t.Errorf("Expected Additions to be 3 for untracked file with 3 lines, got %d", stats.Additions)
+	}
 }
 
 func TestGetDiffStats_WithStagedChanges(t *testing.T) {
