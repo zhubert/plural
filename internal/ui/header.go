@@ -7,11 +7,19 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// DiffStats holds file change statistics for display in the header
+type DiffStats struct {
+	FilesChanged int
+	Additions    int
+	Deletions    int
+}
+
 // Header represents the top header bar
 type Header struct {
 	width       int
 	sessionName string
 	baseBranch  string
+	diffStats   *DiffStats
 }
 
 // NewHeader creates a new header
@@ -34,15 +42,61 @@ func (h *Header) SetBaseBranch(branch string) {
 	h.baseBranch = branch
 }
 
+// SetDiffStats sets the diff statistics to display
+func (h *Header) SetDiffStats(stats *DiffStats) {
+	h.diffStats = stats
+}
+
+// headerRegion represents a styled region in the header
+type headerRegion struct {
+	start int
+	end   int
+	style string // "normal", "muted", "added", "deleted"
+}
+
 // View renders the header
 func (h *Header) View() string {
 	// Build the content string (without styling)
 	titleText := " plural"
+
+	// Build right side content and track regions for coloring
 	var rightText string
+	var regions []headerRegion
+
 	if h.sessionName != "" {
-		rightText = h.sessionName
+		// Add diff stats before session name if available
+		if h.diffStats != nil && h.diffStats.FilesChanged > 0 {
+			// Format: "3 files, +157, -5 "
+			filesText := fmt.Sprintf("%d file", h.diffStats.FilesChanged)
+			if h.diffStats.FilesChanged != 1 {
+				filesText += "s"
+			}
+
+			additionsText := fmt.Sprintf("+%d", h.diffStats.Additions)
+			deletionsText := fmt.Sprintf("-%d", h.diffStats.Deletions)
+
+			// Build the stats string and track regions
+			rightText = filesText + ", "
+			addStart := len(rightText)
+			rightText += additionsText
+			addEnd := len(rightText)
+			regions = append(regions, headerRegion{start: addStart, end: addEnd, style: "added"})
+
+			rightText += ", "
+			delStart := len(rightText)
+			rightText += deletionsText
+			delEnd := len(rightText)
+			regions = append(regions, headerRegion{start: delStart, end: delEnd, style: "deleted"})
+
+			rightText += "  " // Spacing before session name
+		}
+
+		rightText += h.sessionName
 		if h.baseBranch != "" {
+			branchStart := len(rightText)
 			rightText += " (" + h.baseBranch + ")"
+			branchEnd := len(rightText)
+			regions = append(regions, headerRegion{start: branchStart, end: branchEnd, style: "muted"})
 		}
 		rightText += " "
 	}
@@ -55,8 +109,15 @@ func (h *Header) View() string {
 
 	fullContent := titleText + strings.Repeat(" ", paddingLen) + rightText
 
+	// Adjust region positions to account for the left side content
+	leftOffset := len(titleText) + paddingLen
+	for i := range regions {
+		regions[i].start += leftOffset
+		regions[i].end += leftOffset
+	}
+
 	// Render with gradient background
-	return h.renderGradient(fullContent, h.baseBranch)
+	return h.renderGradient(fullContent, regions)
 }
 
 // parseHexColor parses a hex color string (e.g., "#7C3AED") into RGB components
@@ -68,8 +129,8 @@ func parseHexColor(hex string) (r, g, b int) {
 }
 
 // renderGradient renders the content with a theme-aware gradient background
-// baseBranch is used to identify and mute the base branch portion of the text
-func (h *Header) renderGradient(content string, baseBranch string) string {
+// regions specifies which portions of the text should have special styling
+func (h *Header) renderGradient(content string, regions []headerRegion) string {
 	if len(content) == 0 {
 		return ""
 	}
@@ -80,15 +141,20 @@ func (h *Header) renderGradient(content string, baseBranch string) string {
 	// End color: fade to the main background
 	endR, endG, endB := parseHexColor(theme.Bg)
 
-	// Text color from theme
+	// Text colors from theme
 	textColor := lipgloss.Color(theme.Text)
 	mutedColor := lipgloss.Color(theme.TextMuted)
+	addedColor := lipgloss.Color(theme.DiffAdded)
+	deletedColor := lipgloss.Color(theme.DiffRemoved)
 
-	// Find where the base branch portion starts (if present)
-	baseBranchStart := -1
-	if baseBranch != "" {
-		baseBranchMarker := "(" + baseBranch + ")"
-		baseBranchStart = strings.Index(content, baseBranchMarker)
+	// Helper to get the style for a given position
+	getStyleForPos := func(pos int) string {
+		for _, region := range regions {
+			if pos >= region.start && pos < region.end {
+				return region.style
+			}
+		}
+		return "normal"
 	}
 
 	runes := []rune(content)
@@ -107,17 +173,20 @@ func (h *Header) renderGradient(content string, baseBranch string) string {
 		// Create color string
 		bgColor := lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", cr, cg, cb))
 
-		// Determine if this character is in the base branch portion
-		inBaseBranch := baseBranchStart >= 0 && i >= baseBranchStart
-
 		// Style for this character
 		style := lipgloss.NewStyle().
 			Background(bgColor).
 			Bold(i < 7) // Bold for "Plural" title
 
-		if inBaseBranch {
+		// Apply foreground color based on region
+		switch getStyleForPos(i) {
+		case "muted":
 			style = style.Foreground(mutedColor)
-		} else {
+		case "added":
+			style = style.Foreground(addedColor)
+		case "deleted":
+			style = style.Foreground(deletedColor)
+		default:
 			style = style.Foreground(textColor)
 		}
 

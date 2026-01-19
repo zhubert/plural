@@ -6,17 +6,26 @@ import (
 
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 )
+
+// DiffStats holds file change statistics for the header display
+type DiffStats struct {
+	FilesChanged int
+	Additions    int
+	Deletions    int
+}
 
 // SelectResult contains all the state needed by the UI after selecting a session.
 // This allows SessionManager to handle data operations while app.go handles UI updates.
 type SelectResult struct {
 	Runner     claude.RunnerInterface
 	Messages   []claude.Message
-	HeaderName string // Branch name if custom, otherwise session name
-	BaseBranch string // Base branch this session was created from
+	HeaderName string     // Branch name if custom, otherwise session name
+	BaseBranch string     // Base branch this session was created from
+	DiffStats  *DiffStats // Git diff statistics for the worktree
 
 	// State to restore
 	WaitStart    time.Time
@@ -151,12 +160,27 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		headerName = sess.Branch
 	}
 
+	// Get diff stats for the worktree
+	var diffStats *DiffStats
+	if sess.WorkTree != "" {
+		if gitStats, err := git.GetDiffStats(sess.WorkTree); err == nil {
+			diffStats = &DiffStats{
+				FilesChanged: gitStats.FilesChanged,
+				Additions:    gitStats.Additions,
+				Deletions:    gitStats.Deletions,
+			}
+		} else {
+			logger.Log("SessionManager: Failed to get diff stats for %s: %v", sess.WorkTree, err)
+		}
+	}
+
 	// Build result with all state needed for UI
 	result := &SelectResult{
 		Runner:     runner,
 		Messages:   runner.GetMessages(),
 		HeaderName: headerName,
 		BaseBranch: sess.BaseBranch,
+		DiffStats:  diffStats,
 	}
 
 	// Get waiting state

@@ -150,6 +150,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 				m.chat.ClearSession()
 				m.header.SetSessionName("")
 				m.header.SetBaseBranch("")
+				m.header.SetDiffStats(nil)
 			} else {
 				logger.Log("App: Not clearing chat - deleted session was not the active session")
 			}

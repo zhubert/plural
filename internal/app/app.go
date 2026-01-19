@@ -215,6 +215,27 @@ func (m *Model) sessionState() *SessionStateManager {
 	return m.sessionMgr.StateManager()
 }
 
+// refreshDiffStats updates the header with current git diff statistics for the active session
+func (m *Model) refreshDiffStats() {
+	if m.activeSession == nil || m.activeSession.WorkTree == "" {
+		m.header.SetDiffStats(nil)
+		return
+	}
+
+	gitStats, err := git.GetDiffStats(m.activeSession.WorkTree)
+	if err != nil {
+		logger.Log("App: Failed to refresh diff stats: %v", err)
+		m.header.SetDiffStats(nil)
+		return
+	}
+
+	m.header.SetDiffStats(&ui.DiffStats{
+		FilesChanged: gitStats.FilesChanged,
+		Additions:    gitStats.Additions,
+		Deletions:    gitStats.Deletions,
+	})
+}
+
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
 	// Trigger startup modal check (welcome or changelog)
@@ -861,6 +882,15 @@ func (m *Model) selectSession(sess *config.Session) {
 	m.chat.SetSession(sess.Name, result.Messages)
 	m.header.SetSessionName(result.HeaderName)
 	m.header.SetBaseBranch(result.BaseBranch)
+	if result.DiffStats != nil {
+		m.header.SetDiffStats(&ui.DiffStats{
+			FilesChanged: result.DiffStats.FilesChanged,
+			Additions:    result.DiffStats.Additions,
+			Deletions:    result.DiffStats.Deletions,
+		})
+	} else {
+		m.header.SetDiffStats(nil)
+	}
 	m.focus = FocusChat
 	m.sidebar.SetFocused(false)
 	m.chat.SetFocused(true)

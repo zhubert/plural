@@ -69,6 +69,9 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 		m.chat.FinishStreaming()
 		// Start completion flash animation
 		completionCmd = m.chat.StartCompletionFlash()
+
+		// Refresh diff stats after Claude finishes (files may have changed)
+		m.refreshDiffStats()
 	} else {
 		// For non-active session, just clear our saved streaming content
 		// The runner already adds the assistant message when streaming completes (claude.go)

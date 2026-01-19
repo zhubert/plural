@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1413,5 +1414,211 @@ func TestMergeToMain_PullFailsNoRemote(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(repoPath, "feature.txt")); os.IsNotExist(err) {
 		t.Error("feature.txt should exist on main after merge")
+	}
+}
+
+func TestGetDiffStats_NoChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 0 {
+		t.Errorf("Expected FilesChanged to be 0, got %d", stats.FilesChanged)
+	}
+
+	if stats.Additions != 0 {
+		t.Errorf("Expected Additions to be 0, got %d", stats.Additions)
+	}
+
+	if stats.Deletions != 0 {
+		t.Errorf("Expected Deletions to be 0, got %d", stats.Deletions)
+	}
+}
+
+func TestGetDiffStats_WithModifiedFile(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Modify the existing test.txt file (add lines)
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("test content\nnew line 1\nnew line 2"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 1 {
+		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
+	}
+
+	// Original content was "test content", now it's "test content\nnew line 1\nnew line 2"
+	// This is a modification, so we expect some additions
+	if stats.Additions < 1 {
+		t.Errorf("Expected at least 1 addition, got %d", stats.Additions)
+	}
+}
+
+func TestGetDiffStats_WithNewFile(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a new file (untracked)
+	newFile := filepath.Join(repoPath, "new.txt")
+	if err := os.WriteFile(newFile, []byte("line 1\nline 2\nline 3"), 0644); err != nil {
+		t.Fatalf("Failed to create new file: %v", err)
+	}
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 1 {
+		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
+	}
+
+	// Untracked files don't appear in git diff --numstat, so additions may be 0
+	// but the file count should still be correct
+}
+
+func TestGetDiffStats_WithStagedChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create and stage a new file
+	newFile := filepath.Join(repoPath, "staged.txt")
+	if err := os.WriteFile(newFile, []byte("line 1\nline 2\nline 3\nline 4\nline 5"), 0644); err != nil {
+		t.Fatalf("Failed to create new file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", "staged.txt")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to stage file: %v", err)
+	}
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 1 {
+		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
+	}
+
+	// Staged new file should show 5 additions
+	if stats.Additions != 5 {
+		t.Errorf("Expected Additions to be 5, got %d", stats.Additions)
+	}
+}
+
+func TestGetDiffStats_WithDeletions(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Delete some content from test.txt
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte(""), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 1 {
+		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
+	}
+
+	// Original content was "test content" (1 line), now it's empty
+	if stats.Deletions < 1 {
+		t.Errorf("Expected at least 1 deletion, got %d", stats.Deletions)
+	}
+}
+
+func TestGetDiffStats_MultipleFiles(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create multiple new files
+	for i := 1; i <= 3; i++ {
+		file := filepath.Join(repoPath, fmt.Sprintf("file%d.txt", i))
+		content := strings.Repeat(fmt.Sprintf("line %d\n", i), i*2) // Different sizes
+		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to create file: %v", err)
+		}
+	}
+
+	// Stage all of them so they show in git diff --cached
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 3 {
+		t.Errorf("Expected FilesChanged to be 3, got %d", stats.FilesChanged)
+	}
+
+	// file1: 2 lines, file2: 4 lines, file3: 6 lines = 12 total additions
+	if stats.Additions != 12 {
+		t.Errorf("Expected Additions to be 12, got %d", stats.Additions)
+	}
+}
+
+func TestGetDiffStats_InvalidPath(t *testing.T) {
+	_, err := GetDiffStats("/nonexistent/path")
+	if err == nil {
+		t.Error("Expected error for invalid path")
+	}
+}
+
+func TestGetDiffStats_MixedChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Modify existing file (additions and deletions)
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("modified line\nadded line"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+
+	// Create a new file and stage it
+	newFile := filepath.Join(repoPath, "new.txt")
+	if err := os.WriteFile(newFile, []byte("new file content\nmore content"), 0644); err != nil {
+		t.Fatalf("Failed to create new file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", "new.txt")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	stats, err := GetDiffStats(repoPath)
+	if err != nil {
+		t.Fatalf("GetDiffStats failed: %v", err)
+	}
+
+	if stats.FilesChanged != 2 {
+		t.Errorf("Expected FilesChanged to be 2, got %d", stats.FilesChanged)
+	}
+
+	// Both additions and deletions should be present
+	if stats.Additions == 0 {
+		t.Error("Expected some additions")
+	}
+
+	if stats.Deletions == 0 {
+		t.Error("Expected some deletions")
 	}
 }

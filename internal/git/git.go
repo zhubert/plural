@@ -954,6 +954,82 @@ func sanitizeBranchName(name string) string {
 	return name
 }
 
+// DiffStats represents the statistics of changes in a worktree
+type DiffStats struct {
+	FilesChanged int // Number of files changed
+	Additions    int // Number of lines added
+	Deletions    int // Number of lines deleted
+}
+
+// GetDiffStats returns the diff statistics (files changed, additions, deletions)
+// for uncommitted changes in the given worktree.
+func GetDiffStats(worktreePath string) (*DiffStats, error) {
+	ctx := context.Background()
+	stats := &DiffStats{}
+
+	// Get list of changed files using git status --porcelain
+	output, err := executor.Output(ctx, worktreePath, "git", "status", "--porcelain")
+	if err != nil {
+		return nil, fmt.Errorf("git status failed: %w", err)
+	}
+
+	// Count files from status output
+	statusOutput := strings.TrimRight(string(output), "\n\r\t ")
+	if statusOutput == "" {
+		// No changes
+		return stats, nil
+	}
+
+	lines := strings.Split(statusOutput, "\n")
+	for _, line := range lines {
+		if len(line) > 2 {
+			stats.FilesChanged++
+		}
+	}
+
+	// Get diff stats using git diff --numstat for unstaged changes
+	// (without HEAD to get only working tree changes vs staged)
+	numstatOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--numstat")
+	if err != nil {
+		logger.Log("Git: Warning - git diff --numstat failed: %v", err)
+	}
+
+	// Get staged changes separately
+	cachedOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--numstat", "--cached")
+	if err != nil {
+		logger.Log("Git: Warning - git diff --numstat --cached failed: %v", err)
+	}
+
+	// Parse numstat output: each line is "additions<tab>deletions<tab>filename"
+	parseNumstat := func(data []byte) {
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.Split(line, "\t")
+			if len(parts) >= 2 {
+				// Binary files show "-" for additions/deletions
+				if parts[0] != "-" {
+					var add int
+					fmt.Sscanf(parts[0], "%d", &add)
+					stats.Additions += add
+				}
+				if parts[1] != "-" {
+					var del int
+					fmt.Sscanf(parts[1], "%d", &del)
+					stats.Deletions += del
+				}
+			}
+		}
+	}
+
+	parseNumstat(numstatOutput)
+	parseNumstat(cachedOutput)
+
+	return stats, nil
+}
+
 // GitHubIssue represents a GitHub issue fetched via the gh CLI
 type GitHubIssue struct {
 	Number int    `json:"number"`

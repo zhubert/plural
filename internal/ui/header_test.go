@@ -147,3 +147,134 @@ func TestHeader_ClearBaseBranch(t *testing.T) {
 		t.Error("Header should not show base branch after clearing")
 	}
 }
+
+func TestHeader_SetDiffStats(t *testing.T) {
+	header := NewHeader()
+	header.SetDiffStats(&DiffStats{
+		FilesChanged: 3,
+		Additions:    157,
+		Deletions:    42,
+	})
+
+	if header.diffStats == nil {
+		t.Fatal("Expected diffStats to be set")
+	}
+
+	if header.diffStats.FilesChanged != 3 {
+		t.Errorf("Expected FilesChanged 3, got %d", header.diffStats.FilesChanged)
+	}
+
+	if header.diffStats.Additions != 157 {
+		t.Errorf("Expected Additions 157, got %d", header.diffStats.Additions)
+	}
+
+	if header.diffStats.Deletions != 42 {
+		t.Errorf("Expected Deletions 42, got %d", header.diffStats.Deletions)
+	}
+}
+
+func TestHeader_SetDiffStats_Nil(t *testing.T) {
+	header := NewHeader()
+	header.SetDiffStats(&DiffStats{FilesChanged: 3})
+	header.SetDiffStats(nil)
+
+	if header.diffStats != nil {
+		t.Error("Expected diffStats to be nil after clearing")
+	}
+}
+
+func TestHeader_View_WithDiffStats(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(120)
+	header.SetSessionName("feature-branch")
+	header.SetDiffStats(&DiffStats{
+		FilesChanged: 3,
+		Additions:    157,
+		Deletions:    5,
+	})
+
+	view := stripANSI(header.View())
+
+	if !strings.Contains(view, "3 files") {
+		t.Errorf("Header should contain file count, got: %q", view)
+	}
+
+	if !strings.Contains(view, "+157") {
+		t.Errorf("Header should contain additions, got: %q", view)
+	}
+
+	if !strings.Contains(view, "-5") {
+		t.Errorf("Header should contain deletions, got: %q", view)
+	}
+}
+
+func TestHeader_View_WithDiffStats_SingleFile(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(120)
+	header.SetSessionName("feature-branch")
+	header.SetDiffStats(&DiffStats{
+		FilesChanged: 1,
+		Additions:    10,
+		Deletions:    2,
+	})
+
+	view := stripANSI(header.View())
+
+	// Should use singular "file" not "files"
+	if !strings.Contains(view, "1 file,") {
+		t.Errorf("Header should contain singular 'file', got: %q", view)
+	}
+}
+
+func TestHeader_View_NoDiffStats_NoChanges(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(120)
+	header.SetSessionName("feature-branch")
+	header.SetDiffStats(&DiffStats{
+		FilesChanged: 0,
+		Additions:    0,
+		Deletions:    0,
+	})
+
+	view := stripANSI(header.View())
+
+	// Should not show diff stats when no changes
+	if strings.Contains(view, "0 file") {
+		t.Errorf("Header should not show diff stats with zero changes, got: %q", view)
+	}
+}
+
+func TestHeader_View_WithDiffStatsAndBaseBranch(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(150)
+	header.SetSessionName("feature-branch")
+	header.SetBaseBranch("main")
+	header.SetDiffStats(&DiffStats{
+		FilesChanged: 2,
+		Additions:    50,
+		Deletions:    10,
+	})
+
+	view := stripANSI(header.View())
+
+	// All elements should be present
+	if !strings.Contains(view, "2 files") {
+		t.Error("Header should contain file count")
+	}
+
+	if !strings.Contains(view, "+50") {
+		t.Error("Header should contain additions")
+	}
+
+	if !strings.Contains(view, "-10") {
+		t.Error("Header should contain deletions")
+	}
+
+	if !strings.Contains(view, "feature-branch") {
+		t.Error("Header should contain session name")
+	}
+
+	if !strings.Contains(view, "(main)") {
+		t.Error("Header should contain base branch")
+	}
+}
