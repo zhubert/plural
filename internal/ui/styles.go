@@ -275,6 +275,17 @@ var (
 	MarkdownLinkStyle = lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#67E8F9")). // Light cyan
 		Underline(true)
+
+	// Table
+	MarkdownTableBorderStyle = lipgloss.NewStyle().
+					Foreground(ColorBorder)
+
+	MarkdownTableHeaderStyle = lipgloss.NewStyle().
+					Bold(true).
+					Foreground(ColorSecondary)
+
+	MarkdownTableCellStyle = lipgloss.NewStyle().
+				Foreground(ColorText)
 )
 
 // Diff coloring styles

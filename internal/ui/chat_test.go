@@ -433,6 +433,179 @@ func TestRenderMarkdown(t *testing.T) {
 	}
 }
 
+func TestIsTableRow(t *testing.T) {
+	tests := []struct {
+		line     string
+		expected bool
+	}{
+		{"|a|b|c|", true},
+		{"| a | b | c |", true},
+		{"|Theme|Old|New|", true},
+		{"| Theme | Old | New |", true},
+		{"|---|---|---|", true},
+		{"|:---|:---:|---:|", true},
+		{"not a table", false},
+		{"|only one pipe", false},
+		{"no pipes at all", false},
+		{"", false},
+		{"|", false},
+		{"||", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			result := isTableRow(tt.line)
+			if result != tt.expected {
+				t.Errorf("isTableRow(%q) = %v, want %v", tt.line, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsTableSeparator(t *testing.T) {
+	tests := []struct {
+		line     string
+		expected bool
+	}{
+		{"|---|---|---|", true},
+		{"| --- | --- | --- |", true},
+		{"|:---|:---:|---:|", true},
+		{"| :--- | :---: | ---: |", true},
+		{"|-----|-----|-----|", true},
+		{"|a|b|c|", false},
+		{"| Theme | Old | New |", false},
+		{"not a separator", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			result := isTableSeparator(tt.line)
+			if result != tt.expected {
+				t.Errorf("isTableSeparator(%q) = %v, want %v", tt.line, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestParseTableRow(t *testing.T) {
+	tests := []struct {
+		line     string
+		expected []string
+	}{
+		{"|a|b|c|", []string{"a", "b", "c"}},
+		{"| a | b | c |", []string{"a", "b", "c"}},
+		{"|Theme|Old|New|", []string{"Theme", "Old", "New"}},
+		{"| Theme | Old | New |", []string{"Theme", "Old", "New"}},
+		{"|  spaced  |  content  |", []string{"spaced", "content"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			result := parseTableRow(tt.line)
+			if len(result) != len(tt.expected) {
+				t.Errorf("parseTableRow(%q) returned %d cells, want %d", tt.line, len(result), len(tt.expected))
+				return
+			}
+			for i, cell := range result {
+				if cell != tt.expected[i] {
+					t.Errorf("parseTableRow(%q)[%d] = %q, want %q", tt.line, i, cell, tt.expected[i])
+				}
+			}
+		})
+	}
+}
+
+func TestRenderTable(t *testing.T) {
+	tests := []struct {
+		name      string
+		rows      [][]string
+		hasHeader bool
+		checks    []string // strings that should be present in output
+	}{
+		{
+			name:      "simple table without header",
+			rows:      [][]string{{"a", "b"}, {"c", "d"}},
+			hasHeader: false,
+			checks:    []string{"a", "b", "c", "d", "┌", "┐", "└", "┘", "│"},
+		},
+		{
+			name:      "table with header",
+			rows:      [][]string{{"Name", "Value"}, {"foo", "bar"}},
+			hasHeader: true,
+			checks:    []string{"Name", "Value", "foo", "bar", "├", "┤", "┼"},
+		},
+		{
+			name:      "single row table",
+			rows:      [][]string{{"only", "row"}},
+			hasHeader: false,
+			checks:    []string{"only", "row"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderTable(tt.rows, tt.hasHeader)
+			for _, check := range tt.checks {
+				if !strings.Contains(result, check) {
+					t.Errorf("renderTable output should contain %q, got: %q", check, result)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderMarkdownWithTables(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		checks  []string
+	}{
+		{
+			name: "simple table",
+			content: `| Theme | Old | New |
+|-------|-----|-----|
+| Dark Purple | #9CA3AF | #B0B8C4 |`,
+			checks: []string{"Theme", "Old", "New", "Dark Purple", "#9CA3AF", "#B0B8C4", "┌", "┐", "└", "┘"},
+		},
+		{
+			name: "table with text before and after",
+			content: `Here is a table:
+
+| A | B |
+|---|---|
+| 1 | 2 |
+
+And some text after.`,
+			checks: []string{"Here is a table", "A", "B", "1", "2", "And some text after"},
+		},
+		{
+			name: "multiple tables",
+			content: `| First | Table |
+|-------|-------|
+| a | b |
+
+Some text between.
+
+| Second | Table |
+|--------|-------|
+| c | d |`,
+			checks: []string{"First", "Table", "a", "b", "Second", "c", "d"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderMarkdown(tt.content, 80)
+			for _, check := range tt.checks {
+				if !strings.Contains(result, check) {
+					t.Errorf("renderMarkdown output should contain %q, got: %q", check, result)
+				}
+			}
+		})
+	}
+}
+
 func TestRenderSpinner(t *testing.T) {
 	verbs := []string{"Thinking", "Pondering", "Analyzing"}
 	for _, verb := range verbs {

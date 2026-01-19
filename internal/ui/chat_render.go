@@ -34,6 +34,8 @@ var (
 	underscoreItalic  = regexp.MustCompile(`(?:^|[^a-zA-Z0-9_])_([^_]+)_(?:[^a-zA-Z0-9_]|$)`)
 	inlineCodePattern = regexp.MustCompile("`([^`]+)`")
 	linkPattern       = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+	// Table separator pattern matches lines like |---|---|---| or |:---|:---:|---:|
+	tableSeparatorPattern = regexp.MustCompile(`^\s*\|[\s\-:]+\|[\s\-:|]*$`)
 )
 
 // highlightCode applies syntax highlighting to code using chroma
@@ -195,6 +197,131 @@ func wrapText(text string, width int) string {
 	return lipgloss.Wrap(text, width, " ")
 }
 
+// isTableRow checks if a line looks like a markdown table row
+func isTableRow(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	// Must start and end with |, and have at least 3 pipes (meaning at least 1 cell with content)
+	// |a|b| has 3 pipes, || only has 2
+	return strings.HasPrefix(trimmed, "|") && strings.HasSuffix(trimmed, "|") && strings.Count(trimmed, "|") >= 3
+}
+
+// isTableSeparator checks if a line is a table separator (e.g., |---|---|)
+func isTableSeparator(line string) bool {
+	return tableSeparatorPattern.MatchString(line)
+}
+
+// parseTableRow parses a table row into cells
+func parseTableRow(line string) []string {
+	trimmed := strings.TrimSpace(line)
+	// Remove leading and trailing pipes
+	if strings.HasPrefix(trimmed, "|") {
+		trimmed = trimmed[1:]
+	}
+	if strings.HasSuffix(trimmed, "|") {
+		trimmed = trimmed[:len(trimmed)-1]
+	}
+	// Split by pipe and trim each cell
+	parts := strings.Split(trimmed, "|")
+	cells := make([]string, len(parts))
+	for i, part := range parts {
+		cells[i] = strings.TrimSpace(part)
+	}
+	return cells
+}
+
+// renderTable renders a complete markdown table
+func renderTable(rows [][]string, hasHeader bool) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	// Calculate column widths
+	numCols := 0
+	for _, row := range rows {
+		if len(row) > numCols {
+			numCols = len(row)
+		}
+	}
+
+	colWidths := make([]int, numCols)
+	for _, row := range rows {
+		for i, cell := range row {
+			if len(cell) > colWidths[i] {
+				colWidths[i] = len(cell)
+			}
+		}
+	}
+
+	// Ensure minimum column width
+	for i := range colWidths {
+		if colWidths[i] < 3 {
+			colWidths[i] = 3
+		}
+	}
+
+	var result strings.Builder
+	borderStyle := MarkdownTableBorderStyle
+	headerStyle := MarkdownTableHeaderStyle
+	cellStyle := MarkdownTableCellStyle
+
+	// Render top border
+	result.WriteString(borderStyle.Render("┌"))
+	for i, w := range colWidths {
+		result.WriteString(borderStyle.Render(strings.Repeat("─", w+2)))
+		if i < len(colWidths)-1 {
+			result.WriteString(borderStyle.Render("┬"))
+		}
+	}
+	result.WriteString(borderStyle.Render("┐"))
+	result.WriteString("\n")
+
+	// Render rows
+	for rowIdx, row := range rows {
+		result.WriteString(borderStyle.Render("│"))
+		for i := 0; i < numCols; i++ {
+			cell := ""
+			if i < len(row) {
+				cell = row[i]
+			}
+			// Pad cell to column width
+			padded := cell + strings.Repeat(" ", colWidths[i]-len(cell))
+			// Apply style based on whether it's a header row
+			if rowIdx == 0 && hasHeader {
+				result.WriteString(" " + headerStyle.Render(padded) + " ")
+			} else {
+				result.WriteString(" " + cellStyle.Render(padded) + " ")
+			}
+			result.WriteString(borderStyle.Render("│"))
+		}
+		result.WriteString("\n")
+
+		// Render header separator after first row if it's a header
+		if rowIdx == 0 && hasHeader && len(rows) > 1 {
+			result.WriteString(borderStyle.Render("├"))
+			for i, w := range colWidths {
+				result.WriteString(borderStyle.Render(strings.Repeat("─", w+2)))
+				if i < len(colWidths)-1 {
+					result.WriteString(borderStyle.Render("┼"))
+				}
+			}
+			result.WriteString(borderStyle.Render("┤"))
+			result.WriteString("\n")
+		}
+	}
+
+	// Render bottom border
+	result.WriteString(borderStyle.Render("└"))
+	for i, w := range colWidths {
+		result.WriteString(borderStyle.Render(strings.Repeat("─", w+2)))
+		if i < len(colWidths)-1 {
+			result.WriteString(borderStyle.Render("┴"))
+		}
+	}
+	result.WriteString(borderStyle.Render("┘"))
+
+	return result.String()
+}
+
 // renderMarkdownLine renders a single line with markdown formatting
 func renderMarkdownLine(line string, width int) string {
 	trimmed := strings.TrimSpace(line)
@@ -277,9 +404,33 @@ func renderMarkdown(content string, width int) string {
 	codeBlockLang := ""
 	var codeBlockContent strings.Builder
 
-	for _, line := range lines {
+	// Table state
+	inTable := false
+	var tableRows [][]string
+	tableHasHeader := false
+
+	// Helper function to flush table
+	flushTable := func() {
+		if len(tableRows) > 0 {
+			if result.Len() > 0 {
+				result.WriteString("\n")
+			}
+			result.WriteString(renderTable(tableRows, tableHasHeader))
+			result.WriteString("\n")
+			tableRows = nil
+			tableHasHeader = false
+		}
+		inTable = false
+	}
+
+	for i, line := range lines {
 		// Check for code block start/end
 		if strings.HasPrefix(line, "```") {
+			// If we were in a table, flush it first
+			if inTable {
+				flushTable()
+			}
+
 			if !inCodeBlock {
 				// Starting a code block
 				inCodeBlock = true
@@ -306,17 +457,59 @@ func renderMarkdown(content string, width int) string {
 				codeBlockContent.WriteString("\n")
 			}
 			codeBlockContent.WriteString(line)
-		} else {
-			// Render markdown line with wrapping
-			result.WriteString(renderMarkdownLine(line, width))
-			result.WriteString("\n")
+			continue
 		}
+
+		// Check for table rows
+		if isTableRow(line) {
+			// Check if this is a separator row (marks that previous row was header)
+			if isTableSeparator(line) {
+				// This is a separator, so previous row was a header
+				if len(tableRows) == 1 {
+					tableHasHeader = true
+				}
+				// Skip the separator row, we render our own borders
+				continue
+			}
+
+			// This is a data row
+			if !inTable {
+				inTable = true
+				tableRows = nil
+			}
+			cells := parseTableRow(line)
+			tableRows = append(tableRows, cells)
+			continue
+		}
+
+		// If we were in a table but this line isn't a table row, flush the table
+		if inTable {
+			flushTable()
+		}
+
+		// Check if next line might be a table separator (lookahead for header detection)
+		// This handles the case where we see a row that looks like a table row
+		// but we haven't entered table mode yet
+		if i+1 < len(lines) && isTableRow(line) && isTableSeparator(lines[i+1]) {
+			inTable = true
+			tableRows = [][]string{parseTableRow(line)}
+			continue
+		}
+
+		// Render markdown line with wrapping
+		result.WriteString(renderMarkdownLine(line, width))
+		result.WriteString("\n")
 	}
 
 	// If we ended while still in a code block, output whatever we have
 	if inCodeBlock {
 		highlighted := highlightCode(codeBlockContent.String(), codeBlockLang)
 		result.WriteString(highlighted)
+	}
+
+	// Flush any remaining table
+	if inTable && len(tableRows) > 0 {
+		flushTable()
 	}
 
 	return strings.TrimRight(result.String(), "\n")
