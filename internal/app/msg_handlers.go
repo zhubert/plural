@@ -8,6 +8,7 @@ import (
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/notification"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -377,77 +378,91 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	return m, tea.Batch(cmds...)
 }
 
-// handlePermissionRequestMsg handles permission requests from Claude.
-func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model, tea.Cmd) {
+// PromptRequestType distinguishes between different types of Claude prompt requests.
+type PromptRequestType int
+
+const (
+	PromptTypePermission PromptRequestType = iota
+	PromptTypeQuestion
+	PromptTypePlanApproval
+)
+
+// PromptRequest is a unified type for all Claude prompt requests (permission, question, plan approval).
+type PromptRequest struct {
+	SessionID  string
+	Type       PromptRequestType
+	Permission *mcp.PermissionRequest
+	Question   *mcp.QuestionRequest
+	Plan       *mcp.PlanApprovalRequest
+}
+
+// handlePromptRequest is the unified handler for permission, question, and plan approval requests.
+func (m *Model) handlePromptRequest(req PromptRequest) (tea.Model, tea.Cmd) {
 	// Get the runner for this session
-	runner := m.sessionMgr.GetRunner(msg.SessionID)
-	exists := runner != nil
-	if !exists {
-		logger.Log("App: Received permission request for unknown session %s", msg.SessionID)
+	runner := m.sessionMgr.GetRunner(req.SessionID)
+	if runner == nil {
+		logger.Log("App: Received prompt request for unknown session %s", req.SessionID)
 		return m, nil
 	}
 
-	// Store permission request for this session (inline, not modal)
-	logger.Log("App: Permission request for session %s: tool=%s", msg.SessionID, msg.Request.Tool)
-	m.sessionState().SetPendingPermission(msg.SessionID, &msg.Request)
-	m.sidebar.SetPendingPermission(msg.SessionID, true)
+	// Store request and log based on type
+	switch req.Type {
+	case PromptTypePermission:
+		logger.Log("App: Permission request for session %s: tool=%s", req.SessionID, req.Permission.Tool)
+		m.sessionState().SetPendingPermission(req.SessionID, req.Permission)
+	case PromptTypeQuestion:
+		logger.Log("App: Question request for session %s: %d questions", req.SessionID, len(req.Question.Questions))
+		m.sessionState().SetPendingQuestion(req.SessionID, req.Question)
+	case PromptTypePlanApproval:
+		logger.Log("App: Plan approval request for session %s: plan %d chars, %d allowed prompts",
+			req.SessionID, len(req.Plan.Plan), len(req.Plan.AllowedPrompts))
+		m.sessionState().SetPendingPlanApproval(req.SessionID, req.Plan)
+	}
 
-	// If this is the active session, show permission in chat
-	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
-		m.chat.SetPendingPermission(msg.Request.Tool, msg.Request.Description)
+	// Update sidebar indicator (reused for all prompt types)
+	m.sidebar.SetPendingPermission(req.SessionID, true)
+
+	// If this is the active session, update chat display
+	if m.activeSession != nil && m.activeSession.ID == req.SessionID {
+		switch req.Type {
+		case PromptTypePermission:
+			m.chat.SetPendingPermission(req.Permission.Tool, req.Permission.Description)
+		case PromptTypeQuestion:
+			m.chat.SetPendingQuestion(req.Question.Questions)
+		case PromptTypePlanApproval:
+			m.chat.SetPendingPlanApproval(req.Plan.Plan, req.Plan.AllowedPrompts)
+		}
 	}
 
 	// Continue listening for session events
-	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	return m, tea.Batch(m.sessionListeners(req.SessionID, runner, nil)...)
+}
+
+// handlePermissionRequestMsg handles permission requests from Claude.
+func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model, tea.Cmd) {
+	return m.handlePromptRequest(PromptRequest{
+		SessionID:  msg.SessionID,
+		Type:       PromptTypePermission,
+		Permission: &msg.Request,
+	})
 }
 
 // handleQuestionRequestMsg handles question requests from Claude.
 func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea.Cmd) {
-	// Get the runner for this session
-	runner := m.sessionMgr.GetRunner(msg.SessionID)
-	exists := runner != nil
-	if !exists {
-		logger.Log("App: Received question request for unknown session %s", msg.SessionID)
-		return m, nil
-	}
-
-	// Store question request for this session
-	logger.Log("App: Question request for session %s: %d questions", msg.SessionID, len(msg.Request.Questions))
-	m.sessionState().SetPendingQuestion(msg.SessionID, &msg.Request)
-	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
-
-	// If this is the active session, show question in chat
-	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
-		m.chat.SetPendingQuestion(msg.Request.Questions)
-	}
-
-	// Continue listening for session events
-	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	return m.handlePromptRequest(PromptRequest{
+		SessionID: msg.SessionID,
+		Type:      PromptTypeQuestion,
+		Question:  &msg.Request,
+	})
 }
 
 // handlePlanApprovalRequestMsg handles plan approval requests from Claude.
 func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Model, tea.Cmd) {
-	// Get the runner for this session
-	runner := m.sessionMgr.GetRunner(msg.SessionID)
-	exists := runner != nil
-	if !exists {
-		logger.Log("App: Received plan approval request for unknown session %s", msg.SessionID)
-		return m, nil
-	}
-
-	// Store plan approval request for this session
-	logger.Log("App: Plan approval request for session %s: plan %d chars, %d allowed prompts",
-		msg.SessionID, len(msg.Request.Plan), len(msg.Request.AllowedPrompts))
-	m.sessionState().SetPendingPlanApproval(msg.SessionID, &msg.Request)
-	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for plan approval
-
-	// If this is the active session, show plan approval in chat
-	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
-		m.chat.SetPendingPlanApproval(msg.Request.Plan, msg.Request.AllowedPrompts)
-	}
-
-	// Continue listening for session events
-	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	return m.handlePromptRequest(PromptRequest{
+		SessionID: msg.SessionID,
+		Type:      PromptTypePlanApproval,
+		Plan:      &msg.Request,
+	})
 }
 
 // handleGitHubIssuesFetchedMsg handles fetched GitHub issues.

@@ -389,6 +389,188 @@ func TestQuestion_MultipleQuestions(t *testing.T) {
 }
 
 // =============================================================================
+// Plan Approval Tests
+// =============================================================================
+
+func TestPlanApproval_FullFlow_Approve(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select session
+	m = sendKey(m, "enter")
+	sessionID := m.activeSession.ID
+
+	mock := factory.GetMock(sessionID)
+	if mock == nil {
+		t.Fatal("No mock runner")
+	}
+
+	// Track captured plan response
+	var capturedApproved bool
+	mock.OnPlanApprovalResp = func(resp mcp.PlanApprovalResponse) {
+		capturedApproved = resp.Approved
+	}
+
+	// Simulate plan approval request arriving
+	allowedPrompts := []mcp.AllowedPrompt{
+		{Tool: "Bash", Prompt: "run tests"},
+	}
+	m = simulatePlanApprovalRequest(m, sessionID, "## Implementation Plan\n\n1. Step one\n2. Step two", allowedPrompts)
+
+	// Verify plan approval is pending
+	if !m.chat.HasPendingPlanApproval() {
+		t.Error("Chat should have pending plan approval")
+	}
+
+	pending := m.sessionState().GetPendingPlanApproval(sessionID)
+	if pending == nil || len(pending.Plan) == 0 {
+		t.Error("Session state should have pending plan approval")
+	}
+
+	// Approve with 'y'
+	m = sendKey(m, "y")
+
+	// Verify plan approval cleared
+	if m.chat.HasPendingPlanApproval() {
+		t.Error("Plan approval should be cleared after approval")
+	}
+	if m.sessionState().GetPendingPlanApproval(sessionID) != nil {
+		t.Error("Session state plan approval should be cleared")
+	}
+
+	// Verify approval was captured
+	if !capturedApproved {
+		t.Error("Expected plan to be approved")
+	}
+}
+
+func TestPlanApproval_FullFlow_Reject(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+	sessionID := m.activeSession.ID
+
+	mock := factory.GetMock(sessionID)
+	if mock == nil {
+		t.Fatal("No mock runner")
+	}
+
+	// Track captured plan response
+	var capturedApproved bool
+	capturedApproved = true // Start true to verify it changes
+	mock.OnPlanApprovalResp = func(resp mcp.PlanApprovalResponse) {
+		capturedApproved = resp.Approved
+	}
+
+	m = simulatePlanApprovalRequest(m, sessionID, "## Bad Plan\n\nThis plan is not good", nil)
+
+	// Reject with 'n'
+	m = sendKey(m, "n")
+
+	// Verify plan approval cleared
+	if m.chat.HasPendingPlanApproval() {
+		t.Error("Plan approval should be cleared after rejection")
+	}
+
+	// Verify rejection was captured
+	if capturedApproved {
+		t.Error("Expected plan to be rejected")
+	}
+}
+
+func TestPlanApproval_OnlyInChatFocus(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+	sessionID := m.activeSession.ID
+
+	m = simulatePlanApprovalRequest(m, sessionID, "## Plan", nil)
+
+	// Switch to sidebar
+	m = sendKey(m, "tab")
+	if m.focus != FocusSidebar {
+		t.Fatal("Should be in sidebar focus")
+	}
+
+	// Try to approve from sidebar (should not work)
+	m = sendKey(m, "y")
+
+	// Plan should still be pending
+	if !m.chat.HasPendingPlanApproval() {
+		t.Error("Plan approval should still be pending when in sidebar focus")
+	}
+
+	// Switch back to chat and approve
+	m = sendKey(m, "tab")
+	m = sendKey(m, "y")
+
+	if m.chat.HasPendingPlanApproval() {
+		t.Error("Plan approval should be cleared after approval from chat focus")
+	}
+}
+
+// =============================================================================
+// Unified Prompt Handler Tests
+// =============================================================================
+
+func TestUnifiedHandler_UnknownSession(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Send permission request for non-existent session - should not panic
+	m = simulatePermissionRequest(m, "non-existent-session-id", "Bash", "test")
+
+	// Should handle gracefully (no error, no state change)
+	if m.chat.HasPendingPermission() {
+		t.Error("Should not have pending permission for unknown session")
+	}
+}
+
+func TestUnifiedHandler_AllThreeTypes(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+	sessionID := m.activeSession.ID
+
+	// Test that all three types go through the unified handler correctly
+	// by checking that sidebar indicator is set for each type
+
+	// Permission request
+	m = simulatePermissionRequest(m, sessionID, "Bash", "test command")
+	if !m.sidebar.HasPendingPermission(sessionID) {
+		t.Error("Sidebar should show pending indicator for permission")
+	}
+	m = sendKey(m, "y") // Clear it
+
+	// Question request
+	questions := []mcp.Question{{
+		Question: "Test question?",
+		Header:   "Q",
+		Options:  []mcp.QuestionOption{{Label: "A", Description: "Option A"}},
+	}}
+	m = simulateQuestionRequest(m, sessionID, questions)
+	if !m.sidebar.HasPendingPermission(sessionID) {
+		t.Error("Sidebar should show pending indicator for question")
+	}
+	m = sendKey(m, "1") // Clear it
+
+	// Plan approval request
+	m = simulatePlanApprovalRequest(m, sessionID, "## Plan", nil)
+	if !m.sidebar.HasPendingPermission(sessionID) {
+		t.Error("Sidebar should show pending indicator for plan approval")
+	}
+	m = sendKey(m, "y") // Clear it
+}
+
+// =============================================================================
 // Session Switching Tests
 // =============================================================================
 
