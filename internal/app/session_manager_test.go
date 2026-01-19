@@ -1,6 +1,9 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -387,6 +390,29 @@ func (m *trackingMockRunner) SetForkFromSession(parentSessionID string) {
 }
 
 func TestSessionManager_Select_ForkedSession(t *testing.T) {
+	// Create temp directories to simulate worktrees
+	tempDir := t.TempDir()
+	parentWorktree := filepath.Join(tempDir, "worktree1")
+	childWorktree := filepath.Join(tempDir, "worktree2")
+	os.MkdirAll(parentWorktree, 0755)
+	os.MkdirAll(childWorktree, 0755)
+
+	// Create the Claude session file in the parent's project directory
+	homeDir, _ := os.UserHomeDir()
+	escapePath := func(path string) string {
+		escaped := strings.ReplaceAll(path, "/", "-")
+		return strings.ReplaceAll(escaped, ".", "-")
+	}
+	parentProjectDir := filepath.Join(homeDir, ".claude", "projects", escapePath(parentWorktree))
+	os.MkdirAll(parentProjectDir, 0700)
+	sessionFile := filepath.Join(parentProjectDir, "parent-session.jsonl")
+	os.WriteFile(sessionFile, []byte(`{"type":"test"}`+"\n"), 0600)
+	defer os.RemoveAll(parentProjectDir)
+
+	// Also clean up child project dir after test
+	childProjectDir := filepath.Join(homeDir, ".claude", "projects", escapePath(childWorktree))
+	defer os.RemoveAll(childProjectDir)
+
 	// Create config with a forked child session
 	cfg := &config.Config{
 		Repos: []string{"/test/repo"},
@@ -394,7 +420,7 @@ func TestSessionManager_Select_ForkedSession(t *testing.T) {
 			{
 				ID:       "parent-session",
 				RepoPath: "/test/repo",
-				WorkTree: "/test/worktree1",
+				WorkTree: parentWorktree,
 				Branch:   "plural-parent",
 				Name:     "repo/parent",
 				Started:  true,
@@ -402,7 +428,7 @@ func TestSessionManager_Select_ForkedSession(t *testing.T) {
 			{
 				ID:       "child-session",
 				RepoPath: "/test/repo",
-				WorkTree: "/test/worktree2",
+				WorkTree: childWorktree,
 				Branch:   "plural-child",
 				Name:     "repo/child",
 				Started:  false, // Not started yet
@@ -427,6 +453,12 @@ func TestSessionManager_Select_ForkedSession(t *testing.T) {
 	// SetForkFromSession should have been called with parent ID
 	if trackingRunner.forkFromSessionID != "parent-session" {
 		t.Errorf("Expected SetForkFromSession called with 'parent-session', got %q", trackingRunner.forkFromSessionID)
+	}
+
+	// Verify the session file was copied to child's project dir
+	copiedFile := filepath.Join(childProjectDir, "parent-session.jsonl")
+	if _, err := os.Stat(copiedFile); os.IsNotExist(err) {
+		t.Error("Expected Claude session file to be copied to child's project directory")
 	}
 }
 
@@ -589,6 +621,117 @@ func TestSessionManager_Select_ForkedSession_ParentNotFound(t *testing.T) {
 	// SetForkFromSession should NOT have been called (parent not found)
 	if trackingRunner.forkFromSessionID != "" {
 		t.Errorf("Expected SetForkFromSession NOT called when parent not found, got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
+func TestCopyClaudeSessionForFork(t *testing.T) {
+	// Create temp directories to simulate worktrees
+	tempDir := t.TempDir()
+	parentWorktree := filepath.Join(tempDir, "parent-worktree")
+	childWorktree := filepath.Join(tempDir, "child-worktree")
+	os.MkdirAll(parentWorktree, 0755)
+	os.MkdirAll(childWorktree, 0755)
+
+	// Helper to escape paths like Claude does
+	escapePath := func(path string) string {
+		escaped := strings.ReplaceAll(path, "/", "-")
+		return strings.ReplaceAll(escaped, ".", "-")
+	}
+
+	homeDir, _ := os.UserHomeDir()
+	parentProjectDir := filepath.Join(homeDir, ".claude", "projects", escapePath(parentWorktree))
+	childProjectDir := filepath.Join(homeDir, ".claude", "projects", escapePath(childWorktree))
+
+	// Clean up after test
+	defer os.RemoveAll(parentProjectDir)
+	defer os.RemoveAll(childProjectDir)
+
+	// Create parent's Claude session file
+	os.MkdirAll(parentProjectDir, 0700)
+	sessionContent := `{"type":"assistant","message":{"usage":{"input_tokens":100}}}` + "\n"
+	sessionFile := filepath.Join(parentProjectDir, "test-parent-id.jsonl")
+	if err := os.WriteFile(sessionFile, []byte(sessionContent), 0600); err != nil {
+		t.Fatalf("Failed to create test session file: %v", err)
+	}
+
+	// Test the copy function
+	err := copyClaudeSessionForFork("test-parent-id", parentWorktree, childWorktree)
+	if err != nil {
+		t.Fatalf("copyClaudeSessionForFork failed: %v", err)
+	}
+
+	// Verify the file was copied
+	copiedFile := filepath.Join(childProjectDir, "test-parent-id.jsonl")
+	copiedContent, err := os.ReadFile(copiedFile)
+	if err != nil {
+		t.Fatalf("Failed to read copied file: %v", err)
+	}
+
+	if string(copiedContent) != sessionContent {
+		t.Errorf("Copied content mismatch: got %q, want %q", string(copiedContent), sessionContent)
+	}
+}
+
+func TestCopyClaudeSessionForFork_SourceNotFound(t *testing.T) {
+	tempDir := t.TempDir()
+	parentWorktree := filepath.Join(tempDir, "nonexistent-parent")
+	childWorktree := filepath.Join(tempDir, "child")
+
+	// Don't create the parent session file - it should fail
+	err := copyClaudeSessionForFork("nonexistent-session", parentWorktree, childWorktree)
+	if err == nil {
+		t.Error("Expected error when source file doesn't exist")
+	}
+	if !os.IsNotExist(err) {
+		t.Errorf("Expected os.IsNotExist error, got: %v", err)
+	}
+}
+
+func TestCopyClaudeSessionForFork_NoSessionFileCopyFallback(t *testing.T) {
+	// Test that when Claude session file copy fails, we gracefully fall back to starting fresh
+	// This tests the integration in getOrCreateRunner
+
+	// Use paths that won't have any Claude session files
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:       "parent-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/nonexistent/parent/worktree",
+				Branch:   "plural-parent",
+				Name:     "repo/parent",
+				Started:  true,
+			},
+			{
+				ID:       "child-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/nonexistent/child/worktree",
+				Branch:   "plural-child",
+				Name:     "repo/child",
+				Started:  false,
+				ParentID: "parent-session",
+			},
+		},
+	}
+	sm := NewSessionManager(cfg)
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	childSess := sm.GetSession("child-session")
+	result := sm.Select(childSess, "", "", "")
+
+	trackingRunner, ok := result.Runner.(*trackingMockRunner)
+	if !ok {
+		t.Fatal("Expected trackingMockRunner")
+	}
+
+	// SetForkFromSession should NOT have been called because the copy failed
+	// This is the graceful fallback - session starts fresh instead of erroring
+	if trackingRunner.forkFromSessionID != "" {
+		t.Errorf("Expected SetForkFromSession NOT called when session file copy fails, got %q", trackingRunner.forkFromSessionID)
 	}
 }
 

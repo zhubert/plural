@@ -1,6 +1,10 @@
 package app
 
 import (
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -259,8 +263,15 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	if !sess.Started && sess.ParentID != "" {
 		parentSess := sm.config.GetSession(sess.ParentID)
 		if parentSess != nil && parentSess.Started {
-			runner.SetForkFromSession(sess.ParentID)
-			logger.Log("SessionManager: Session %s will fork from parent %s", sess.ID, sess.ParentID)
+			// Copy Claude's session JSONL file from parent's project dir to child's project dir.
+			// This is required because Claude CLI stores sessions by project path (worktree),
+			// so the child can't find the parent session unless we copy it.
+			if err := copyClaudeSessionForFork(sess.ParentID, parentSess.WorkTree, sess.WorkTree); err != nil {
+				logger.Log("SessionManager: Failed to copy Claude session for fork: %v (starting as new session)", err)
+			} else {
+				runner.SetForkFromSession(sess.ParentID)
+				logger.Log("SessionManager: Session %s will fork from parent %s", sess.ID, sess.ParentID)
+			}
 		} else if parentSess == nil {
 			logger.Log("SessionManager: Parent session %s not found, starting as new session", sess.ParentID)
 		} else {
@@ -392,4 +403,62 @@ func (sm *SessionManager) Shutdown() {
 	}
 	sm.runners = make(map[string]claude.RunnerInterface)
 	logger.Log("SessionManager: Shutdown complete")
+}
+
+// copyClaudeSessionForFork copies Claude's session JSONL file from the parent's
+// project directory to the child's project directory so that --fork-session works.
+// Claude CLI stores sessions in ~/.claude/projects/<escaped-path>/<session-id>.jsonl
+// and when forking with --resume <parent-id> --fork-session, it looks for the parent
+// session in the CURRENT working directory's project path, not the parent's.
+func copyClaudeSessionForFork(parentSessionID, parentWorktree, childWorktree string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Claude escapes paths by replacing "/" and "." with "-"
+	escapePath := func(path string) string {
+		escaped := strings.ReplaceAll(path, "/", "-")
+		return strings.ReplaceAll(escaped, ".", "-")
+	}
+
+	parentEscaped := escapePath(parentWorktree)
+	childEscaped := escapePath(childWorktree)
+
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects")
+	parentProjectDir := filepath.Join(claudeProjectsDir, parentEscaped)
+	childProjectDir := filepath.Join(claudeProjectsDir, childEscaped)
+
+	srcFile := filepath.Join(parentProjectDir, parentSessionID+".jsonl")
+	dstFile := filepath.Join(childProjectDir, parentSessionID+".jsonl")
+
+	// Check if source file exists
+	if _, err := os.Stat(srcFile); os.IsNotExist(err) {
+		return err
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(childProjectDir, 0700); err != nil {
+		return err
+	}
+
+	// Copy the file
+	src, err := os.Open(srcFile)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.Create(dstFile)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+
+	logger.Log("SessionManager: Copied Claude session %s from %s to %s", parentSessionID, parentProjectDir, childProjectDir)
+	return nil
 }
