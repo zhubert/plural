@@ -1,3 +1,41 @@
+// Package ui provides terminal user interface components for Plural.
+//
+// # Text Selection Coordinate System
+//
+// The text selection system uses a coordinate system relative to the chat viewport:
+//
+//	┌─────────────────────────────────────────────┐
+//	│ ← 1px border                                │
+//	│  ┌─────────────────────────────────────────┐│
+//	│  │ (0,0)   Viewport content area           ││
+//	│  │                                         ││
+//	│  │    Selection coordinates are            ││
+//	│  │    relative to this inner area          ││
+//	│  │                                         ││
+//	│  │                             (width, height)
+//	│  └─────────────────────────────────────────┘│
+//	│                                 1px border → │
+//	└─────────────────────────────────────────────┘
+//
+// Mouse events from Bubble Tea arrive in terminal coordinates (0,0 = top-left of terminal).
+// The Chat component receives events pre-adjusted to panel coordinates (0,0 = top-left of
+// chat panel). The text selection code then subtracts 1 from both X and Y to account for
+// the panel border, yielding viewport-relative coordinates.
+//
+// This adjustment happens in chat.go's Update() method for MouseClickMsg, MouseMotionMsg,
+// and MouseReleaseMsg events:
+//
+//	x := msg.X - 1  // Subtract border width
+//	y := msg.Y - 1  // Subtract border height
+//
+// Selection coordinates (selectionStartCol, selectionStartLine, etc.) are stored in
+// viewport-relative coordinates. When rendering the selection highlight, these coordinates
+// are used directly with the ultraviolet screen buffer which also operates in
+// viewport-relative coordinates.
+//
+// When extracting selected text, the coordinates are used to index into the viewport's
+// content lines. ANSI escape codes are stripped before text extraction to ensure
+// coordinates align with visible character positions.
 package ui
 
 import (
@@ -205,14 +243,24 @@ func (c *Chat) SelectParagraph(col, line int) {
 	c.selectionActive = false
 }
 
-// selectionArea returns the normalized selection area (start < end)
+// selectionArea returns the normalized selection area (start < end).
+//
+// Selection can happen in any direction - the user might drag from bottom-right
+// to top-left. This function normalizes the coordinates so that (startCol, startLine)
+// is always before (endCol, endLine) in reading order.
+//
+// The normalization handles two cases:
+//  1. Multi-line backward selection: startLine > endLine - swap both lines and columns
+//  2. Same-line backward selection: startLine == endLine && startCol > endCol - swap columns
+//
+// This ensures text extraction and rendering always process from start to end.
 func (c *Chat) selectionArea() (startCol, startLine, endCol, endLine int) {
 	startCol = c.selectionStartCol
 	startLine = c.selectionStartLine
 	endCol = c.selectionEndCol
 	endLine = c.selectionEndLine
 
-	// Normalize so start is before end
+	// Normalize so start is before end in reading order (top-to-bottom, left-to-right)
 	if startLine > endLine || (startLine == endLine && startCol > endCol) {
 		startCol, endCol = endCol, startCol
 		startLine, endLine = endLine, startLine
@@ -221,7 +269,18 @@ func (c *Chat) selectionArea() (startCol, startLine, endCol, endLine int) {
 	return
 }
 
-// GetSelectedText returns the currently selected text
+// GetSelectedText returns the currently selected text.
+//
+// The text extraction process:
+//  1. Get the viewport's rendered content (which contains ANSI escape codes)
+//  2. Split into lines
+//  3. For each line in the selection range, strip ANSI codes before extracting substring
+//  4. Join lines with newlines
+//
+// ANSI codes are stripped because selection coordinates correspond to visible character
+// positions, not raw string positions. For example, a bold "Hello" might be stored as
+// "\x1b[1mHello\x1b[0m" (15 bytes) but displays as 5 characters. When the user selects
+// characters 0-5, they expect "Hello", not a partial escape sequence.
 func (c *Chat) GetSelectedText() string {
 	if !c.HasTextSelection() {
 		return ""
