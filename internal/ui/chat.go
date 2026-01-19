@@ -571,9 +571,27 @@ func (c *Chat) GetPendingImageSizeKB() int {
 }
 
 // SetTodoList sets the current todo list to display
+// If the list is complete (all items done), it gets "baked" into the message
+// history so it scrolls like normal messages instead of staying pinned at bottom
 func (c *Chat) SetTodoList(list *pclaude.TodoList) {
-	c.hasTodoList = list != nil && len(list.Items) > 0
-	c.currentTodoList = list
+	if list != nil && list.IsComplete() {
+		// Bake the completed todo list into messages as rendered content
+		wrapWidth := c.viewport.Width()
+		if wrapWidth < 20 {
+			wrapWidth = 80 // Fallback if viewport not initialized
+		}
+		renderedTodo := renderTodoList(list, wrapWidth)
+		c.messages = append(c.messages, pclaude.Message{
+			Role:    "assistant",
+			Content: renderedTodo,
+		})
+		// Clear the live todo list since it's now in history
+		c.hasTodoList = false
+		c.currentTodoList = nil
+	} else {
+		c.hasTodoList = list != nil && len(list.Items) > 0
+		c.currentTodoList = list
+	}
 	c.updateContent()
 }
 

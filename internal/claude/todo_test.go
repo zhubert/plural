@@ -180,3 +180,79 @@ func TestTodoStatusConstants(t *testing.T) {
 		t.Errorf("TodoStatusCompleted = %q, want %q", TodoStatusCompleted, "completed")
 	}
 }
+
+func TestTodoList_IsComplete(t *testing.T) {
+	tests := []struct {
+		name string
+		list *TodoList
+		want bool
+	}{
+		{
+			name: "nil list",
+			list: nil,
+			want: false,
+		},
+		{
+			name: "empty items",
+			list: &TodoList{Items: []TodoItem{}},
+			want: false,
+		},
+		{
+			name: "all completed",
+			list: &TodoList{Items: []TodoItem{
+				{Content: "Task 1", Status: TodoStatusCompleted},
+				{Content: "Task 2", Status: TodoStatusCompleted},
+				{Content: "Task 3", Status: TodoStatusCompleted},
+			}},
+			want: true,
+		},
+		{
+			name: "single completed",
+			list: &TodoList{Items: []TodoItem{
+				{Content: "Task 1", Status: TodoStatusCompleted},
+			}},
+			want: true,
+		},
+		{
+			name: "one pending",
+			list: &TodoList{Items: []TodoItem{
+				{Content: "Task 1", Status: TodoStatusCompleted},
+				{Content: "Task 2", Status: TodoStatusPending},
+			}},
+			want: false,
+		},
+		{
+			name: "one in progress",
+			list: &TodoList{Items: []TodoItem{
+				{Content: "Task 1", Status: TodoStatusCompleted},
+				{Content: "Task 2", Status: TodoStatusInProgress},
+			}},
+			want: false,
+		},
+		{
+			name: "mixed statuses",
+			list: &TodoList{Items: []TodoItem{
+				{Content: "Task 1", Status: TodoStatusCompleted},
+				{Content: "Task 2", Status: TodoStatusInProgress},
+				{Content: "Task 3", Status: TodoStatusPending},
+			}},
+			want: false,
+		},
+		{
+			name: "all pending",
+			list: &TodoList{Items: []TodoItem{
+				{Content: "Task 1", Status: TodoStatusPending},
+				{Content: "Task 2", Status: TodoStatusPending},
+			}},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.list.IsComplete(); got != tt.want {
+				t.Errorf("IsComplete() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

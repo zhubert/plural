@@ -2156,3 +2156,224 @@ func TestChat_SelectionView_UsesFlashStyle(t *testing.T) {
 	// Note: We can't easily test that the colors are different without
 	// parsing ANSI codes, but we verified the code paths execute
 }
+
+// =============================================================================
+// Todo List Tests
+// =============================================================================
+
+func TestChat_SetTodoList_InProgress(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a todo list with items still in progress
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusCompleted, ActiveForm: "Completing task 1"},
+			{Content: "Task 2", Status: claude.TodoStatusInProgress, ActiveForm: "Working on task 2"},
+			{Content: "Task 3", Status: claude.TodoStatusPending, ActiveForm: "Will do task 3"},
+		},
+	}
+
+	chat.SetTodoList(todoList)
+
+	// Todo list should be active (not baked into messages)
+	if !chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be true for in-progress list")
+	}
+
+	// Messages should still be empty
+	if len(chat.messages) != 0 {
+		t.Errorf("Expected 0 messages, got %d", len(chat.messages))
+	}
+
+	// The current todo list should be set
+	if chat.GetTodoList() != todoList {
+		t.Error("Expected GetTodoList() to return the set list")
+	}
+}
+
+func TestChat_SetTodoList_AllCompleted(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Create a todo list with all items completed
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusCompleted, ActiveForm: "Completing task 1"},
+			{Content: "Task 2", Status: claude.TodoStatusCompleted, ActiveForm: "Completing task 2"},
+			{Content: "Task 3", Status: claude.TodoStatusCompleted, ActiveForm: "Completing task 3"},
+		},
+	}
+
+	chat.SetTodoList(todoList)
+
+	// Todo list should NOT be active (it was baked into messages)
+	if chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be false for completed list")
+	}
+
+	// There should be one message (the baked todo list)
+	if len(chat.messages) != 1 {
+		t.Errorf("Expected 1 message after baking completed list, got %d", len(chat.messages))
+	}
+
+	// The message should be from assistant role
+	if chat.messages[0].Role != "assistant" {
+		t.Errorf("Expected message role 'assistant', got %q", chat.messages[0].Role)
+	}
+
+	// The message content should contain the task progress header
+	if !strings.Contains(chat.messages[0].Content, "Task Progress") {
+		t.Error("Expected baked message to contain 'Task Progress'")
+	}
+
+	// The message content should contain the completed count
+	if !strings.Contains(chat.messages[0].Content, "(3/3)") {
+		t.Error("Expected baked message to show (3/3) completion")
+	}
+
+	// The current todo list should be nil
+	if chat.GetTodoList() != nil {
+		t.Error("Expected GetTodoList() to return nil after baking")
+	}
+}
+
+func TestChat_SetTodoList_Nil(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	chat.SetTodoList(nil)
+
+	if chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be false for nil list")
+	}
+
+	if len(chat.messages) != 0 {
+		t.Errorf("Expected 0 messages for nil list, got %d", len(chat.messages))
+	}
+}
+
+func TestChat_SetTodoList_EmptyList(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Empty list - should not be considered complete
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{},
+	}
+
+	chat.SetTodoList(todoList)
+
+	// Empty list should not be "complete", so hasTodoList should be false
+	// (the condition len(list.Items) > 0 fails)
+	if chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be false for empty list")
+	}
+
+	// No messages should be added for empty list
+	if len(chat.messages) != 0 {
+		t.Errorf("Expected 0 messages for empty list, got %d", len(chat.messages))
+	}
+}
+
+func TestChat_SetTodoList_SingleCompleted(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Single completed task
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Only task", Status: claude.TodoStatusCompleted, ActiveForm: "Completing only task"},
+		},
+	}
+
+	chat.SetTodoList(todoList)
+
+	// Should be baked into messages
+	if chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be false for single completed item")
+	}
+
+	if len(chat.messages) != 1 {
+		t.Errorf("Expected 1 message, got %d", len(chat.messages))
+	}
+
+	if !strings.Contains(chat.messages[0].Content, "(1/1)") {
+		t.Error("Expected message to show (1/1) completion")
+	}
+}
+
+func TestChat_SetTodoList_TransitionFromInProgressToComplete(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// First, set an in-progress list
+	inProgressList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusCompleted, ActiveForm: "Done with task 1"},
+			{Content: "Task 2", Status: claude.TodoStatusInProgress, ActiveForm: "Working on task 2"},
+		},
+	}
+
+	chat.SetTodoList(inProgressList)
+
+	if !chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be true for in-progress list")
+	}
+	if len(chat.messages) != 0 {
+		t.Errorf("Expected 0 messages while in progress, got %d", len(chat.messages))
+	}
+
+	// Now update to a completed list
+	completedList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusCompleted, ActiveForm: "Done with task 1"},
+			{Content: "Task 2", Status: claude.TodoStatusCompleted, ActiveForm: "Done with task 2"},
+		},
+	}
+
+	chat.SetTodoList(completedList)
+
+	// Should now be baked
+	if chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be false after completion")
+	}
+	if len(chat.messages) != 1 {
+		t.Errorf("Expected 1 message after completion, got %d", len(chat.messages))
+	}
+}
+
+func TestChat_ClearTodoList(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", nil)
+
+	// Set an in-progress list
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusInProgress, ActiveForm: "Working"},
+		},
+	}
+
+	chat.SetTodoList(todoList)
+
+	if !chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be true before clear")
+	}
+
+	chat.ClearTodoList()
+
+	if chat.HasTodoList() {
+		t.Error("Expected HasTodoList() to be false after clear")
+	}
+
+	if chat.GetTodoList() != nil {
+		t.Error("Expected GetTodoList() to return nil after clear")
+	}
+}

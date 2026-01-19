@@ -76,3 +76,16 @@ func (t *TodoList) CountByStatus() (pending, inProgress, completed int) {
 func (t *TodoList) HasItems() bool {
 	return t != nil && len(t.Items) > 0
 }
+
+// IsComplete returns true if all items in the todo list are completed
+func (t *TodoList) IsComplete() bool {
+	if t == nil || len(t.Items) == 0 {
+		return false
+	}
+	for _, item := range t.Items {
+		if item.Status != TodoStatusCompleted {
+			return false
+		}
+	}
+	return true
+}
