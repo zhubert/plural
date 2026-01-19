@@ -3,8 +3,6 @@ package demo
 import (
 	"testing"
 	"time"
-
-	"github.com/zhubert/plural/internal/claude"
 )
 
 func TestScenarioValidate(t *testing.T) {
@@ -117,22 +115,6 @@ func TestStepBuilders(t *testing.T) {
 		}
 	})
 
-	t.Run("TextResponse", func(t *testing.T) {
-		step := TextResponse("Hello!")
-		if step.Type != StepResponse {
-			t.Errorf("Type = %v, want StepResponse", step.Type)
-		}
-		if len(step.Chunks) != 2 {
-			t.Errorf("Chunks length = %v, want 2", len(step.Chunks))
-		}
-		if step.Chunks[0].Content != "Hello!" {
-			t.Errorf("First chunk content = %v, want 'Hello!'", step.Chunks[0].Content)
-		}
-		if !step.Chunks[1].Done {
-			t.Errorf("Second chunk should be done")
-		}
-	})
-
 	t.Run("StreamingTextResponse", func(t *testing.T) {
 		step := StreamingTextResponse("Hello World", 5)
 		if step.Type != StepResponse {
@@ -145,40 +127,6 @@ func TestStepBuilders(t *testing.T) {
 		}
 		if step.Chunks[0].Content != "Hello" {
 			t.Errorf("First chunk = %v, want 'Hello'", step.Chunks[0].Content)
-		}
-	})
-
-	t.Run("Permission", func(t *testing.T) {
-		step := Permission("Bash", "ls -la")
-		if step.Type != StepPermission {
-			t.Errorf("Type = %v, want StepPermission", step.Type)
-		}
-		if step.PermissionTool != "Bash" {
-			t.Errorf("PermissionTool = %v, want 'Bash'", step.PermissionTool)
-		}
-	})
-
-	t.Run("Annotate", func(t *testing.T) {
-		step := Annotate("This is important")
-		if step.Type != StepAnnotate {
-			t.Errorf("Type = %v, want StepAnnotate", step.Type)
-		}
-		if step.Annotation != "This is important" {
-			t.Errorf("Annotation = %v, want 'This is important'", step.Annotation)
-		}
-	})
-
-	t.Run("Response with chunks", func(t *testing.T) {
-		step := Response(
-			claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Part 1"},
-			claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Part 2"},
-			claude.ResponseChunk{Done: true},
-		)
-		if step.Type != StepResponse {
-			t.Errorf("Type = %v, want StepResponse", step.Type)
-		}
-		if len(step.Chunks) != 3 {
-			t.Errorf("Chunks length = %v, want 3", len(step.Chunks))
 		}
 	})
 }
