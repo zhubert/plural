@@ -240,30 +240,3 @@ func GenerateASCIICast(w io.Writer, frames []Frame, width, height int) error {
 
 	return nil
 }
-
-// escapeForJSON escapes a string for JSON.
-// Note: For asciinema cast generation, we now use json.Marshal instead.
-func escapeForJSON(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		switch r {
-		case '"':
-			b.WriteString("\\\"")
-		case '\\':
-			b.WriteString("\\\\")
-		case '\n':
-			b.WriteString("\\n")
-		case '\r':
-			b.WriteString("\\r")
-		case '\t':
-			b.WriteString("\\t")
-		default:
-			if r < 32 {
-				b.WriteString(fmt.Sprintf("\\u%04x", r))
-			} else {
-				b.WriteRune(r)
-			}
-		}
-	}
-	return b.String()
-}

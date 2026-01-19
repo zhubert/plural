@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/zhubert/plural/internal/logger"
@@ -286,23 +285,4 @@ func formatNumber(n int64) string {
 	}
 
 	return result.String()
-}
-
-// GetSlashCommandCompletions returns slash command completions for the given prefix.
-func GetSlashCommandCompletions(prefix string) []string {
-	if !strings.HasPrefix(prefix, "/") {
-		return nil
-	}
-
-	cmdPrefix := strings.ToLower(strings.TrimPrefix(prefix, "/"))
-	var completions []string
-
-	for _, cmd := range getSlashCommands() {
-		if strings.HasPrefix(cmd.name, cmdPrefix) {
-			completions = append(completions, "/"+cmd.name)
-		}
-	}
-
-	sort.Strings(completions)
-	return completions
 }

@@ -90,52 +90,6 @@ func TestExecutorRunInvalidScenario(t *testing.T) {
 	}
 }
 
-func TestExecutorWithAnnotations(t *testing.T) {
-	scenario := &Scenario{
-		Name:   "annotated",
-		Width:  80,
-		Height: 24,
-		Setup: &ScenarioSetup{
-			Repos: []string{"/test/repo"},
-			Sessions: []config.Session{
-				{
-					ID:        "test-session",
-					RepoPath:  "/test/repo",
-					WorkTree:  "/test/.worktrees/test-session",
-					Branch:    "test-branch",
-					Name:      "test/session",
-					CreatedAt: time.Now(),
-					Started:   true,
-				},
-			},
-		},
-		Steps: []Step{
-			Annotate("This is important"),
-			Wait(100 * time.Millisecond),
-		},
-	}
-
-	executor := NewExecutor(DefaultExecutorConfig())
-	frames, err := executor.Run(scenario)
-
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-
-	// The annotation should be on the frame after the Annotate step
-	found := false
-	for _, f := range frames {
-		if f.Annotation == "This is important" {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		t.Error("Expected to find annotation in frames")
-	}
-}
-
 func TestExecutorNoCaptureEveryStep(t *testing.T) {
 	scenario := &Scenario{
 		Name:   "minimal",

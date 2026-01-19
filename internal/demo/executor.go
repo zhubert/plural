@@ -336,14 +336,6 @@ index 0000000..def4567
 	})
 }
 
-// AddMockResponse adds a custom mock response for the demo.
-// This allows scenarios to override default responses.
-func (e *Executor) AddMockResponse(name string, args []string, response pexec.MockResponse) {
-	if e.mockExecutor != nil {
-		e.mockExecutor.AddPrefixMatch(name, args, response)
-	}
-}
-
 // executeStep executes a single demo step.
 func (e *Executor) executeStep(index int, step Step) error {
 	switch step.Type {
@@ -415,14 +407,6 @@ func (e *Executor) executeStep(index int, step Step) error {
 		e.simulatePermission(session.ID, step.PermissionTool, step.PermissionDescription)
 		e.captureFrame(index, 300*time.Millisecond)
 
-	case StepQuestion:
-		session := e.model.ActiveSession()
-		if session == nil {
-			return fmt.Errorf("no active session for question")
-		}
-		e.simulateQuestion(session.ID, step.Questions)
-		e.captureFrame(index, 300*time.Millisecond)
-
 	case StepAnnotate:
 		e.currentAnnotation = step.Annotation
 		// Don't capture, annotation applies to next frame
@@ -433,19 +417,6 @@ func (e *Executor) executeStep(index int, step Step) error {
 			e.sendTickMessages()
 		}
 		e.captureFrame(index, 0)
-
-	case StepStartStreaming:
-		session := e.model.ActiveSession()
-		if session == nil {
-			return fmt.Errorf("no active session for start streaming")
-		}
-
-		// Send any initial content chunks (but not Done)
-		for _, chunk := range step.Chunks {
-			e.simulateResponse(session.ID, chunk)
-		}
-		// Don't send Done chunk - leave session in streaming state
-		// Don't capture - let the next step capture with spinner showing
 	}
 
 	return nil
@@ -525,18 +496,6 @@ func (e *Executor) simulatePermission(sessionID, tool, description string) {
 		Request: mcp.PermissionRequest{
 			Tool:        tool,
 			Description: description,
-		},
-	}
-	result, _ := e.model.Update(msg)
-	e.model = result.(*app.Model)
-}
-
-// simulateQuestion injects a question request.
-func (e *Executor) simulateQuestion(sessionID string, questions []mcp.Question) {
-	msg := app.QuestionRequestMsg{
-		SessionID: sessionID,
-		Request: mcp.QuestionRequest{
-			Questions: questions,
 		},
 	}
 	result, _ := e.model.Update(msg)

@@ -191,24 +191,3 @@ func TestGenerateASCIICast(t *testing.T) {
 	}
 }
 
-func TestEscapeForJSON(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{`"quoted"`, `\"quoted\"`},
-		{`back\slash`, `back\\slash`},
-		{"new\nline", `new\nline`},
-		{"tab\there", `tab\there`},
-		{"normal text", "normal text"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := escapeForJSON(tt.input)
-			if result != tt.expected {
-				t.Errorf("escapeForJSON(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}

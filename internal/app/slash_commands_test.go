@@ -31,46 +31,6 @@ func TestFormatNumber(t *testing.T) {
 	}
 }
 
-func TestGetSlashCommandCompletions(t *testing.T) {
-	tests := []struct {
-		prefix   string
-		expected []string
-	}{
-		{"", nil},           // No prefix
-		{"hello", nil},      // Not a slash command
-		{"/", []string{"/cost", "/help", "/mcp", "/plugins"}},
-		{"/c", []string{"/cost"}},
-		{"/co", []string{"/cost"}},
-		{"/cost", []string{"/cost"}},
-		{"/h", []string{"/help"}},
-		{"/help", []string{"/help"}},
-		{"/m", []string{"/mcp"}},
-		{"/mcp", []string{"/mcp"}},
-		{"/p", []string{"/plugins"}},
-		{"/plugins", []string{"/plugins"}},
-		{"/xyz", []string{}}, // No matches - returns empty slice
-	}
-
-	for _, tt := range tests {
-		result := GetSlashCommandCompletions(tt.prefix)
-		if tt.expected == nil {
-			if result != nil {
-				t.Errorf("GetSlashCommandCompletions(%q) = %v, want nil", tt.prefix, result)
-			}
-			continue
-		}
-		if len(result) != len(tt.expected) {
-			t.Errorf("GetSlashCommandCompletions(%q) = %v, want %v", tt.prefix, result, tt.expected)
-			continue
-		}
-		for i := range result {
-			if result[i] != tt.expected[i] {
-				t.Errorf("GetSlashCommandCompletions(%q)[%d] = %q, want %q", tt.prefix, i, result[i], tt.expected[i])
-			}
-		}
-	}
-}
-
 func TestHandleHelpCommand(t *testing.T) {
 	result := handleHelpCommand(nil, "")
 
@@ -228,39 +188,6 @@ func TestSlashCommandDef(t *testing.T) {
 
 	if cmd.description != "A test command" {
 		t.Errorf("description = %q, want 'A test command'", cmd.description)
-	}
-}
-
-func TestGetSlashCommandCompletions_EdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		prefix   string
-		wantNil  bool
-		wantLen  int // -1 means don't check exact length
-	}{
-		{"empty string", "", true, 0},
-		{"no slash", "cost", true, 0},
-		{"space after slash", "/ ", true, 0},    // No commands start with space
-		{"uppercase", "/COST", false, 1},        // Should match (case insensitive)
-		{"mixed case", "/CoSt", false, 1},       // Should match
-		{"trailing space", "/cost ", true, 0},   // No commands match "cost "
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := GetSlashCommandCompletions(tt.prefix)
-			if tt.wantNil {
-				if result != nil && len(result) > 0 {
-					t.Errorf("GetSlashCommandCompletions(%q) = %v, want nil or empty", tt.prefix, result)
-				}
-			} else {
-				if result == nil {
-					t.Errorf("GetSlashCommandCompletions(%q) = nil, want non-nil", tt.prefix)
-				} else if tt.wantLen >= 0 && len(result) != tt.wantLen {
-					t.Errorf("GetSlashCommandCompletions(%q) returned %d results, want %d", tt.prefix, len(result), tt.wantLen)
-				}
-			}
-		})
 	}
 }
 
