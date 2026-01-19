@@ -553,9 +553,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmds...)
 			}
 		}
-		// Route mouse wheel events to chat panel for scrolling
+		// Route mouse wheel events to chat panel for scrolling (no coordinate adjustment needed)
 		if mouseMsg, isMouse := msg.(tea.MouseWheelMsg); isMouse {
-			// Check if mouse is in chat panel area (right side of screen)
 			if mouseMsg.X > m.sidebar.Width() {
 				chat, cmd := m.chat.Update(msg)
 				m.chat = chat
@@ -564,96 +563,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Route mouse click/motion/release events to chat panel for text selection
-		if clickMsg, isClick := msg.(tea.MouseClickMsg); isClick {
-			if clickMsg.X > m.sidebar.Width() {
-				// Adjust coordinates to be relative to chat panel
-				// X: subtract sidebar width
-				// Y: subtract header height
-				adjustedMsg := tea.MouseClickMsg{
-					X:      clickMsg.X - m.sidebar.Width(),
-					Y:      clickMsg.Y - ui.HeaderHeight,
-					Button: clickMsg.Button,
-					Mod:    clickMsg.Mod,
-				}
-				chat, cmd := m.chat.Update(adjustedMsg)
-				m.chat = chat
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-		}
-		if motionMsg, isMotion := msg.(tea.MouseMotionMsg); isMotion {
-			if motionMsg.X > m.sidebar.Width() {
-				adjustedMsg := tea.MouseMotionMsg{
-					X:      motionMsg.X - m.sidebar.Width(),
-					Y:      motionMsg.Y - ui.HeaderHeight,
-					Button: motionMsg.Button,
-					Mod:    motionMsg.Mod,
-				}
-				chat, cmd := m.chat.Update(adjustedMsg)
-				m.chat = chat
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-		}
-		if releaseMsg, isRelease := msg.(tea.MouseReleaseMsg); isRelease {
-			if releaseMsg.X > m.sidebar.Width() {
-				adjustedMsg := tea.MouseReleaseMsg{
-					X:      releaseMsg.X - m.sidebar.Width(),
-					Y:      releaseMsg.Y - ui.HeaderHeight,
-					Button: releaseMsg.Button,
-					Mod:    releaseMsg.Mod,
-				}
-				chat, cmd := m.chat.Update(adjustedMsg)
-				m.chat = chat
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
+		if _, cmd, handled := m.routeMouseToChat(msg); handled {
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
 		}
 	}
 
 	// Handle mouse events when chat is focused - adjust coordinates for sidebar and header
 	if m.focus == FocusChat && m.activeSession != nil {
-		if clickMsg, isClick := msg.(tea.MouseClickMsg); isClick {
-			if clickMsg.X > m.sidebar.Width() {
-				adjustedMsg := tea.MouseClickMsg{
-					X:      clickMsg.X - m.sidebar.Width(),
-					Y:      clickMsg.Y - ui.HeaderHeight,
-					Button: clickMsg.Button,
-					Mod:    clickMsg.Mod,
-				}
-				chat, cmd := m.chat.Update(adjustedMsg)
-				m.chat = chat
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-		}
-		if motionMsg, isMotion := msg.(tea.MouseMotionMsg); isMotion {
-			if motionMsg.X > m.sidebar.Width() {
-				adjustedMsg := tea.MouseMotionMsg{
-					X:      motionMsg.X - m.sidebar.Width(),
-					Y:      motionMsg.Y - ui.HeaderHeight,
-					Button: motionMsg.Button,
-					Mod:    motionMsg.Mod,
-				}
-				chat, cmd := m.chat.Update(adjustedMsg)
-				m.chat = chat
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-		}
-		if releaseMsg, isRelease := msg.(tea.MouseReleaseMsg); isRelease {
-			if releaseMsg.X > m.sidebar.Width() {
-				adjustedMsg := tea.MouseReleaseMsg{
-					X:      releaseMsg.X - m.sidebar.Width(),
-					Y:      releaseMsg.Y - ui.HeaderHeight,
-					Button: releaseMsg.Button,
-					Mod:    releaseMsg.Mod,
-				}
-				chat, cmd := m.chat.Update(adjustedMsg)
-				m.chat = chat
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
+		if _, cmd, handled := m.routeMouseToChat(msg); handled {
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
 		}
 	}
 
@@ -1710,4 +1630,53 @@ func (m *Model) ShowFlashInfo(text string) tea.Cmd {
 // ShowFlashSuccess displays a success flash message
 func (m *Model) ShowFlashSuccess(text string) tea.Cmd {
 	return m.ShowFlash(text, ui.FlashSuccess)
+}
+
+// adjustMouseForChat checks if a mouse event is in the chat panel area and adjusts
+// coordinates relative to the chat panel. Returns the adjusted message and true if
+// the event should be routed to chat, or nil and false otherwise.
+func (m *Model) adjustMouseForChat(msg tea.Msg) (tea.Msg, bool) {
+	sidebarWidth := m.sidebar.Width()
+
+	switch mouseMsg := msg.(type) {
+	case tea.MouseClickMsg:
+		if mouseMsg.X > sidebarWidth {
+			return tea.MouseClickMsg{
+				X:      mouseMsg.X - sidebarWidth,
+				Y:      mouseMsg.Y - ui.HeaderHeight,
+				Button: mouseMsg.Button,
+				Mod:    mouseMsg.Mod,
+			}, true
+		}
+	case tea.MouseMotionMsg:
+		if mouseMsg.X > sidebarWidth {
+			return tea.MouseMotionMsg{
+				X:      mouseMsg.X - sidebarWidth,
+				Y:      mouseMsg.Y - ui.HeaderHeight,
+				Button: mouseMsg.Button,
+				Mod:    mouseMsg.Mod,
+			}, true
+		}
+	case tea.MouseReleaseMsg:
+		if mouseMsg.X > sidebarWidth {
+			return tea.MouseReleaseMsg{
+				X:      mouseMsg.X - sidebarWidth,
+				Y:      mouseMsg.Y - ui.HeaderHeight,
+				Button: mouseMsg.Button,
+				Mod:    mouseMsg.Mod,
+			}, true
+		}
+	}
+	return nil, false
+}
+
+// routeMouseToChat adjusts mouse coordinates and routes the event to the chat panel.
+// Returns the updated model and command if the event was handled, or nil cmd if not.
+func (m *Model) routeMouseToChat(msg tea.Msg) (*Model, tea.Cmd, bool) {
+	if adjustedMsg, ok := m.adjustMouseForChat(msg); ok {
+		chat, cmd := m.chat.Update(adjustedMsg)
+		m.chat = chat
+		return m, cmd, true
+	}
+	return m, nil, false
 }

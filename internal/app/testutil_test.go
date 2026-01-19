@@ -332,3 +332,34 @@ func testFileDiffs() []git.FileDiff {
 		},
 	}
 }
+
+// =============================================================================
+// Mouse Event Helpers
+// =============================================================================
+
+// mouseClick creates a tea.MouseClickMsg at the given coordinates.
+func mouseClick(x, y int) tea.MouseClickMsg {
+	return tea.MouseClickMsg{
+		X:      x,
+		Y:      y,
+		Button: tea.MouseLeft,
+	}
+}
+
+// mouseMotion creates a tea.MouseMotionMsg at the given coordinates.
+func mouseMotion(x, y int) tea.MouseMotionMsg {
+	return tea.MouseMotionMsg{
+		X:      x,
+		Y:      y,
+		Button: tea.MouseLeft,
+	}
+}
+
+// mouseRelease creates a tea.MouseReleaseMsg at the given coordinates.
+func mouseRelease(x, y int) tea.MouseReleaseMsg {
+	return tea.MouseReleaseMsg{
+		X:      x,
+		Y:      y,
+		Button: tea.MouseLeft,
+	}
+}

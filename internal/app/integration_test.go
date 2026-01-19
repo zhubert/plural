@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/ui"
@@ -1622,5 +1623,174 @@ func TestViewChanges_WithFileDiffs(t *testing.T) {
 	m.chat.ExitViewChangesMode()
 	if m.chat.IsInViewChangesMode() {
 		t.Error("Should not be in view changes mode after exit")
+	}
+}
+
+// =============================================================================
+// Mouse Coordinate Adjustment Tests
+// =============================================================================
+
+func TestAdjustMouseForChat_ClickInChatArea(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Sidebar width at 120 terminal width with 1/3 ratio = 40
+	sidebarWidth := m.sidebar.Width()
+
+	// Click in chat area (past sidebar)
+	clickX := sidebarWidth + 10
+	clickY := 5
+	msg := mouseClick(clickX, clickY)
+
+	adjusted, ok := m.adjustMouseForChat(msg)
+	if !ok {
+		t.Fatal("Expected click in chat area to be handled")
+	}
+
+	adjustedClick, isClick := adjusted.(tea.MouseClickMsg)
+	if !isClick {
+		t.Fatalf("Expected MouseClickMsg, got %T", adjusted)
+	}
+
+	// X should be adjusted by sidebar width
+	expectedX := clickX - sidebarWidth
+	if adjustedClick.X != expectedX {
+		t.Errorf("Expected adjusted X=%d, got %d", expectedX, adjustedClick.X)
+	}
+
+	// Y should be adjusted by header height
+	expectedY := clickY - ui.HeaderHeight
+	if adjustedClick.Y != expectedY {
+		t.Errorf("Expected adjusted Y=%d, got %d", expectedY, adjustedClick.Y)
+	}
+
+	// Button should be preserved
+	if adjustedClick.Button != tea.MouseLeft {
+		t.Errorf("Expected button MouseLeft, got %v", adjustedClick.Button)
+	}
+}
+
+func TestAdjustMouseForChat_ClickInSidebarArea(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+
+	sidebarWidth := m.sidebar.Width()
+
+	// Click in sidebar area (before sidebar boundary)
+	msg := mouseClick(sidebarWidth-5, 10)
+
+	_, ok := m.adjustMouseForChat(msg)
+	if ok {
+		t.Error("Expected click in sidebar area NOT to be handled")
+	}
+}
+
+func TestAdjustMouseForChat_MotionEvent(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+
+	sidebarWidth := m.sidebar.Width()
+
+	// Motion in chat area
+	motionX := sidebarWidth + 20
+	motionY := 10
+	msg := mouseMotion(motionX, motionY)
+
+	adjusted, ok := m.adjustMouseForChat(msg)
+	if !ok {
+		t.Fatal("Expected motion in chat area to be handled")
+	}
+
+	adjustedMotion, isMotion := adjusted.(tea.MouseMotionMsg)
+	if !isMotion {
+		t.Fatalf("Expected MouseMotionMsg, got %T", adjusted)
+	}
+
+	expectedX := motionX - sidebarWidth
+	if adjustedMotion.X != expectedX {
+		t.Errorf("Expected adjusted X=%d, got %d", expectedX, adjustedMotion.X)
+	}
+
+	expectedY := motionY - ui.HeaderHeight
+	if adjustedMotion.Y != expectedY {
+		t.Errorf("Expected adjusted Y=%d, got %d", expectedY, adjustedMotion.Y)
+	}
+}
+
+func TestAdjustMouseForChat_ReleaseEvent(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+
+	sidebarWidth := m.sidebar.Width()
+
+	// Release in chat area
+	releaseX := sidebarWidth + 15
+	releaseY := 8
+	msg := mouseRelease(releaseX, releaseY)
+
+	adjusted, ok := m.adjustMouseForChat(msg)
+	if !ok {
+		t.Fatal("Expected release in chat area to be handled")
+	}
+
+	adjustedRelease, isRelease := adjusted.(tea.MouseReleaseMsg)
+	if !isRelease {
+		t.Fatalf("Expected MouseReleaseMsg, got %T", adjusted)
+	}
+
+	expectedX := releaseX - sidebarWidth
+	if adjustedRelease.X != expectedX {
+		t.Errorf("Expected adjusted X=%d, got %d", expectedX, adjustedRelease.X)
+	}
+
+	expectedY := releaseY - ui.HeaderHeight
+	if adjustedRelease.Y != expectedY {
+		t.Errorf("Expected adjusted Y=%d, got %d", expectedY, adjustedRelease.Y)
+	}
+}
+
+func TestAdjustMouseForChat_UnsupportedEventType(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Pass a non-mouse message type
+	msg := tea.KeyPressMsg{Code: 'a'}
+
+	_, ok := m.adjustMouseForChat(msg)
+	if ok {
+		t.Error("Expected non-mouse event NOT to be handled")
+	}
+}
+
+func TestRouteMouseToChat_Integration(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session to have an active chat
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+
+	sidebarWidth := m.sidebar.Width()
+
+	// Route a click to chat
+	msg := mouseClick(sidebarWidth+10, 5)
+	_, cmd, handled := m.routeMouseToChat(msg)
+
+	if !handled {
+		t.Error("Expected click in chat area to be routed")
+	}
+
+	// cmd may be nil or a command, but handled should be true
+	_ = cmd // Just verify it doesn't panic
+
+	// Route a click in sidebar - should not be handled
+	sidebarMsg := mouseClick(5, 5)
+	_, _, handled = m.routeMouseToChat(sidebarMsg)
+
+	if handled {
+		t.Error("Expected click in sidebar area NOT to be routed to chat")
 	}
 }
