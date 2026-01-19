@@ -51,8 +51,8 @@ func randomThinkingVerb() string {
 var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
 
 // spinnerFrameHoldTimes defines how long each frame should be held (in ticks)
-// First and last frames hold longer for a "breathing" effect
-var spinnerFrameHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
+// All frames have equal duration for smooth animation
+var spinnerFrameHoldTimes = []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
 
 // StopwatchTick returns a command that sends a tick message after a delay
 func StopwatchTick() tea.Cmd {
