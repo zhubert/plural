@@ -322,11 +322,6 @@ Key interfaces:
 
 The ProcessManager (`internal/claude/process_manager.go`) implements robust error handling:
 
-**Response Read Timeout** (2 minutes):
-- Prevents UI freeze when Claude process hangs mid-response
-- Uses goroutine-based timeout on `ReadString()` calls
-- On timeout, kills the hung process and reports error to user
-
 **Response Channel Full Handling**:
 - When the response channel is full for >10 seconds, reports error instead of silently dropping chunks
 - User sees `[Error: Response buffer full - some output may be lost]` message
@@ -344,7 +339,6 @@ The ProcessManager (`internal/claude/process_manager.go`) implements robust erro
 
 Constants in `internal/claude/claude.go`:
 ```go
-ResponseReadTimeout = 2 * time.Minute       // Timeout for hung process detection
 MaxProcessRestartAttempts = 3               // Max auto-restart attempts
 ProcessRestartDelay = 500 * time.Millisecond // Delay between restarts
 ResponseChannelFullTimeout = 10 * time.Second // Before reporting full channel

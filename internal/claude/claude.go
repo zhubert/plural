@@ -27,10 +27,6 @@ const (
 	// without the request timing out. If this expires, the permission is denied.
 	PermissionTimeout = 5 * time.Minute
 
-	// ResponseReadTimeout is the maximum time to wait for data from the Claude process
-	// before assuming it's hung. This prevents UI freezes when the process stalls.
-	ResponseReadTimeout = 2 * time.Minute
-
 	// MaxProcessRestartAttempts is the maximum number of times to try restarting
 	// a crashed Claude process before giving up.
 	MaxProcessRestartAttempts = 3
@@ -794,7 +790,6 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 	return ProcessCallbacks{
 		OnLine:           r.handleProcessLine,
 		OnProcessExit:    r.handleProcessExit,
-		OnProcessHung:    r.handleProcessHung,
 		OnRestartAttempt: r.handleRestartAttempt,
 		OnRestartFailed:  r.handleRestartFailed,
 		OnFatalError:     r.handleFatalError,
@@ -975,27 +970,6 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 
 	// Return true to allow ProcessManager to handle restart logic
 	return true
-}
-
-// handleProcessHung is called when the process appears to be hung.
-func (r *Runner) handleProcessHung() {
-	r.mu.Lock()
-	ch := r.currentResponseCh
-	chClosed := r.currentResponseChClosed
-
-	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{
-			Error: fmt.Errorf("Claude process stopped responding (timeout after %v)", ResponseReadTimeout),
-			Done:  true,
-		}:
-		default:
-		}
-		close(ch)
-		r.currentResponseChClosed = true
-	}
-	r.isStreaming = false
-	r.mu.Unlock()
 }
 
 // handleRestartAttempt is called when a restart is being attempted.

@@ -282,12 +282,11 @@ func TestProcessConfig_Fields(t *testing.T) {
 
 func TestProcessCallbacks_AllFields(t *testing.T) {
 	var (
-		onLineCalled          int32
-		onProcessExitCalled   int32
-		onProcessHungCalled   int32
+		onLineCalled           int32
+		onProcessExitCalled    int32
 		onRestartAttemptCalled int32
 		onRestartFailedCalled  int32
-		onFatalErrorCalled    int32
+		onFatalErrorCalled     int32
 	)
 
 	callbacks := ProcessCallbacks{
@@ -297,9 +296,6 @@ func TestProcessCallbacks_AllFields(t *testing.T) {
 		OnProcessExit: func(err error, stderrContent string) bool {
 			atomic.AddInt32(&onProcessExitCalled, 1)
 			return false
-		},
-		OnProcessHung: func() {
-			atomic.AddInt32(&onProcessHungCalled, 1)
 		},
 		OnRestartAttempt: func(attemptNum int) {
 			atomic.AddInt32(&onRestartAttemptCalled, 1)
@@ -322,12 +318,6 @@ func TestProcessCallbacks_AllFields(t *testing.T) {
 	callbacks.OnProcessExit(nil, "")
 	if atomic.LoadInt32(&onProcessExitCalled) != 1 {
 		t.Error("OnProcessExit callback not called")
-	}
-
-	// Test OnProcessHung
-	callbacks.OnProcessHung()
-	if atomic.LoadInt32(&onProcessHungCalled) != 1 {
-		t.Error("OnProcessHung callback not called")
 	}
 
 	// Test OnRestartAttempt
@@ -359,7 +349,6 @@ func TestProcessCallbacks_NilCallbacks(t *testing.T) {
 	// These should not panic even when callbacks are nil
 	pm.callbacks.OnLine = nil
 	pm.callbacks.OnProcessExit = nil
-	pm.callbacks.OnProcessHung = nil
 	pm.callbacks.OnRestartAttempt = nil
 	pm.callbacks.OnRestartFailed = nil
 	pm.callbacks.OnFatalError = nil
@@ -377,16 +366,8 @@ func TestProcessManagerInterface_Compliance(t *testing.T) {
 
 func TestErrorVariables_ProcessManager(t *testing.T) {
 	// Verify error variables defined in process_manager.go
-	if errReadTimeout == nil {
-		t.Error("errReadTimeout should not be nil")
-	}
-
 	if errChannelFull == nil {
 		t.Error("errChannelFull should not be nil")
-	}
-
-	if errReadTimeout.Error() == "" {
-		t.Error("errReadTimeout should have a message")
 	}
 
 	if errChannelFull.Error() == "" {
@@ -464,14 +445,6 @@ func TestProcessManager_Constants(t *testing.T) {
 
 	if ProcessRestartDelay <= 0 {
 		t.Error("ProcessRestartDelay should be positive")
-	}
-
-	if ResponseReadTimeout <= 0 {
-		t.Error("ResponseReadTimeout should be positive")
-	}
-
-	if ResponseReadTimeout < time.Minute {
-		t.Error("ResponseReadTimeout should be at least 1 minute")
 	}
 }
 
@@ -901,3 +874,4 @@ func TestProcessManager_GoroutineExitOnContextCancel(t *testing.T) {
 		t.Error("WaitGroup.Wait() blocked after goroutine exit")
 	}
 }
+

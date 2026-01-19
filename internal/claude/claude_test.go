@@ -1034,10 +1034,6 @@ func TestRunner_Interrupt_Idempotent(t *testing.T) {
 
 func TestConstants(t *testing.T) {
 	// Verify error handling constants have reasonable values
-	if ResponseReadTimeout <= 0 {
-		t.Error("ResponseReadTimeout should be positive")
-	}
-
 	if MaxProcessRestartAttempts <= 0 {
 		t.Error("MaxProcessRestartAttempts should be positive")
 	}
@@ -1159,19 +1155,11 @@ func TestHandleFatalError_NilChannel(t *testing.T) {
 
 func TestErrorVariables(t *testing.T) {
 	// Verify error variables are defined
-	if errReadTimeout == nil {
-		t.Error("errReadTimeout should not be nil")
-	}
-
 	if errChannelFull == nil {
 		t.Error("errChannelFull should not be nil")
 	}
 
 	// Verify they have meaningful messages
-	if errReadTimeout.Error() == "" {
-		t.Error("errReadTimeout should have a message")
-	}
-
 	if errChannelFull.Error() == "" {
 		t.Error("errChannelFull should have a message")
 	}
