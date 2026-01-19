@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -88,9 +87,7 @@ func BranchExists(repoPath, branch string) bool {
 // getCurrentBranchName returns the current branch name for the repo
 // Returns "HEAD" as fallback if it cannot be determined
 func getCurrentBranchName(repoPath string) string {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := executor.Output(context.Background(), repoPath, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err == nil {
 		branch := strings.TrimSpace(string(output))
 		if branch != "" && branch != "HEAD" {
@@ -103,10 +100,10 @@ func getCurrentBranchName(repoPath string) string {
 // GetDefaultBranch returns the default branch name for the remote (e.g., "main" or "master")
 // Returns "main" as fallback if it cannot be determined
 func GetDefaultBranch(repoPath string) string {
+	ctx := context.Background()
+
 	// Try to get the default branch from origin's HEAD reference
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		ref := strings.TrimSpace(string(output))
@@ -116,16 +113,14 @@ func GetDefaultBranch(repoPath string) string {
 	}
 
 	// Fallback: check if origin/main exists
-	cmd = exec.Command("git", "rev-parse", "--verify", "origin/main")
-	cmd.Dir = repoPath
-	if cmd.Run() == nil {
+	_, _, err = executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "origin/main")
+	if err == nil {
 		return "main"
 	}
 
 	// Fallback: check if origin/master exists
-	cmd = exec.Command("git", "rev-parse", "--verify", "origin/master")
-	cmd.Dir = repoPath
-	if cmd.Run() == nil {
+	_, _, err = executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "origin/master")
+	if err == nil {
 		return "master"
 	}
 
@@ -136,19 +131,18 @@ func GetDefaultBranch(repoPath string) string {
 // FetchOrigin fetches the latest changes from origin
 // Returns nil if successful, or if there's no remote (local-only repo)
 func FetchOrigin(repoPath string) error {
+	ctx := context.Background()
+
 	// First check if origin remote exists
-	cmd := exec.Command("git", "remote", "get-url", "origin")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
+	_, _, err := executor.Run(ctx, repoPath, "git", "remote", "get-url", "origin")
+	if err != nil {
 		// No origin remote - this is a local-only repo, which is fine
 		logger.Log("Session: No origin remote found, skipping fetch")
 		return nil
 	}
 
 	logger.Log("Session: Fetching from origin")
-	cmd = exec.Command("git", "fetch", "origin")
-	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
+	output, err := executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin")
 	if err != nil {
 		logger.Warn("Session: Failed to fetch from origin: %s", string(output))
 		// Don't fail session creation if fetch fails - just log a warning
@@ -204,9 +198,8 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 		baseBranch = defaultBranch
 
 		// Check if the remote branch exists
-		checkCmd := exec.Command("git", "rev-parse", "--verify", startPoint)
-		checkCmd.Dir = repoPath
-		if checkCmd.Run() != nil {
+		_, _, err := executor.Run(context.Background(), repoPath, "git", "rev-parse", "--verify", startPoint)
+		if err != nil {
 			// Remote branch doesn't exist (local-only repo), fall back to HEAD
 			logger.Log("Session: Remote branch %s not found, falling back to HEAD", startPoint)
 			startPoint = "HEAD"

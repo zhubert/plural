@@ -1,7 +1,6 @@
 package git
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -340,12 +339,7 @@ Diff:
 %s`, strings.Join(status.Files, ", "), fullDiff)
 
 	// Call Claude CLI directly with --print for a simple response
-	args := []string{"--print", "-p", prompt}
-
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = worktreePath
-
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, worktreePath, "claude", "--print", "-p", prompt)
 	if err != nil {
 		logger.Log("Git: Claude commit message generation failed: %v", err)
 		return "", fmt.Errorf("failed to generate commit message with Claude: %w", err)
@@ -418,12 +412,7 @@ Diff:
 %s`, string(commitLog), fullDiff)
 
 	// Call Claude CLI
-	args := []string{"--print", "-p", prompt}
-
-	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Dir = repoPath
-
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, repoPath, "claude", "--print", "-p", prompt)
 	if err != nil {
 		logger.Log("Git: Claude PR generation failed: %v", err)
 		return "", "", fmt.Errorf("failed to generate PR with Claude: %w", err)
@@ -766,60 +755,31 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 		// Generate PR title and body with Claude
 		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
 		prTitle, prBody, err := GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
-		var cmd *exec.Cmd
+		var ghArgs []string
 		if err != nil {
 			logger.Log("Git: Claude PR generation failed, using --fill: %v", err)
 			ch <- Result{Output: "Claude unavailable, using commit info for PR...\n"}
 			// Fall back to --fill which uses commit info
-			cmd = exec.CommandContext(ctx, "gh", "pr", "create",
-				"--base", defaultBranch,
-				"--head", branch,
-				"--fill",
-			)
+			ghArgs = []string{"pr", "create", "--base", defaultBranch, "--head", branch, "--fill"}
 		} else {
 			ch <- Result{Output: fmt.Sprintf("PR title: %s\n", prTitle)}
 			// Create PR with Claude-generated title and body
-			cmd = exec.CommandContext(ctx, "gh", "pr", "create",
-				"--base", defaultBranch,
-				"--head", branch,
-				"--title", prTitle,
-				"--body", prBody,
-			)
-		}
-		cmd.Dir = repoPath
-
-		// Stream the output
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			ch <- Result{Error: fmt.Errorf("failed to create stdout pipe: %w", err), Done: true}
-			return
-		}
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			ch <- Result{Error: fmt.Errorf("failed to create stderr pipe: %w", err), Done: true}
-			return
+			ghArgs = []string{"pr", "create", "--base", defaultBranch, "--head", branch, "--title", prTitle, "--body", prBody}
 		}
 
-		if err := cmd.Start(); err != nil {
+		// Run gh pr create using the executor
+		handle, err := executor.Start(ctx, repoPath, "gh", ghArgs...)
+		if err != nil {
 			ch <- Result{Error: fmt.Errorf("failed to start gh: %w", err), Done: true}
 			return
 		}
 
-		// Read stdout
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			ch <- Result{Output: scanner.Text() + "\n"}
+		stdout, stderr, err := handle.Wait()
+		if len(stdout) > 0 {
+			ch <- Result{Output: string(stdout)}
 		}
-
-		// Read any stderr
-		stderrScanner := bufio.NewScanner(stderr)
-		var stderrOutput strings.Builder
-		for stderrScanner.Scan() {
-			stderrOutput.WriteString(stderrScanner.Text() + "\n")
-		}
-
-		if err := cmd.Wait(); err != nil {
-			errMsg := stderrOutput.String()
+		if err != nil {
+			errMsg := string(stderr)
 			if errMsg == "" {
 				errMsg = err.Error()
 			}
@@ -957,10 +917,7 @@ Example output format:
 2. use-redis-cache
 3. sqlite-backend`, optionsList.String())
 
-	args := []string{"--print", "-p", prompt}
-	cmd := exec.CommandContext(ctx, "claude", args...)
-
-	output, err := cmd.Output()
+	output, err := executor.Output(ctx, "", "claude", "--print", "-p", prompt)
 	if err != nil {
 		logger.Log("Git: Claude branch name generation failed: %v", err)
 		return nil, fmt.Errorf("failed to generate branch names with Claude: %w", err)
