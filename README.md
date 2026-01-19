@@ -229,7 +229,7 @@ Plural provides its own slash commands (Claude CLI's built-in commands don't wor
 - `/cost` - Show token usage and estimated cost for the current session
 - `/help` - Show available Plural slash commands
 - `/mcp` - Open MCP servers configuration modal
-- `/plugins` - Open plugin directories configuration modal
+- `/plugins` - Manage plugin marketplaces and installed plugins
 
 Other slash commands are passed through to Claude CLI.
 
@@ -240,7 +240,7 @@ Other slash commands are passed through to Claude CLI.
 ### Configuration
 
 Data stored in `~/.plural/`:
-- `config.json` - Repos, sessions, tools, MCP servers, theme
+- `config.json` - Repos, sessions, allowed tools, MCP servers, theme, branch prefix
 - `sessions/<id>.json` - Conversation history
 
 ### Commands
@@ -249,7 +249,7 @@ Data stored in `~/.plural/`:
 plural                  # Start the application
 plural --check-prereqs  # Verify required tools
 plural --clear          # Remove all sessions
-plural --prune          # Clean up orphaned worktrees
+plural --prune          # Clean up orphaned worktrees and processes
 plural --debug          # Enable debug logging
 ```
 
