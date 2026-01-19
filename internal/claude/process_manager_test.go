@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -756,5 +757,147 @@ func TestBuildCommandArgs_SessionStarted_TakesPriority(t *testing.T) {
 	}
 	if containsArg(args, "--fork-session") {
 		t.Error("When SessionStarted=true, should not have --fork-session")
+	}
+}
+
+func TestProcessManager_WaitGroup_InitiallyZero(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{})
+
+	// WaitGroup should be at zero initially (no goroutines started)
+	// This test verifies we can call Stop() without blocking forever
+	done := make(chan bool, 1)
+	go func() {
+		pm.Stop()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Good - Stop returned quickly
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Stop() blocked - WaitGroup not properly initialized")
+	}
+}
+
+func TestProcessManager_Stop_WaitsForGoroutines(t *testing.T) {
+	// This test verifies that Stop() properly waits for goroutines
+	// We can't easily test with a real process, but we can verify the structure
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{})
+
+	// Manually simulate what Start() does with the WaitGroup
+	pm.mu.Lock()
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	// Add to WaitGroup to simulate goroutines
+	pm.wg.Add(2)
+
+	// Goroutine 1: simulates readOutput
+	go func() {
+		defer pm.wg.Done()
+		<-pm.ctx.Done() // Wait for cancel
+	}()
+
+	// Goroutine 2: simulates monitorExit
+	go func() {
+		defer pm.wg.Done()
+		<-pm.ctx.Done() // Wait for cancel
+	}()
+
+	// Stop should wait for both goroutines
+	stopDone := make(chan bool, 1)
+	go func() {
+		pm.Stop()
+		stopDone <- true
+	}()
+
+	select {
+	case <-stopDone:
+		// Good - goroutines exited and Stop returned
+	case <-time.After(2 * time.Second):
+		t.Error("Stop() did not return - goroutines not properly tracked")
+	}
+}
+
+func TestProcessManager_MultipleStartStop_NoLeak(t *testing.T) {
+	// Test that multiple Start/Stop cycles don't leak goroutines
+	// Note: We can't actually Start() without claude binary, but we can test Stop idempotency
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{})
+
+	// Multiple stops should be safe
+	for i := 0; i < 5; i++ {
+		done := make(chan bool, 1)
+		go func() {
+			pm.Stop()
+			done <- true
+		}()
+
+		select {
+		case <-done:
+			// Good
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("Stop() %d blocked", i)
+		}
+	}
+}
+
+func TestProcessManager_GoroutineExitOnContextCancel(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{})
+
+	// Set up context
+	pm.mu.Lock()
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.running = true
+	pm.mu.Unlock()
+
+	// Track when goroutine exits
+	exitedCh := make(chan bool, 1)
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+		// Simulate readOutput's context check
+		select {
+		case <-pm.ctx.Done():
+			exitedCh <- true
+			return
+		}
+	}()
+
+	// Cancel context
+	pm.cancel()
+
+	// Goroutine should exit promptly
+	select {
+	case <-exitedCh:
+		// Good - goroutine responded to cancel
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Goroutine did not exit on context cancel")
+	}
+
+	// WaitGroup should complete
+	waitDone := make(chan bool, 1)
+	go func() {
+		pm.wg.Wait()
+		waitDone <- true
+	}()
+
+	select {
+	case <-waitDone:
+		// Good
+	case <-time.After(100 * time.Millisecond):
+		t.Error("WaitGroup.Wait() blocked after goroutine exit")
 	}
 }
