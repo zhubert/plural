@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/ui"
@@ -1796,5 +1797,156 @@ func TestRouteMouseToChat_Integration(t *testing.T) {
 
 	if handled {
 		t.Error("Expected click in sidebar area NOT to be routed to chat")
+	}
+}
+
+// =============================================================================
+// Options Detection on Session Selection Tests
+// =============================================================================
+
+func TestSessionSelect_DetectsOptionsInMessages(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select first session
+	m = sendKey(m, "enter")
+	sessionA := m.activeSession.ID
+
+	mock := factory.GetMock(sessionA)
+	if mock == nil {
+		t.Fatal("No mock runner for session A")
+	}
+
+	// Add an assistant message with numbered options
+	mock.AddAssistantMessage(`Here are some options:
+
+1. Use a webhook-based architecture
+2. Poll the API periodically
+3. Use websockets for real-time updates
+
+Let me know which you prefer.`)
+
+	// Switch to second session
+	m = sendKey(m, "tab")
+	m = sendKey(m, "down")
+	m = sendKey(m, "enter")
+
+	sessionB := m.activeSession.ID
+	if sessionB == sessionA {
+		t.Fatal("Should have switched to different session")
+	}
+
+	// At this point, session A should not have detected options in state yet
+	// (options are detected on session selection, not when messages are added)
+
+	// Switch back to session A - this should trigger option detection
+	m = sendKey(m, "tab")
+	m = sendKey(m, "up")
+	m = sendKey(m, "enter")
+
+	// Verify we're back on session A
+	if m.activeSession.ID != sessionA {
+		t.Fatal("Should be back on session A")
+	}
+
+	// Verify options were detected
+	stateA := m.sessionState().GetIfExists(sessionA)
+	if stateA == nil {
+		t.Fatal("Session A state should exist")
+	}
+
+	if !stateA.HasDetectedOptions() {
+		t.Error("Session A should have detected options after selection")
+	}
+
+	// Verify the correct number of options
+	if len(stateA.DetectedOptions) != 3 {
+		t.Errorf("Expected 3 detected options, got %d", len(stateA.DetectedOptions))
+	}
+}
+
+func TestSessionSelect_ClearsOptionsWhenNoOptions(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select first session
+	m = sendKey(m, "enter")
+	sessionA := m.activeSession.ID
+
+	mock := factory.GetMock(sessionA)
+	if mock == nil {
+		t.Fatal("No mock runner for session A")
+	}
+
+	// Add an assistant message WITHOUT options
+	mock.AddAssistantMessage("This is just a regular response without any numbered options.")
+
+	// Manually set some detected options to verify they get cleared
+	stateA := m.sessionState().GetOrCreate(sessionA)
+	stateA.DetectedOptions = []DetectedOption{
+		{Number: 1, Text: "Fake option"},
+		{Number: 2, Text: "Another fake"},
+	}
+
+	// Switch away and back
+	m = sendKey(m, "tab")
+	m = sendKey(m, "down")
+	m = sendKey(m, "enter")
+	m = sendKey(m, "tab")
+	m = sendKey(m, "up")
+	m = sendKey(m, "enter")
+
+	// Verify options were cleared
+	stateA = m.sessionState().GetIfExists(sessionA)
+	if stateA == nil {
+		t.Fatal("Session A state should exist")
+	}
+
+	if stateA.HasDetectedOptions() {
+		t.Error("Session A should NOT have detected options (message has no options)")
+	}
+}
+
+func TestSessionSelect_OptionsDetectedOnInitialSelection(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := New(cfg, "0.0.0-test")
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Create a custom factory that provides messages with options
+	customFactory := func(sessionID, workingDir string, started bool, msgs []claude.Message) claude.RunnerInterface {
+		// Create mock with an assistant message containing options
+		initialMsgs := []claude.Message{
+			{Role: "user", Content: "What are my options?"},
+			{Role: "assistant", Content: `Here are your options:
+
+1. Option one
+2. Option two
+
+Which would you prefer?`},
+		}
+		return claude.NewMockRunner(sessionID, started, initialMsgs)
+	}
+	m.sessionMgr.SetRunnerFactory(customFactory)
+
+	// Select a session - this should create the runner with messages
+	// and immediately detect options
+	m = sendKey(m, "enter")
+	sessionID := m.activeSession.ID
+
+	// Verify options were detected on first selection
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil {
+		t.Fatal("Session state should exist")
+	}
+
+	if !state.HasDetectedOptions() {
+		t.Error("Options should be detected on initial session selection")
+	}
+
+	if len(state.DetectedOptions) != 2 {
+		t.Errorf("Expected 2 detected options, got %d", len(state.DetectedOptions))
 	}
 }

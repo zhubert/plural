@@ -871,6 +871,10 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.ClearInput()
 	}
 
+	// Detect options in the session's messages (for Ctrl+P fork feature)
+	// This ensures options are detected when returning to a session, not just when streaming completes
+	m.detectOptionsInSession(sess.ID, result.Runner)
+
 	// Restore queued message display if this session has a pending message
 	if state := m.sessionState().GetIfExists(sess.ID); state != nil && state.PendingMessage != "" {
 		pendingMsg := state.PendingMessage
