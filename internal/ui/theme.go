@@ -54,6 +54,9 @@ type Theme struct {
 	// Text selection colors
 	TextSelectionBg string // Selection background
 	TextSelectionFg string // Selection foreground
+
+	// Syntax highlighting
+	SyntaxStyle string // Chroma style name for code blocks (e.g., "monokai", "nord", "dracula")
 }
 
 // GetBgSelected returns the selected background color, defaulting to Primary
@@ -70,6 +73,14 @@ func (t Theme) GetBorderFocus() string {
 		return t.BorderFocus
 	}
 	return t.Primary
+}
+
+// GetSyntaxStyle returns the chroma syntax style name, defaulting to "monokai"
+func (t Theme) GetSyntaxStyle() string {
+	if t.SyntaxStyle != "" {
+		return t.SyntaxStyle
+	}
+	return "monokai"
 }
 
 // ThemeName is a type for theme identifiers
@@ -119,6 +130,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#06B6D4",
 		TextSelectionBg:  "#4C1D95",
 		TextSelectionFg:  "#F9FAFB",
+		SyntaxStyle:      "monokai",
 	},
 	ThemeNord: {
 		Name:             "Nord",
@@ -147,6 +159,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#81A1C1",
 		TextSelectionBg:  "#5E81AC",
 		TextSelectionFg:  "#ECEFF4",
+		SyntaxStyle:      "nord",
 	},
 	ThemeDracula: {
 		Name:             "Dracula",
@@ -175,6 +188,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#BD93F9",
 		TextSelectionBg:  "#44475A",
 		TextSelectionFg:  "#F8F8F2",
+		SyntaxStyle:      "dracula",
 	},
 	ThemeGruvbox: {
 		Name:             "Gruvbox Dark",
@@ -203,6 +217,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#FE8019",
 		TextSelectionBg:  "#504945",
 		TextSelectionFg:  "#EBDBB2",
+		SyntaxStyle:      "gruvbox",
 	},
 	ThemeTokyoNight: {
 		Name:             "Tokyo Night",
@@ -231,6 +246,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#BB9AF7",
 		TextSelectionBg:  "#3B4261",
 		TextSelectionFg:  "#C0CAF5",
+		SyntaxStyle:      "native",
 	},
 	ThemeCatppuccin: {
 		Name:             "Catppuccin Mocha",
@@ -259,6 +275,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#CBA6F7",
 		TextSelectionBg:  "#45475A",
 		TextSelectionFg:  "#CDD6F4",
+		SyntaxStyle:      "catppuccin-mocha",
 	},
 	ThemeScienceFiction: {
 		Name:             "Science Fiction",
@@ -289,6 +306,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#E50914",
 		TextSelectionBg:  "#4D0000",
 		TextSelectionFg:  "#E8E8E8",
+		SyntaxStyle:      "native",
 	},
 	ThemeLight: {
 		Name:             "Light",
@@ -319,6 +337,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		MarkdownListItem: "#6366F1",
 		TextSelectionBg:  "#BFDBFE",
 		TextSelectionFg:  "#1F2937",
+		SyntaxStyle:      "github",
 	},
 }
 
