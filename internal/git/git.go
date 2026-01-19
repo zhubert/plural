@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	pexec "github.com/zhubert/plural/internal/exec"
@@ -296,24 +297,18 @@ func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (
 	}
 
 	// Get the full diff for Claude to analyze (use --no-ext-diff to ensure output goes to stdout)
-	cmd := exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", "HEAD")
-	cmd.Dir = worktreePath
-	diffOutput, err := cmd.Output()
+	diffOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
 		// Try without HEAD for new repos
 		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
-		cmd = exec.CommandContext(ctx, "git", "diff", "--no-ext-diff")
-		cmd.Dir = worktreePath
-		diffOutput, err = cmd.Output()
+		diffOutput, err = executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
 		if err != nil {
 			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
 		}
 	}
 
 	// Also get staged changes
-	cmd = exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", "--cached")
-	cmd.Dir = worktreePath
-	cachedOutput, err := cmd.Output()
+	cachedOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
 	}
@@ -343,7 +338,7 @@ Diff:
 	// Call Claude CLI directly with --print for a simple response
 	args := []string{"--print", "-p", prompt}
 
-	cmd = exec.CommandContext(ctx, "claude", args...)
+	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = worktreePath
 
 	output, err := cmd.Output()
@@ -369,18 +364,14 @@ func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueN
 	defaultBranch := GetDefaultBranch(repoPath)
 
 	// Get the commit log for this branch
-	cmd := exec.CommandContext(ctx, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
-	cmd.Dir = repoPath
-	commitLog, err := cmd.Output()
+	commitLog, err := executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
 	if err != nil {
 		logger.Log("Git: Failed to get commit log: %v", err)
 		return "", "", fmt.Errorf("failed to get commit log: %w", err)
 	}
 
 	// Get the diff from base branch (use --no-ext-diff to ensure output goes to stdout)
-	cmd = exec.CommandContext(ctx, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
-	cmd.Dir = repoPath
-	diffOutput, err := cmd.Output()
+	diffOutput, err := executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
 	if err != nil {
 		logger.Log("Git: Failed to get diff: %v", err)
 		return "", "", fmt.Errorf("failed to get diff: %w", err)
@@ -425,7 +416,7 @@ Diff:
 	// Call Claude CLI
 	args := []string{"--print", "-p", prompt}
 
-	cmd = exec.CommandContext(ctx, "claude", args...)
+	cmd := exec.CommandContext(ctx, "claude", args...)
 	cmd.Dir = repoPath
 
 	output, err := cmd.Output()
@@ -516,6 +507,71 @@ func GetConflictedFiles(repoPath string) ([]string, error) {
 	return files, nil
 }
 
+// BranchDivergence represents the divergence between local and remote branches.
+type BranchDivergence struct {
+	Behind int // Number of commits local is behind remote
+	Ahead  int // Number of commits local is ahead of remote
+}
+
+// IsDiverged returns true if the branches have diverged (both ahead and behind).
+func (d *BranchDivergence) IsDiverged() bool {
+	return d.Behind > 0 && d.Ahead > 0
+}
+
+// CanFastForward returns true if local can fast-forward to remote (not ahead).
+func (d *BranchDivergence) CanFastForward() bool {
+	return d.Ahead == 0
+}
+
+// GetBranchDivergence returns how many commits the local branch is behind and ahead
+// of the remote branch. Uses git rev-list --count --left-right which outputs "behind\tahead".
+// Returns an error if either branch doesn't exist or comparison fails.
+func GetBranchDivergence(repoPath, localBranch, remoteBranch string) (*BranchDivergence, error) {
+	ctx := context.Background()
+
+	// git rev-list --count --left-right remoteBranch...localBranch
+	// Output format: "behind<tab>ahead"
+	output, err := executor.Output(ctx, repoPath, "git", "rev-list", "--count", "--left-right",
+		fmt.Sprintf("%s...%s", remoteBranch, localBranch))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch divergence: %w", err)
+	}
+
+	// Parse "behind\tahead" format
+	parts := strings.Split(strings.TrimSpace(string(output)), "\t")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("unexpected rev-list output format: %q", string(output))
+	}
+
+	behind, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse behind count: %w", err)
+	}
+
+	ahead, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ahead count: %w", err)
+	}
+
+	return &BranchDivergence{Behind: behind, Ahead: ahead}, nil
+}
+
+// HasTrackingBranch checks if the given branch has an upstream tracking branch configured.
+// Uses git config to check for branch.<name>.remote which is set when tracking is configured.
+func HasTrackingBranch(repoPath, branch string) bool {
+	ctx := context.Background()
+	_, err := executor.Output(ctx, repoPath, "git", "config", "--get", fmt.Sprintf("branch.%s.remote", branch))
+	return err == nil
+}
+
+// RemoteBranchExists checks if a remote branch reference exists (e.g., "origin/main").
+// Uses git rev-parse --verify which exits 0 if the ref exists, non-zero otherwise.
+func RemoteBranchExists(repoPath, remoteBranch string) bool {
+	ctx := context.Background()
+	_, _, err := executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", remoteBranch)
+	return err == nil
+}
+
 // AbortMerge aborts an in-progress merge
 func AbortMerge(repoPath string) error {
 	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "merge", "--abort")
@@ -564,33 +620,41 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 
 		// Checkout the default branch
 		ch <- Result{Output: fmt.Sprintf("Checking out %s...\n", defaultBranch)}
-		cmd := exec.CommandContext(ctx, "git", "checkout", defaultBranch)
-		cmd.Dir = repoPath
-		output, err := cmd.CombinedOutput()
+		output, err := executor.CombinedOutput(ctx, repoPath, "git", "checkout", defaultBranch)
 		if err != nil {
 			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to checkout %s: %w", defaultBranch, err), Done: true}
 			return
 		}
 		ch <- Result{Output: string(output)}
 
-		// Pull latest changes from origin
-		ch <- Result{Output: fmt.Sprintf("Pulling latest %s from origin...\n", defaultBranch)}
-		cmd = exec.CommandContext(ctx, "git", "pull", "--ff-only")
-		cmd.Dir = repoPath
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			outputStr := string(output)
-			// Check if pull failed because there's no remote/tracking (local-only repo)
-			// In that case, it's safe to continue with the merge
-			if strings.Contains(outputStr, "no tracking information") ||
-				strings.Contains(outputStr, "There is no tracking information") ||
-				strings.Contains(outputStr, "does not appear to be a git repository") {
-				ch <- Result{Output: outputStr + "\nNo remote configured, continuing with local merge...\n"}
+		// Check if we need to sync with remote before merging
+		// Use programmatic checks instead of string matching on error messages
+		if HasRemoteOrigin(repoPath) {
+			remoteBranch := fmt.Sprintf("origin/%s", defaultBranch)
+
+			// Fetch to update remote refs
+			ch <- Result{Output: "Fetching from origin...\n"}
+			output, err = executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
+			if err != nil {
+				// Fetch failed - check if remote branch exists
+				if !RemoteBranchExists(repoPath, remoteBranch) {
+					ch <- Result{Output: "Remote branch not found, continuing with local merge...\n"}
+				} else {
+					ch <- Result{Output: string(output), Error: fmt.Errorf("failed to fetch from origin: %w", err), Done: true}
+					return
+				}
 			} else {
-				// Pull failed due to diverged history or other issues
-				// This is dangerous - commits could be lost if we continue
-				hint := fmt.Sprintf(`
+				ch <- Result{Output: string(output)}
+
+				// Check for divergence using programmatic git commands
+				divergence, divErr := GetBranchDivergence(repoPath, defaultBranch, remoteBranch)
+				if divErr != nil {
+					logger.Log("Git: Warning - could not check divergence: %v", divErr)
+				} else if divergence.IsDiverged() {
+					// Local branch has diverged from remote - this is dangerous
+					hint := fmt.Sprintf(`
 Your local %s branch has diverged from origin/%s.
+Local is %d commit(s) ahead and %d commit(s) behind.
 This can cause commits to be lost if we merge now.
 
 To fix this, sync your local %s branch first:
@@ -599,23 +663,33 @@ To fix this, sync your local %s branch first:
   git pull --rebase   # or: git reset --hard origin/%s
 
 Then try merging again.
-`, defaultBranch, defaultBranch, defaultBranch, repoPath, defaultBranch, defaultBranch)
-				ch <- Result{
-					Output: outputStr + hint,
-					Error:  fmt.Errorf("local %s has diverged from origin - sync required before merge", defaultBranch),
-					Done:   true,
+`, defaultBranch, defaultBranch, divergence.Ahead, divergence.Behind, defaultBranch, repoPath, defaultBranch, defaultBranch)
+					ch <- Result{
+						Output: hint,
+						Error:  fmt.Errorf("local %s has diverged from origin (%d ahead, %d behind) - sync required before merge", defaultBranch, divergence.Ahead, divergence.Behind),
+						Done:   true,
+					}
+					return
+				} else if divergence.Behind > 0 {
+					// Local is behind, can fast-forward - pull the changes
+					ch <- Result{Output: fmt.Sprintf("Pulling %d commit(s) from origin...\n", divergence.Behind)}
+					output, err = executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
+					if err != nil {
+						ch <- Result{Output: string(output), Error: fmt.Errorf("failed to pull: %w", err), Done: true}
+						return
+					}
+					ch <- Result{Output: string(output)}
+				} else {
+					ch <- Result{Output: "Already up to date with origin.\n"}
 				}
-				return
 			}
-		} else {
-			ch <- Result{Output: string(output)}
+		} else if !HasTrackingBranch(repoPath, defaultBranch) {
+			ch <- Result{Output: "No remote configured, continuing with local merge...\n"}
 		}
 
 		// Merge the branch
 		ch <- Result{Output: fmt.Sprintf("Merging %s...\n", branch)}
-		cmd = exec.CommandContext(ctx, "git", "merge", branch, "--no-edit")
-		cmd.Dir = repoPath
-		output, err = cmd.CombinedOutput()
+		output, err = executor.CombinedOutput(ctx, repoPath, "git", "merge", branch, "--no-edit")
 		if err != nil {
 			// Check if this is a merge conflict
 			conflictedFiles, conflictErr := GetConflictedFiles(repoPath)
@@ -678,9 +752,7 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 
 		// Push the branch
 		ch <- Result{Output: fmt.Sprintf("Pushing %s to origin...\n", branch)}
-		cmd := exec.CommandContext(ctx, "git", "push", "-u", "origin", branch)
-		cmd.Dir = repoPath
-		output, err := cmd.CombinedOutput()
+		output, err := executor.CombinedOutput(ctx, repoPath, "git", "push", "-u", "origin", branch)
 		if err != nil {
 			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to push: %w", err), Done: true}
 			return
@@ -690,6 +762,7 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 		// Generate PR title and body with Claude
 		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
 		prTitle, prBody, err := GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
+		var cmd *exec.Cmd
 		if err != nil {
 			logger.Log("Git: Claude PR generation failed, using --fill: %v", err)
 			ch <- Result{Output: "Claude unavailable, using commit info for PR...\n"}
@@ -778,9 +851,7 @@ func MergeToParent(ctx context.Context, childWorktreePath, childBranch, parentWo
 		// Now merge the child branch into the parent worktree
 		// The parent worktree should already be on the parent branch
 		ch <- Result{Output: fmt.Sprintf("Merging %s into parent...\n", childBranch)}
-		cmd := exec.CommandContext(ctx, "git", "merge", childBranch, "--no-edit")
-		cmd.Dir = parentWorktreePath
-		output, err := cmd.CombinedOutput()
+		output, err := executor.CombinedOutput(ctx, parentWorktreePath, "git", "merge", childBranch, "--no-edit")
 		if err != nil {
 			// Check if this is a merge conflict
 			conflictedFiles, conflictErr := GetConflictedFiles(parentWorktreePath)
@@ -835,9 +906,7 @@ func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 
 		// Push the updates to the existing remote branch
 		ch <- Result{Output: fmt.Sprintf("Pushing updates to %s...\n", branch)}
-		cmd := exec.CommandContext(ctx, "git", "push", "origin", branch)
-		cmd.Dir = repoPath
-		output, err := cmd.CombinedOutput()
+		output, err := executor.CombinedOutput(ctx, repoPath, "git", "push", "origin", branch)
 		if err != nil {
 			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to push: %w", err), Done: true}
 			return

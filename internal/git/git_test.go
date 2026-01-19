@@ -1622,3 +1622,345 @@ func TestGetDiffStats_MixedChanges(t *testing.T) {
 		t.Error("Expected some deletions")
 	}
 }
+
+// Tests for BranchDivergence helper functions
+
+func TestBranchDivergence_IsDiverged(t *testing.T) {
+	tests := []struct {
+		name     string
+		behind   int
+		ahead    int
+		expected bool
+	}{
+		{"in sync", 0, 0, false},
+		{"only behind", 3, 0, false},
+		{"only ahead", 0, 2, false},
+		{"diverged", 3, 2, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &BranchDivergence{Behind: tt.behind, Ahead: tt.ahead}
+			if got := d.IsDiverged(); got != tt.expected {
+				t.Errorf("IsDiverged() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestBranchDivergence_CanFastForward(t *testing.T) {
+	tests := []struct {
+		name     string
+		behind   int
+		ahead    int
+		expected bool
+	}{
+		{"in sync", 0, 0, true},
+		{"only behind", 3, 0, true},
+		{"only ahead", 0, 2, false},
+		{"diverged", 3, 2, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &BranchDivergence{Behind: tt.behind, Ahead: tt.ahead}
+			if got := d.CanFastForward(); got != tt.expected {
+				t.Errorf("CanFastForward() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetBranchDivergence_InSync(t *testing.T) {
+	repoPath, _, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	if err != nil {
+		t.Fatalf("GetBranchDivergence failed: %v", err)
+	}
+
+	if divergence.Behind != 0 || divergence.Ahead != 0 {
+		t.Errorf("Expected 0 behind, 0 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
+	}
+
+	if divergence.IsDiverged() {
+		t.Error("Should not be diverged when in sync")
+	}
+
+	if !divergence.CanFastForward() {
+		t.Error("Should be able to fast-forward when in sync")
+	}
+}
+
+func TestGetBranchDivergence_LocalAhead(t *testing.T) {
+	repoPath, _, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	// Make a local commit
+	testFile := filepath.Join(repoPath, "local.txt")
+	if err := os.WriteFile(testFile, []byte("local content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "local commit")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	if err != nil {
+		t.Fatalf("GetBranchDivergence failed: %v", err)
+	}
+
+	if divergence.Behind != 0 || divergence.Ahead != 1 {
+		t.Errorf("Expected 0 behind, 1 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
+	}
+
+	if divergence.IsDiverged() {
+		t.Error("Should not be diverged when only ahead")
+	}
+
+	if divergence.CanFastForward() {
+		t.Error("Should not be able to fast-forward when ahead")
+	}
+}
+
+func TestGetBranchDivergence_LocalBehind(t *testing.T) {
+	repoPath, remotePath, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	// Clone the repo to another location to simulate remote changes
+	clonePath, err := os.MkdirTemp("", "plural-git-clone-*")
+	if err != nil {
+		t.Fatalf("Failed to create clone dir: %v", err)
+	}
+	defer os.RemoveAll(clonePath)
+
+	cmd := exec.Command("git", "clone", remotePath, clonePath)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to clone: %v", err)
+	}
+
+	// Configure git user in clone
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = clonePath
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = clonePath
+	cmd.Run()
+
+	// Make a commit in the clone and push
+	remoteFile := filepath.Join(clonePath, "remote.txt")
+	if err := os.WriteFile(remoteFile, []byte("remote content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = clonePath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "remote commit")
+	cmd.Dir = clonePath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	cmd = exec.Command("git", "push")
+	cmd.Dir = clonePath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to push: %v", err)
+	}
+
+	// Fetch in original repo to update origin/main
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to fetch: %v", err)
+	}
+
+	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	if err != nil {
+		t.Fatalf("GetBranchDivergence failed: %v", err)
+	}
+
+	if divergence.Behind != 1 || divergence.Ahead != 0 {
+		t.Errorf("Expected 1 behind, 0 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
+	}
+
+	if divergence.IsDiverged() {
+		t.Error("Should not be diverged when only behind")
+	}
+
+	if !divergence.CanFastForward() {
+		t.Error("Should be able to fast-forward when only behind")
+	}
+}
+
+func TestGetBranchDivergence_Diverged(t *testing.T) {
+	repoPath, remotePath, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	// Clone to simulate remote changes
+	clonePath, err := os.MkdirTemp("", "plural-git-clone-*")
+	if err != nil {
+		t.Fatalf("Failed to create clone dir: %v", err)
+	}
+	defer os.RemoveAll(clonePath)
+
+	cmd := exec.Command("git", "clone", remotePath, clonePath)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to clone: %v", err)
+	}
+
+	// Configure git user in clone
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = clonePath
+	cmd.Run()
+
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = clonePath
+	cmd.Run()
+
+	// Make a commit in the clone and push (simulating remote changes)
+	remoteFile := filepath.Join(clonePath, "remote.txt")
+	if err := os.WriteFile(remoteFile, []byte("remote content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = clonePath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "remote commit")
+	cmd.Dir = clonePath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	cmd = exec.Command("git", "push")
+	cmd.Dir = clonePath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to push: %v", err)
+	}
+
+	// Make a local commit (causes divergence)
+	localFile := filepath.Join(repoPath, "local.txt")
+	if err := os.WriteFile(localFile, []byte("local content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "local commit")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Fetch to update origin/main
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to fetch: %v", err)
+	}
+
+	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	if err != nil {
+		t.Fatalf("GetBranchDivergence failed: %v", err)
+	}
+
+	if divergence.Behind != 1 || divergence.Ahead != 1 {
+		t.Errorf("Expected 1 behind, 1 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
+	}
+
+	if !divergence.IsDiverged() {
+		t.Error("Should be diverged when both ahead and behind")
+	}
+
+	if divergence.CanFastForward() {
+		t.Error("Should not be able to fast-forward when diverged")
+	}
+}
+
+func TestGetBranchDivergence_InvalidBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	_, err := GetBranchDivergence(repoPath, "main", "origin/nonexistent")
+	if err == nil {
+		t.Error("Expected error for nonexistent branch")
+	}
+}
+
+func TestHasTrackingBranch_NoTracking(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Get the current branch name
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	output, _ := cmd.Output()
+	branch := strings.TrimSpace(string(output))
+
+	if HasTrackingBranch(repoPath, branch) {
+		t.Error("HasTrackingBranch should return false for branch without upstream")
+	}
+}
+
+func TestHasTrackingBranch_WithTracking(t *testing.T) {
+	repoPath, _, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	// main should have tracking after push -u
+	if !HasTrackingBranch(repoPath, "main") {
+		t.Error("HasTrackingBranch should return true for branch with upstream")
+	}
+}
+
+func TestHasTrackingBranch_InvalidPath(t *testing.T) {
+	if HasTrackingBranch("/nonexistent/path", "main") {
+		t.Error("HasTrackingBranch should return false for invalid path")
+	}
+}
+
+func TestRemoteBranchExists_Exists(t *testing.T) {
+	repoPath, _, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	if !RemoteBranchExists(repoPath, "origin/main") {
+		t.Error("RemoteBranchExists should return true for existing remote branch")
+	}
+}
+
+func TestRemoteBranchExists_NotExists(t *testing.T) {
+	repoPath, _, cleanup := createTestRepoWithRemote(t)
+	defer cleanup()
+
+	if RemoteBranchExists(repoPath, "origin/nonexistent") {
+		t.Error("RemoteBranchExists should return false for non-existent remote branch")
+	}
+}
+
+func TestRemoteBranchExists_NoRemote(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	if RemoteBranchExists(repoPath, "origin/main") {
+		t.Error("RemoteBranchExists should return false when no remote configured")
+	}
+}
+
+func TestRemoteBranchExists_InvalidPath(t *testing.T) {
+	if RemoteBranchExists("/nonexistent/path", "origin/main") {
+		t.Error("RemoteBranchExists should return false for invalid path")
+	}
+}
