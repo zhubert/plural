@@ -28,6 +28,27 @@ var (
 	ModalWidth          int
 )
 
+// Modal visibility limits - maximum items shown at once before scrolling
+var (
+	HelpModalMaxVisible      int
+	IssuesModalMaxVisible    int
+	SearchModalMaxVisible    int
+	ChangelogModalMaxVisible int
+)
+
+// Text input character limits for various modal inputs
+var (
+	BranchNameCharLimit        int
+	SessionNameCharLimit       int
+	SearchInputCharLimit       int
+	MCPServerNameCharLimit     int
+	MCPCommandCharLimit        int
+	MCPArgsCharLimit           int
+	PluginSearchCharLimit      int
+	MarketplaceSourceCharLimit int
+	BranchPrefixCharLimit      int
+)
+
 // SetStyles sets the style variables from the parent ui package.
 // This must be called before rendering any modals.
 func SetStyles(
@@ -52,6 +73,45 @@ func SetStyles(
 	ModalInputWidth = inputWidth
 	ModalInputCharLimit = inputCharLimit
 	ModalWidth = modalWidth
+}
+
+// ModalConstants holds all the constant values needed by modals
+type ModalConstants struct {
+	// Visibility limits
+	HelpModalMaxVisible      int
+	IssuesModalMaxVisible    int
+	SearchModalMaxVisible    int
+	ChangelogModalMaxVisible int
+
+	// Text input character limits
+	BranchNameCharLimit        int
+	SessionNameCharLimit       int
+	SearchInputCharLimit       int
+	MCPServerNameCharLimit     int
+	MCPCommandCharLimit        int
+	MCPArgsCharLimit           int
+	PluginSearchCharLimit      int
+	MarketplaceSourceCharLimit int
+	BranchPrefixCharLimit      int
+}
+
+// SetConstants sets the constant values from the parent ui package.
+// This must be called before rendering any modals.
+func SetConstants(c ModalConstants) {
+	HelpModalMaxVisible = c.HelpModalMaxVisible
+	IssuesModalMaxVisible = c.IssuesModalMaxVisible
+	SearchModalMaxVisible = c.SearchModalMaxVisible
+	ChangelogModalMaxVisible = c.ChangelogModalMaxVisible
+
+	BranchNameCharLimit = c.BranchNameCharLimit
+	SessionNameCharLimit = c.SessionNameCharLimit
+	SearchInputCharLimit = c.SearchInputCharLimit
+	MCPServerNameCharLimit = c.MCPServerNameCharLimit
+	MCPCommandCharLimit = c.MCPCommandCharLimit
+	MCPArgsCharLimit = c.MCPArgsCharLimit
+	PluginSearchCharLimit = c.PluginSearchCharLimit
+	MarketplaceSourceCharLimit = c.MarketplaceSourceCharLimit
+	BranchPrefixCharLimit = c.BranchPrefixCharLimit
 }
 
 // ApplyTextareaStyles configures a textarea with transparent background styles.

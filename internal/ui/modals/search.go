@@ -285,7 +285,7 @@ func (s *SearchMessagesState) GetSelectedResult() *SearchResult {
 func NewSearchMessagesState(messages []struct{ Role, Content string }) *SearchMessagesState {
 	input := textinput.New()
 	input.Placeholder = "Type to search..."
-	input.CharLimit = 100
+	input.CharLimit = SearchInputCharLimit
 	input.SetWidth(ModalInputWidth)
 	input.Focus()
 
@@ -302,6 +302,6 @@ func NewSearchMessagesState(messages []struct{ Role, Content string }) *SearchMe
 	return &SearchMessagesState{
 		Input:       input,
 		AllMessages: allMessages,
-		maxVisible:  8,
+		maxVisible:  SearchModalMaxVisible,
 	}
 }

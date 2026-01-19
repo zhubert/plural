@@ -168,6 +168,6 @@ func NewHelpStateFromSections(sections []HelpSection) *HelpState {
 		FlatShortcuts: flatShortcuts,
 		ScrollOffset:  0,
 		SelectedIndex: 0,
-		maxVisible:    18,
+		maxVisible:    HelpModalMaxVisible,
 	}
 }

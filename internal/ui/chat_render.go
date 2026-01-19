@@ -46,12 +46,12 @@ func highlightCode(code, language string) string {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get("monokai")
+	style := styles.Get(DefaultSyntaxStyle)
 	if style == nil {
 		style = styles.Fallback
 	}
 
-	formatter := formatters.Get("terminal256")
+	formatter := formatters.Get(DefaultTerminalFormatter)
 	if formatter == nil {
 		formatter = formatters.Fallback
 	}

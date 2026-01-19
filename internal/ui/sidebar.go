@@ -68,7 +68,7 @@ type Sidebar struct {
 func NewSidebar() *Sidebar {
 	ti := textinput.New()
 	ti.Placeholder = "search..."
-	ti.CharLimit = 50
+	ti.CharLimit = SidebarSearchCharLimit
 
 	return &Sidebar{
 		selectedIdx:        0,

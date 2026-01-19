@@ -340,18 +340,18 @@ func (s *AddMCPServerState) GetValues() (name, command, args, repoPath string, i
 func NewAddMCPServerState(repos []string) *AddMCPServerState {
 	nameInput := textinput.New()
 	nameInput.Placeholder = "server-name"
-	nameInput.CharLimit = 50
+	nameInput.CharLimit = MCPServerNameCharLimit
 	nameInput.SetWidth(ModalInputWidth)
 	nameInput.Focus()
 
 	cmdInput := textinput.New()
 	cmdInput.Placeholder = "npx"
-	cmdInput.CharLimit = 100
+	cmdInput.CharLimit = MCPCommandCharLimit
 	cmdInput.SetWidth(ModalInputWidth)
 
 	argsInput := textinput.New()
 	argsInput.Placeholder = "@modelcontextprotocol/server-github"
-	argsInput.CharLimit = 200
+	argsInput.CharLimit = MCPArgsCharLimit
 	argsInput.SetWidth(ModalInputWidth)
 
 	return &AddMCPServerState{

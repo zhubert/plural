@@ -577,8 +577,8 @@ func (c *Chat) SetTodoList(list *pclaude.TodoList) {
 	if list != nil && list.IsComplete() {
 		// Bake the completed todo list into messages as rendered content
 		wrapWidth := c.viewport.Width()
-		if wrapWidth < 20 {
-			wrapWidth = 80 // Fallback if viewport not initialized
+		if wrapWidth < TodoListMinWrapWidth {
+			wrapWidth = TodoListFallbackWrapWidth
 		}
 		renderedTodo := renderTodoList(list, wrapWidth)
 		c.messages = append(c.messages, pclaude.Message{
@@ -746,7 +746,7 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	// Render plan as markdown
 	renderedPlan := renderMarkdown(c.pendingPlan, wrapWidth-4) // -4 for box padding
 	planLines := strings.Split(renderedPlan, "\n")
-	maxVisibleLines := 20 // Maximum lines to show at once
+	maxVisibleLines := PlanApprovalMaxVisible
 
 	// Calculate visible range
 	startLine := c.planScrollOffset

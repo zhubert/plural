@@ -36,6 +36,10 @@ const (
 	// commit message generation and rarely provide additional value.
 	// 50KB is enough to capture meaningful changes while staying responsive.
 	MaxDiffSize = 50000
+
+	// MaxBranchNameLength is the maximum length for auto-generated branch names.
+	// User-provided branch names can be longer (up to MaxBranchNameValidation).
+	MaxBranchNameLength = 50
 )
 
 // Result represents output from a git operation
@@ -1014,8 +1018,8 @@ func sanitizeBranchName(name string) string {
 	name = strings.Trim(name, "-")
 
 	// Truncate if too long
-	if len(name) > 50 {
-		name = name[:50]
+	if len(name) > MaxBranchNameLength {
+		name = name[:MaxBranchNameLength]
 		// Don't end with a hyphen
 		name = strings.TrimRight(name, "-")
 	}
