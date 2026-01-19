@@ -115,6 +115,20 @@ internal/
 - **State machine**: `AppState` enum (StateIdle, StateStreamingClaude)
 - **Text selection**: Mouse-based selection with ultraviolet screen buffer rendering
 
+### Documented Unusual Patterns
+
+Some patterns in this codebase may appear unusual at first glance. These are intentional design choices documented in detail:
+
+**Text Selection Coordinate System** - See `internal/ui/text_selection.go`
+- Mouse events arrive in terminal coordinates, are adjusted to panel coordinates, then viewport coordinates
+- Border offset (1px) subtracted: `x := msg.X - 1; y := msg.Y - 1`
+- ANSI codes stripped before text extraction since coordinates correspond to visible positions
+
+**Layout Constants** - See `internal/ui/constants.go`
+- All magic numbers for layout have documented rationale
+- ViewContext singleton (`context.go`) centralizes layout calculations
+- Key formula: `ChatViewportHeight = ContentHeight - InputTotalHeight - BorderSize`
+
 ---
 
 ## Implementation Guide
