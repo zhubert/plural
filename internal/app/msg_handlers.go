@@ -22,7 +22,7 @@ func (m *Model) handleClaudeResponseMsg(msg ClaudeResponseMsg) (tea.Model, tea.C
 		return m, nil
 	}
 
-	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
+	isActiveSession := m.getActiveSessionID() == msg.SessionID
 
 	if msg.Chunk.Error != nil {
 		return m.handleClaudeError(msg.SessionID, msg.Chunk.Error.Error(), isActiveSession)
@@ -214,7 +214,7 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 
 // handleMergeResultMsg handles merge operation results.
 func (m *Model) handleMergeResultMsg(msg MergeResultMsg) (tea.Model, tea.Cmd) {
-	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
+	isActiveSession := m.getActiveSessionID() == msg.SessionID
 
 	if msg.Result.Error != nil {
 		return m.handleMergeError(msg.SessionID, msg.Result, isActiveSession)
@@ -350,7 +350,7 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	logger.Log("App: Sending pending message for session %s: %s", msg.SessionID, pendingMsg)
 
 	// If this is the active session, add to chat and clear queued display
-	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
+	isActiveSession := m.getActiveSessionID() == msg.SessionID
 	if isActiveSession {
 		m.chat.ClearQueuedMessage()
 		m.chat.AddUserMessage(pendingMsg)
@@ -393,7 +393,7 @@ func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model,
 	m.sidebar.SetPendingPermission(msg.SessionID, true)
 
 	// If this is the active session, show permission in chat
-	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
+	if m.getActiveSessionID() == msg.SessionID {
 		m.chat.SetPendingPermission(msg.Request.Tool, msg.Request.Description)
 	}
 
@@ -417,7 +417,7 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
 
 	// If this is the active session, show question in chat
-	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
+	if m.getActiveSessionID() == msg.SessionID {
 		m.chat.SetPendingQuestion(msg.Request.Questions)
 	}
 
@@ -442,7 +442,7 @@ func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Mo
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for plan approval
 
 	// If this is the active session, show plan approval in chat
-	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {
+	if m.getActiveSessionID() == msg.SessionID {
 		m.chat.SetPendingPlanApproval(msg.Request.Plan, msg.Request.AllowedPrompts)
 	}
 

@@ -414,8 +414,9 @@ func shortcutRenameSession(m *Model) (tea.Model, tea.Cmd) {
 func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
 	// Use activeSession when chat is focused, otherwise use sidebar selection
 	var sess *config.Session
-	if m.chat.IsFocused() && m.activeSession != nil {
-		sess = m.activeSession
+	activeSession := m.getActiveSession()
+	if m.chat.IsFocused() && activeSession != nil {
+		sess = activeSession
 	} else {
 		sess = m.sidebar.SelectedSession()
 	}
@@ -429,7 +430,8 @@ func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
 func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	// Select the session first so we can display in its chat panel
-	if m.activeSession == nil || m.activeSession.ID != sess.ID {
+	activeSession := m.getActiveSession()
+	if activeSession == nil || activeSession.ID != sess.ID {
 		m.selectSession(sess)
 	}
 	// Get worktree status and display it in view changes overlay

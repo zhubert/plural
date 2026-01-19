@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -63,8 +64,14 @@ type Model struct {
 	height int
 	focus  Focus
 
-	activeSession *config.Session
-	claudeRunner  claude.RunnerInterface // Currently active runner (convenience reference)
+	// activeSession is the currently selected session.
+	// Protected by activeSessionMu for thread-safe access from public API.
+	// Internal Update loop access doesn't need the mutex since Bubble Tea is single-threaded,
+	// but public accessors (ActiveSession, SetActiveSession) must use the mutex.
+	activeSession   *config.Session
+	activeSessionMu sync.RWMutex
+
+	claudeRunner claude.RunnerInterface // Currently active runner (convenience reference)
 
 	// Session lifecycle management
 	sessionMgr *SessionManager
@@ -870,7 +877,7 @@ func (m *Model) selectSession(sess *config.Session) {
 	}
 
 	// Update app state
-	m.activeSession = sess
+	m.setActiveSession(sess)
 	m.claudeRunner = result.Runner
 
 	// Exit view changes mode when switching sessions
@@ -1622,8 +1629,38 @@ func (m *Model) fetchGitHubIssues(repoPath string) tea.Cmd {
 // =============================================================================
 
 // ActiveSession returns the currently active session, or nil if none.
+// This method is thread-safe and can be called from any goroutine.
 func (m *Model) ActiveSession() *config.Session {
+	m.activeSessionMu.RLock()
+	defer m.activeSessionMu.RUnlock()
 	return m.activeSession
+}
+
+// setActiveSession sets the active session with proper locking.
+// This should be called when changing the active session to ensure thread safety.
+func (m *Model) setActiveSession(sess *config.Session) {
+	m.activeSessionMu.Lock()
+	defer m.activeSessionMu.Unlock()
+	m.activeSession = sess
+}
+
+// getActiveSession returns the active session with proper locking.
+// For internal use within the Update loop where we need both read and potential write.
+func (m *Model) getActiveSession() *config.Session {
+	m.activeSessionMu.RLock()
+	defer m.activeSessionMu.RUnlock()
+	return m.activeSession
+}
+
+// getActiveSessionID returns the active session ID, or empty string if no session.
+// This is a convenience method that safely gets the ID without holding the lock.
+func (m *Model) getActiveSessionID() string {
+	m.activeSessionMu.RLock()
+	defer m.activeSessionMu.RUnlock()
+	if m.activeSession == nil {
+		return ""
+	}
+	return m.activeSession.ID
 }
 
 // SessionMgr returns the session manager.
@@ -1633,20 +1670,28 @@ func (m *Model) SessionMgr() *SessionManager {
 
 // RenderToString renders the current view as a string.
 // This is useful for demos and testing.
+// This method is thread-safe and can be called from any goroutine.
 func (m *Model) RenderToString() string {
 	if m.width == 0 || m.height == 0 {
 		return "Loading..."
 	}
 
+	// Get active session with proper locking for thread safety
+	activeSession := m.getActiveSession()
+	activeSessionID := ""
+	if activeSession != nil {
+		activeSessionID = activeSession.ID
+	}
+
 	// Update footer context for conditional bindings
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
-	hasPendingPermission := m.activeSession != nil && m.sessionState().GetPendingPermission(m.activeSession.ID) != nil
-	hasPendingQuestion := m.activeSession != nil && m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil
-	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
+	hasPendingPermission := activeSession != nil && m.sessionState().GetPendingPermission(activeSessionID) != nil
+	hasPendingQuestion := activeSession != nil && m.sessionState().GetPendingQuestion(activeSessionID) != nil
+	isStreaming := activeSession != nil && m.sessionState().GetStreamCancel(activeSessionID) != nil
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
-	hasDetectedOptions := m.activeSession != nil && m.sessionState().HasDetectedOptions(m.activeSession.ID)
+	hasDetectedOptions := activeSession != nil && m.sessionState().HasDetectedOptions(activeSessionID)
 	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, hasDetectedOptions)
 
 	header := m.header.View()

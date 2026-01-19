@@ -37,7 +37,8 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		}
 		logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s, worktree=%s", option, sess.ID, sess.Branch, sess.WorkTree)
 		m.modal.Hide()
-		if m.activeSession == nil || m.activeSession.ID != sess.ID {
+		activeSession := m.getActiveSession()
+		if activeSession == nil || activeSession.ID != sess.ID {
 			m.selectSession(sess)
 		}
 
@@ -262,7 +263,8 @@ func (m *Model) handleClaudeResolveConflict(state *ui.MergeConflictState) (tea.M
 	}
 
 	// Make sure this session is active
-	if m.activeSession == nil || m.activeSession.ID != sess.ID {
+	activeSession := m.getActiveSession()
+	if activeSession == nil || activeSession.ID != sess.ID {
 		m.selectSession(sess)
 	}
 

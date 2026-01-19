@@ -133,19 +133,19 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			// Clean up runner and all per-session state via SessionManager
 			deletedRunner := m.sessionMgr.DeleteSession(sess.ID)
 			m.sidebar.SetPendingPermission(sess.ID, false)
+			activeSession := m.getActiveSession()
 			logger.Log("App: Checking if active session should be cleared: activeSession=%v, activeSessionID=%s, deletedSessionID=%s",
-				m.activeSession != nil,
+				activeSession != nil,
 				func() string {
-					if m.activeSession != nil {
-						return m.activeSession.ID
-					} else {
-						return "<nil>"
+					if activeSession != nil {
+						return activeSession.ID
 					}
+					return "<nil>"
 				}(),
 				sess.ID)
-			if m.activeSession != nil && m.activeSession.ID == sess.ID {
+			if activeSession != nil && activeSession.ID == sess.ID {
 				logger.Log("App: Clearing active session and chat")
-				m.activeSession = nil
+				m.setActiveSession(nil)
 				m.claudeRunner = nil
 				m.chat.ClearSession()
 				m.header.SetSessionName("")
@@ -318,9 +318,10 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 
 		// Update sidebar and header
 		m.sidebar.SetSessions(m.config.GetSessions())
-		if m.activeSession != nil && m.activeSession.ID == state.SessionID {
-			m.activeSession.Name = newBranch
-			m.activeSession.Branch = newBranch
+		activeSession := m.getActiveSession()
+		if activeSession != nil && activeSession.ID == state.SessionID {
+			activeSession.Name = newBranch
+			activeSession.Branch = newBranch
 			m.header.SetSessionName(newBranch)
 		}
 		m.modal.Hide()

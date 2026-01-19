@@ -155,15 +155,16 @@ type sessionJSONLEntry struct {
 
 // handleCostCommand shows token usage and estimated cost for the current session.
 func handleCostCommand(m *Model, _ string) SlashCommandResult {
-	if m.activeSession == nil {
+	activeSession := m.getActiveSession()
+	if activeSession == nil {
 		return SlashCommandResult{
 			Handled:  true,
 			Response: "No active session. Create or select a session first.",
 		}
 	}
 
-	sessionID := m.activeSession.ID
-	workingDir := m.activeSession.WorkTree
+	sessionID := activeSession.ID
+	workingDir := activeSession.WorkTree
 
 	// Find the Claude session JSONL file
 	stats, err := getSessionUsageStats(sessionID, workingDir)

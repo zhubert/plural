@@ -217,11 +217,12 @@ type parallelSessionInfo struct {
 
 // createParallelSessions creates new sessions for each selected option, pre-populated with history.
 func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Model, tea.Cmd) {
-	if m.activeSession == nil || m.claudeRunner == nil {
+	activeSession := m.getActiveSession()
+	if activeSession == nil || m.claudeRunner == nil {
 		return m, nil
 	}
 
-	parentSession := m.activeSession
+	parentSession := activeSession
 	parentMessages := m.claudeRunner.GetMessages()
 
 	logger.Log("App: Creating %d parallel sessions from session %s", len(selectedOptions), parentSession.ID)
