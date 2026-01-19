@@ -229,13 +229,13 @@ func parseTableRow(line string) []string {
 	return cells
 }
 
-// renderTable renders a complete markdown table
-func renderTable(rows [][]string, hasHeader bool) string {
+// renderTable renders a complete markdown table with width constraints
+func renderTable(rows [][]string, hasHeader bool, width int) string {
 	if len(rows) == 0 {
 		return ""
 	}
 
-	// Calculate column widths
+	// Calculate number of columns
 	numCols := 0
 	for _, row := range rows {
 		if len(row) > numCols {
@@ -243,20 +243,67 @@ func renderTable(rows [][]string, hasHeader bool) string {
 		}
 	}
 
-	colWidths := make([]int, numCols)
+	if numCols == 0 {
+		return ""
+	}
+
+	// Calculate natural column widths (based on content)
+	naturalWidths := make([]int, numCols)
 	for _, row := range rows {
 		for i, cell := range row {
-			if len(cell) > colWidths[i] {
-				colWidths[i] = len(cell)
+			cellWidth := lipgloss.Width(cell)
+			if cellWidth > naturalWidths[i] {
+				naturalWidths[i] = cellWidth
 			}
 		}
 	}
 
-	// Ensure minimum column width
-	for i := range colWidths {
-		if colWidths[i] < 3 {
-			colWidths[i] = 3
+	// Ensure minimum column width of 3
+	for i := range naturalWidths {
+		if naturalWidths[i] < 3 {
+			naturalWidths[i] = 3
 		}
+	}
+
+	// Calculate available width for content
+	// Each column has: 1 (left padding) + content + 1 (right padding) + 1 (border)
+	// Plus 1 for the leftmost border
+	// So: 1 + numCols * 3 + sum(colWidths) = total
+	// Available for content = width - 1 - numCols*3
+	borderOverhead := 1 + numCols*3
+	availableWidth := width - borderOverhead
+	if availableWidth < numCols*3 {
+		availableWidth = numCols * 3 // Minimum 3 chars per column
+	}
+
+	// Calculate final column widths
+	colWidths := calculateTableColumnWidths(naturalWidths, availableWidth)
+
+	// Wrap cell content to fit column widths and convert to multi-line cells
+	wrappedRows := make([][][]string, len(rows))
+	for rowIdx, row := range rows {
+		wrappedCells := make([][]string, numCols)
+		maxLines := 1
+		for i := 0; i < numCols; i++ {
+			cell := ""
+			if i < len(row) {
+				cell = row[i]
+			}
+			// Wrap the cell content to fit the column width
+			wrapped := wrapText(cell, colWidths[i])
+			lines := strings.Split(wrapped, "\n")
+			wrappedCells[i] = lines
+			if len(lines) > maxLines {
+				maxLines = len(lines)
+			}
+		}
+		// Pad all cells to have the same number of lines
+		for i := range wrappedCells {
+			for len(wrappedCells[i]) < maxLines {
+				wrappedCells[i] = append(wrappedCells[i], "")
+			}
+		}
+		wrappedRows[rowIdx] = wrappedCells
 	}
 
 	var result strings.Builder
@@ -276,27 +323,32 @@ func renderTable(rows [][]string, hasHeader bool) string {
 	result.WriteString("\n")
 
 	// Render rows
-	for rowIdx, row := range rows {
-		result.WriteString(borderStyle.Render("│"))
-		for i := 0; i < numCols; i++ {
-			cell := ""
-			if i < len(row) {
-				cell = row[i]
-			}
-			// Pad cell to column width
-			padded := cell + strings.Repeat(" ", colWidths[i]-len(cell))
-			// Apply style based on whether it's a header row
-			if rowIdx == 0 && hasHeader {
-				result.WriteString(" " + headerStyle.Render(padded) + " ")
-			} else {
-				result.WriteString(" " + cellStyle.Render(padded) + " ")
-			}
+	for rowIdx, wrappedCells := range wrappedRows {
+		numLines := len(wrappedCells[0]) // All cells have same number of lines
+		for lineIdx := 0; lineIdx < numLines; lineIdx++ {
 			result.WriteString(borderStyle.Render("│"))
+			for i := 0; i < numCols; i++ {
+				cellLine := wrappedCells[i][lineIdx]
+				// Pad cell line to column width using visual width
+				cellVisualWidth := lipgloss.Width(cellLine)
+				padding := colWidths[i] - cellVisualWidth
+				if padding < 0 {
+					padding = 0
+				}
+				padded := cellLine + strings.Repeat(" ", padding)
+				// Apply style based on whether it's a header row
+				if rowIdx == 0 && hasHeader {
+					result.WriteString(" " + headerStyle.Render(padded) + " ")
+				} else {
+					result.WriteString(" " + cellStyle.Render(padded) + " ")
+				}
+				result.WriteString(borderStyle.Render("│"))
+			}
+			result.WriteString("\n")
 		}
-		result.WriteString("\n")
 
 		// Render header separator after first row if it's a header
-		if rowIdx == 0 && hasHeader && len(rows) > 1 {
+		if rowIdx == 0 && hasHeader && len(wrappedRows) > 1 {
 			result.WriteString(borderStyle.Render("├"))
 			for i, w := range colWidths {
 				result.WriteString(borderStyle.Render(strings.Repeat("─", w+2)))
@@ -320,6 +372,68 @@ func renderTable(rows [][]string, hasHeader bool) string {
 	result.WriteString(borderStyle.Render("┘"))
 
 	return result.String()
+}
+
+// calculateTableColumnWidths distributes available width among columns
+func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
+	numCols := len(naturalWidths)
+	colWidths := make([]int, numCols)
+
+	// Calculate total natural width
+	totalNatural := 0
+	for _, w := range naturalWidths {
+		totalNatural += w
+	}
+
+	// If everything fits, use natural widths
+	if totalNatural <= availableWidth {
+		copy(colWidths, naturalWidths)
+		return colWidths
+	}
+
+	// Need to shrink columns. Strategy:
+	// 1. Columns that are already small keep their width
+	// 2. Larger columns share the remaining space proportionally
+
+	minColWidth := 3
+	avgWidth := availableWidth / numCols
+	if avgWidth < minColWidth {
+		avgWidth = minColWidth
+	}
+
+	// First pass: assign minimum width to small columns
+	remaining := availableWidth
+	flexibleCols := 0
+	for i, natural := range naturalWidths {
+		if natural <= avgWidth {
+			colWidths[i] = natural
+			remaining -= natural
+		} else {
+			flexibleCols++
+		}
+	}
+
+	// Second pass: distribute remaining width among flexible columns
+	if flexibleCols > 0 && remaining > 0 {
+		perFlexible := remaining / flexibleCols
+		if perFlexible < minColWidth {
+			perFlexible = minColWidth
+		}
+		for i, natural := range naturalWidths {
+			if natural > avgWidth {
+				colWidths[i] = perFlexible
+			}
+		}
+	}
+
+	// Ensure minimum width
+	for i := range colWidths {
+		if colWidths[i] < minColWidth {
+			colWidths[i] = minColWidth
+		}
+	}
+
+	return colWidths
 }
 
 // renderMarkdownLine renders a single line with markdown formatting
@@ -415,7 +529,7 @@ func renderMarkdown(content string, width int) string {
 			if result.Len() > 0 {
 				result.WriteString("\n")
 			}
-			result.WriteString(renderTable(tableRows, tableHasHeader))
+			result.WriteString(renderTable(tableRows, tableHasHeader, width))
 			result.WriteString("\n")
 			tableRows = nil
 			tableHasHeader = false

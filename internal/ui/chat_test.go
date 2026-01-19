@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/mcp"
 )
@@ -545,13 +546,51 @@ func TestRenderTable(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := renderTable(tt.rows, tt.hasHeader)
+			result := renderTable(tt.rows, tt.hasHeader, 80)
 			for _, check := range tt.checks {
 				if !strings.Contains(result, check) {
 					t.Errorf("renderTable output should contain %q, got: %q", check, result)
 				}
 			}
 		})
+	}
+}
+
+func TestRenderTableWithLongContent(t *testing.T) {
+	// Test that tables with long cell content are wrapped properly
+	rows := [][]string{
+		{"Item", "Description"},
+		{"Short", "This is a very long description that should be wrapped to fit within the available width of the table cell"},
+	}
+	result := renderTable(rows, true, 60) // 60 char width should force wrapping
+
+	// The table should contain all the content
+	if !strings.Contains(result, "Item") {
+		t.Errorf("Table should contain 'Item'")
+	}
+	if !strings.Contains(result, "Description") {
+		t.Errorf("Table should contain 'Description'")
+	}
+	if !strings.Contains(result, "Short") {
+		t.Errorf("Table should contain 'Short'")
+	}
+
+	// Each line should not exceed the width (accounting for some buffer)
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		// Use visual width to measure, not byte length
+		visualWidth := lipgloss.Width(line)
+		if visualWidth > 65 { // Allow some buffer for styling
+			t.Errorf("Line %d exceeds width limit: %d chars: %q", i, visualWidth, line)
+		}
+	}
+
+	// Table borders should be properly closed
+	if !strings.Contains(result, "┌") || !strings.Contains(result, "┐") {
+		t.Errorf("Table should have top border corners")
+	}
+	if !strings.Contains(result, "└") || !strings.Contains(result, "┘") {
+		t.Errorf("Table should have bottom border corners")
 	}
 }
 
