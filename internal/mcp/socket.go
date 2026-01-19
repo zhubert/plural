@@ -20,6 +20,11 @@ const (
 
 	// SocketReadTimeout is the timeout for reading from the socket
 	SocketReadTimeout = 10 * time.Second
+
+	// SocketWriteTimeout is the timeout for writing to the socket.
+	// This prevents the MCP server subprocess from blocking indefinitely
+	// if the TUI becomes unresponsive.
+	SocketWriteTimeout = 10 * time.Second
 )
 
 // MessageType identifies the type of socket message
@@ -400,21 +405,23 @@ func (c *SocketClient) SendPermissionRequest(req PermissionRequest) (PermissionR
 		PermReq: &req,
 	}
 
-	// Send request
+	// Send request with write timeout
 	reqJSON, err := json.Marshal(msg)
 	if err != nil {
 		return PermissionResponse{}, err
 	}
 
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
 	_, err = c.conn.Write(append(reqJSON, '\n'))
 	if err != nil {
-		return PermissionResponse{}, err
+		return PermissionResponse{}, fmt.Errorf("write permission request: %w", err)
 	}
 
-	// Read response
+	// Read response (no timeout - user may take a while to respond)
+	c.conn.SetReadDeadline(time.Time{}) // Clear any deadline
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
-		return PermissionResponse{}, err
+		return PermissionResponse{}, fmt.Errorf("read permission response: %w", err)
 	}
 
 	var respMsg SocketMessage
@@ -436,21 +443,23 @@ func (c *SocketClient) SendQuestionRequest(req QuestionRequest) (QuestionRespons
 		QuestReq: &req,
 	}
 
-	// Send request
+	// Send request with write timeout
 	reqJSON, err := json.Marshal(msg)
 	if err != nil {
 		return QuestionResponse{}, err
 	}
 
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
 	_, err = c.conn.Write(append(reqJSON, '\n'))
 	if err != nil {
-		return QuestionResponse{}, err
+		return QuestionResponse{}, fmt.Errorf("write question request: %w", err)
 	}
 
-	// Read response
+	// Read response (no timeout - user may take a while to respond)
+	c.conn.SetReadDeadline(time.Time{}) // Clear any deadline
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
-		return QuestionResponse{}, err
+		return QuestionResponse{}, fmt.Errorf("read question response: %w", err)
 	}
 
 	var respMsg SocketMessage
@@ -472,21 +481,23 @@ func (c *SocketClient) SendPlanApprovalRequest(req PlanApprovalRequest) (PlanApp
 		PlanReq: &req,
 	}
 
-	// Send request
+	// Send request with write timeout
 	reqJSON, err := json.Marshal(msg)
 	if err != nil {
 		return PlanApprovalResponse{}, err
 	}
 
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
 	_, err = c.conn.Write(append(reqJSON, '\n'))
 	if err != nil {
-		return PlanApprovalResponse{}, err
+		return PlanApprovalResponse{}, fmt.Errorf("write plan approval request: %w", err)
 	}
 
-	// Read response
+	// Read response (no timeout - user may take a while to respond)
+	c.conn.SetReadDeadline(time.Time{}) // Clear any deadline
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
-		return PlanApprovalResponse{}, err
+		return PlanApprovalResponse{}, fmt.Errorf("read plan approval response: %w", err)
 	}
 
 	var respMsg SocketMessage
