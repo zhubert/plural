@@ -16,6 +16,7 @@ type SelectResult struct {
 	Runner     claude.RunnerInterface
 	Messages   []claude.Message
 	HeaderName string // Branch name if custom, otherwise session name
+	BaseBranch string // Base branch this session was created from
 
 	// State to restore
 	WaitStart    time.Time
@@ -155,6 +156,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		Runner:     runner,
 		Messages:   runner.GetMessages(),
 		HeaderName: headerName,
+		BaseBranch: sess.BaseBranch,
 	}
 
 	// Get waiting state

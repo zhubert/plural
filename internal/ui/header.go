@@ -11,6 +11,7 @@ import (
 type Header struct {
 	width       int
 	sessionName string
+	baseBranch  string
 }
 
 // NewHeader creates a new header
@@ -28,13 +29,22 @@ func (h *Header) SetSessionName(name string) {
 	h.sessionName = name
 }
 
+// SetBaseBranch sets the base branch to display
+func (h *Header) SetBaseBranch(branch string) {
+	h.baseBranch = branch
+}
+
 // View renders the header
 func (h *Header) View() string {
 	// Build the content string (without styling)
 	titleText := " plural"
 	var rightText string
 	if h.sessionName != "" {
-		rightText = h.sessionName + " "
+		rightText = h.sessionName
+		if h.baseBranch != "" {
+			rightText += " (" + h.baseBranch + ")"
+		}
+		rightText += " "
 	}
 
 	// Calculate padding
@@ -46,7 +56,7 @@ func (h *Header) View() string {
 	fullContent := titleText + strings.Repeat(" ", paddingLen) + rightText
 
 	// Render with gradient background
-	return h.renderGradient(fullContent)
+	return h.renderGradient(fullContent, h.baseBranch)
 }
 
 // parseHexColor parses a hex color string (e.g., "#7C3AED") into RGB components
@@ -58,7 +68,8 @@ func parseHexColor(hex string) (r, g, b int) {
 }
 
 // renderGradient renders the content with a theme-aware gradient background
-func (h *Header) renderGradient(content string) string {
+// baseBranch is used to identify and mute the base branch portion of the text
+func (h *Header) renderGradient(content string, baseBranch string) string {
 	if len(content) == 0 {
 		return ""
 	}
@@ -71,6 +82,14 @@ func (h *Header) renderGradient(content string) string {
 
 	// Text color from theme
 	textColor := lipgloss.Color(theme.Text)
+	mutedColor := lipgloss.Color(theme.TextMuted)
+
+	// Find where the base branch portion starts (if present)
+	baseBranchStart := -1
+	if baseBranch != "" {
+		baseBranchMarker := "(" + baseBranch + ")"
+		baseBranchStart = strings.Index(content, baseBranchMarker)
+	}
 
 	runes := []rune(content)
 	width := len(runes)
@@ -88,11 +107,19 @@ func (h *Header) renderGradient(content string) string {
 		// Create color string
 		bgColor := lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", cr, cg, cb))
 
+		// Determine if this character is in the base branch portion
+		inBaseBranch := baseBranchStart >= 0 && i >= baseBranchStart
+
 		// Style for this character
 		style := lipgloss.NewStyle().
 			Background(bgColor).
-			Foreground(textColor).
 			Bold(i < 7) // Bold for "Plural" title
+
+		if inBaseBranch {
+			style = style.Foreground(mutedColor)
+		} else {
+			style = style.Foreground(textColor)
+		}
 
 		result.WriteString(style.Render(string(r)))
 	}

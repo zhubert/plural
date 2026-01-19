@@ -22,6 +22,7 @@ type Session struct {
 	RepoPath  string    `json:"repo_path"`
 	WorkTree  string    `json:"worktree"`
 	Branch    string    `json:"branch"`
+	BaseBranch string   `json:"base_branch,omitempty"` // Branch this session was created from (e.g., "main", parent branch)
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
 	Started   bool      `json:"started,omitempty"`    // Whether session has been started with Claude CLI

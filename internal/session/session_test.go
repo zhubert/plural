@@ -1136,3 +1136,70 @@ func TestCreate_FromOriginVsCurrentBranch(t *testing.T) {
 		t.Error("Session from current branch SHOULD have the local-only file")
 	}
 }
+
+func TestCreate_BaseBranch_FromOrigin(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Create a session from origin
+	session, err := Create(localPath, "", "", BasePointOrigin)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// BaseBranch should be the default branch (main)
+	if session.BaseBranch != "main" {
+		t.Errorf("BaseBranch = %q, want %q", session.BaseBranch, "main")
+	}
+}
+
+func TestCreate_BaseBranch_FromCurrentBranch(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Create a local branch
+	cmd := exec.Command("git", "checkout", "-b", "feature-branch")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create branch: %v", err)
+	}
+
+	// Create a session from current branch
+	session, err := Create(localPath, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// BaseBranch should be the current branch (feature-branch)
+	if session.BaseBranch != "feature-branch" {
+		t.Errorf("BaseBranch = %q, want %q", session.BaseBranch, "feature-branch")
+	}
+}
+
+func TestCreateFromBranch_BaseBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a source branch
+	cmd := exec.Command("git", "checkout", "-b", "source-branch")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create source branch: %v", err)
+	}
+
+	// Create a session forked from the source branch
+	session, err := CreateFromBranch(repoPath, "source-branch", "", "")
+	if err != nil {
+		t.Fatalf("CreateFromBranch failed: %v", err)
+	}
+
+	// BaseBranch should be the source branch
+	if session.BaseBranch != "source-branch" {
+		t.Errorf("BaseBranch = %q, want %q", session.BaseBranch, "source-branch")
+	}
+}

@@ -81,6 +81,21 @@ func BranchExists(repoPath, branch string) bool {
 	return err == nil
 }
 
+// getCurrentBranchName returns the current branch name for the repo
+// Returns "HEAD" as fallback if it cannot be determined
+func getCurrentBranchName(repoPath string) string {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err == nil {
+		branch := strings.TrimSpace(string(output))
+		if branch != "" && branch != "HEAD" {
+			return branch
+		}
+	}
+	return "HEAD"
+}
+
 // GetDefaultBranch returns the default branch name for the remote (e.g., "main" or "master")
 // Returns "main" as fallback if it cannot be determined
 func GetDefaultBranch(repoPath string) string {
@@ -173,6 +188,7 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 
 	// Determine the starting point for the new branch
 	var startPoint string
+	var baseBranch string // The branch name to display as the base
 	switch basePoint {
 	case BasePointOrigin:
 		// Fetch from origin to ensure we have the latest commits
@@ -181,6 +197,7 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 		// Prefer origin's default branch if it exists, otherwise fall back to HEAD
 		defaultBranch := GetDefaultBranch(repoPath)
 		startPoint = fmt.Sprintf("origin/%s", defaultBranch)
+		baseBranch = defaultBranch
 
 		// Check if the remote branch exists
 		checkCmd := exec.Command("git", "rev-parse", "--verify", startPoint)
@@ -189,12 +206,14 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 			// Remote branch doesn't exist (local-only repo), fall back to HEAD
 			logger.Log("Session: Remote branch %s not found, falling back to HEAD", startPoint)
 			startPoint = "HEAD"
+			baseBranch = getCurrentBranchName(repoPath)
 		}
 	case BasePointHead:
 		fallthrough
 	default:
 		// Use current branch (HEAD)
 		startPoint = "HEAD"
+		baseBranch = getCurrentBranchName(repoPath)
 		logger.Log("Session: Using current branch (HEAD) as base")
 	}
 
@@ -222,15 +241,16 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 	}
 
 	session := &config.Session{
-		ID:        id,
-		RepoPath:  repoPath,
-		WorkTree:  worktreePath,
-		Branch:    branch,
-		Name:      fmt.Sprintf("%s/%s", repoName, displayName),
-		CreatedAt: time.Now(),
+		ID:         id,
+		RepoPath:   repoPath,
+		WorkTree:   worktreePath,
+		Branch:     branch,
+		BaseBranch: baseBranch,
+		Name:       fmt.Sprintf("%s/%s", repoName, displayName),
+		CreatedAt:  time.Now(),
 	}
 
-	logger.Info("Session: Session created successfully: id=%s, name=%s, total_time=%v", id, session.Name, time.Since(startTime))
+	logger.Info("Session: Session created successfully: id=%s, name=%s, base=%s, total_time=%v", id, session.Name, baseBranch, time.Since(startTime))
 	return session, nil
 }
 
@@ -286,15 +306,16 @@ func CreateFromBranch(repoPath string, sourceBranch string, customBranch string,
 	}
 
 	session := &config.Session{
-		ID:        id,
-		RepoPath:  repoPath,
-		WorkTree:  worktreePath,
-		Branch:    branch,
-		Name:      fmt.Sprintf("%s/%s", repoName, displayName),
-		CreatedAt: time.Now(),
+		ID:         id,
+		RepoPath:   repoPath,
+		WorkTree:   worktreePath,
+		Branch:     branch,
+		BaseBranch: sourceBranch,
+		Name:       fmt.Sprintf("%s/%s", repoName, displayName),
+		CreatedAt:  time.Now(),
 	}
 
-	logger.Info("Session: Forked session created successfully: id=%s, name=%s, from=%s, total_time=%v",
+	logger.Info("Session: Forked session created successfully: id=%s, name=%s, base=%s, total_time=%v",
 		id, session.Name, sourceBranch, time.Since(startTime))
 	return session, nil
 }

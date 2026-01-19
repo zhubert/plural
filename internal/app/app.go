@@ -860,6 +860,7 @@ func (m *Model) selectSession(sess *config.Session) {
 	// Update UI components with session state
 	m.chat.SetSession(sess.Name, result.Messages)
 	m.header.SetSessionName(result.HeaderName)
+	m.header.SetBaseBranch(result.BaseBranch)
 	m.focus = FocusChat
 	m.sidebar.SetFocused(false)
 	m.chat.SetFocused(true)
