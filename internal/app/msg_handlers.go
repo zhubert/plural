@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
@@ -46,7 +47,7 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 		m.chat.AppendStreaming("\n[Error: " + errMsg + "]")
 	} else {
 		// Store error for non-active session
-		m.sessionState().AppendStreaming(sessionID, "\n[Error: "+errMsg+"]")
+		m.sessionState().GetOrCreate(sessionID).StreamingContent += "\n[Error: " + errMsg + "]"
 	}
 
 	// Check if any sessions are still streaming
@@ -75,7 +76,9 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	} else {
 		// For non-active session, just clear our saved streaming content
 		// The runner already adds the assistant message when streaming completes (claude.go)
-		m.sessionState().ClearStreaming(sessionID)
+		if state := m.sessionState().GetIfExists(sessionID); state != nil {
+			state.StreamingContent = ""
+		}
 	}
 
 	// Mark session as started and save messages
@@ -108,7 +111,7 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	}
 
 	// Check for pending message queued during streaming
-	if m.sessionState().HasPendingMessage(sessionID) {
+	if state := m.sessionState().GetIfExists(sessionID); state != nil && state.PendingMessage != "" {
 		if completionCmd != nil {
 			return m, tea.Batch(completionCmd, func() tea.Msg {
 				return SendPendingMessageMsg{SessionID: sessionID}
@@ -128,7 +131,9 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 // handleClaudeStreaming handles streaming content chunks from Claude.
 func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChunk, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
 	// Streaming content - clear wait time since response has started
-	m.sessionState().ClearWaitStart(sessionID)
+	if state := m.sessionState().GetIfExists(sessionID); state != nil {
+		state.WaitStart = time.Time{}
+	}
 
 	if isActiveSession {
 		m.chat.SetWaiting(false)
@@ -145,7 +150,7 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 		case claude.ChunkTypeTodoUpdate:
 			// Update the todo list display
 			if chunk.TodoList != nil {
-				m.sessionState().SetTodoList(sessionID, chunk.TodoList)
+				m.sessionState().GetOrCreate(sessionID).CurrentTodoList = chunk.TodoList
 				m.chat.SetTodoList(chunk.TodoList)
 			}
 		default:
@@ -165,6 +170,8 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 
 // handleNonActiveSessionStreaming handles streaming content for non-active sessions.
 func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.ResponseChunk) {
+	state := m.sessionState().GetOrCreate(sessionID)
+
 	switch chunk.Type {
 	case claude.ChunkTypeToolUse:
 		// Format tool use for non-active session
@@ -174,40 +181,38 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 			line += ": " + chunk.ToolInput
 		}
 		line += ")\n"
-		existing := m.sessionState().GetStreaming(sessionID)
-		if existing != "" && !strings.HasSuffix(existing, "\n") {
-			m.sessionState().AppendStreaming(sessionID, "\n")
+		if state.StreamingContent != "" && !strings.HasSuffix(state.StreamingContent, "\n") {
+			state.StreamingContent += "\n"
 		}
 		// Track position where the marker starts
-		m.sessionState().SetToolUsePos(sessionID, len(m.sessionState().GetStreaming(sessionID)))
-		m.sessionState().AppendStreaming(sessionID, line)
+		state.ToolUsePos = len(state.StreamingContent)
+		state.StreamingContent += line
 
 	case claude.ChunkTypeToolResult:
 		// Mark the tool use as complete for non-active session
-		if pos, exists := m.sessionState().GetToolUsePos(sessionID); exists && pos >= 0 {
-			m.sessionState().ReplaceToolUseMarker(sessionID, ui.ToolUseInProgress, ui.ToolUseComplete, pos)
-			m.sessionState().ClearToolUsePos(sessionID)
+		if state.ToolUsePos >= 0 {
+			m.sessionState().ReplaceToolUseMarker(sessionID, ui.ToolUseInProgress, ui.ToolUseComplete, state.ToolUsePos)
+			state.ToolUsePos = -1
 		}
 
 	case claude.ChunkTypeText:
 		// Add extra newline after tool use for visual separation
-		if pos, exists := m.sessionState().GetToolUsePos(sessionID); exists && pos >= 0 {
-			streaming := m.sessionState().GetStreaming(sessionID)
-			if strings.HasSuffix(streaming, "\n") && !strings.HasSuffix(streaming, "\n\n") {
-				m.sessionState().AppendStreaming(sessionID, "\n")
+		if state.ToolUsePos >= 0 {
+			if strings.HasSuffix(state.StreamingContent, "\n") && !strings.HasSuffix(state.StreamingContent, "\n\n") {
+				state.StreamingContent += "\n"
 			}
 		}
-		m.sessionState().AppendStreaming(sessionID, chunk.Content)
+		state.StreamingContent += chunk.Content
 
 	case claude.ChunkTypeTodoUpdate:
 		// Store todo list for non-active session
 		if chunk.TodoList != nil {
-			m.sessionState().SetTodoList(sessionID, chunk.TodoList)
+			state.CurrentTodoList = chunk.TodoList
 		}
 
 	default:
 		if chunk.Content != "" {
-			m.sessionState().AppendStreaming(sessionID, chunk.Content)
+			state.StreamingContent += chunk.Content
 		}
 	}
 }
@@ -228,7 +233,7 @@ func (m *Model) handleMergeResultMsg(msg MergeResultMsg) (tea.Model, tea.Cmd) {
 	if isActiveSession {
 		m.chat.AppendStreaming(msg.Result.Output)
 	} else {
-		m.sessionState().AppendStreaming(msg.SessionID, msg.Result.Output)
+		m.sessionState().GetOrCreate(msg.SessionID).StreamingContent += msg.Result.Output
 	}
 	return m, m.listenForMergeResult(msg.SessionID)
 }
@@ -254,7 +259,7 @@ func (m *Model) handleMergeError(sessionID string, result git.Result, isActiveSe
 	if isActiveSession {
 		m.chat.AppendStreaming("\n[Error: " + result.Error.Error() + "]\n")
 	} else {
-		m.sessionState().AppendStreaming(sessionID, "\n[Error: "+result.Error.Error()+"]\n")
+		m.sessionState().GetOrCreate(sessionID).StreamingContent += "\n[Error: " + result.Error.Error() + "]\n"
 	}
 	// Clean up merge state for this session
 	m.sessionState().StopMerge(sessionID)
@@ -270,17 +275,21 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 		m.chat.FinishStreaming()
 	} else {
 		// Store completed merge output as a message for when user switches back
-		if content := m.sessionState().GetStreaming(sessionID); content != "" {
+		if state := m.sessionState().GetIfExists(sessionID); state != nil && state.StreamingContent != "" {
 			if runner := m.sessionMgr.GetRunner(sessionID); runner != nil {
-				runner.AddAssistantMessage(content)
+				runner.AddAssistantMessage(state.StreamingContent)
 				m.sessionMgr.SaveRunnerMessages(sessionID, runner)
 			}
-			m.sessionState().ClearStreaming(sessionID)
+			state.StreamingContent = ""
 		}
 	}
 
 	// Mark session as merged or PR created based on operation type
-	mergeType := m.sessionState().GetMergeType(sessionID)
+	state := m.sessionState().GetIfExists(sessionID)
+	mergeType := MergeTypeNone
+	if state != nil {
+		mergeType = state.MergeType
+	}
 	switch mergeType {
 	case MergeTypePR:
 		m.config.MarkSessionPRCreated(sessionID)
@@ -334,9 +343,10 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	}
 
 	// Check if session is currently busy (e.g., merge in progress or already streaming again)
-	if m.sessionState().IsWaiting(msg.SessionID) || m.sessionState().IsMerging(msg.SessionID) {
+	state := m.sessionState().GetIfExists(msg.SessionID)
+	if state != nil && (state.IsWaiting || state.IsMerging()) {
 		// Re-queue the message to try again later
-		m.sessionState().SetPendingMessage(msg.SessionID, pendingMsg)
+		state.PendingMessage = pendingMsg
 		return m, nil
 	}
 
@@ -389,7 +399,7 @@ func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model,
 
 	// Store permission request for this session (inline, not modal)
 	logger.Log("App: Permission request for session %s: tool=%s", msg.SessionID, msg.Request.Tool)
-	m.sessionState().SetPendingPermission(msg.SessionID, &msg.Request)
+	m.sessionState().GetOrCreate(msg.SessionID).PendingPermission = &msg.Request
 	m.sidebar.SetPendingPermission(msg.SessionID, true)
 
 	// If this is the active session, show permission in chat
@@ -413,7 +423,7 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 
 	// Store question request for this session
 	logger.Log("App: Question request for session %s: %d questions", msg.SessionID, len(msg.Request.Questions))
-	m.sessionState().SetPendingQuestion(msg.SessionID, &msg.Request)
+	m.sessionState().GetOrCreate(msg.SessionID).PendingQuestion = &msg.Request
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
 
 	// If this is the active session, show question in chat
@@ -438,7 +448,7 @@ func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Mo
 	// Store plan approval request for this session
 	logger.Log("App: Plan approval request for session %s: plan %d chars, %d allowed prompts",
 		msg.SessionID, len(msg.Request.Plan), len(msg.Request.AllowedPrompts))
-	m.sessionState().SetPendingPlanApproval(msg.SessionID, &msg.Request)
+	m.sessionState().GetOrCreate(msg.SessionID).PendingPlanApproval = &msg.Request
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for plan approval
 
 	// If this is the active session, show plan approval in chat

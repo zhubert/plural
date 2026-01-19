@@ -139,13 +139,16 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 
 	// Save previous session's state if provided
 	if previousSessionID != "" {
-		if previousInput != "" {
-			sm.stateManager.SaveInput(previousSessionID, previousInput)
-			logger.Log("SessionManager: Saved input for session %s", previousSessionID)
-		}
-		if previousStreaming != "" {
-			sm.stateManager.SaveStreaming(previousSessionID, previousStreaming)
-			logger.Log("SessionManager: Saved streaming content for session %s", previousSessionID)
+		if previousInput != "" || previousStreaming != "" {
+			prevState := sm.stateManager.GetOrCreate(previousSessionID)
+			if previousInput != "" {
+				prevState.InputText = previousInput
+				logger.Log("SessionManager: Saved input for session %s", previousSessionID)
+			}
+			if previousStreaming != "" {
+				prevState.StreamingContent = previousStreaming
+				logger.Log("SessionManager: Saved streaming content for session %s", previousSessionID)
+			}
 		}
 	}
 
@@ -189,27 +192,30 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		result.IsWaiting = true
 	}
 
-	// Get pending permission
-	result.Permission = sm.stateManager.GetPendingPermission(sess.ID)
+	// Get state for remaining fields
+	if state := sm.stateManager.GetIfExists(sess.ID); state != nil {
+		// Get pending permission
+		result.Permission = state.PendingPermission
 
-	// Get pending question
-	result.Question = sm.stateManager.GetPendingQuestion(sess.ID)
+		// Get pending question
+		result.Question = state.PendingQuestion
 
-	// Get pending plan approval
-	result.PlanApproval = sm.stateManager.GetPendingPlanApproval(sess.ID)
+		// Get pending plan approval
+		result.PlanApproval = state.PendingPlanApproval
 
-	// Get todo list
-	result.TodoList = sm.stateManager.GetTodoList(sess.ID)
+		// Get todo list
+		result.TodoList = state.CurrentTodoList
 
-	// Get streaming content (and clear it from state manager)
-	if streaming := sm.stateManager.GetStreaming(sess.ID); streaming != "" {
-		result.Streaming = streaming
-		sm.stateManager.ClearStreaming(sess.ID)
-		logger.Log("SessionManager: Retrieved streaming content for session %s", sess.ID)
+		// Get streaming content (and clear it)
+		if state.StreamingContent != "" {
+			result.Streaming = state.StreamingContent
+			state.StreamingContent = ""
+			logger.Log("SessionManager: Retrieved streaming content for session %s", sess.ID)
+		}
+
+		// Get saved input
+		result.SavedInput = state.InputText
 	}
-
-	// Get saved input
-	result.SavedInput = sm.stateManager.GetInput(sess.ID)
 
 	logger.Log("SessionManager: Session selected: %s", sess.ID)
 	return result

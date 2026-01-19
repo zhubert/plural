@@ -308,7 +308,9 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 	m.sidebar.SetSessions(m.config.GetSessions())
 
 	// Clear detected options since we've acted on them
-	m.sessionState().ClearDetectedOptions(parentSession.ID)
+	if state := m.sessionState().GetIfExists(parentSession.ID); state != nil {
+		state.DetectedOptions = nil
+	}
 
 	// Start all sessions in parallel
 	if len(createdSessions) > 0 {
