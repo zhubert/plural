@@ -67,7 +67,9 @@ internal/
 ├── claude/                Claude CLI wrapper (stream-json I/O)
 │   ├── claude.go          Runner: message handling, MCP server
 │   ├── process_manager.go ProcessManager: process lifecycle, auto-recovery
-│   └── runner_interface.go Interfaces for testing
+│   ├── runner_interface.go Interfaces for testing
+│   ├── plugins.go         Plugin/marketplace management via Claude CLI
+│   └── todo.go            TodoWrite tool parsing and completion detection
 ├── changelog/             Fetches release notes from GitHub API
 ├── cli/                   Prerequisites checking (claude, git, gh)
 ├── clipboard/             Cross-platform clipboard image reading
@@ -89,7 +91,12 @@ internal/
     ├── context.go         Singleton ViewContext for layout
     ├── theme.go           Theme system
     ├── styles.go          Lipgloss styles
-    └── *.go               sidebar, chat, modal, header, footer
+    ├── header.go          Header bar with gradient, session name, diff stats
+    ├── footer.go          Footer with keybindings, flash messages
+    ├── sidebar.go         Session list with hierarchy
+    ├── chat.go            Chat panel with text selection
+    ├── modal.go           Modal container
+    └── modals/            Modal implementations (plugins, settings, etc.)
 ```
 
 ### Data Storage
@@ -145,6 +152,16 @@ Sessions support parent-child relationships:
 
 Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent), `MergeTypePush` (push to existing PR)
 
+### Session Struct
+
+Session struct (`internal/config/config.go`) tracks:
+- `ID`, `RepoPath`, `WorkTree`, `Branch`, `Name`, `CreatedAt`
+- `BaseBranch`: Branch the session was created from (e.g., "main", parent branch) - shown in header
+- `Started`: Whether Claude CLI has been started
+- `Merged`, `PRCreated`: Merge/PR status
+- `ParentID`, `MergedToParent`: Parent-child relationships for forked sessions
+- `IssueNumber`: GitHub issue number if created from issue import
+
 ### GitHub Issue Sessions
 
 Issue number stored in session. When PR created from issue session, "Fixes #N" auto-added to PR body. Branch naming: `issue-{number}`.
@@ -170,7 +187,22 @@ Available commands:
 - `/cost` - Show token usage and estimated cost for the current session (reads from Claude's JSONL session files)
 - `/help` - Show available Plural slash commands
 - `/mcp` - Open MCP servers configuration modal (same as `s` shortcut)
-- `/plugins` - Open plugin directories configuration modal
+- `/plugins` - Open plugins modal for managing marketplaces and plugins
+
+### Plugin Management
+
+Plural provides a UI for managing Claude Code plugins (`/plugins` command or through modal):
+
+**Implementation** (`internal/claude/plugins.go`):
+- `ListMarketplaces()` / `ListPlugins()`: Read from `~/.claude/plugins/` config files
+- `AddMarketplace()` / `RemoveMarketplace()`: Manage plugin sources
+- `InstallPlugin()` / `UninstallPlugin()`: Install/remove plugins
+- `EnablePlugin()` / `DisablePlugin()`: Toggle plugin activation
+
+**Modal** (`internal/ui/modals/plugins.go`):
+- Three tabs: Marketplaces, Installed, Available
+- Search filtering across all tabs
+- Keybindings: `a` (add marketplace), `d` (delete), `e` (enable/disable), `i` (install), `u` (update)
 
 Implementation in `internal/app/slash_commands.go`:
 - Commands are intercepted in `sendMessage()` before being sent to Claude
@@ -232,6 +264,37 @@ m.footer.SetFlashWithDuration("Custom message", ui.FlashInfo, 10*time.Second)
 - Flash messages replace the keybindings in the footer while active
 - Auto-dismiss after `DefaultFlashDuration` (5 seconds)
 - `FlashTickMsg` handles expiration checking via periodic ticks
+
+### Todo List Integration
+
+Plural integrates with Claude's TodoWrite tool to display task progress:
+
+**Types** (`internal/claude/todo.go`):
+- `TodoStatus`: `pending`, `in_progress`, `completed`
+- `TodoItem`: Contains `Content`, `Status`, `ActiveForm` (present tense description)
+- `TodoList`: Collection of todo items with helper methods
+
+**Behavior**:
+- Todo lists are parsed from Claude's `TodoWrite` tool calls
+- When all items in a todo list are completed, it's rendered and appended to chat history
+- `ParseTodoWriteInput()` extracts todo items from JSON input
+- `IsComplete()` checks if all items are done
+- `CountByStatus()` returns counts of pending, in-progress, and completed items
+
+### Git Diff Stats Display
+
+The header displays uncommitted changes for the current session:
+
+**Implementation** (`internal/ui/header.go`):
+- `DiffStats` struct: `FilesChanged`, `Additions`, `Deletions`
+- Stats shown in header when session has uncommitted changes
+- Format: `3 files, +157, -5` with color coding (green for additions, red for deletions)
+- `SetDiffStats()` updates the header with current stats
+
+**Data flow**:
+- `git/git.go`: `GetDiffStats()` runs `git diff --shortstat` to get stats
+- `session_manager.go`: Fetches stats for current session
+- `app.go`: Updates header when session changes or on refresh
 
 ### Claude Process Management
 
