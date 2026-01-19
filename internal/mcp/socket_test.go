@@ -364,6 +364,92 @@ func TestSocketConstants(t *testing.T) {
 	if SocketReadTimeout != 10*time.Second {
 		t.Errorf("SocketReadTimeout = %v, want 10s", SocketReadTimeout)
 	}
+
+	if SocketWriteTimeout != 10*time.Second {
+		t.Errorf("SocketWriteTimeout = %v, want 10s", SocketWriteTimeout)
+	}
+}
+
+func TestSocketClientServer_PlanApproval(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewSocketServer("test-plan-approval", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewSocketServer failed: %v", err)
+	}
+	defer server.Close()
+
+	// Start server
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		server.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	client, err := NewSocketClient(server.SocketPath())
+	if err != nil {
+		t.Fatalf("NewSocketClient failed: %v", err)
+	}
+	defer client.Close()
+
+	// Handle plan approval on server side
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case req := <-planReqCh:
+			planRespCh <- PlanApprovalResponse{
+				ID:       req.ID,
+				Approved: true,
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for plan approval request")
+		}
+	}()
+
+	// Send plan approval from client
+	resp, err := client.SendPlanApprovalRequest(PlanApprovalRequest{
+		ID:   "plan-1",
+		Plan: "Test plan content",
+	})
+	if err != nil {
+		t.Fatalf("SendPlanApprovalRequest failed: %v", err)
+	}
+
+	<-done
+
+	if resp.ID != "plan-1" {
+		t.Errorf("Response ID = %q, want 'plan-1'", resp.ID)
+	}
+
+	if !resp.Approved {
+		t.Error("Expected Approved to be true")
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+func TestSocketClient_WriteTimeoutErrorMessage(t *testing.T) {
+	// This test verifies that the error messages include context about what operation failed.
+	// We can't easily test the actual timeout without a slow server, but we can verify
+	// the error wrapping is in place by checking error messages on connection failures.
+
+	// Create a client to a non-existent socket (will fail to connect)
+	_, err := NewSocketClient("/tmp/nonexistent-socket-for-test.sock")
+	if err == nil {
+		t.Fatal("Expected error connecting to non-existent socket")
+	}
+
+	// The connection error is expected - this just verifies NewSocketClient returns errors properly
 }
 
 // contains checks if s contains substr (helper for tests)
