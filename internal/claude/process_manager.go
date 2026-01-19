@@ -164,6 +164,9 @@ type ProcessManager struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// Goroutine lifecycle management
+	wg sync.WaitGroup
+
 	// Ensures Stop is idempotent
 	stopOnce sync.Once
 	stopped  bool
@@ -302,17 +305,27 @@ func (pm *ProcessManager) Start() error {
 	logger.Info("ProcessManager: Process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
 
 	// Start goroutines to read output and monitor process
-	go pm.readOutput()
-	go pm.monitorExit()
+	// Track them with WaitGroup for proper cleanup on Stop()
+	pm.wg.Add(2)
+	go func() {
+		defer pm.wg.Done()
+		pm.readOutput()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.monitorExit()
+	}()
 
 	return nil
 }
 
 // Stop stops the persistent process gracefully.
+// It waits for all goroutines (readOutput, monitorExit) to complete before returning.
 func (pm *ProcessManager) Stop() {
 	pm.stopOnce.Do(func() {
 		pm.mu.Lock()
 		pm.stopped = true
+		wasRunning := pm.running
 
 		// Cancel context first to signal goroutines to exit
 		if pm.cancel != nil {
@@ -320,7 +333,7 @@ func (pm *ProcessManager) Stop() {
 			pm.cancel = nil
 		}
 
-		if !pm.running {
+		if !wasRunning {
 			pm.mu.Unlock()
 			return
 		}
@@ -352,6 +365,12 @@ func (pm *ProcessManager) Stop() {
 				cmd.Process.Kill()
 			}
 		}
+
+		// Wait for goroutines (readOutput, monitorExit) to complete
+		// This prevents resource leaks when process is started/stopped quickly
+		logger.Log("ProcessManager: Waiting for goroutines to complete")
+		pm.wg.Wait()
+		logger.Log("ProcessManager: All goroutines completed")
 
 		pm.mu.Lock()
 		if pm.stderr != nil {
@@ -507,20 +526,34 @@ func (pm *ProcessManager) readOutput() {
 }
 
 // readLineWithTimeout reads a line with a timeout to detect hung processes.
+//
+// IMPORTANT: When a timeout occurs, the spawned goroutine doing ReadString() cannot
+// be cancelled (Go's blocking I/O limitation). However, this is acceptable because:
+// 1. On timeout, handleHung() kills the process, which unblocks the read with EOF
+// 2. On context cancel, stdin is closed by Stop(), which also unblocks with EOF
+// 3. The goroutine will exit once the read completes (success or EOF)
+//
+// The channel is buffered (size 1) so the goroutine can always send its result
+// even if we've already returned due to timeout/cancel, preventing a goroutine leak.
 func (pm *ProcessManager) readLineWithTimeout(reader *bufio.Reader) (string, error) {
 	resultCh := make(chan readResult, 1)
 
 	go func() {
 		line, err := reader.ReadString('\n')
+		// Non-blocking send - channel is buffered so this always succeeds
+		// even if the main function has returned due to timeout/cancel
 		resultCh <- readResult{line: line, err: err}
 	}()
 
 	select {
 	case <-pm.ctx.Done():
+		// Context cancelled - the read goroutine will exit when stdin is closed
+		// or process is killed, which happens in Stop()
 		return "", pm.ctx.Err()
 	case result := <-resultCh:
 		return result.line, result.err
 	case <-time.After(ResponseReadTimeout):
+		// Timeout - handleHung() will kill the process, unblocking the read
 		return "", errReadTimeout
 	}
 }
