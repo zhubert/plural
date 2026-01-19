@@ -1,6 +1,7 @@
 package app
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -589,6 +590,125 @@ func TestSessionManager_Select_ForkedSession_ParentNotFound(t *testing.T) {
 	// SetForkFromSession should NOT have been called (parent not found)
 	if trackingRunner.forkFromSessionID != "" {
 		t.Errorf("Expected SetForkFromSession NOT called when parent not found, got %q", trackingRunner.forkFromSessionID)
+	}
+}
+
+func TestSessionManager_GetOrCreateRunner_ConcurrentAccess(t *testing.T) {
+	// Test that concurrent calls to Select (which calls getOrCreateRunner)
+	// for the same session only creates one runner (no duplicate creation due to TOCTOU race)
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg)
+	sm.SetSkipMessageLoad(true) // Skip disk I/O for faster test
+
+	// Track how many times the factory was called
+	var factoryCallCount int
+	var factoryMu sync.Mutex
+	var createdRunners []claude.RunnerInterface
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		factoryMu.Lock()
+		factoryCallCount++
+		factoryMu.Unlock()
+
+		// Simulate some work to increase chance of race condition
+		time.Sleep(10 * time.Millisecond)
+
+		runner := claude.NewMockRunner(sessionID, sessionStarted, initialMessages)
+
+		factoryMu.Lock()
+		createdRunners = append(createdRunners, runner)
+		factoryMu.Unlock()
+
+		return runner
+	})
+
+	sess := sm.GetSession("session-1")
+
+	// Launch many goroutines simultaneously to trigger potential race
+	const numGoroutines = 20
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	results := make([]*SelectResult, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = sm.Select(sess, "", "", "")
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify factory was called exactly once (double-checked locking should prevent duplicates)
+	if factoryCallCount != 1 {
+		t.Errorf("Expected factory to be called exactly once, but was called %d times", factoryCallCount)
+	}
+
+	// Verify all results got the same runner instance
+	firstRunner := results[0].Runner
+	for i, result := range results {
+		if result.Runner != firstRunner {
+			t.Errorf("Goroutine %d got different runner instance (TOCTOU race detected)", i)
+		}
+	}
+
+	// Verify only one runner is in the map
+	runners := sm.GetRunners()
+	if len(runners) != 1 {
+		t.Errorf("Expected 1 runner in map, got %d", len(runners))
+	}
+}
+
+func TestSessionManager_GetOrCreateRunner_DifferentSessions_Concurrent(t *testing.T) {
+	// Test that concurrent access to different sessions works correctly
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg)
+	sm.SetSkipMessageLoad(true)
+
+	var factoryCallCount int
+	var factoryMu sync.Mutex
+
+	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		factoryMu.Lock()
+		factoryCallCount++
+		factoryMu.Unlock()
+		return claude.NewMockRunner(sessionID, sessionStarted, initialMessages)
+	})
+
+	sess1 := sm.GetSession("session-1")
+	sess2 := sm.GetSession("session-2")
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var result1, result2 *SelectResult
+
+	go func() {
+		defer wg.Done()
+		result1 = sm.Select(sess1, "", "", "")
+	}()
+
+	go func() {
+		defer wg.Done()
+		result2 = sm.Select(sess2, "", "", "")
+	}()
+
+	wg.Wait()
+
+	// Factory should be called twice (once per session)
+	if factoryCallCount != 2 {
+		t.Errorf("Expected factory to be called twice, but was called %d times", factoryCallCount)
+	}
+
+	// Each session should have its own runner
+	if result1.Runner == result2.Runner {
+		t.Error("Different sessions should have different runners")
+	}
+
+	runners := sm.GetRunners()
+	if len(runners) != 2 {
+		t.Errorf("Expected 2 runners in map, got %d", len(runners))
 	}
 }
 

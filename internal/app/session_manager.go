@@ -216,7 +216,10 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 }
 
 // getOrCreateRunner returns an existing runner or creates a new one for the session.
+// Uses double-checked locking to avoid TOCTOU race conditions while minimizing
+// lock contention during the expensive runner creation.
 func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerInterface {
+	// Fast path: check with read lock first
 	sm.mu.RLock()
 	if runner, exists := sm.runners[sess.ID]; exists {
 		sm.mu.RUnlock()
@@ -225,11 +228,23 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	}
 	sm.mu.RUnlock()
 
+	// Slow path: acquire write lock and check again before creating
+	sm.mu.Lock()
+
+	// Double-check: another goroutine may have created the runner while we waited for the lock
+	if runner, exists := sm.runners[sess.ID]; exists {
+		sm.mu.Unlock()
+		logger.Log("SessionManager: Reusing existing runner for session %s (created by another goroutine)", sess.ID)
+		return runner
+	}
+
 	logger.Log("SessionManager: Creating new runner for session %s", sess.ID)
 
 	var initialMsgs []claude.Message
 
 	// Load saved messages from disk (unless skipped for demos/tests)
+	// Note: This is done while holding the lock to prevent duplicate runners.
+	// Message loading is typically fast (local disk I/O), so this is acceptable.
 	if !sm.skipMessageLoad {
 		savedMsgs, err := config.LoadSessionMessages(sess.ID)
 		if err != nil {
@@ -248,9 +263,11 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	}
 
 	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
-	sm.mu.Lock()
 	sm.runners[sess.ID] = runner
 	sm.mu.Unlock()
+
+	// Configuration steps below don't need the lock since we now own the runner
+	// and it's already registered in the map (other goroutines will find it)
 
 	// If this is a forked session that hasn't started yet, set up to fork from parent
 	// to inherit the parent's conversation history in Claude.
