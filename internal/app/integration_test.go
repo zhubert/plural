@@ -139,8 +139,8 @@ func TestPermission_FullFlow_Approve(t *testing.T) {
 		t.Error("Chat should have pending permission")
 	}
 
-	pending := m.sessionState().GetPendingPermission(sessionID)
-	if pending == nil || pending.Tool != "Bash" {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.PendingPermission == nil || state.PendingPermission.Tool != "Bash" {
 		t.Error("Session state should have pending Bash permission")
 	}
 
@@ -151,7 +151,8 @@ func TestPermission_FullFlow_Approve(t *testing.T) {
 	if m.chat.HasPendingPermission() {
 		t.Error("Permission should be cleared after approval")
 	}
-	if m.sessionState().GetPendingPermission(sessionID) != nil {
+	state = m.sessionState().GetIfExists(sessionID)
+	if state != nil && state.PendingPermission != nil {
 		t.Error("Session state permission should be cleared")
 	}
 }
@@ -229,7 +230,8 @@ func TestPermission_OnlyInChatFocus(t *testing.T) {
 	m = sendKey(m, "y")
 
 	// Permission should still be pending
-	if m.sessionState().GetPendingPermission(sessionID) == nil {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.PendingPermission == nil {
 		t.Error("Permission should still be pending when response sent from sidebar")
 	}
 }
@@ -470,7 +472,8 @@ func TestSessionSwitch_PreservesPendingPermission(t *testing.T) {
 	}
 
 	// But session A's state should still have it
-	if m.sessionState().GetPendingPermission(sessionA) == nil {
+	stateA := m.sessionState().GetIfExists(sessionA)
+	if stateA == nil || stateA.PendingPermission == nil {
 		t.Error("Session A should still have pending permission in state")
 	}
 
@@ -516,7 +519,8 @@ func TestSessionSwitch_PreservesPendingQuestion(t *testing.T) {
 	m = sendKey(m, "enter")
 
 	// Session A state should still have question
-	if m.sessionState().GetPendingQuestion(sessionA) == nil {
+	stateA := m.sessionState().GetIfExists(sessionA)
+	if stateA == nil || stateA.PendingQuestion == nil {
 		t.Error("Session A should still have pending question in state")
 	}
 
@@ -608,16 +612,16 @@ func TestMessageQueue_DuringStreaming(t *testing.T) {
 	m.setState(StateStreamingClaude)
 
 	// Queue a pending message
-	m.sessionState().SetPendingMessage(sessionID, "queued message")
+	m.sessionState().GetOrCreate(sessionID).PendingMessage = "queued message"
 
 	// Verify message is queued
-	if !m.sessionState().HasPendingMessage(sessionID) {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.PendingMessage == "" {
 		t.Error("Message should be queued during streaming")
 	}
 
-	queued := m.sessionState().PeekPendingMessage(sessionID)
-	if queued != "queued message" {
-		t.Errorf("Expected 'queued message', got %q", queued)
+	if state.PendingMessage != "queued message" {
+		t.Errorf("Expected 'queued message', got %q", state.PendingMessage)
 	}
 }
 

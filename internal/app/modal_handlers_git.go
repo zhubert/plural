@@ -26,7 +26,7 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			return m, nil
 		}
 		// Check if this session already has a merge in progress
-		if m.sessionState().IsMerging(sess.ID) {
+		if state := m.sessionState().GetIfExists(sess.ID); state != nil && state.IsMerging() {
 			logger.Log("App: Merge already in progress for session %s", sess.ID)
 			return m, nil
 		}

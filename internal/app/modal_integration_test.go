@@ -1454,7 +1454,7 @@ func TestModalDoesNotAffectSessionState(t *testing.T) {
 	sessionID := m.activeSession.ID
 
 	// Add some state
-	m.sessionState().SetPendingMessage(sessionID, "pending message")
+	m.sessionState().GetOrCreate(sessionID).PendingMessage = "pending message"
 
 	// Open and close various modals
 	m = sendKey(m, "tab") // Back to sidebar
@@ -1466,13 +1466,13 @@ func TestModalDoesNotAffectSessionState(t *testing.T) {
 	m = sendKey(m, "esc")
 
 	// Session state should be preserved
-	if !m.sessionState().HasPendingMessage(sessionID) {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.PendingMessage == "" {
 		t.Error("Session state should be preserved after opening/closing modals")
 	}
 
-	pending := m.sessionState().PeekPendingMessage(sessionID)
-	if pending != "pending message" {
-		t.Errorf("Expected pending message 'pending message', got %q", pending)
+	if state.PendingMessage != "pending message" {
+		t.Errorf("Expected pending message 'pending message', got %q", state.PendingMessage)
 	}
 }
 

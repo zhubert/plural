@@ -13,6 +13,10 @@ import (
 // SessionState holds all per-session state in one place.
 // This consolidates what was previously 11 separate maps in the Model,
 // making it easier to manage session lifecycle and avoid race conditions.
+//
+// Fields are accessed directly after obtaining a *SessionState via
+// GetOrCreate() or GetIfExists(). For operations involving multiple
+// fields or special semantics, use the dedicated methods on SessionStateManager.
 type SessionState struct {
 	// Permission, question, and plan approval handling
 	PendingPermission   *mcp.PermissionRequest
@@ -47,8 +51,36 @@ type SessionState struct {
 	CurrentTodoList *claude.TodoList
 }
 
+// HasDetectedOptions returns true if there are at least 2 detected options.
+func (s *SessionState) HasDetectedOptions() bool {
+	return len(s.DetectedOptions) >= 2
+}
+
+// HasTodoList returns true if there is a non-empty todo list.
+func (s *SessionState) HasTodoList() bool {
+	return s.CurrentTodoList != nil && len(s.CurrentTodoList.Items) > 0
+}
+
+// IsMerging returns true if a merge operation is in progress.
+func (s *SessionState) IsMerging() bool {
+	return s.MergeChan != nil
+}
+
 // SessionStateManager provides thread-safe access to per-session state.
-// All access to session state should go through this manager.
+//
+// Basic usage pattern:
+//
+//	// For writes or when state should be created:
+//	state := manager.GetOrCreate(sessionID)
+//	state.PendingPermission = req
+//
+//	// For reads when session may not exist:
+//	if state := manager.GetIfExists(sessionID); state != nil {
+//	    // use state.PendingPermission
+//	}
+//
+// For operations involving multiple fields atomically (StartWaiting, StartMerge, etc.)
+// or special semantics (consuming gets), use the dedicated methods.
 type SessionStateManager struct {
 	mu     sync.RWMutex
 	states map[string]*SessionState
@@ -112,97 +144,8 @@ func (m *SessionStateManager) Delete(sessionID string) {
 	}
 }
 
-// SetPendingPermission sets the pending permission for a session.
-func (m *SessionStateManager) SetPendingPermission(sessionID string, req *mcp.PermissionRequest) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.PendingPermission = req
-}
-
-// ClearPendingPermission clears the pending permission for a session.
-func (m *SessionStateManager) ClearPendingPermission(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.PendingPermission = nil
-	}
-}
-
-// GetPendingPermission returns the pending permission for a session.
-func (m *SessionStateManager) GetPendingPermission(sessionID string) *mcp.PermissionRequest {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.PendingPermission
-	}
-	return nil
-}
-
-// SetPendingQuestion sets the pending question for a session.
-func (m *SessionStateManager) SetPendingQuestion(sessionID string, req *mcp.QuestionRequest) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.PendingQuestion = req
-}
-
-// ClearPendingQuestion clears the pending question for a session.
-func (m *SessionStateManager) ClearPendingQuestion(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.PendingQuestion = nil
-	}
-}
-
-// GetPendingQuestion returns the pending question for a session.
-func (m *SessionStateManager) GetPendingQuestion(sessionID string) *mcp.QuestionRequest {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.PendingQuestion
-	}
-	return nil
-}
-
-// SetPendingPlanApproval sets the pending plan approval for a session.
-func (m *SessionStateManager) SetPendingPlanApproval(sessionID string, req *mcp.PlanApprovalRequest) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.PendingPlanApproval = req
-}
-
-// ClearPendingPlanApproval clears the pending plan approval for a session.
-func (m *SessionStateManager) ClearPendingPlanApproval(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.PendingPlanApproval = nil
-	}
-}
-
-// GetPendingPlanApproval returns the pending plan approval for a session.
-func (m *SessionStateManager) GetPendingPlanApproval(sessionID string) *mcp.PlanApprovalRequest {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.PendingPlanApproval
-	}
-	return nil
-}
-
 // StartWaiting marks a session as waiting for Claude response.
+// This sets WaitStart, IsWaiting, and StreamCancel atomically.
 func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.CancelFunc) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -213,7 +156,19 @@ func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.Canc
 	state.StreamCancel = cancel
 }
 
+// GetWaitStart returns when the session started waiting, and whether it's waiting.
+func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if state, exists := m.states[sessionID]; exists && state.IsWaiting {
+		return state.WaitStart, true
+	}
+	return time.Time{}, false
+}
+
 // StopWaiting marks a session as no longer waiting.
+// This clears IsWaiting, WaitStart, and StreamCancel atomically.
 func (m *SessionStateManager) StopWaiting(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -225,50 +180,8 @@ func (m *SessionStateManager) StopWaiting(sessionID string) {
 	}
 }
 
-// ClearWaitStart clears the wait start time (response has started arriving).
-func (m *SessionStateManager) ClearWaitStart(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.WaitStart = time.Time{}
-	}
-}
-
-// IsWaiting returns whether a session is waiting for Claude response.
-func (m *SessionStateManager) IsWaiting(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.IsWaiting
-	}
-	return false
-}
-
-// GetWaitStart returns when the session started waiting, or zero time if not waiting.
-func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists && state.IsWaiting {
-		return state.WaitStart, true
-	}
-	return time.Time{}, false
-}
-
-// GetStreamCancel returns the stream cancel function for a session.
-func (m *SessionStateManager) GetStreamCancel(sessionID string) context.CancelFunc {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.StreamCancel
-	}
-	return nil
-}
-
 // StartMerge starts a merge operation for a session.
+// This sets MergeChan, MergeCancel, and MergeType atomically.
 func (m *SessionStateManager) StartMerge(sessionID string, ch <-chan git.Result, cancel context.CancelFunc, mergeType MergeType) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -280,6 +193,7 @@ func (m *SessionStateManager) StartMerge(sessionID string, ch <-chan git.Result,
 }
 
 // StopMerge clears the merge state for a session.
+// This clears MergeChan, MergeCancel, and MergeType atomically.
 func (m *SessionStateManager) StopMerge(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -288,138 +202,6 @@ func (m *SessionStateManager) StopMerge(sessionID string) {
 		state.MergeChan = nil
 		state.MergeCancel = nil
 		state.MergeType = MergeTypeNone
-	}
-}
-
-// GetMergeChan returns the merge channel for a session.
-func (m *SessionStateManager) GetMergeChan(sessionID string) <-chan git.Result {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.MergeChan
-	}
-	return nil
-}
-
-// GetMergeType returns the merge type for a session.
-func (m *SessionStateManager) GetMergeType(sessionID string) MergeType {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.MergeType
-	}
-	return MergeTypeNone
-}
-
-// IsMerging returns whether a session has a merge in progress.
-func (m *SessionStateManager) IsMerging(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.MergeChan != nil
-	}
-	return false
-}
-
-// SaveInput saves the input text for a session.
-func (m *SessionStateManager) SaveInput(sessionID, input string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.InputText = input
-}
-
-// GetInput returns the saved input text for a session.
-func (m *SessionStateManager) GetInput(sessionID string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.InputText
-	}
-	return ""
-}
-
-// ClearInput clears the saved input text for a session.
-func (m *SessionStateManager) ClearInput(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.InputText = ""
-	}
-}
-
-// SaveStreaming saves streaming content for a non-active session.
-func (m *SessionStateManager) SaveStreaming(sessionID, content string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.StreamingContent = content
-}
-
-// AppendStreaming appends to streaming content for a non-active session.
-func (m *SessionStateManager) AppendStreaming(sessionID, content string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.StreamingContent += content
-}
-
-// GetStreaming returns the streaming content for a session.
-func (m *SessionStateManager) GetStreaming(sessionID string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.StreamingContent
-	}
-	return ""
-}
-
-// ClearStreaming clears the streaming content for a session.
-func (m *SessionStateManager) ClearStreaming(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.StreamingContent = ""
-	}
-}
-
-// SetToolUsePos sets the tool use position for a session.
-func (m *SessionStateManager) SetToolUsePos(sessionID string, pos int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.ToolUsePos = pos
-}
-
-// GetToolUsePos returns the tool use position for a session.
-func (m *SessionStateManager) GetToolUsePos(sessionID string) (int, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists && state.ToolUsePos >= 0 {
-		return state.ToolUsePos, true
-	}
-	return -1, false
-}
-
-// ClearToolUsePos clears the tool use position for a session.
-func (m *SessionStateManager) ClearToolUsePos(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.ToolUsePos = -1
 	}
 }
 
@@ -451,68 +233,9 @@ func (m *SessionStateManager) ReplaceToolUseMarker(sessionID, oldMarker, newMark
 	}
 }
 
-// getOrCreate returns existing state or creates new one. Caller must hold lock.
-func (m *SessionStateManager) getOrCreate(sessionID string) *SessionState {
-	if state, exists := m.states[sessionID]; exists {
-		return state
-	}
-	state := &SessionState{ToolUsePos: -1}
-	m.states[sessionID] = state
-	return state
-}
-
-// SetDetectedOptions sets the detected options for a session.
-func (m *SessionStateManager) SetDetectedOptions(sessionID string, options []DetectedOption) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.DetectedOptions = options
-}
-
-// GetDetectedOptions returns the detected options for a session.
-func (m *SessionStateManager) GetDetectedOptions(sessionID string) []DetectedOption {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.DetectedOptions
-	}
-	return nil
-}
-
-// ClearDetectedOptions clears the detected options for a session.
-func (m *SessionStateManager) ClearDetectedOptions(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.DetectedOptions = nil
-	}
-}
-
-// HasDetectedOptions returns whether a session has detected options.
-func (m *SessionStateManager) HasDetectedOptions(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return len(state.DetectedOptions) >= 2
-	}
-	return false
-}
-
-// SetPendingMessage queues a message to be sent when streaming completes.
-func (m *SessionStateManager) SetPendingMessage(sessionID, message string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.PendingMessage = message
-}
-
 // GetPendingMessage returns and clears the pending message for a session.
-// Use PeekPendingMessage if you need to check the message without clearing it.
+// This is a consuming get - the message is cleared after retrieval.
+// Use state.PendingMessage directly if you need to read without clearing.
 func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -525,40 +248,9 @@ func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
 	return ""
 }
 
-// PeekPendingMessage returns the pending message for a session without clearing it.
-// Use this when you need to check or display the message without consuming it.
-func (m *SessionStateManager) PeekPendingMessage(sessionID string) string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.PendingMessage
-	}
-	return ""
-}
-
-// HasPendingMessage returns whether a session has a pending message.
-func (m *SessionStateManager) HasPendingMessage(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.PendingMessage != ""
-	}
-	return false
-}
-
-// SetInitialMessage sets the initial message to send when session is first selected.
-// This is used for sessions created from GitHub issues.
-func (m *SessionStateManager) SetInitialMessage(sessionID, message string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.InitialMessage = message
-}
-
 // GetInitialMessage returns and clears the initial message for a session.
+// This is a consuming get - the message is cleared after retrieval.
+// Use state.InitialMessage directly if you need to read without clearing.
 func (m *SessionStateManager) GetInitialMessage(sessionID string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -571,54 +263,12 @@ func (m *SessionStateManager) GetInitialMessage(sessionID string) string {
 	return ""
 }
 
-// HasInitialMessage returns whether a session has an initial message to send.
-func (m *SessionStateManager) HasInitialMessage(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+// getOrCreate returns existing state or creates new one. Caller must hold lock.
+func (m *SessionStateManager) getOrCreate(sessionID string) *SessionState {
 	if state, exists := m.states[sessionID]; exists {
-		return state.InitialMessage != ""
+		return state
 	}
-	return false
-}
-
-// SetTodoList sets the current todo list for a session.
-func (m *SessionStateManager) SetTodoList(sessionID string, list *claude.TodoList) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	state := m.getOrCreate(sessionID)
-	state.CurrentTodoList = list
-}
-
-// GetTodoList returns the current todo list for a session.
-func (m *SessionStateManager) GetTodoList(sessionID string) *claude.TodoList {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.CurrentTodoList
-	}
-	return nil
-}
-
-// ClearTodoList clears the todo list for a session.
-func (m *SessionStateManager) ClearTodoList(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		state.CurrentTodoList = nil
-	}
-}
-
-// HasTodoList returns whether a session has a todo list.
-func (m *SessionStateManager) HasTodoList(sessionID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if state, exists := m.states[sessionID]; exists {
-		return state.CurrentTodoList != nil && len(state.CurrentTodoList.Items) > 0
-	}
-	return false
+	state := &SessionState{ToolUsePos: -1}
+	m.states[sessionID] = state
+	return state
 }

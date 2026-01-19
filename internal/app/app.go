@@ -198,8 +198,11 @@ func (m *Model) CanSendMessage() bool {
 	}
 	// Check if the active session is currently waiting for a response or has a merge in progress
 	// Each session can operate independently
-	sm := m.sessionMgr.StateManager()
-	return !sm.IsWaiting(m.activeSession.ID) && !sm.IsMerging(m.activeSession.ID)
+	state := m.sessionMgr.StateManager().GetIfExists(m.activeSession.ID)
+	if state == nil {
+		return true // No state means not waiting or merging
+	}
+	return !state.IsWaiting && !state.IsMerging()
 }
 
 // setState transitions to a new state with logging
@@ -306,7 +309,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Then check for streaming interruption
 			if m.activeSession != nil {
-				if cancel := m.sessionState().GetStreamCancel(m.activeSession.ID); cancel != nil {
+				if state := m.sessionState().GetIfExists(m.activeSession.ID); state != nil && state.StreamCancel != nil {
+					cancel := state.StreamCancel
 					logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
 					cancel()
 					// Send SIGINT to interrupt the Claude process (handles sub-agent work)
@@ -339,15 +343,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			key := msg.String()
 
 			// Permission response
-			if req := m.sessionState().GetPendingPermission(m.activeSession.ID); req != nil {
+			state := m.sessionState().GetIfExists(m.activeSession.ID)
+			if state != nil && state.PendingPermission != nil {
+				req := state.PendingPermission
 				switch key {
 				case "y", "Y", "n", "N", "a", "A":
 					return m.handlePermissionResponse(key, m.activeSession.ID, req)
 				}
 			}
 
-			// Question response
-			if m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil {
+			// Question response (reuse state from permission check)
+			if state != nil && state.PendingQuestion != nil {
 				switch key {
 				case "1", "2", "3", "4", "5":
 					num := int(key[0] - '0')
@@ -369,8 +375,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Plan approval response
-			if m.sessionState().GetPendingPlanApproval(m.activeSession.ID) != nil {
+			// Plan approval response (reuse state from permission check)
+			if state != nil && state.PendingPlanApproval != nil {
 				switch key {
 				case "y", "Y":
 					return m.submitPlanApprovalResponse(m.activeSession.ID, true)
@@ -390,8 +396,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.handleImagePaste()
 			}
 
-			// Ctrl+P for parallel option exploration
-			if key == "ctrl+p" && m.sessionState().HasDetectedOptions(m.activeSession.ID) {
+			// Ctrl+P for parallel option exploration (reuse state from permission check)
+			if key == "ctrl+p" && state != nil && state.HasDetectedOptions() {
 				return m.showExploreOptionsModal()
 			}
 
@@ -425,7 +431,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectSession(sess)
 					// Check if this session has an unsent initial message (from issue import)
 					if initialMsg := m.sessionState().GetInitialMessage(sess.ID); initialMsg != "" {
-						m.sessionState().SetPendingMessage(sess.ID, initialMsg)
+						m.sessionState().GetOrCreate(sess.ID).PendingMessage = initialMsg
 						return m, func() tea.Msg {
 							return SendPendingMessageMsg{SessionID: sess.ID}
 						}
@@ -436,14 +442,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.CanSendMessage() {
 					// Send message immediately
 					return m.sendMessage()
-				} else if m.activeSession != nil && m.sessionState().IsWaiting(m.activeSession.ID) {
-					// Queue message to be sent when streaming completes
-					input := m.chat.GetInput()
-					if input != "" {
-						m.sessionState().SetPendingMessage(m.activeSession.ID, input)
-						m.chat.ClearInput()
-						m.chat.SetQueuedMessage(input)
-						logger.Log("App: Queued message for session %s while streaming", m.activeSession.ID)
+				} else if m.activeSession != nil {
+					// Check if waiting and queue message to be sent when streaming completes
+					sessState := m.sessionState().GetIfExists(m.activeSession.ID)
+					if sessState != nil && sessState.IsWaiting {
+						input := m.chat.GetInput()
+						if input != "" {
+							sessState.PendingMessage = input
+							m.chat.ClearInput()
+							m.chat.SetQueuedMessage(input)
+							logger.Log("App: Queued message for session %s while streaming", m.activeSession.ID)
+						}
 					}
 				}
 			}
@@ -863,7 +872,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	}
 
 	// Restore queued message display if this session has a pending message
-	if pendingMsg := m.sessionState().PeekPendingMessage(sess.ID); pendingMsg != "" {
+	if state := m.sessionState().GetIfExists(sess.ID); state != nil && state.PendingMessage != "" {
+		pendingMsg := state.PendingMessage
 		m.chat.SetQueuedMessage(pendingMsg)
 	} else {
 		m.chat.ClearQueuedMessage()
@@ -1049,7 +1059,9 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 	runner.SendPermissionResponse(resp)
 
 	// Clear pending permission
-	m.sessionState().ClearPendingPermission(sessionID)
+	if state := m.sessionState().GetIfExists(sessionID); state != nil {
+		state.PendingPermission = nil
+	}
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPermission()
 
@@ -1142,11 +1154,12 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	req := m.sessionState().GetPendingQuestion(sessionID)
-	if req == nil {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.PendingQuestion == nil {
 		logger.Log("App: No pending question for session %s", sessionID)
 		return m, nil
 	}
+	req := state.PendingQuestion
 
 	// Get answers from chat
 	answers := m.chat.GetQuestionAnswers()
@@ -1162,7 +1175,7 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 	runner.SendQuestionResponse(resp)
 
 	// Clear pending question
-	m.sessionState().ClearPendingQuestion(sessionID)
+	state.PendingQuestion = nil
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingQuestion()
 
@@ -1198,11 +1211,12 @@ func (m *Model) submitPlanApprovalResponse(sessionID string, approved bool) (tea
 		return m, nil
 	}
 
-	req := m.sessionState().GetPendingPlanApproval(sessionID)
-	if req == nil {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.PendingPlanApproval == nil {
 		logger.Log("App: No pending plan approval for session %s", sessionID)
 		return m, nil
 	}
+	req := state.PendingPlanApproval
 
 	logger.Log("App: Plan approval response for session %s: approved=%v", sessionID, approved)
 
@@ -1216,7 +1230,7 @@ func (m *Model) submitPlanApprovalResponse(sessionID string, approved bool) (tea
 	runner.SendPlanApprovalResponse(resp)
 
 	// Clear pending plan approval
-	m.sessionState().ClearPendingPlanApproval(sessionID)
+	state.PendingPlanApproval = nil
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.chat.ClearPendingPlanApproval()
 
@@ -1225,10 +1239,11 @@ func (m *Model) submitPlanApprovalResponse(sessionID string, approved bool) (tea
 }
 
 func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
-	ch := m.sessionState().GetMergeChan(sessionID)
-	if ch == nil {
+	state := m.sessionState().GetIfExists(sessionID)
+	if state == nil || state.MergeChan == nil {
 		return nil
 	}
+	ch := state.MergeChan
 
 	return func() tea.Msg {
 		result, ok := <-ch
@@ -1303,9 +1318,10 @@ func (m *Model) HasActiveStreaming() bool {
 
 // detectOptionsInSession scans the runner's messages for numbered options
 func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInterface) {
+	state := m.sessionState().GetOrCreate(sessionID)
 	msgs := runner.GetMessages()
 	if len(msgs) == 0 {
-		m.sessionState().ClearDetectedOptions(sessionID)
+		state.DetectedOptions = nil
 		return
 	}
 
@@ -1315,7 +1331,7 @@ func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInt
 			options := DetectOptions(msgs[i].Content)
 			if len(options) >= 2 {
 				logger.Log("App: Detected %d options in session %s", len(options), sessionID)
-				m.sessionState().SetDetectedOptions(sessionID, options)
+				state.DetectedOptions = options
 				return
 			}
 			break // Only check the most recent assistant message
@@ -1323,7 +1339,7 @@ func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInt
 	}
 
 	// No options found
-	m.sessionState().ClearDetectedOptions(sessionID)
+	state.DetectedOptions = nil
 }
 
 // showExploreOptionsModal displays the modal for selecting options to explore in parallel
@@ -1332,10 +1348,11 @@ func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	options := m.sessionState().GetDetectedOptions(m.activeSession.ID)
-	if len(options) < 2 {
+	state := m.sessionState().GetIfExists(m.activeSession.ID)
+	if state == nil || !state.HasDetectedOptions() {
 		return m, nil
 	}
+	options := state.DetectedOptions
 
 	// Convert to UI option items
 	items := make([]ui.OptionItem, len(options))
@@ -1481,12 +1498,17 @@ func (m *Model) View() tea.View {
 	// Update footer context for conditional bindings
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
-	hasPendingPermission := m.activeSession != nil && m.sessionState().GetPendingPermission(m.activeSession.ID) != nil
-	hasPendingQuestion := m.activeSession != nil && m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil
-	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
+	var hasPendingPermission, hasPendingQuestion, isStreaming, hasDetectedOptions bool
+	if m.activeSession != nil {
+		if state := m.sessionState().GetIfExists(m.activeSession.ID); state != nil {
+			hasPendingPermission = state.PendingPermission != nil
+			hasPendingQuestion = state.PendingQuestion != nil
+			isStreaming = state.StreamCancel != nil
+			hasDetectedOptions = state.HasDetectedOptions()
+		}
+	}
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
-	hasDetectedOptions := m.activeSession != nil && m.sessionState().HasDetectedOptions(m.activeSession.ID)
 	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, hasDetectedOptions)
 
 	header := m.header.View()
@@ -1561,12 +1583,17 @@ func (m *Model) RenderToString() string {
 	// Update footer context for conditional bindings
 	hasSession := m.sidebar.SelectedSession() != nil
 	sidebarFocused := m.focus == FocusSidebar
-	hasPendingPermission := m.activeSession != nil && m.sessionState().GetPendingPermission(m.activeSession.ID) != nil
-	hasPendingQuestion := m.activeSession != nil && m.sessionState().GetPendingQuestion(m.activeSession.ID) != nil
-	isStreaming := m.activeSession != nil && m.sessionState().GetStreamCancel(m.activeSession.ID) != nil
+	var hasPendingPermission, hasPendingQuestion, isStreaming, hasDetectedOptions bool
+	if m.activeSession != nil {
+		if state := m.sessionState().GetIfExists(m.activeSession.ID); state != nil {
+			hasPendingPermission = state.PendingPermission != nil
+			hasPendingQuestion = state.PendingQuestion != nil
+			isStreaming = state.StreamCancel != nil
+			hasDetectedOptions = state.HasDetectedOptions()
+		}
+	}
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
-	hasDetectedOptions := m.activeSession != nil && m.sessionState().HasDetectedOptions(m.activeSession.ID)
 	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, hasDetectedOptions)
 
 	header := m.header.View()

@@ -179,14 +179,16 @@ func TestSessionManager_Select_SavesPreviousState(t *testing.T) {
 	sm.Select(sess, "prev-session", "saved input", "saved streaming")
 
 	// Verify state was saved
-	savedInput := sm.stateManager.GetInput("prev-session")
-	if savedInput != "saved input" {
-		t.Errorf("Expected saved input 'saved input', got %q", savedInput)
+	state := sm.stateManager.GetIfExists("prev-session")
+	if state == nil {
+		t.Fatal("Expected state for prev-session")
+	}
+	if state.InputText != "saved input" {
+		t.Errorf("Expected saved input 'saved input', got %q", state.InputText)
 	}
 
-	savedStreaming := sm.stateManager.GetStreaming("prev-session")
-	if savedStreaming != "saved streaming" {
-		t.Errorf("Expected saved streaming 'saved streaming', got %q", savedStreaming)
+	if state.StreamingContent != "saved streaming" {
+		t.Errorf("Expected saved streaming 'saved streaming', got %q", state.StreamingContent)
 	}
 }
 
@@ -258,9 +260,10 @@ func TestSessionManager_Select_RestoresState(t *testing.T) {
 	// Set up state to restore
 	sm.stateManager.StartWaiting(sess.ID, nil)
 	permReq := &mcp.PermissionRequest{Tool: "Bash", Description: "test"}
-	sm.stateManager.SetPendingPermission(sess.ID, permReq)
-	sm.stateManager.SaveStreaming(sess.ID, "streaming content")
-	sm.stateManager.SaveInput(sess.ID, "saved input text")
+	state := sm.stateManager.GetOrCreate(sess.ID)
+	state.PendingPermission = permReq
+	state.StreamingContent = "streaming content"
+	state.InputText = "saved input text"
 
 	result := sm.Select(sess, "", "", "")
 
@@ -288,7 +291,7 @@ func TestSessionManager_DeleteSession(t *testing.T) {
 	// Create runner and state
 	runner := claude.New("session-1", "/test", false, nil)
 	sm.runners["session-1"] = runner
-	sm.stateManager.SaveInput("session-1", "test input")
+	sm.stateManager.GetOrCreate("session-1").InputText = "test input"
 
 	// Delete session
 	deletedRunner := sm.DeleteSession("session-1")
@@ -303,7 +306,8 @@ func TestSessionManager_DeleteSession(t *testing.T) {
 	}
 
 	// State should be cleaned up
-	if sm.stateManager.GetInput("session-1") != "" {
+	state := sm.stateManager.GetIfExists("session-1")
+	if state != nil {
 		t.Error("State should be cleaned up after delete")
 	}
 }

@@ -61,8 +61,8 @@ func TestSessionStateManager_Delete(t *testing.T) {
 func TestSessionStateManager_PendingPermission(t *testing.T) {
 	m := NewSessionStateManager()
 
-	// Initially nil
-	if m.GetPendingPermission("session-1") != nil {
+	// Initially nil (no state exists)
+	if state := m.GetIfExists("session-1"); state != nil && state.PendingPermission != nil {
 		t.Error("expected nil initially")
 	}
 
@@ -71,20 +71,20 @@ func TestSessionStateManager_PendingPermission(t *testing.T) {
 		ID:   "perm-1",
 		Tool: "Read",
 	}
-	m.SetPendingPermission("session-1", req)
+	m.GetOrCreate("session-1").PendingPermission = req
 
 	// Should be retrievable
-	got := m.GetPendingPermission("session-1")
-	if got == nil {
+	state := m.GetIfExists("session-1")
+	if state == nil || state.PendingPermission == nil {
 		t.Fatal("expected non-nil permission")
 	}
-	if got.ID != "perm-1" {
-		t.Errorf("expected ID 'perm-1', got %q", got.ID)
+	if state.PendingPermission.ID != "perm-1" {
+		t.Errorf("expected ID 'perm-1', got %q", state.PendingPermission.ID)
 	}
 
 	// Clear it
-	m.ClearPendingPermission("session-1")
-	if m.GetPendingPermission("session-1") != nil {
+	state.PendingPermission = nil
+	if m.GetIfExists("session-1").PendingPermission != nil {
 		t.Error("expected nil after clear")
 	}
 }
@@ -92,8 +92,8 @@ func TestSessionStateManager_PendingPermission(t *testing.T) {
 func TestSessionStateManager_PendingQuestion(t *testing.T) {
 	m := NewSessionStateManager()
 
-	// Initially nil
-	if m.GetPendingQuestion("session-1") != nil {
+	// Initially nil (no state exists)
+	if state := m.GetIfExists("session-1"); state != nil && state.PendingQuestion != nil {
 		t.Error("expected nil initially")
 	}
 
@@ -101,20 +101,20 @@ func TestSessionStateManager_PendingQuestion(t *testing.T) {
 	req := &mcp.QuestionRequest{
 		ID: "question-1",
 	}
-	m.SetPendingQuestion("session-1", req)
+	m.GetOrCreate("session-1").PendingQuestion = req
 
 	// Should be retrievable
-	got := m.GetPendingQuestion("session-1")
-	if got == nil {
+	state := m.GetIfExists("session-1")
+	if state == nil || state.PendingQuestion == nil {
 		t.Fatal("expected non-nil question")
 	}
-	if got.ID != "question-1" {
-		t.Errorf("expected ID 'question-1', got %q", got.ID)
+	if state.PendingQuestion.ID != "question-1" {
+		t.Errorf("expected ID 'question-1', got %q", state.PendingQuestion.ID)
 	}
 
 	// Clear it
-	m.ClearPendingQuestion("session-1")
-	if m.GetPendingQuestion("session-1") != nil {
+	state.PendingQuestion = nil
+	if m.GetIfExists("session-1").PendingQuestion != nil {
 		t.Error("expected nil after clear")
 	}
 }
@@ -122,8 +122,8 @@ func TestSessionStateManager_PendingQuestion(t *testing.T) {
 func TestSessionStateManager_Waiting(t *testing.T) {
 	m := NewSessionStateManager()
 
-	// Initially not waiting
-	if m.IsWaiting("session-1") {
+	// Initially not waiting (no state exists)
+	if state := m.GetIfExists("session-1"); state != nil && state.IsWaiting {
 		t.Error("expected not waiting initially")
 	}
 
@@ -132,7 +132,8 @@ func TestSessionStateManager_Waiting(t *testing.T) {
 	m.StartWaiting("session-1", cancel)
 
 	// Now should be waiting
-	if !m.IsWaiting("session-1") {
+	state := m.GetIfExists("session-1")
+	if state == nil || !state.IsWaiting {
 		t.Error("expected waiting after StartWaiting")
 	}
 
@@ -147,7 +148,8 @@ func TestSessionStateManager_Waiting(t *testing.T) {
 
 	// Stop waiting
 	m.StopWaiting("session-1")
-	if m.IsWaiting("session-1") {
+	state = m.GetIfExists("session-1")
+	if state != nil && state.IsWaiting {
 		t.Error("expected not waiting after StopWaiting")
 	}
 }
@@ -155,8 +157,8 @@ func TestSessionStateManager_Waiting(t *testing.T) {
 func TestSessionStateManager_Merge(t *testing.T) {
 	m := NewSessionStateManager()
 
-	// Initially not merging
-	if m.IsMerging("session-1") {
+	// Initially not merging (no state exists)
+	if state := m.GetIfExists("session-1"); state != nil && state.IsMerging() {
 		t.Error("expected not merging initially")
 	}
 
@@ -166,44 +168,47 @@ func TestSessionStateManager_Merge(t *testing.T) {
 	m.StartMerge("session-1", ch, cancel, MergeTypePR)
 
 	// Now should be merging
-	if !m.IsMerging("session-1") {
+	state := m.GetIfExists("session-1")
+	if state == nil || !state.IsMerging() {
 		t.Error("expected merging after StartMerge")
 	}
 
 	// Check merge type
-	if m.GetMergeType("session-1") != MergeTypePR {
-		t.Errorf("expected MergeTypePR, got %v", m.GetMergeType("session-1"))
+	if state.MergeType != MergeTypePR {
+		t.Errorf("expected MergeTypePR, got %v", state.MergeType)
 	}
 
 	// Stop merge
 	m.StopMerge("session-1")
-	if m.IsMerging("session-1") {
+	state = m.GetIfExists("session-1")
+	if state != nil && state.IsMerging() {
 		t.Error("expected not merging after StopMerge")
 	}
-	if m.GetMergeType("session-1") != MergeTypeNone {
-		t.Errorf("expected MergeTypeNone after StopMerge, got %v", m.GetMergeType("session-1"))
+	if state != nil && state.MergeType != MergeTypeNone {
+		t.Errorf("expected MergeTypeNone after StopMerge, got %v", state.MergeType)
 	}
 }
 
 func TestSessionStateManager_InputText(t *testing.T) {
 	m := NewSessionStateManager()
 
-	// Initially empty
-	if m.GetInput("session-1") != "" {
+	// Initially empty (no state exists)
+	if state := m.GetIfExists("session-1"); state != nil && state.InputText != "" {
 		t.Error("expected empty input initially")
 	}
 
 	// Save input
-	m.SaveInput("session-1", "Hello, world!")
+	m.GetOrCreate("session-1").InputText = "Hello, world!"
 
 	// Should be retrievable
-	if m.GetInput("session-1") != "Hello, world!" {
-		t.Errorf("expected 'Hello, world!', got %q", m.GetInput("session-1"))
+	state := m.GetIfExists("session-1")
+	if state == nil || state.InputText != "Hello, world!" {
+		t.Errorf("expected 'Hello, world!', got %q", state.InputText)
 	}
 
 	// Clear input
-	m.ClearInput("session-1")
-	if m.GetInput("session-1") != "" {
+	state.InputText = ""
+	if m.GetIfExists("session-1").InputText != "" {
 		t.Error("expected empty input after clear")
 	}
 }
@@ -211,28 +216,29 @@ func TestSessionStateManager_InputText(t *testing.T) {
 func TestSessionStateManager_Streaming(t *testing.T) {
 	m := NewSessionStateManager()
 
-	// Initially empty
-	if m.GetStreaming("session-1") != "" {
+	// Initially empty (no state exists)
+	if state := m.GetIfExists("session-1"); state != nil && state.StreamingContent != "" {
 		t.Error("expected empty streaming initially")
 	}
 
 	// Save streaming
-	m.SaveStreaming("session-1", "First chunk")
+	m.GetOrCreate("session-1").StreamingContent = "First chunk"
 
 	// Should be retrievable
-	if m.GetStreaming("session-1") != "First chunk" {
-		t.Errorf("expected 'First chunk', got %q", m.GetStreaming("session-1"))
+	state := m.GetIfExists("session-1")
+	if state == nil || state.StreamingContent != "First chunk" {
+		t.Errorf("expected 'First chunk', got %q", state.StreamingContent)
 	}
 
 	// Append streaming
-	m.AppendStreaming("session-1", " second chunk")
-	if m.GetStreaming("session-1") != "First chunk second chunk" {
-		t.Errorf("expected 'First chunk second chunk', got %q", m.GetStreaming("session-1"))
+	state.StreamingContent += " second chunk"
+	if m.GetIfExists("session-1").StreamingContent != "First chunk second chunk" {
+		t.Errorf("expected 'First chunk second chunk', got %q", m.GetIfExists("session-1").StreamingContent)
 	}
 
 	// Clear streaming
-	m.ClearStreaming("session-1")
-	if m.GetStreaming("session-1") != "" {
+	state.StreamingContent = ""
+	if m.GetIfExists("session-1").StreamingContent != "" {
 		t.Error("expected empty streaming after clear")
 	}
 }
@@ -286,18 +292,27 @@ func TestSessionStateManager_ConcurrentAccess(t *testing.T) {
 				case 0:
 					m.GetOrCreate(sessionID)
 				case 1:
-					m.SetPendingPermission(sessionID, &mcp.PermissionRequest{ID: "perm"})
-					m.ClearPendingPermission(sessionID)
+					state := m.GetOrCreate(sessionID)
+					state.PendingPermission = &mcp.PermissionRequest{ID: "perm"}
+					state.PendingPermission = nil
 				case 2:
-					m.SaveInput(sessionID, "input")
-					m.GetInput(sessionID)
+					state := m.GetOrCreate(sessionID)
+					state.InputText = "input"
+					_ = state.InputText
 				case 3:
-					m.AppendStreaming(sessionID, "chunk")
-					m.GetStreaming(sessionID)
+					state := m.GetOrCreate(sessionID)
+					state.StreamingContent += "chunk"
+					_ = state.StreamingContent
 				case 4:
-					m.IsWaiting(sessionID)
+					state := m.GetIfExists(sessionID)
+					if state != nil {
+						_ = state.IsWaiting
+					}
 				case 5:
-					m.IsMerging(sessionID)
+					state := m.GetIfExists(sessionID)
+					if state != nil {
+						_ = state.IsMerging()
+					}
 				}
 			}
 		}(i)
@@ -322,5 +337,105 @@ func TestMergeType_String(t *testing.T) {
 		if got := tt.mt.String(); got != tt.expected {
 			t.Errorf("MergeType(%d).String() = %q, want %q", tt.mt, got, tt.expected)
 		}
+	}
+}
+
+func TestSessionState_HelperMethods(t *testing.T) {
+	// Test HasDetectedOptions
+	state := &SessionState{}
+	if state.HasDetectedOptions() {
+		t.Error("expected HasDetectedOptions to be false with empty slice")
+	}
+	state.DetectedOptions = []DetectedOption{{Number: 1}}
+	if state.HasDetectedOptions() {
+		t.Error("expected HasDetectedOptions to be false with single option")
+	}
+	state.DetectedOptions = []DetectedOption{{Number: 1}, {Number: 2}}
+	if !state.HasDetectedOptions() {
+		t.Error("expected HasDetectedOptions to be true with 2+ options")
+	}
+
+	// Test HasTodoList
+	state = &SessionState{}
+	if state.HasTodoList() {
+		t.Error("expected HasTodoList to be false with nil list")
+	}
+
+	// Test IsMerging
+	state = &SessionState{}
+	if state.IsMerging() {
+		t.Error("expected IsMerging to be false with nil channel")
+	}
+	state.MergeChan = make(chan git.Result)
+	if !state.IsMerging() {
+		t.Error("expected IsMerging to be true with channel")
+	}
+}
+
+func TestSessionStateManager_GetPendingMessage(t *testing.T) {
+	m := NewSessionStateManager()
+
+	// Initially empty
+	if msg := m.GetPendingMessage("session-1"); msg != "" {
+		t.Error("expected empty message initially")
+	}
+
+	// Set a message
+	m.GetOrCreate("session-1").PendingMessage = "test message"
+
+	// GetPendingMessage should return and clear
+	msg := m.GetPendingMessage("session-1")
+	if msg != "test message" {
+		t.Errorf("expected 'test message', got %q", msg)
+	}
+
+	// Should be cleared after get
+	if msg2 := m.GetPendingMessage("session-1"); msg2 != "" {
+		t.Errorf("expected empty after get, got %q", msg2)
+	}
+}
+
+func TestSessionStateManager_GetInitialMessage(t *testing.T) {
+	m := NewSessionStateManager()
+
+	// Initially empty
+	if msg := m.GetInitialMessage("session-1"); msg != "" {
+		t.Error("expected empty message initially")
+	}
+
+	// Set a message
+	m.GetOrCreate("session-1").InitialMessage = "initial test"
+
+	// GetInitialMessage should return and clear
+	msg := m.GetInitialMessage("session-1")
+	if msg != "initial test" {
+		t.Errorf("expected 'initial test', got %q", msg)
+	}
+
+	// Should be cleared after get
+	if msg2 := m.GetInitialMessage("session-1"); msg2 != "" {
+		t.Errorf("expected empty after get, got %q", msg2)
+	}
+}
+
+func TestSessionStateManager_ReplaceToolUseMarker(t *testing.T) {
+	m := NewSessionStateManager()
+
+	// Set up streaming content with a marker
+	state := m.GetOrCreate("session-1")
+	state.StreamingContent = "prefix[MARKER]suffix"
+
+	// Replace the marker
+	m.ReplaceToolUseMarker("session-1", "[MARKER]", "[DONE]", 6)
+
+	if state.StreamingContent != "prefix[DONE]suffix" {
+		t.Errorf("expected 'prefix[DONE]suffix', got %q", state.StreamingContent)
+	}
+
+	// Try to replace at wrong position - should not change
+	state.StreamingContent = "prefix[MARKER]suffix"
+	m.ReplaceToolUseMarker("session-1", "[MARKER]", "[DONE]", 0)
+	if state.StreamingContent != "prefix[MARKER]suffix" {
+		t.Errorf("expected unchanged content, got %q", state.StreamingContent)
 	}
 }

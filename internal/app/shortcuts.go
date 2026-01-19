@@ -461,7 +461,8 @@ func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
 func shortcutMerge(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	// Don't show merge modal if already merging or generating commit message
-	if m.sessionState().IsMerging(sess.ID) || m.pendingCommitSession == sess.ID {
+	state := m.sessionState().GetIfExists(sess.ID)
+	if (state != nil && state.IsMerging()) || m.pendingCommitSession == sess.ID {
 		return m, nil
 	}
 	hasRemote := git.HasRemoteOrigin(sess.RepoPath)
