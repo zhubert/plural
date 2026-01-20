@@ -337,12 +337,16 @@ func TestParseStreamMessage_MultipleContent(t *testing.T) {
 }
 
 func TestParseStreamMessage_UserToolResult(t *testing.T) {
-	// User messages with tool results should be silently skipped
+	// User messages with tool results should emit ChunkTypeToolResult
+	// so the UI can mark the tool use as complete
 	msg := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"123","content":"file contents"}]}}`
 	chunks := parseStreamMessage(msg)
 
-	if len(chunks) != 0 {
-		t.Errorf("Expected 0 chunks for tool result, got %d", len(chunks))
+	if len(chunks) != 1 {
+		t.Errorf("Expected 1 chunk for tool result, got %d", len(chunks))
+	}
+	if len(chunks) > 0 && chunks[0].Type != ChunkTypeToolResult {
+		t.Errorf("Expected ChunkTypeToolResult, got %s", chunks[0].Type)
 	}
 }
 
@@ -351,8 +355,11 @@ func TestParseStreamMessage_UserToolResultCamelCase(t *testing.T) {
 	msg := `{"type":"user","message":{"content":[{"toolUseId":"123","content":"file contents"}]}}`
 	chunks := parseStreamMessage(msg)
 
-	if len(chunks) != 0 {
-		t.Errorf("Expected 0 chunks for tool result (camelCase), got %d", len(chunks))
+	if len(chunks) != 1 {
+		t.Errorf("Expected 1 chunk for tool result (camelCase), got %d", len(chunks))
+	}
+	if len(chunks) > 0 && chunks[0].Type != ChunkTypeToolResult {
+		t.Errorf("Expected ChunkTypeToolResult, got %s", chunks[0].Type)
 	}
 }
 

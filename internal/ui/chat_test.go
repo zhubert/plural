@@ -1049,6 +1049,45 @@ func TestChat_ToolUseMarkers(t *testing.T) {
 	}
 }
 
+func TestChat_ToolUsePositionResetOnFinishStreaming(t *testing.T) {
+	// This tests that lastToolUsePos is reset when FinishStreaming is called,
+	// preventing stale tool use state from causing extra newlines in subsequent
+	// streaming content (like merge output).
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Simulate a tool use during Claude response
+	chat.AppendToolUse("Read", "file.go")
+
+	// Tool use should set lastToolUsePos
+	if chat.lastToolUsePos < 0 {
+		t.Fatal("Expected lastToolUsePos to be set after AppendToolUse")
+	}
+
+	// Add some response text
+	chat.AppendStreaming("File contents here\n")
+
+	// Finish streaming (converts to message)
+	chat.FinishStreaming()
+
+	// After FinishStreaming, lastToolUsePos should be reset
+	if chat.lastToolUsePos != -1 {
+		t.Errorf("Expected lastToolUsePos to be -1 after FinishStreaming, got %d", chat.lastToolUsePos)
+	}
+
+	// Now simulate merge output (new streaming after previous response finished)
+	chat.AppendStreaming("Merging branch...\n")
+	chat.AppendStreaming("Checking out main...\n")
+	chat.AppendStreaming("Already up to date.\n")
+
+	// The streaming content should NOT have extra newlines inserted
+	streaming := chat.GetStreaming()
+	expected := "Merging branch...\nChecking out main...\nAlready up to date.\n"
+	if streaming != expected {
+		t.Errorf("Expected streaming content %q, got %q", expected, streaming)
+	}
+}
+
 func TestChat_UserMessage(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)

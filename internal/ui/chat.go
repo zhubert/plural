@@ -123,7 +123,9 @@ func NewChat() *Chat {
 	vp := viewport.New()
 	vp.MouseWheelEnabled = true
 	vp.MouseWheelDelta = 3
-	vp.SoftWrap = true // Wrap text instead of allowing horizontal scrolling
+	// SoftWrap disabled - we handle wrapping manually in renderMarkdown
+	// Having both causes issues with line spacing
+	vp.SoftWrap = false
 
 	c := &Chat{
 		viewport:             vp,
@@ -177,6 +179,7 @@ func (c *Chat) SetSize(width, height int) {
 	// since messages are wrapped based on viewport width
 	ctx := GetViewContext()
 	newInnerWidth := ctx.InnerWidth(width)
+	wasUninitialized := c.viewport.Width() <= 0
 	if c.viewport.Width() != newInnerWidth && c.viewport.Width() > 0 {
 		c.messageCache = nil // Clear cache to force re-render at new width
 	}
@@ -201,6 +204,11 @@ func (c *Chat) SetSize(width, height int) {
 	// Input width accounts for its own border AND padding
 	inputInnerWidth := ctx.InnerWidth(width) - InputPaddingWidth
 	c.input.SetWidth(inputInnerWidth)
+
+	// If viewport was uninitialized, render content now that we have proper dimensions
+	if wasUninitialized && innerWidth > 0 {
+		c.updateContent()
+	}
 
 	ctx.Log("Chat.SetSize: outer=%dx%d, chatPanel=%d, input=%d", width, height, chatPanelHeight, InputTotalHeight)
 	ctx.Log("  Chat viewport: w=%d, h=%d", c.viewport.Width(), c.viewport.Height())
@@ -263,7 +271,7 @@ func (c *Chat) ClearSession() {
 // AppendStreaming appends content to the current streaming response
 func (c *Chat) AppendStreaming(content string) {
 	// Add extra newline after tool use for visual separation
-	if c.lastToolUsePos >= 0 && strings.HasSuffix(c.streaming, "\n") && !strings.HasSuffix(c.streaming, "\n\n") {
+	if c.lastToolUsePos >= 0 && strings.HasSuffix(c.streaming, "\n") && !strings.HasSuffix(c.streaming, "\n\n") && !strings.HasPrefix(content, "\n") {
 		c.streaming += "\n"
 	}
 	c.streaming += content
@@ -313,6 +321,7 @@ func (c *Chat) FinishStreaming() {
 			Content: c.streaming,
 		})
 		c.streaming = ""
+		c.lastToolUsePos = -1 // Reset tool tracking to prevent stale state affecting future streaming
 		c.updateContent()
 	}
 }
@@ -818,6 +827,13 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 }
 
 func (c *Chat) updateContent() {
+	// Skip rendering if viewport not yet initialized - content will be rendered
+	// when SetSize is called with actual dimensions. Rendering with wrong width
+	// causes text to be wrapped incorrectly, then re-wrapped by viewport's SoftWrap.
+	if c.viewport.Width() <= 0 {
+		return
+	}
+
 	var sb strings.Builder
 
 	// Get wrap width (use viewport width, fallback to reasonable default)

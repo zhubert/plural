@@ -542,8 +542,8 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 	case "user":
 		// User messages in stream-json are tool results
-		// We silently skip these - they're internal to Claude's operation
-		// and don't need to be displayed to users. We check for both
+		// We don't display the content but we need to emit a ChunkTypeToolResult
+		// so the UI can mark the tool use as complete. We check for both
 		// "tool_result" type and the presence of toolUseId field (camelCase variant).
 		for _, content := range msg.Message.Content {
 			// Check for tool_result type or presence of tool use ID (indicates tool result)
@@ -551,11 +551,13 @@ func parseStreamMessage(line string) []ResponseChunk {
 				content.ToolUseID != "" ||
 				content.ToolUseId != ""
 			if isToolResult {
-				// Log but don't display tool results - they're internal
-				logger.Log("Claude: Tool result received (not displayed)")
+				// Emit a tool result chunk so UI can mark tool as complete
+				logger.Log("Claude: Tool result received")
+				chunks = append(chunks, ResponseChunk{
+					Type: ChunkTypeToolResult,
+				})
 			}
 		}
-		// Return empty - user messages (tool results) don't need to be displayed
 
 	case "result":
 		// Final result - the actual result text is in msg.Result
