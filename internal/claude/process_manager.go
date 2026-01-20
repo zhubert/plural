@@ -144,6 +144,8 @@ type ProcessManager struct {
 	stdin           io.WriteCloser
 	stdout          *bufio.Reader
 	stderr          io.ReadCloser
+	stderrContent   string    // Captured stderr content (read by drainStderr goroutine)
+	stderrDone      chan struct{} // Signals when stderr has been fully read
 	running         bool
 	interrupted     bool
 	restartAttempts int
@@ -286,6 +288,8 @@ func (pm *ProcessManager) Start() error {
 	pm.stdin = stdin
 	pm.stdout = bufio.NewReader(stdout)
 	pm.stderr = stderr
+	pm.stderrContent = ""
+	pm.stderrDone = make(chan struct{})
 	pm.running = true
 
 	// Create context for process goroutines
@@ -293,12 +297,16 @@ func (pm *ProcessManager) Start() error {
 
 	logger.Info("ProcessManager: Process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
 
-	// Start goroutines to read output and monitor process
+	// Start goroutines to read output, drain stderr, and monitor process
 	// Track them with WaitGroup for proper cleanup on Stop()
-	pm.wg.Add(2)
+	pm.wg.Add(3)
 	go func() {
 		defer pm.wg.Done()
 		pm.readOutput()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.drainStderr()
 	}()
 	go func() {
 		defer pm.wg.Done()
@@ -536,6 +544,34 @@ func (pm *ProcessManager) readLine(reader *bufio.Reader) (string, error) {
 	}
 }
 
+// drainStderr reads all stderr content and stores it for later retrieval.
+// This must run concurrently with the process so stderr is captured before
+// cmd.Wait() closes the pipe.
+func (pm *ProcessManager) drainStderr() {
+	defer close(pm.stderrDone)
+
+	pm.mu.Lock()
+	stderr := pm.stderr
+	pm.mu.Unlock()
+
+	if stderr == nil {
+		return
+	}
+
+	stderrBytes, err := io.ReadAll(stderr)
+	if err != nil {
+		logger.Log("ProcessManager: Error reading stderr: %v", err)
+		return
+	}
+
+	if len(stderrBytes) > 0 {
+		pm.mu.Lock()
+		pm.stderrContent = strings.TrimSpace(string(stderrBytes))
+		pm.mu.Unlock()
+		logger.Log("ProcessManager: Captured stderr: %s", pm.stderrContent)
+	}
+}
+
 // monitorExit waits for the process to exit and handles cleanup.
 func (pm *ProcessManager) monitorExit() {
 	pm.mu.Lock()
@@ -577,17 +613,19 @@ func (pm *ProcessManager) handleExit(err error) {
 	pm.interrupted = false // Reset for next operation
 	restartAttempts := pm.restartAttempts
 	stopped := pm.stopped
+	stderrDone := pm.stderrDone
+	pm.mu.Unlock()
 
-	// Read stderr to get actual error message before closing
-	var stderrContent string
-	if pm.stderr != nil {
-		stderrBytes, readErr := io.ReadAll(pm.stderr)
-		if readErr != nil {
-			logger.Log("ProcessManager: Failed to read stderr: %v", readErr)
-		} else if len(stderrBytes) > 0 {
-			stderrContent = strings.TrimSpace(string(stderrBytes))
-			logger.Log("ProcessManager: Stderr output: %s", stderrContent)
-		}
+	// Wait for stderr to be fully drained (drainStderr goroutine reads it
+	// concurrently before cmd.Wait() closes the pipe)
+	if stderrDone != nil {
+		<-stderrDone
+	}
+
+	pm.mu.Lock()
+	stderrContent := pm.stderrContent
+	if stderrContent != "" {
+		logger.Log("ProcessManager: Stderr output: %s", stderrContent)
 	}
 
 	// Clean up pipes
@@ -676,6 +714,8 @@ func (pm *ProcessManager) cleanupLocked() {
 	}
 	pm.cmd = nil
 	pm.stdout = nil
+	pm.stderrContent = ""
+	pm.stderrDone = nil
 	pm.running = false
 }
 

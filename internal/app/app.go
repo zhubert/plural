@@ -504,12 +504,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleHelpShortcutTrigger(msg.Key)
 
 	case TerminalErrorMsg:
-		// Show terminal error to user in chat
-		if m.activeSession != nil {
-			m.chat.AppendStreaming(fmt.Sprintf("\n[%s]\n", msg.Error))
-			m.chat.FinishStreaming()
-		}
-		return m, nil
+		// Show terminal error as flash message
+		m.footer.SetFlash(msg.Error, ui.FlashError)
+		cmds = append(cmds, ui.FlashTick())
+		return m, tea.Batch(cmds...)
 	}
 
 	// Update modal
