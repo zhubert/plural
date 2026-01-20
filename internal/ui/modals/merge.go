@@ -430,3 +430,55 @@ func NewConfirmDeleteState(sessionName string) *ConfirmDeleteState {
 		SelectedIndex: 0,
 	}
 }
+
+// =============================================================================
+// ConfirmDeleteRepoState - State for the Confirm Delete Repository modal
+// =============================================================================
+
+type ConfirmDeleteRepoState struct {
+	RepoPath string
+}
+
+func (*ConfirmDeleteRepoState) modalState() {}
+
+func (s *ConfirmDeleteRepoState) Title() string { return "Delete Repository?" }
+
+func (s *ConfirmDeleteRepoState) Help() string {
+	return "Enter: confirm  Esc: cancel"
+}
+
+func (s *ConfirmDeleteRepoState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Show repo path prominently
+	repoLabel := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1).
+		Render(s.RepoPath)
+
+	message := lipgloss.NewStyle().
+		Foreground(ColorText).
+		MarginBottom(1).
+		Render("This will remove the repository from Plural.\nExisting sessions for this repo will not be affected.")
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, message, help)
+}
+
+func (s *ConfirmDeleteRepoState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	return s, nil
+}
+
+// GetRepoPath returns the repository path to delete
+func (s *ConfirmDeleteRepoState) GetRepoPath() string {
+	return s.RepoPath
+}
+
+// NewConfirmDeleteRepoState creates a new ConfirmDeleteRepoState
+func NewConfirmDeleteRepoState(repoPath string) *ConfirmDeleteRepoState {
+	return &ConfirmDeleteRepoState{
+		RepoPath: repoPath,
+	}
+}

@@ -55,6 +55,22 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 	case "esc":
 		m.modal.Hide()
 		return m, nil
+	case "d":
+		// Only allow delete when focus is on repo list and there are repos
+		if state.Focus == 0 && len(state.RepoOptions) > 0 {
+			repoPath := state.GetSelectedRepo()
+			if repoPath != "" {
+				m.modal.Show(ui.NewConfirmDeleteRepoState(repoPath))
+				return m, nil
+			}
+		}
+		// If focused on branch input, let it pass through for text input
+		if state.Focus == 2 {
+			modal, cmd := m.modal.Update(msg)
+			m.modal = modal
+			return m, cmd
+		}
+		return m, nil
 	case "enter":
 		repoPath := state.GetSelectedRepo()
 		if repoPath == "" {
@@ -330,4 +346,32 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleConfirmDeleteRepoModal handles key events for the Confirm Delete Repo modal.
+func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmDeleteRepoState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		// Go back to the new session modal
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+		return m, nil
+	case "enter":
+		repoPath := state.GetRepoPath()
+		logger.Log("App: Deleting repository: %s", repoPath)
+
+		if !m.config.RemoveRepo(repoPath) {
+			m.modal.SetError("Repository not found")
+			return m, nil
+		}
+		if err := m.config.Save(); err != nil {
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+		logger.Log("App: Repository deleted successfully: %s", repoPath)
+
+		// Return to new session modal with updated repo list
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+		return m, nil
+	}
+	return m, nil
 }

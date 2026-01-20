@@ -228,6 +228,21 @@ func (c *Config) AddRepo(path string) bool {
 	return true
 }
 
+// RemoveRepo removes a repository from the config.
+// Returns true if the repo was found and removed, false otherwise.
+func (c *Config) RemoveRepo(path string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i, r := range c.Repos {
+		if r == path {
+			c.Repos = append(c.Repos[:i], c.Repos[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // AddSession adds a new session
 func (c *Config) AddSession(session Session) {
 	c.mu.Lock()

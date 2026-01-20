@@ -261,6 +261,40 @@ func TestNewSessionState_Render(t *testing.T) {
 	}
 }
 
+func TestNewSessionState_Help(t *testing.T) {
+	// With repos, focused on repo list - should show delete hint
+	state := NewNewSessionState([]string{"/repo1", "/repo2"})
+	state.Focus = 0
+	help := state.Help()
+	if help != "up/down: select  Tab: next field  d: delete repo  Enter: create" {
+		t.Errorf("Expected help with delete hint when focused on repos, got %q", help)
+	}
+
+	// Without repos, focused on repo list - should not show delete hint
+	state = NewNewSessionState([]string{})
+	state.Focus = 0
+	help = state.Help()
+	if help != "up/down: select  Tab: next field  Enter: create" {
+		t.Errorf("Expected help without delete hint when no repos, got %q", help)
+	}
+
+	// With repos, focused on base selection - should not show delete hint
+	state = NewNewSessionState([]string{"/repo1"})
+	state.Focus = 1
+	help = state.Help()
+	if help != "up/down: select  Tab: next field  Enter: create" {
+		t.Errorf("Expected help without delete hint when focused on base, got %q", help)
+	}
+
+	// With repos, focused on branch input - should not show delete hint
+	state = NewNewSessionState([]string{"/repo1"})
+	state.Focus = 2
+	help = state.Help()
+	if help != "up/down: select  Tab: next field  Enter: create" {
+		t.Errorf("Expected help without delete hint when focused on input, got %q", help)
+	}
+}
+
 // ConfirmDeleteState tests
 
 func TestNewConfirmDeleteState(t *testing.T) {
@@ -300,6 +334,40 @@ func TestConfirmDeleteState_ShouldDeleteWorktree(t *testing.T) {
 
 func TestConfirmDeleteState_Render(t *testing.T) {
 	state := NewConfirmDeleteState("test-session")
+	render := state.Render()
+	if render == "" {
+		t.Error("Render should not be empty")
+	}
+}
+
+// ConfirmDeleteRepoState tests
+
+func TestNewConfirmDeleteRepoState(t *testing.T) {
+	state := NewConfirmDeleteRepoState("/path/to/my-repo")
+
+	if state.RepoPath != "/path/to/my-repo" {
+		t.Errorf("Expected RepoPath '/path/to/my-repo', got %q", state.RepoPath)
+	}
+
+	if state.Title() != "Delete Repository?" {
+		t.Errorf("Expected title 'Delete Repository?', got %q", state.Title())
+	}
+
+	if state.Help() != "Enter: confirm  Esc: cancel" {
+		t.Errorf("Unexpected help text: %q", state.Help())
+	}
+}
+
+func TestConfirmDeleteRepoState_GetRepoPath(t *testing.T) {
+	state := NewConfirmDeleteRepoState("/some/repo/path")
+
+	if state.GetRepoPath() != "/some/repo/path" {
+		t.Errorf("Expected '/some/repo/path', got %q", state.GetRepoPath())
+	}
+}
+
+func TestConfirmDeleteRepoState_Render(t *testing.T) {
+	state := NewConfirmDeleteRepoState("/test/repo")
 	render := state.Render()
 	if render == "" {
 		t.Error("Render should not be empty")

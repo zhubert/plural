@@ -42,6 +42,56 @@ func TestConfig_AddRepo(t *testing.T) {
 	}
 }
 
+func TestConfig_RemoveRepo(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{"/path/to/repo1", "/path/to/repo2", "/path/to/repo3"},
+		Sessions: []Session{},
+	}
+
+	// Test removing existing repo from middle
+	if !cfg.RemoveRepo("/path/to/repo2") {
+		t.Error("RemoveRepo should return true for existing repo")
+	}
+
+	if len(cfg.Repos) != 2 {
+		t.Errorf("Expected 2 repos after removal, got %d", len(cfg.Repos))
+	}
+
+	// Verify correct repo was removed
+	for _, r := range cfg.Repos {
+		if r == "/path/to/repo2" {
+			t.Error("repo2 should have been removed")
+		}
+	}
+
+	// Test removing non-existent repo
+	if cfg.RemoveRepo("/nonexistent") {
+		t.Error("RemoveRepo should return false for non-existent repo")
+	}
+
+	if len(cfg.Repos) != 2 {
+		t.Errorf("Expected 2 repos after failed removal, got %d", len(cfg.Repos))
+	}
+
+	// Test removing first repo
+	if !cfg.RemoveRepo("/path/to/repo1") {
+		t.Error("RemoveRepo should return true for first repo")
+	}
+
+	if len(cfg.Repos) != 1 {
+		t.Errorf("Expected 1 repo after second removal, got %d", len(cfg.Repos))
+	}
+
+	// Test removing last remaining repo
+	if !cfg.RemoveRepo("/path/to/repo3") {
+		t.Error("RemoveRepo should return true for last repo")
+	}
+
+	if len(cfg.Repos) != 0 {
+		t.Errorf("Expected 0 repos after removing all, got %d", len(cfg.Repos))
+	}
+}
+
 func TestConfig_AddSession(t *testing.T) {
 	cfg := &Config{
 		Repos:    []string{},

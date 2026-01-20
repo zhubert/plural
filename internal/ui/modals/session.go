@@ -24,6 +24,9 @@ func (*NewSessionState) modalState() {}
 func (s *NewSessionState) Title() string { return "New Session" }
 
 func (s *NewSessionState) Help() string {
+	if s.Focus == 0 && len(s.RepoOptions) > 0 {
+		return "up/down: select  Tab: next field  d: delete repo  Enter: create"
+	}
 	return "up/down: select  Tab: next field  Enter: create"
 }
 

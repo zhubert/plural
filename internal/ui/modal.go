@@ -32,6 +32,7 @@ type (
 	EditCommitState         = modals.EditCommitState
 	MergeConflictState      = modals.MergeConflictState
 	ConfirmDeleteState      = modals.ConfirmDeleteState
+	ConfirmDeleteRepoState  = modals.ConfirmDeleteRepoState
 	MCPServersState         = modals.MCPServersState
 	AddMCPServerState       = modals.AddMCPServerState
 	PluginsState            = modals.PluginsState
@@ -57,6 +58,7 @@ var (
 	NewEditCommitState         = modals.NewEditCommitState
 	NewMergeConflictState      = modals.NewMergeConflictState
 	NewConfirmDeleteState      = modals.NewConfirmDeleteState
+	NewConfirmDeleteRepoState  = modals.NewConfirmDeleteRepoState
 	NewMCPServersState         = modals.NewMCPServersState
 	NewAddMCPServerState       = modals.NewAddMCPServerState
 	NewPluginsState            = modals.NewPluginsState

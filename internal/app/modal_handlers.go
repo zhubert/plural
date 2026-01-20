@@ -25,6 +25,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleNewSessionModal(key, msg, s)
 	case *ui.ConfirmDeleteState:
 		return m.handleConfirmDeleteModal(key, msg, s)
+	case *ui.ConfirmDeleteRepoState:
+		return m.handleConfirmDeleteRepoModal(key, msg, s)
 	case *ui.ForkSessionState:
 		return m.handleForkSessionModal(key, msg, s)
 	case *ui.RenameSessionState:
