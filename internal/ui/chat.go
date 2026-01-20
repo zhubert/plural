@@ -821,7 +821,8 @@ func (c *Chat) updateContent() {
 	var sb strings.Builder
 
 	// Get wrap width (use viewport width, fallback to reasonable default)
-	wrapWidth := c.viewport.Width()
+	// Subtract 2 for the horizontal padding (1 char on each side)
+	wrapWidth := c.viewport.Width() - 2
 	if wrapWidth <= 0 {
 		wrapWidth = DefaultWrapWidth
 	}
@@ -961,7 +962,9 @@ func (c *Chat) updateContent() {
 		}
 	}
 
-	c.viewport.SetContent(sb.String())
+	// Add horizontal padding to content for visual breathing room
+	paddedContent := lipgloss.NewStyle().Padding(0, 1).Render(sb.String())
+	c.viewport.SetContent(paddedContent)
 	c.viewport.GotoBottom()
 }
 
@@ -1166,7 +1169,7 @@ func (c *Chat) View() string {
 	// Viewport content - render placeholder directly if no session
 	var viewportContent string
 	if !c.hasSession {
-		viewportContent = renderNoSessionMessage()
+		viewportContent = lipgloss.NewStyle().Padding(0, 1).Render(renderNoSessionMessage())
 	} else {
 		viewportContent = c.viewport.View()
 		// Apply selection highlighting if there's an active selection
