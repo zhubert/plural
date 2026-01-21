@@ -3,6 +3,7 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -1093,6 +1094,7 @@ func TestHandleFatalError(t *testing.T) {
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
 	runner.currentResponseCh = ch
+	runner.closeResponseChOnce = &sync.Once{} // Required for closeResponseChannel to work
 	runner.mu.Unlock()
 
 	// Call handleFatalError
