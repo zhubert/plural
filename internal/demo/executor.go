@@ -59,10 +59,6 @@ type Executor struct {
 
 	// mockExecutor is the command executor used for git/session operations
 	mockExecutor *pexec.MockExecutor
-
-	// originalGitExecutor and originalSessionExecutor store original executors for restoration
-	originalGitExecutor     pexec.CommandExecutor
-	originalSessionExecutor pexec.CommandExecutor
 }
 
 // runnerFactory creates mock runners for demo sessions.
@@ -95,14 +91,11 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 }
 
-// Cleanup restores the original executors. Call this after Run completes.
+// Cleanup performs any cleanup after Run completes.
+// Since we now use service injection instead of global executors,
+// there's no state to restore.
 func (e *Executor) Cleanup() {
-	if e.originalGitExecutor != nil {
-		git.SetExecutor(e.originalGitExecutor)
-	}
-	if e.originalSessionExecutor != nil {
-		session.SetExecutor(e.originalSessionExecutor)
-	}
+	// No cleanup needed - services are injected per-instance
 }
 
 // Run executes a scenario and returns the captured frames.
@@ -134,17 +127,9 @@ func (e *Executor) Run(scenario *Scenario) ([]Frame, error) {
 
 // setup initializes the model for the scenario.
 func (e *Executor) setup(scenario *Scenario) error {
-	// Store original executors for restoration
-	e.originalGitExecutor = git.GetExecutor()
-	e.originalSessionExecutor = session.GetExecutor()
-
 	// Create mock executor with common git command responses
 	e.mockExecutor = pexec.NewMockExecutor(nil)
 	e.setupMockResponses(scenario)
-
-	// Install mock executor in git and session packages
-	git.SetExecutor(e.mockExecutor)
-	session.SetExecutor(e.mockExecutor)
 
 	// Create config from scenario setup
 	cfg := &config.Config{
@@ -159,6 +144,12 @@ func (e *Executor) setup(scenario *Scenario) error {
 
 	// Create model
 	e.model = app.New(cfg, "demo")
+
+	// Create services with mock executor and inject them
+	mockGitService := git.NewGitServiceWithExecutor(e.mockExecutor)
+	mockSessionService := session.NewSessionServiceWithExecutor(e.mockExecutor)
+	e.model.SetGitService(mockGitService)
+	e.model.SetSessionService(mockSessionService)
 
 	// Set size
 	e.model.Update(tea.WindowSizeMsg{

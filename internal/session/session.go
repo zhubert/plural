@@ -11,24 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/config"
-	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/logger"
 )
-
-// executor is the command executor used by this package.
-// It can be swapped for testing/demos via SetExecutor.
-var executor pexec.CommandExecutor = pexec.NewRealExecutor()
-
-// SetExecutor sets the command executor used by this package.
-// This is primarily used for testing and demo generation.
-func SetExecutor(e pexec.CommandExecutor) {
-	executor = e
-}
-
-// GetExecutor returns the current command executor.
-func GetExecutor() pexec.CommandExecutor {
-	return executor
-}
 
 // BasePoint specifies where to branch from when creating a new session
 type BasePoint string
@@ -79,15 +63,15 @@ func ValidateBranchName(branch string) error {
 }
 
 // BranchExists checks if a branch already exists in the repo
-func BranchExists(repoPath, branch string) bool {
-	_, _, err := executor.Run(context.Background(), repoPath, "git", "rev-parse", "--verify", branch)
+func (s *SessionService) BranchExists(ctx context.Context, repoPath, branch string) bool {
+	_, _, err := s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", branch)
 	return err == nil
 }
 
 // getCurrentBranchName returns the current branch name for the repo
 // Returns "HEAD" as fallback if it cannot be determined
-func getCurrentBranchName(repoPath string) string {
-	output, err := executor.Output(context.Background(), repoPath, "git", "rev-parse", "--abbrev-ref", "HEAD")
+func (s *SessionService) getCurrentBranchName(ctx context.Context, repoPath string) string {
+	output, err := s.executor.Output(ctx, repoPath, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err == nil {
 		branch := strings.TrimSpace(string(output))
 		if branch != "" && branch != "HEAD" {
@@ -99,11 +83,9 @@ func getCurrentBranchName(repoPath string) string {
 
 // GetDefaultBranch returns the default branch name for the remote (e.g., "main" or "master")
 // Returns "main" as fallback if it cannot be determined
-func GetDefaultBranch(repoPath string) string {
-	ctx := context.Background()
-
+func (s *SessionService) GetDefaultBranch(ctx context.Context, repoPath string) string {
 	// Try to get the default branch from origin's HEAD reference
-	output, err := executor.Output(ctx, repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := s.executor.Output(ctx, repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		ref := strings.TrimSpace(string(output))
@@ -113,13 +95,13 @@ func GetDefaultBranch(repoPath string) string {
 	}
 
 	// Fallback: check if origin/main exists
-	_, _, err = executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "origin/main")
+	_, _, err = s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "origin/main")
 	if err == nil {
 		return "main"
 	}
 
 	// Fallback: check if origin/master exists
-	_, _, err = executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "origin/master")
+	_, _, err = s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "origin/master")
 	if err == nil {
 		return "master"
 	}
@@ -130,11 +112,9 @@ func GetDefaultBranch(repoPath string) string {
 
 // FetchOrigin fetches the latest changes from origin
 // Returns nil if successful, or if there's no remote (local-only repo)
-func FetchOrigin(repoPath string) error {
-	ctx := context.Background()
-
+func (s *SessionService) FetchOrigin(ctx context.Context, repoPath string) error {
 	// First check if origin remote exists
-	_, _, err := executor.Run(ctx, repoPath, "git", "remote", "get-url", "origin")
+	_, _, err := s.executor.Run(ctx, repoPath, "git", "remote", "get-url", "origin")
 	if err != nil {
 		// No origin remote - this is a local-only repo, which is fine
 		logger.Log("Session: No origin remote found, skipping fetch")
@@ -142,7 +122,7 @@ func FetchOrigin(repoPath string) error {
 	}
 
 	logger.Log("Session: Fetching from origin")
-	output, err := executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin")
+	output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin")
 	if err != nil {
 		logger.Warn("Session: Failed to fetch from origin: %s", string(output))
 		// Don't fail session creation if fetch fails - just log a warning
@@ -160,7 +140,7 @@ func FetchOrigin(repoPath string) error {
 // The basePoint specifies where to branch from:
 //   - BasePointOrigin: fetches from origin and branches from origin's default branch
 //   - BasePointHead: branches from the current local HEAD
-func Create(repoPath string, customBranch string, branchPrefix string, basePoint BasePoint) (*config.Session, error) {
+func (s *SessionService) Create(ctx context.Context, repoPath string, customBranch string, branchPrefix string, basePoint BasePoint) (*config.Session, error) {
 	startTime := time.Now()
 	logger.Log("Session: Creating new session for repo=%s, customBranch=%q, branchPrefix=%q, basePoint=%v", repoPath, customBranch, branchPrefix, basePoint)
 
@@ -190,34 +170,34 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 	switch basePoint {
 	case BasePointOrigin:
 		// Fetch from origin to ensure we have the latest commits
-		FetchOrigin(repoPath)
+		s.FetchOrigin(ctx, repoPath)
 
 		// Prefer origin's default branch if it exists, otherwise fall back to HEAD
-		defaultBranch := GetDefaultBranch(repoPath)
+		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
 		startPoint = fmt.Sprintf("origin/%s", defaultBranch)
 		baseBranch = defaultBranch
 
 		// Check if the remote branch exists
-		_, _, err := executor.Run(context.Background(), repoPath, "git", "rev-parse", "--verify", startPoint)
+		_, _, err := s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", startPoint)
 		if err != nil {
 			// Remote branch doesn't exist (local-only repo), fall back to HEAD
 			logger.Log("Session: Remote branch %s not found, falling back to HEAD", startPoint)
 			startPoint = "HEAD"
-			baseBranch = getCurrentBranchName(repoPath)
+			baseBranch = s.getCurrentBranchName(ctx, repoPath)
 		}
 	case BasePointHead:
 		fallthrough
 	default:
 		// Use current branch (HEAD)
 		startPoint = "HEAD"
-		baseBranch = getCurrentBranchName(repoPath)
+		baseBranch = s.getCurrentBranchName(ctx, repoPath)
 		logger.Log("Session: Using current branch (HEAD) as base")
 	}
 
 	// Create the worktree with a new branch based on the start point
 	logger.Log("Session: Creating git worktree: branch=%s, path=%s, from=%s", branch, worktreePath, startPoint)
 	worktreeStart := time.Now()
-	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "worktree", "add", "-b", branch, worktreePath, startPoint)
+	output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "worktree", "add", "-b", branch, worktreePath, startPoint)
 	if err != nil {
 		logger.Error("Session: Failed to create worktree after %v: %s", time.Since(worktreeStart), string(output))
 		return nil, fmt.Errorf("failed to create worktree: %s: %w", string(output), err)
@@ -256,7 +236,7 @@ func Create(repoPath string, customBranch string, branchPrefix string, basePoint
 // from the source branch's current state rather than from origin/main.
 // If customBranch is provided, it will be used as the new branch name; otherwise
 // a branch named "plural-<UUID>" will be created.
-func CreateFromBranch(repoPath string, sourceBranch string, customBranch string, branchPrefix string) (*config.Session, error) {
+func (s *SessionService) CreateFromBranch(ctx context.Context, repoPath string, sourceBranch string, customBranch string, branchPrefix string) (*config.Session, error) {
 	startTime := time.Now()
 	logger.Log("Session: Creating forked session for repo=%s, sourceBranch=%q, customBranch=%q, branchPrefix=%q",
 		repoPath, sourceBranch, customBranch, branchPrefix)
@@ -283,7 +263,7 @@ func CreateFromBranch(repoPath string, sourceBranch string, customBranch string,
 	// Create the worktree with a new branch based on the source branch
 	logger.Log("Session: Creating git worktree: branch=%s, path=%s, from=%s", branch, worktreePath, sourceBranch)
 	worktreeStart := time.Now()
-	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "worktree", "add", "-b", branch, worktreePath, sourceBranch)
+	output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "worktree", "add", "-b", branch, worktreePath, sourceBranch)
 	if err != nil {
 		logger.Error("Session: Failed to create forked worktree after %v: %s", time.Since(worktreeStart), string(output))
 		return nil, fmt.Errorf("failed to create worktree: %s: %w", string(output), err)
@@ -318,7 +298,7 @@ func CreateFromBranch(repoPath string, sourceBranch string, customBranch string,
 }
 
 // ValidateRepo checks if a path is a valid git repository
-func ValidateRepo(path string) error {
+func (s *SessionService) ValidateRepo(ctx context.Context, path string) error {
 	logger.Log("Session: Validating repo path=%s", path)
 	startTime := time.Now()
 
@@ -329,7 +309,7 @@ func ValidateRepo(path string) error {
 	}
 
 	// Check if it's a git repo by running git rev-parse
-	output, err := executor.CombinedOutput(context.Background(), path, "git", "rev-parse", "--git-dir")
+	output, err := s.executor.CombinedOutput(ctx, path, "git", "rev-parse", "--git-dir")
 	if err != nil {
 		logger.Log("Session: Validation failed after %v - not a git repo: %s", time.Since(startTime), strings.TrimSpace(string(output)))
 		return fmt.Errorf("not a git repository: %s", strings.TrimSpace(string(output)))
@@ -340,8 +320,8 @@ func ValidateRepo(path string) error {
 }
 
 // GetGitRoot returns the git root directory for a path, or empty string if not a git repo
-func GetGitRoot(path string) string {
-	output, err := executor.Output(context.Background(), path, "git", "rev-parse", "--show-toplevel")
+func (s *SessionService) GetGitRoot(ctx context.Context, path string) string {
+	output, err := s.executor.Output(ctx, path, "git", "rev-parse", "--show-toplevel")
 	if err != nil {
 		return ""
 	}
@@ -350,18 +330,16 @@ func GetGitRoot(path string) string {
 }
 
 // GetCurrentDirGitRoot returns the git root of the current working directory
-func GetCurrentDirGitRoot() string {
-	return GetGitRoot(".")
+func (s *SessionService) GetCurrentDirGitRoot(ctx context.Context) string {
+	return s.GetGitRoot(ctx, ".")
 }
 
 // Delete removes a session's git worktree and branch
-func Delete(sess *config.Session) error {
+func (s *SessionService) Delete(ctx context.Context, sess *config.Session) error {
 	logger.Log("Session: Deleting worktree for session=%s, worktree=%s, branch=%s", sess.ID, sess.WorkTree, sess.Branch)
 
-	ctx := context.Background()
-
 	// Remove the worktree
-	output, err := executor.CombinedOutput(ctx, sess.RepoPath, "git", "worktree", "remove", sess.WorkTree, "--force")
+	output, err := s.executor.CombinedOutput(ctx, sess.RepoPath, "git", "worktree", "remove", sess.WorkTree, "--force")
 	if err != nil {
 		logger.Error("Session: Failed to remove worktree: %s", string(output))
 		return fmt.Errorf("failed to remove worktree: %s: %w", string(output), err)
@@ -369,12 +347,12 @@ func Delete(sess *config.Session) error {
 	logger.Info("Session: Worktree removed successfully")
 
 	// Prune worktree references (best-effort cleanup)
-	if output, err := executor.CombinedOutput(ctx, sess.RepoPath, "git", "worktree", "prune"); err != nil {
+	if output, err := s.executor.CombinedOutput(ctx, sess.RepoPath, "git", "worktree", "prune"); err != nil {
 		logger.Warn("Session: Worktree prune failed (best-effort): %s - %v", string(output), err)
 	}
 
 	// Delete the branch
-	branchOutput, err := executor.CombinedOutput(ctx, sess.RepoPath, "git", "branch", "-D", sess.Branch)
+	branchOutput, err := s.executor.CombinedOutput(ctx, sess.RepoPath, "git", "branch", "-D", sess.Branch)
 	if err != nil {
 		logger.Warn("Session: Failed to delete branch (may already be deleted): %s", string(branchOutput))
 		// Don't return error - the worktree is already gone, branch deletion is best-effort
@@ -459,19 +437,18 @@ func findOrphansInDir(worktreesDir, repoPath string, knownSessions map[string]bo
 }
 
 // PruneOrphanedWorktrees removes all orphaned worktrees and their branches
-func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
+func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config.Config) (int, error) {
 	orphans, err := FindOrphanedWorktrees(cfg)
 	if err != nil {
 		return 0, err
 	}
 
-	ctx := context.Background()
 	pruned := 0
 	for _, orphan := range orphans {
 		logger.Log("Session: Pruning orphaned worktree: %s", orphan.Path)
 
 		// Try to remove via git worktree remove first
-		_, _, err := executor.Run(ctx, orphan.RepoPath, "git", "worktree", "remove", orphan.Path, "--force")
+		_, _, err := s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "remove", orphan.Path, "--force")
 		if err != nil {
 			// If git command fails, try direct removal
 			logger.Warn("Session: git worktree remove failed, trying direct removal")
@@ -482,11 +459,11 @@ func PruneOrphanedWorktrees(cfg *config.Config) (int, error) {
 		}
 
 		// Prune worktree references
-		executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune")
+		s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune")
 
 		// Try to delete the branch
 		branchName := fmt.Sprintf("plural-%s", orphan.ID)
-		executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName)
+		s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName)
 
 		// Delete session messages file
 		if err := config.DeleteSessionMessages(orphan.ID); err != nil {

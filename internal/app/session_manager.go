@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,17 +61,24 @@ type SessionManager struct {
 	runners          map[string]claude.RunnerInterface
 	runnerFactory    RunnerFactory
 	skipMessageLoad  bool // Skip loading messages from disk (for demos/tests)
+	gitService       *git.GitService
 	mu               sync.RWMutex // Protects runners map
 }
 
 // NewSessionManager creates a new session manager.
-func NewSessionManager(cfg *config.Config) *SessionManager {
+func NewSessionManager(cfg *config.Config, gitSvc *git.GitService) *SessionManager {
 	return &SessionManager{
 		config:        cfg,
 		stateManager:  NewSessionStateManager(),
 		runners:       make(map[string]claude.RunnerInterface),
 		runnerFactory: defaultRunnerFactory,
+		gitService:    gitSvc,
 	}
+}
+
+// SetGitService sets the git service (for testing/demos).
+func (sm *SessionManager) SetGitService(svc *git.GitService) {
+	sm.gitService = svc
 }
 
 // SetRunnerFactory sets a custom runner factory (for testing).
@@ -169,8 +177,9 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 
 	// Get diff stats for the worktree
 	var diffStats *DiffStats
-	if sess.WorkTree != "" {
-		if gitStats, err := git.GetDiffStats(sess.WorkTree); err == nil {
+	if sess.WorkTree != "" && sm.gitService != nil {
+		ctx := context.Background()
+		if gitStats, err := sm.gitService.GetDiffStats(ctx, sess.WorkTree); err == nil {
 			diffStats = &DiffStats{
 				FilesChanged: gitStats.FilesChanged,
 				Additions:    gitStats.Additions,

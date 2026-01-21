@@ -8,24 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/logger"
 )
-
-// executor is the command executor used by this package.
-// It can be swapped for testing/demos via SetExecutor.
-var executor pexec.CommandExecutor = pexec.NewRealExecutor()
-
-// SetExecutor sets the command executor used by this package.
-// This is primarily used for testing and demo generation.
-func SetExecutor(e pexec.CommandExecutor) {
-	executor = e
-}
-
-// GetExecutor returns the current command executor.
-func GetExecutor() pexec.CommandExecutor {
-	return executor
-}
 
 // Configuration constants for git operations
 const (
@@ -67,13 +51,11 @@ type WorktreeStatus struct {
 }
 
 // GetWorktreeStatus returns the status of uncommitted changes in a worktree
-func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
+func (s *GitService) GetWorktreeStatus(ctx context.Context, worktreePath string) (*WorktreeStatus, error) {
 	status := &WorktreeStatus{}
 
-	ctx := context.Background()
-
 	// Get list of changed files using git status --porcelain
-	output, err := executor.Output(ctx, worktreePath, "git", "status", "--porcelain")
+	output, err := s.executor.Output(ctx, worktreePath, "git", "status", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
@@ -121,18 +103,18 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	}
 
 	// Get diff (use --no-ext-diff to ensure output goes to stdout even if external diff is configured)
-	diffOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
+	diffOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
 		// If HEAD doesn't exist (new repo), try diff without HEAD
 		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
-		diffOutput, err = executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
+		diffOutput, err = s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
 		if err != nil {
 			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
 		}
 	}
 
 	// Also include staged changes in diff-like format
-	cachedDiff, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
+	cachedDiff, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
 	}
@@ -140,13 +122,13 @@ func GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
 	status.Diff = string(diffOutput) + string(cachedDiff)
 
 	// Parse per-file diffs for detailed viewing
-	status.FileDiffs = parseFileDiffs(worktreePath, status.Diff, status.Files, fileStatuses)
+	status.FileDiffs = s.parseFileDiffs(ctx, worktreePath, status.Diff, status.Files, fileStatuses)
 
 	return status, nil
 }
 
 // parseFileDiffs splits a combined diff into per-file chunks
-func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[string]string) []FileDiff {
+func (s *GitService) parseFileDiffs(ctx context.Context, worktreePath, diff string, files []string, fileStatuses map[string]string) []FileDiff {
 	if diff == "" {
 		// No diff content from git diff - but untracked files need special handling
 		result := make([]FileDiff, 0, len(files))
@@ -157,7 +139,7 @@ func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[
 			}
 			var diffContent string
 			if status == "?" {
-				diffContent = generateUntrackedFileDiff(worktreePath, file)
+				diffContent = s.generateUntrackedFileDiff(ctx, worktreePath, file)
 			} else {
 				diffContent = "(no diff available)"
 			}
@@ -206,7 +188,7 @@ func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[
 		if diffContent == "" {
 			// For untracked files (status "?"), generate a diff showing the new file content
 			if status == "?" {
-				diffContent = generateUntrackedFileDiff(worktreePath, file)
+				diffContent = s.generateUntrackedFileDiff(ctx, worktreePath, file)
 			} else {
 				diffContent = "(no diff available - file may be binary)"
 			}
@@ -222,10 +204,10 @@ func parseFileDiffs(worktreePath, diff string, files []string, fileStatuses map[
 }
 
 // generateUntrackedFileDiff creates a diff-like output for an untracked file
-func generateUntrackedFileDiff(worktreePath, file string) string {
+func (s *GitService) generateUntrackedFileDiff(ctx context.Context, worktreePath, file string) string {
 	// Use git diff --no-index to compare /dev/null with the new file
 	// This produces a proper diff format showing the file as new
-	output, err := executor.Output(context.Background(), worktreePath, "git", "diff", "--no-ext-diff", "--no-index", "/dev/null", file)
+	output, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--no-index", "/dev/null", file)
 	if err != nil {
 		// git diff --no-index returns exit code 1 when files differ, which is expected
 		// Only treat it as an error if there's no output
@@ -238,18 +220,16 @@ func generateUntrackedFileDiff(worktreePath, file string) string {
 }
 
 // CommitAll stages all changes and commits them with the given message
-func CommitAll(worktreePath, message string) error {
+func (s *GitService) CommitAll(ctx context.Context, worktreePath, message string) error {
 	logger.Log("Git: Committing all changes in %s", worktreePath)
 
-	ctx := context.Background()
-
 	// Stage all changes
-	if output, err := executor.CombinedOutput(ctx, worktreePath, "git", "add", "-A"); err != nil {
+	if output, err := s.executor.CombinedOutput(ctx, worktreePath, "git", "add", "-A"); err != nil {
 		return fmt.Errorf("git add failed: %s - %w", string(output), err)
 	}
 
 	// Commit
-	if output, err := executor.CombinedOutput(ctx, worktreePath, "git", "commit", "-m", message); err != nil {
+	if output, err := s.executor.CombinedOutput(ctx, worktreePath, "git", "commit", "-m", message); err != nil {
 		return fmt.Errorf("git commit failed: %s - %w", string(output), err)
 	}
 
@@ -257,8 +237,8 @@ func CommitAll(worktreePath, message string) error {
 }
 
 // GenerateCommitMessage creates a commit message based on the changes (simple fallback)
-func GenerateCommitMessage(worktreePath string) (string, error) {
-	status, err := GetWorktreeStatus(worktreePath)
+func (s *GitService) GenerateCommitMessage(ctx context.Context, worktreePath string) (string, error) {
+	status, err := s.GetWorktreeStatus(ctx, worktreePath)
 	if err != nil {
 		return "", err
 	}
@@ -268,7 +248,7 @@ func GenerateCommitMessage(worktreePath string) (string, error) {
 	}
 
 	// Get the diff stats for a better message (use --no-ext-diff to ensure output goes to stdout)
-	statOutput, err := executor.Output(context.Background(), worktreePath, "git", "diff", "--no-ext-diff", "--stat", "HEAD")
+	statOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--stat", "HEAD")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --stat failed (best-effort): %v", err)
 	}
@@ -287,10 +267,10 @@ func GenerateCommitMessage(worktreePath string) (string, error) {
 }
 
 // GenerateCommitMessageWithClaude uses Claude to generate a commit message from the diff
-func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (string, error) {
+func (s *GitService) GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (string, error) {
 	logger.Log("Git: Generating commit message with Claude for %s", worktreePath)
 
-	status, err := GetWorktreeStatus(worktreePath)
+	status, err := s.GetWorktreeStatus(ctx, worktreePath)
 	if err != nil {
 		return "", err
 	}
@@ -300,18 +280,18 @@ func GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (
 	}
 
 	// Get the full diff for Claude to analyze (use --no-ext-diff to ensure output goes to stdout)
-	diffOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
+	diffOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
 		// Try without HEAD for new repos
 		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
-		diffOutput, err = executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
+		diffOutput, err = s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
 		if err != nil {
 			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
 		}
 	}
 
 	// Also get staged changes
-	cachedOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
+	cachedOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
 	}
@@ -339,7 +319,7 @@ Diff:
 %s`, strings.Join(status.Files, ", "), fullDiff)
 
 	// Call Claude CLI directly with --print for a simple response
-	output, err := executor.Output(ctx, worktreePath, "claude", "--print", "-p", prompt)
+	output, err := s.executor.Output(ctx, worktreePath, "claude", "--print", "-p", prompt)
 	if err != nil {
 		logger.Log("Git: Claude commit message generation failed: %v", err)
 		return "", fmt.Errorf("failed to generate commit message with Claude: %w", err)
@@ -356,20 +336,20 @@ Diff:
 
 // GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
 // If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
-func GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
+func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
 	logger.Log("Git: Generating PR title and body with Claude for branch %s (issue: %d)", branch, issueNumber)
 
-	defaultBranch := GetDefaultBranch(repoPath)
+	defaultBranch := s.GetDefaultBranch(ctx, repoPath)
 
 	// Get the commit log for this branch
-	commitLog, err := executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
+	commitLog, err := s.executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
 	if err != nil {
 		logger.Log("Git: Failed to get commit log: %v", err)
 		return "", "", fmt.Errorf("failed to get commit log: %w", err)
 	}
 
 	// Get the diff from base branch (use --no-ext-diff to ensure output goes to stdout)
-	diffOutput, err := executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
+	diffOutput, err := s.executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
 	if err != nil {
 		logger.Log("Git: Failed to get diff: %v", err)
 		return "", "", fmt.Errorf("failed to get diff: %w", err)
@@ -412,7 +392,7 @@ Diff:
 %s`, string(commitLog), fullDiff)
 
 	// Call Claude CLI
-	output, err := executor.Output(ctx, repoPath, "claude", "--print", "-p", prompt)
+	output, err := s.executor.Output(ctx, repoPath, "claude", "--print", "-p", prompt)
 	if err != nil {
 		logger.Log("Git: Claude PR generation failed: %v", err)
 		return "", "", fmt.Errorf("failed to generate PR with Claude: %w", err)
@@ -455,17 +435,15 @@ Diff:
 }
 
 // HasRemoteOrigin checks if the repository has a remote named "origin"
-func HasRemoteOrigin(repoPath string) bool {
-	_, _, err := executor.Run(context.Background(), repoPath, "git", "remote", "get-url", "origin")
+func (s *GitService) HasRemoteOrigin(ctx context.Context, repoPath string) bool {
+	_, _, err := s.executor.Run(ctx, repoPath, "git", "remote", "get-url", "origin")
 	return err == nil
 }
 
 // GetDefaultBranch returns the default branch name (main or master)
-func GetDefaultBranch(repoPath string) string {
-	ctx := context.Background()
-
+func (s *GitService) GetDefaultBranch(ctx context.Context, repoPath string) string {
 	// Try to get the default branch from origin
-	output, err := executor.Output(ctx, repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := s.executor.Output(ctx, repoPath, "git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		ref := strings.TrimSpace(string(output))
@@ -476,7 +454,7 @@ func GetDefaultBranch(repoPath string) string {
 	}
 
 	// Fallback: check if main exists, otherwise use master
-	_, _, err = executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "main")
+	_, _, err = s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "main")
 	if err == nil {
 		return "main"
 	}
@@ -485,8 +463,8 @@ func GetDefaultBranch(repoPath string) string {
 }
 
 // GetConflictedFiles returns the list of files with merge conflicts in a repo
-func GetConflictedFiles(repoPath string) ([]string, error) {
-	output, err := executor.Output(context.Background(), repoPath, "git", "diff", "--name-only", "--diff-filter=U")
+func (s *GitService) GetConflictedFiles(ctx context.Context, repoPath string) ([]string, error) {
+	output, err := s.executor.Output(ctx, repoPath, "git", "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conflicted files: %w", err)
 	}
@@ -519,12 +497,10 @@ func (d *BranchDivergence) CanFastForward() bool {
 // GetBranchDivergence returns how many commits the local branch is behind and ahead
 // of the remote branch. Uses git rev-list --count --left-right which outputs "behind\tahead".
 // Returns an error if either branch doesn't exist or comparison fails.
-func GetBranchDivergence(repoPath, localBranch, remoteBranch string) (*BranchDivergence, error) {
-	ctx := context.Background()
-
+func (s *GitService) GetBranchDivergence(ctx context.Context, repoPath, localBranch, remoteBranch string) (*BranchDivergence, error) {
 	// git rev-list --count --left-right remoteBranch...localBranch
 	// Output format: "behind<tab>ahead"
-	output, err := executor.Output(ctx, repoPath, "git", "rev-list", "--count", "--left-right",
+	output, err := s.executor.Output(ctx, repoPath, "git", "rev-list", "--count", "--left-right",
 		fmt.Sprintf("%s...%s", remoteBranch, localBranch))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get branch divergence: %w", err)
@@ -551,23 +527,21 @@ func GetBranchDivergence(repoPath, localBranch, remoteBranch string) (*BranchDiv
 
 // HasTrackingBranch checks if the given branch has an upstream tracking branch configured.
 // Uses git config to check for branch.<name>.remote which is set when tracking is configured.
-func HasTrackingBranch(repoPath, branch string) bool {
-	ctx := context.Background()
-	_, err := executor.Output(ctx, repoPath, "git", "config", "--get", fmt.Sprintf("branch.%s.remote", branch))
+func (s *GitService) HasTrackingBranch(ctx context.Context, repoPath, branch string) bool {
+	_, err := s.executor.Output(ctx, repoPath, "git", "config", "--get", fmt.Sprintf("branch.%s.remote", branch))
 	return err == nil
 }
 
 // RemoteBranchExists checks if a remote branch reference exists (e.g., "origin/main").
 // Uses git rev-parse --verify which exits 0 if the ref exists, non-zero otherwise.
-func RemoteBranchExists(repoPath, remoteBranch string) bool {
-	ctx := context.Background()
-	_, _, err := executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", remoteBranch)
+func (s *GitService) RemoteBranchExists(ctx context.Context, repoPath, remoteBranch string) bool {
+	_, _, err := s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", remoteBranch)
 	return err == nil
 }
 
 // AbortMerge aborts an in-progress merge
-func AbortMerge(repoPath string) error {
-	output, err := executor.CombinedOutput(context.Background(), repoPath, "git", "merge", "--abort")
+func (s *GitService) AbortMerge(ctx context.Context, repoPath string) error {
+	output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "merge", "--abort")
 	if err != nil {
 		return fmt.Errorf("failed to abort merge: %s - %w", string(output), err)
 	}
@@ -576,18 +550,16 @@ func AbortMerge(repoPath string) error {
 
 // CommitConflictResolution stages all changes and commits with the given message.
 // This is used after resolving merge conflicts to complete the merge.
-func CommitConflictResolution(repoPath, message string) error {
+func (s *GitService) CommitConflictResolution(ctx context.Context, repoPath, message string) error {
 	logger.Log("Git: Committing conflict resolution in %s", repoPath)
 
-	ctx := context.Background()
-
 	// Stage all changes
-	if output, err := executor.CombinedOutput(ctx, repoPath, "git", "add", "-A"); err != nil {
+	if output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "add", "-A"); err != nil {
 		return fmt.Errorf("git add failed: %s - %w", string(output), err)
 	}
 
 	// Commit
-	if output, err := executor.CombinedOutput(ctx, repoPath, "git", "commit", "-m", message); err != nil {
+	if output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "commit", "-m", message); err != nil {
 		return fmt.Errorf("git commit failed: %s - %w", string(output), err)
 	}
 
@@ -597,23 +569,23 @@ func CommitConflictResolution(repoPath, message string) error {
 // MergeToMain merges a branch into the default branch
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
-func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
+func (s *GitService) MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
 		defer close(ch)
 
-		defaultBranch := GetDefaultBranch(repoPath)
+		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
 		logger.Log("Git: Merging %s into %s in %s (worktree: %s)", branch, defaultBranch, repoPath, worktreePath)
 
 		// First, check for uncommitted changes in the worktree and commit them
-		if !EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
+		if !s.EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
 			return
 		}
 
 		// Checkout the default branch
 		ch <- Result{Output: fmt.Sprintf("Checking out %s...\n", defaultBranch)}
-		output, err := executor.CombinedOutput(ctx, repoPath, "git", "checkout", defaultBranch)
+		output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "checkout", defaultBranch)
 		if err != nil {
 			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to checkout %s: %w", defaultBranch, err), Done: true}
 			return
@@ -622,15 +594,15 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 
 		// Check if we need to sync with remote before merging
 		// Use programmatic checks instead of string matching on error messages
-		if HasRemoteOrigin(repoPath) {
+		if s.HasRemoteOrigin(ctx, repoPath) {
 			remoteBranch := fmt.Sprintf("origin/%s", defaultBranch)
 
 			// Fetch to update remote refs
 			ch <- Result{Output: "Fetching from origin...\n"}
-			output, err = executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
+			output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
 			if err != nil {
 				// Fetch failed - check if remote branch exists
-				if !RemoteBranchExists(repoPath, remoteBranch) {
+				if !s.RemoteBranchExists(ctx, repoPath, remoteBranch) {
 					ch <- Result{Output: "Remote branch not found, continuing with local merge...\n"}
 				} else {
 					ch <- Result{Output: string(output), Error: fmt.Errorf("failed to fetch from origin: %w", err), Done: true}
@@ -640,7 +612,7 @@ func MergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 				ch <- Result{Output: string(output)}
 
 				// Check for divergence using programmatic git commands
-				divergence, divErr := GetBranchDivergence(repoPath, defaultBranch, remoteBranch)
+				divergence, divErr := s.GetBranchDivergence(ctx, repoPath, defaultBranch, remoteBranch)
 				if divErr != nil {
 					logger.Log("Git: Warning - could not check divergence: %v", divErr)
 				} else if divergence.IsDiverged() {
@@ -666,7 +638,7 @@ Then try merging again.
 				} else if divergence.Behind > 0 {
 					// Local is behind, can fast-forward - pull the changes
 					ch <- Result{Output: fmt.Sprintf("Pulling %d commit(s) from origin...\n", divergence.Behind)}
-					output, err = executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
+					output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
 					if err != nil {
 						ch <- Result{Output: string(output), Error: fmt.Errorf("failed to pull: %w", err), Done: true}
 						return
@@ -676,16 +648,16 @@ Then try merging again.
 					ch <- Result{Output: "Already up to date with origin.\n"}
 				}
 			}
-		} else if !HasTrackingBranch(repoPath, defaultBranch) {
+		} else if !s.HasTrackingBranch(ctx, repoPath, defaultBranch) {
 			ch <- Result{Output: "No remote configured, continuing with local merge...\n"}
 		}
 
 		// Merge the branch
 		ch <- Result{Output: fmt.Sprintf("Merging %s...\n", branch)}
-		output, err = executor.CombinedOutput(ctx, repoPath, "git", "merge", branch, "--no-edit")
+		output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "merge", branch, "--no-edit")
 		if err != nil {
 			// Check if this is a merge conflict
-			conflictedFiles, conflictErr := GetConflictedFiles(repoPath)
+			conflictedFiles, conflictErr := s.GetConflictedFiles(ctx, repoPath)
 			if conflictErr == nil && len(conflictedFiles) > 0 {
 				// This is a merge conflict - include the conflicted files in the result
 				ch <- Result{
@@ -723,13 +695,13 @@ Or abort the merge with: git merge --abort
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
 // If issueNumber is provided (non-zero), "Fixes #N" will be added to the PR body
-func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string, issueNumber int) <-chan Result {
+func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string, issueNumber int) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
 		defer close(ch)
 
-		defaultBranch := GetDefaultBranch(repoPath)
+		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
 		logger.Log("Git: Creating PR for %s -> %s in %s (worktree: %s)", branch, defaultBranch, repoPath, worktreePath)
 
 		// Check if gh CLI is available
@@ -739,13 +711,13 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 		}
 
 		// First, check for uncommitted changes in the worktree and commit them
-		if !EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
+		if !s.EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
 			return
 		}
 
 		// Push the branch
 		ch <- Result{Output: fmt.Sprintf("Pushing %s to origin...\n", branch)}
-		output, err := executor.CombinedOutput(ctx, repoPath, "git", "push", "-u", "origin", branch)
+		output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "push", "-u", "origin", branch)
 		if err != nil {
 			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to push: %w", err), Done: true}
 			return
@@ -754,7 +726,7 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 
 		// Generate PR title and body with Claude
 		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
-		prTitle, prBody, err := GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
+		prTitle, prBody, err := s.GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
 		var ghArgs []string
 		if err != nil {
 			logger.Log("Git: Claude PR generation failed, using --fill: %v", err)
@@ -768,7 +740,7 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 		}
 
 		// Run gh pr create using the executor
-		handle, err := executor.Start(ctx, repoPath, "gh", ghArgs...)
+		handle, err := s.executor.Start(ctx, repoPath, "gh", ghArgs...)
 		if err != nil {
 			ch <- Result{Error: fmt.Errorf("failed to start gh: %w", err), Done: true}
 			return
@@ -798,7 +770,7 @@ func CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg str
 // childWorktreePath is where the child's changes are - we commit uncommitted changes first
 // parentWorktreePath is where we perform the merge
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
-func MergeToParent(ctx context.Context, childWorktreePath, childBranch, parentWorktreePath, parentBranch, commitMsg string) <-chan Result {
+func (s *GitService) MergeToParent(ctx context.Context, childWorktreePath, childBranch, parentWorktreePath, parentBranch, commitMsg string) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -808,17 +780,17 @@ func MergeToParent(ctx context.Context, childWorktreePath, childBranch, parentWo
 			childBranch, parentBranch, childWorktreePath, parentWorktreePath)
 
 		// First, check for uncommitted changes in the child worktree and commit them
-		if !EnsureCommitted(ctx, ch, childWorktreePath, commitMsg) {
+		if !s.EnsureCommitted(ctx, ch, childWorktreePath, commitMsg) {
 			return
 		}
 
 		// Now merge the child branch into the parent worktree
 		// The parent worktree should already be on the parent branch
 		ch <- Result{Output: fmt.Sprintf("Merging %s into parent...\n", childBranch)}
-		output, err := executor.CombinedOutput(ctx, parentWorktreePath, "git", "merge", childBranch, "--no-edit")
+		output, err := s.executor.CombinedOutput(ctx, parentWorktreePath, "git", "merge", childBranch, "--no-edit")
 		if err != nil {
 			// Check if this is a merge conflict
-			conflictedFiles, conflictErr := GetConflictedFiles(parentWorktreePath)
+			conflictedFiles, conflictErr := s.GetConflictedFiles(ctx, parentWorktreePath)
 			if conflictErr == nil && len(conflictedFiles) > 0 {
 				// This is a merge conflict - include the conflicted files in the result
 				ch <- Result{
@@ -855,7 +827,7 @@ Or abort the merge with: git merge --abort
 // PushUpdates commits any uncommitted changes and pushes to the remote branch.
 // This is used after a PR has been created to push additional commits based on feedback.
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one.
-func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
+func (s *GitService) PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -864,13 +836,13 @@ func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 		logger.Log("Git: Pushing updates for branch %s (worktree: %s)", branch, worktreePath)
 
 		// First, check for uncommitted changes in the worktree and commit them
-		if !EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
+		if !s.EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
 			return
 		}
 
 		// Push the updates to the existing remote branch
 		ch <- Result{Output: fmt.Sprintf("Pushing updates to %s...\n", branch)}
-		output, err := executor.CombinedOutput(ctx, repoPath, "git", "push", "origin", branch)
+		output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "push", "origin", branch)
 		if err != nil {
 			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to push: %w", err), Done: true}
 			return
@@ -886,7 +858,7 @@ func PushUpdates(ctx context.Context, repoPath, worktreePath, branch, commitMsg 
 // GenerateBranchNamesFromOptions uses Claude to generate short, descriptive git branch names
 // from a list of option texts. Returns a map from option number to branch name.
 // This batches all options into a single Claude call for efficiency.
-func GenerateBranchNamesFromOptions(ctx context.Context, options []struct {
+func (s *GitService) GenerateBranchNamesFromOptions(ctx context.Context, options []struct {
 	Number int
 	Text   string
 }) (map[int]string, error) {
@@ -917,7 +889,7 @@ Example output format:
 2. use-redis-cache
 3. sqlite-backend`, optionsList.String())
 
-	output, err := executor.Output(ctx, "", "claude", "--print", "-p", prompt)
+	output, err := s.executor.Output(ctx, "", "claude", "--print", "-p", prompt)
 	if err != nil {
 		logger.Log("Git: Claude branch name generation failed: %v", err)
 		return nil, fmt.Errorf("failed to generate branch names with Claude: %w", err)
@@ -993,12 +965,11 @@ type DiffStats struct {
 
 // GetDiffStats returns the diff statistics (files changed, additions, deletions)
 // for uncommitted changes in the given worktree.
-func GetDiffStats(worktreePath string) (*DiffStats, error) {
-	ctx := context.Background()
+func (s *GitService) GetDiffStats(ctx context.Context, worktreePath string) (*DiffStats, error) {
 	stats := &DiffStats{}
 
 	// Get list of changed files using git status --porcelain
-	output, err := executor.Output(ctx, worktreePath, "git", "status", "--porcelain")
+	output, err := s.executor.Output(ctx, worktreePath, "git", "status", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("git status failed: %w", err)
 	}
@@ -1027,13 +998,13 @@ func GetDiffStats(worktreePath string) (*DiffStats, error) {
 
 	// Get diff stats using git diff --numstat for unstaged changes
 	// (without HEAD to get only working tree changes vs staged)
-	numstatOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--numstat")
+	numstatOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--numstat")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --numstat failed: %v", err)
 	}
 
 	// Get staged changes separately
-	cachedOutput, err := executor.Output(ctx, worktreePath, "git", "diff", "--numstat", "--cached")
+	cachedOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--numstat", "--cached")
 	if err != nil {
 		logger.Log("Git: Warning - git diff --numstat --cached failed: %v", err)
 	}
@@ -1068,7 +1039,7 @@ func GetDiffStats(worktreePath string) (*DiffStats, error) {
 	// Count lines in untracked files (all lines are additions)
 	// git diff --numstat doesn't include untracked files
 	for _, filename := range untrackedFiles {
-		lineCount, err := countFileLines(worktreePath, filename)
+		lineCount, err := s.countFileLines(ctx, worktreePath, filename)
 		if err != nil {
 			logger.Log("Git: Warning - failed to count lines in untracked file %s: %v", filename, err)
 			continue
@@ -1081,12 +1052,10 @@ func GetDiffStats(worktreePath string) (*DiffStats, error) {
 
 // countFileLines counts the number of lines in a file using git ls-files to check
 // if it's a text file, then wc -l for line count. For binary files, returns 0.
-func countFileLines(worktreePath, filename string) (int, error) {
-	ctx := context.Background()
-
+func (s *GitService) countFileLines(ctx context.Context, worktreePath, filename string) (int, error) {
 	// Use git diff --no-index --numstat to get line count for untracked file
 	// This compares /dev/null with the file, giving us the additions count
-	output, err := executor.Output(ctx, worktreePath, "git", "diff", "--no-index", "--numstat", "/dev/null", filename)
+	output, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-index", "--numstat", "/dev/null", filename)
 	if err != nil {
 		// git diff --no-index returns exit code 1 when files differ, which is expected
 		// Only treat it as an error if there's no output
@@ -1125,8 +1094,8 @@ type GitHubIssue struct {
 
 // FetchGitHubIssues fetches open issues from a GitHub repository using the gh CLI.
 // The repoPath is used as the working directory to determine which repo to query.
-func FetchGitHubIssues(repoPath string) ([]GitHubIssue, error) {
-	output, err := executor.Output(context.Background(), repoPath, "gh", "issue", "list",
+func (s *GitService) FetchGitHubIssues(ctx context.Context, repoPath string) ([]GitHubIssue, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "issue", "list",
 		"--json", "number,title,body,url",
 		"--state", "open",
 	)
@@ -1144,8 +1113,8 @@ func FetchGitHubIssues(repoPath string) ([]GitHubIssue, error) {
 
 // RenameBranch renames a git branch in the given worktree.
 // The worktree must have the branch checked out.
-func RenameBranch(worktreePath, oldName, newName string) error {
-	output, err := executor.CombinedOutput(context.Background(), worktreePath, "git", "branch", "-m", oldName, newName)
+func (s *GitService) RenameBranch(ctx context.Context, worktreePath, oldName, newName string) error {
+	output, err := s.executor.CombinedOutput(ctx, worktreePath, "git", "branch", "-m", oldName, newName)
 	if err != nil {
 		return fmt.Errorf("git branch rename failed: %s: %w", string(output), err)
 	}

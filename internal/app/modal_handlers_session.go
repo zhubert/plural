@@ -1,9 +1,10 @@
 package app
 
 import (
+	"context"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
@@ -28,7 +29,8 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			m.modal.SetError("Please enter a path")
 			return m, nil
 		}
-		if err := session.ValidateRepo(path); err != nil {
+		ctx := context.Background()
+		if err := m.sessionService.ValidateRepo(ctx, path); err != nil {
 			m.modal.SetError(err.Error())
 			return m, nil
 		}
@@ -89,7 +91,8 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			fullBranchName = "" // Will be auto-generated
 		}
 		// Check if branch already exists
-		if fullBranchName != "" && session.BranchExists(repoPath, fullBranchName) {
+		ctx := context.Background()
+		if fullBranchName != "" && m.sessionService.BranchExists(ctx, repoPath, fullBranchName) {
 			m.modal.SetError("Branch already exists: " + fullBranchName)
 			return m, nil
 		}
@@ -98,7 +101,7 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			basePoint = session.BasePointHead
 		}
 		logger.Log("App: Creating new session for repo=%s, branch=%q, prefix=%q, basePoint=%v", repoPath, branchName, branchPrefix, basePoint)
-		sess, err := session.Create(repoPath, branchName, branchPrefix, basePoint)
+		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
 		if err != nil {
 			logger.Log("App: Failed to create session: %v", err)
 			m.modal.SetError(err.Error())
@@ -136,7 +139,8 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 
 			// Delete worktree if requested
 			if deleteWorktree {
-				if err := session.Delete(sess); err != nil {
+				ctx := context.Background()
+				if err := m.sessionService.Delete(ctx, sess); err != nil {
 					logger.Log("App: Failed to delete worktree: %v", err)
 					// Continue with session removal even if worktree deletion fails
 				}
@@ -207,7 +211,8 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			fullBranchName = "" // Will be auto-generated
 		}
 		// Check if branch already exists
-		if fullBranchName != "" && session.BranchExists(state.RepoPath, fullBranchName) {
+		ctx := context.Background()
+		if fullBranchName != "" && m.sessionService.BranchExists(ctx, state.RepoPath, fullBranchName) {
 			m.modal.SetError("Branch already exists: " + fullBranchName)
 			return m, nil
 		}
@@ -223,7 +228,7 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			state.ParentSessionID, parentSess.Branch, state.CopyMessages, branchName, branchPrefix)
 
 		// Create new session forked from parent's branch
-		sess, err := session.CreateFromBranch(state.RepoPath, parentSess.Branch, branchName, branchPrefix)
+		sess, err := m.sessionService.CreateFromBranch(ctx, state.RepoPath, parentSess.Branch, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create forked session: %v", err)
 			m.modal.SetError(err.Error())
@@ -307,14 +312,15 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 		}
 
 		// Check if new branch already exists (unless it's the same name)
-		if newBranch != oldBranch && session.BranchExists(sess.RepoPath, newBranch) {
+		ctx := context.Background()
+		if newBranch != oldBranch && m.sessionService.BranchExists(ctx, sess.RepoPath, newBranch) {
 			m.modal.SetError("Branch already exists: " + newBranch)
 			return m, nil
 		}
 
 		// Rename the git branch
 		if newBranch != oldBranch {
-			if err := git.RenameBranch(sess.WorkTree, oldBranch, newBranch); err != nil {
+			if err := m.gitService.RenameBranch(ctx, sess.WorkTree, oldBranch, newBranch); err != nil {
 				m.modal.SetError("Failed to rename branch: " + err.Error())
 				return m, nil
 			}

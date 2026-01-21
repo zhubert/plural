@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,10 @@ import (
 
 	"github.com/zhubert/plural/internal/config"
 )
+
+// Test helper variables
+var svc = NewSessionService()
+var ctx = context.Background()
 
 // createTestRepo creates a temporary git repository for testing
 func createTestRepo(t *testing.T) string {
@@ -73,7 +78,7 @@ func TestCreate(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -122,12 +127,12 @@ func TestCreate_MultipleSessions(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create multiple sessions
-	session1, err := Create(repoPath, "", "", BasePointHead)
+	session1, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create session1 failed: %v", err)
 	}
 
-	session2, err := Create(repoPath, "", "", BasePointHead)
+	session2, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create session2 failed: %v", err)
 	}
@@ -156,7 +161,7 @@ func TestCreate_InvalidRepo(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Try to create session in non-git directory
-	_, err = Create(tmpDir, "", "", BasePointHead)
+	_, err = svc.Create(ctx, tmpDir, "", "", BasePointHead)
 	if err == nil {
 		t.Error("Create should fail for non-git directory")
 	}
@@ -166,7 +171,7 @@ func TestValidateRepo_Valid(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	err := ValidateRepo(repoPath)
+	err := svc.ValidateRepo(ctx, repoPath)
 	if err != nil {
 		t.Errorf("ValidateRepo failed for valid repo: %v", err)
 	}
@@ -179,14 +184,14 @@ func TestValidateRepo_Invalid(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	err = ValidateRepo(tmpDir)
+	err = svc.ValidateRepo(ctx, tmpDir)
 	if err == nil {
 		t.Error("ValidateRepo should fail for non-git directory")
 	}
 }
 
 func TestValidateRepo_TildePath(t *testing.T) {
-	err := ValidateRepo("~/some/path")
+	err := svc.ValidateRepo(ctx, "~/some/path")
 	if err == nil {
 		t.Error("ValidateRepo should reject ~ paths")
 	}
@@ -196,7 +201,7 @@ func TestValidateRepo_TildePath(t *testing.T) {
 }
 
 func TestValidateRepo_NonexistentPath(t *testing.T) {
-	err := ValidateRepo("/nonexistent/path/to/repo")
+	err := svc.ValidateRepo(ctx, "/nonexistent/path/to/repo")
 	if err == nil {
 		t.Error("ValidateRepo should fail for nonexistent path")
 	}
@@ -206,7 +211,7 @@ func TestGetGitRoot_Valid(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	root := GetGitRoot(repoPath)
+	root := svc.GetGitRoot(ctx, repoPath)
 
 	// Resolve symlinks for comparison (macOS has /var -> /private/var)
 	expectedPath, _ := filepath.EvalSymlinks(repoPath)
@@ -227,7 +232,7 @@ func TestGetGitRoot_Subdirectory(t *testing.T) {
 		t.Fatalf("Failed to create subdir: %v", err)
 	}
 
-	root := GetGitRoot(subDir)
+	root := svc.GetGitRoot(ctx, subDir)
 
 	// Resolve symlinks for comparison (macOS has /var -> /private/var)
 	expectedPath, _ := filepath.EvalSymlinks(repoPath)
@@ -245,14 +250,14 @@ func TestGetGitRoot_Invalid(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	root := GetGitRoot(tmpDir)
+	root := svc.GetGitRoot(ctx, tmpDir)
 	if root != "" {
 		t.Errorf("GetGitRoot for non-git dir = %q, want empty string", root)
 	}
 }
 
 func TestGetGitRoot_Nonexistent(t *testing.T) {
-	root := GetGitRoot("/nonexistent/path")
+	root := svc.GetGitRoot(ctx, "/nonexistent/path")
 	if root != "" {
 		t.Errorf("GetGitRoot for nonexistent path = %q, want empty string", root)
 	}
@@ -274,7 +279,7 @@ func TestGetCurrentDirGitRoot(t *testing.T) {
 		t.Fatalf("Failed to change directory: %v", err)
 	}
 
-	root := GetCurrentDirGitRoot()
+	root := svc.GetCurrentDirGitRoot(ctx)
 
 	// Resolve symlinks for comparison (macOS has /var -> /private/var)
 	expectedPath, _ := filepath.EvalSymlinks(repoPath)
@@ -290,7 +295,7 @@ func TestSessionName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -322,7 +327,7 @@ func TestBranchName_Format(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -345,7 +350,7 @@ func TestWorktreePath_Location(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 	defer cleanupWorktrees(repoPath)
 
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -369,7 +374,7 @@ func TestCreate_CustomBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	customBranch := "feature/my-cool-feature"
-	session, err := Create(repoPath, customBranch, "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, customBranch, "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create with custom branch failed: %v", err)
 	}
@@ -418,12 +423,12 @@ func TestBranchExists(t *testing.T) {
 
 	// The default branch should exist (main or master)
 	// Check for main first, then master
-	if !BranchExists(repoPath, "main") && !BranchExists(repoPath, "master") {
+	if !svc.BranchExists(ctx, repoPath, "main") && !svc.BranchExists(ctx, repoPath, "master") {
 		t.Error("Expected default branch to exist")
 	}
 
 	// A random branch should not exist
-	if BranchExists(repoPath, "nonexistent-branch-12345") {
+	if svc.BranchExists(ctx, repoPath, "nonexistent-branch-12345") {
 		t.Error("Expected nonexistent branch to not exist")
 	}
 }
@@ -434,7 +439,7 @@ func TestDelete(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session first
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -445,12 +450,12 @@ func TestDelete(t *testing.T) {
 	}
 
 	// Verify branch exists
-	if !BranchExists(repoPath, session.Branch) {
+	if !svc.BranchExists(ctx, repoPath, session.Branch) {
 		t.Fatal("Branch should exist before delete")
 	}
 
 	// Delete the session
-	err = Delete(session)
+	err = svc.Delete(ctx, session)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
@@ -461,7 +466,7 @@ func TestDelete(t *testing.T) {
 	}
 
 	// Verify branch is deleted
-	if BranchExists(repoPath, session.Branch) {
+	if svc.BranchExists(ctx, repoPath, session.Branch) {
 		t.Error("Branch should be deleted")
 	}
 }
@@ -479,7 +484,7 @@ func TestDelete_NonexistentWorktree(t *testing.T) {
 	}
 
 	// Delete should return an error but not panic
-	err := Delete(session)
+	err := svc.Delete(ctx, session)
 	if err == nil {
 		t.Error("Expected error when deleting nonexistent worktree")
 	}
@@ -491,7 +496,7 @@ func TestDelete_AlreadyDeletedBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -506,7 +511,7 @@ func TestDelete_AlreadyDeletedBranch(t *testing.T) {
 	cmd.Run()
 
 	// Delete should handle this gracefully (branch deletion is best-effort)
-	err = Delete(session)
+	err = svc.Delete(ctx, session)
 	// Error is expected since worktree is already gone
 	// But it shouldn't panic
 }
@@ -517,7 +522,7 @@ func TestFindOrphanedWorktrees(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -584,7 +589,7 @@ func TestPruneOrphanedWorktrees(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a session
-	session, err := Create(repoPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -601,7 +606,7 @@ func TestPruneOrphanedWorktrees(t *testing.T) {
 	}
 
 	// Prune orphans
-	pruned, err := PruneOrphanedWorktrees(cfg)
+	pruned, err := svc.PruneOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		t.Fatalf("PruneOrphanedWorktrees failed: %v", err)
 	}
@@ -640,7 +645,7 @@ func TestCreate_CustomBranchDisplayName(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	customBranch := "feature/my-feature"
-	session, err := Create(repoPath, customBranch, "", BasePointHead)
+	session, err := svc.Create(ctx, repoPath, customBranch, "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -657,7 +662,7 @@ func TestCreate_BranchPrefix(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	branchPrefix := "zhubert/"
-	session, err := Create(repoPath, "", branchPrefix, BasePointHead)
+	session, err := svc.Create(ctx, repoPath, "", branchPrefix, BasePointHead)
 	if err != nil {
 		t.Fatalf("Create with branch prefix failed: %v", err)
 	}
@@ -686,7 +691,7 @@ func TestCreate_BranchPrefixWithCustomBranch(t *testing.T) {
 
 	branchPrefix := "zhubert/"
 	customBranch := "issue-42"
-	session, err := Create(repoPath, customBranch, branchPrefix, BasePointHead)
+	session, err := svc.Create(ctx, repoPath, customBranch, branchPrefix, BasePointHead)
 	if err != nil {
 		t.Fatalf("Create with branch prefix and custom branch failed: %v", err)
 	}
@@ -708,7 +713,7 @@ func TestGetDefaultBranch_LocalOnly(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 
 	// Local-only repo has no remote, should return "main" as fallback
-	branch := GetDefaultBranch(repoPath)
+	branch := svc.GetDefaultBranch(ctx, repoPath)
 	if branch != "main" {
 		t.Errorf("GetDefaultBranch for local-only repo = %q, want %q", branch, "main")
 	}
@@ -719,7 +724,7 @@ func TestFetchOrigin_NoRemote(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 
 	// Fetch on a repo with no remote should succeed (no-op)
-	err := FetchOrigin(repoPath)
+	err := svc.FetchOrigin(ctx, repoPath)
 	if err != nil {
 		t.Errorf("FetchOrigin on local-only repo should not error: %v", err)
 	}
@@ -826,7 +831,7 @@ func TestGetDefaultBranch_WithRemote(t *testing.T) {
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
 
-	branch := GetDefaultBranch(localPath)
+	branch := svc.GetDefaultBranch(ctx, localPath)
 	if branch != "main" {
 		t.Errorf("GetDefaultBranch = %q, want %q", branch, "main")
 	}
@@ -837,7 +842,7 @@ func TestFetchOrigin_WithRemote(t *testing.T) {
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
 
-	err := FetchOrigin(localPath)
+	err := svc.FetchOrigin(ctx, localPath)
 	if err != nil {
 		t.Errorf("FetchOrigin failed: %v", err)
 	}
@@ -903,7 +908,7 @@ func TestCreate_UsesOriginMain(t *testing.T) {
 
 	// Now the local repo is behind the remote
 	// Creating a session should fetch and use the remote's latest commit
-	session, err := Create(localPath, "", "", BasePointOrigin)
+	session, err := svc.Create(ctx, localPath, "", "", BasePointOrigin)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -934,7 +939,7 @@ func TestCreateFromBranch(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a first session (simulating a parent session)
-	parentSession, err := Create(repoPath, "parent-branch", "", BasePointHead)
+	parentSession, err := svc.Create(ctx, repoPath, "parent-branch", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Failed to create parent session: %v", err)
 	}
@@ -966,7 +971,7 @@ func TestCreateFromBranch(t *testing.T) {
 	parentHeadSHA := strings.TrimSpace(string(parentHead))
 
 	// Create a forked session from the parent's branch
-	forkedSession, err := CreateFromBranch(repoPath, parentSession.Branch, "forked-branch", "")
+	forkedSession, err := svc.CreateFromBranch(ctx, repoPath, parentSession.Branch, "forked-branch", "")
 	if err != nil {
 		t.Fatalf("CreateFromBranch failed: %v", err)
 	}
@@ -1002,14 +1007,14 @@ func TestCreateFromBranch_WithBranchPrefix(t *testing.T) {
 	defer cleanupWorktrees(repoPath)
 
 	// Create a first session
-	parentSession, err := Create(repoPath, "", "", BasePointHead)
+	parentSession, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Failed to create parent session: %v", err)
 	}
 
 	// Create a forked session with a branch prefix
 	branchPrefix := "user/"
-	forkedSession, err := CreateFromBranch(repoPath, parentSession.Branch, "my-fork", branchPrefix)
+	forkedSession, err := svc.CreateFromBranch(ctx, repoPath, parentSession.Branch, "my-fork", branchPrefix)
 	if err != nil {
 		t.Fatalf("CreateFromBranch with prefix failed: %v", err)
 	}
@@ -1059,7 +1064,7 @@ func TestCreate_FromCurrentBranch(t *testing.T) {
 	localHeadSHA := strings.TrimSpace(string(localHead))
 
 	// Create a session from the current branch (fromOrigin=false)
-	session, err := Create(localPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, localPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create from current branch failed: %v", err)
 	}
@@ -1113,13 +1118,13 @@ func TestCreate_FromOriginVsCurrentBranch(t *testing.T) {
 	}
 
 	// Create a session from origin (fromOrigin=true)
-	sessionFromOrigin, err := Create(localPath, "from-origin", "", BasePointOrigin)
+	sessionFromOrigin, err := svc.Create(ctx, localPath, "from-origin", "", BasePointOrigin)
 	if err != nil {
 		t.Fatalf("Create from origin failed: %v", err)
 	}
 
 	// Create a session from current branch (fromOrigin=false)
-	sessionFromCurrent, err := Create(localPath, "from-current", "", BasePointHead)
+	sessionFromCurrent, err := svc.Create(ctx, localPath, "from-current", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create from current branch failed: %v", err)
 	}
@@ -1144,7 +1149,7 @@ func TestCreate_BaseBranch_FromOrigin(t *testing.T) {
 	defer cleanupWorktrees(localPath)
 
 	// Create a session from origin
-	session, err := Create(localPath, "", "", BasePointOrigin)
+	session, err := svc.Create(ctx, localPath, "", "", BasePointOrigin)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -1169,7 +1174,7 @@ func TestCreate_BaseBranch_FromCurrentBranch(t *testing.T) {
 	}
 
 	// Create a session from current branch
-	session, err := Create(localPath, "", "", BasePointHead)
+	session, err := svc.Create(ctx, localPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -1193,7 +1198,7 @@ func TestCreateFromBranch_BaseBranch(t *testing.T) {
 	}
 
 	// Create a session forked from the source branch
-	session, err := CreateFromBranch(repoPath, "source-branch", "", "")
+	session, err := svc.CreateFromBranch(ctx, repoPath, "source-branch", "", "")
 	if err != nil {
 		t.Fatalf("CreateFromBranch failed: %v", err)
 	}
