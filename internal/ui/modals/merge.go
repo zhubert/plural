@@ -482,3 +482,80 @@ func NewConfirmDeleteRepoState(repoPath string) *ConfirmDeleteRepoState {
 		RepoPath: repoPath,
 	}
 }
+
+// =============================================================================
+// ConfirmExitState - State for the Confirm Exit modal
+// =============================================================================
+
+type ConfirmExitState struct {
+	ActiveSessionCount int
+	Options            []string
+	SelectedIndex      int
+}
+
+func (*ConfirmExitState) modalState() {}
+
+func (s *ConfirmExitState) Title() string { return "Exit Plural?" }
+
+func (s *ConfirmExitState) Help() string {
+	return "up/down to select, Enter to confirm, Esc to cancel"
+}
+
+func (s *ConfirmExitState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Show warning about active sessions
+	var message string
+	if s.ActiveSessionCount == 1 {
+		message = "There is 1 active session running."
+	} else {
+		message = fmt.Sprintf("There are %d active sessions running.", s.ActiveSessionCount)
+	}
+
+	messageStyle := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginBottom(1)
+	messageRendered := messageStyle.Render(message)
+
+	warningStyle := lipgloss.NewStyle().
+		Foreground(ColorText).
+		MarginBottom(1)
+	warning := warningStyle.Render("Exiting will terminate all Claude processes.")
+
+	optionList := RenderSelectableList(s.Options, s.SelectedIndex)
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, messageRendered, warning, optionList, help)
+}
+
+func (s *ConfirmExitState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		switch keyMsg.String() {
+		case "up", "k":
+			if s.SelectedIndex > 0 {
+				s.SelectedIndex--
+			}
+		case "down", "j":
+			if s.SelectedIndex < len(s.Options)-1 {
+				s.SelectedIndex++
+			}
+		}
+	}
+	return s, nil
+}
+
+// ShouldExit returns true if user selected to exit
+func (s *ConfirmExitState) ShouldExit() bool {
+	return s.SelectedIndex == 1 // "Exit" is index 1
+}
+
+// NewConfirmExitState creates a new ConfirmExitState
+func NewConfirmExitState(activeSessionCount int) *ConfirmExitState {
+	return &ConfirmExitState{
+		ActiveSessionCount: activeSessionCount,
+		Options:            []string{"Cancel", "Exit"},
+		SelectedIndex:      0,
+	}
+}
