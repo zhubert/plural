@@ -2622,3 +2622,682 @@ func TestChat_ClearTodoList(t *testing.T) {
 		t.Error("Expected GetTodoList() to return nil after clear")
 	}
 }
+
+// =============================================================================
+// Width Calculation Tests
+// =============================================================================
+
+// TestWidthConstants verifies that the width constants are consistent
+// with the actual prefixes used in rendering.
+func TestWidthConstants(t *testing.T) {
+	// Verify ListItemPrefixWidth matches visual width of "  • " (2 spaces + bullet + space)
+	// Note: We use lipgloss.Width for visual width since bullet is multi-byte UTF-8
+	prefix := "  • "
+	visualWidth := lipgloss.Width(prefix)
+	if visualWidth != ListItemPrefixWidth {
+		t.Errorf("ListItemPrefixWidth = %d, but actual prefix %q has visual width %d",
+			ListItemPrefixWidth, prefix, visualWidth)
+	}
+
+	// Verify ListItemContinuationIndent matches prefix width
+	if ListItemContinuationIndent != ListItemPrefixWidth {
+		t.Errorf("ListItemContinuationIndent (%d) != ListItemPrefixWidth (%d)",
+			ListItemContinuationIndent, ListItemPrefixWidth)
+	}
+
+	// Verify NumberedListPrefixWidth for single-digit numbers "  1. "
+	numPrefix := "  1. "
+	numVisualWidth := lipgloss.Width(numPrefix)
+	if numVisualWidth != NumberedListPrefixWidth {
+		t.Errorf("NumberedListPrefixWidth = %d, but actual prefix %q has visual width %d",
+			NumberedListPrefixWidth, numPrefix, numVisualWidth)
+	}
+
+	// Verify ContentPadding equals Padding(0, 1) effect (1 char on each side)
+	if ContentPadding != 2 {
+		t.Errorf("ContentPadding should be 2 (1 left + 1 right), got %d", ContentPadding)
+	}
+
+	// Verify BorderSize equals 2 (top + bottom borders)
+	if BorderSize != 2 {
+		t.Errorf("BorderSize should be 2 (1 top + 1 bottom), got %d", BorderSize)
+	}
+}
+
+// TestListItemWrapping verifies that list items wrap correctly and
+// continuation lines align with the first line.
+func TestListItemWrapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		line     string
+		width    int
+		checkFn  func(result string) error
+	}{
+		{
+			name:  "unordered list wraps at correct width",
+			line:  "- This is a long list item that should wrap to multiple lines when the width is narrow enough",
+			width: 40,
+			checkFn: func(result string) error {
+				lines := strings.Split(result, "\n")
+				if len(lines) < 2 {
+					return nil // Content might fit, that's ok
+				}
+				// First line should start with "  • "
+				if !strings.HasPrefix(lines[0], "  ") {
+					return errorf("first line should start with 2 spaces, got: %q", lines[0])
+				}
+				// Continuation lines should be indented with spaces
+				for i := 1; i < len(lines); i++ {
+					if !strings.HasPrefix(lines[i], "    ") {
+						return errorf("continuation line %d should start with 4 spaces, got: %q", i, lines[i])
+					}
+				}
+				return nil
+			},
+		},
+		{
+			name:  "numbered list wraps at correct width",
+			line:  "1. This is a long numbered list item that should wrap to multiple lines when the width is narrow",
+			width: 40,
+			checkFn: func(result string) error {
+				lines := strings.Split(result, "\n")
+				if len(lines) < 2 {
+					return nil // Content might fit
+				}
+				// First line should start with "  1. " (or styled version)
+				if !strings.HasPrefix(lines[0], "  ") {
+					return errorf("first line should start with 2 spaces, got: %q", lines[0])
+				}
+				// Continuation lines should be indented with 5 spaces for single-digit numbers
+				for i := 1; i < len(lines); i++ {
+					if !strings.HasPrefix(lines[i], "     ") {
+						return errorf("continuation line %d should start with 5 spaces, got: %q", i, lines[i])
+					}
+				}
+				return nil
+			},
+		},
+		{
+			name:  "double-digit numbered list has correct indent",
+			line:  "10. This is item ten which has a wider prefix and should wrap correctly",
+			width: 40,
+			checkFn: func(result string) error {
+				lines := strings.Split(result, "\n")
+				if len(lines) < 2 {
+					return nil // Content might fit
+				}
+				// Continuation lines should be indented with 6 spaces for double-digit numbers
+				for i := 1; i < len(lines); i++ {
+					if !strings.HasPrefix(lines[i], "      ") {
+						return errorf("continuation line %d should start with 6 spaces for double-digit, got: %q", i, lines[i])
+					}
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := renderMarkdownLine(tt.line, tt.width)
+			if err := tt.checkFn(result); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+// errorf is a helper that returns an error with formatting
+func errorf(format string, args ...interface{}) error {
+	return &testError{msg: sprintf(format, args...)}
+}
+
+type testError struct{ msg string }
+
+func (e *testError) Error() string { return e.msg }
+
+func sprintf(format string, args ...interface{}) string {
+	// Simple sprintf implementation for test errors
+	result := format
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case string:
+			result = strings.Replace(result, "%q", "\""+v+"\"", 1)
+			result = strings.Replace(result, "%s", v, 1)
+		case int:
+			result = strings.Replace(result, "%d", itoa(v), 1)
+		}
+	}
+	return result
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	var s string
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	for i > 0 {
+		s = string(rune('0'+i%10)) + s
+		i /= 10
+	}
+	if neg {
+		s = "-" + s
+	}
+	return s
+}
+
+// TestBlockquoteWrapping verifies blockquote content wraps correctly
+func TestBlockquoteWrapping(t *testing.T) {
+	line := "> This is a long blockquote that should be wrapped to fit within the available width minus the blockquote prefix"
+	result := renderMarkdownLine(line, 50)
+
+	// Result should contain the content
+	if !strings.Contains(result, "blockquote") {
+		t.Error("Result should contain 'blockquote'")
+	}
+
+	// Visual width of each line should not exceed the width
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		visualWidth := lipgloss.Width(line)
+		if visualWidth > 55 { // Allow some buffer for styling
+			t.Errorf("Line %d visual width %d exceeds limit: %q", i, visualWidth, line)
+		}
+	}
+}
+
+// =============================================================================
+// Message Cache Behavior Tests
+// =============================================================================
+
+// TestMessageCache_InvalidatesOnWidthChange verifies the cache is re-rendered
+// when viewport width changes.
+func TestMessageCache_InvalidatesOnWidthChange(t *testing.T) {
+	chat := NewChat()
+
+	// Set initial size first, then session
+	chat.SetSize(80, 24)
+	chat.SetSession("test", []claude.Message{
+		{Role: "user", Content: "Hello world"},
+		{Role: "assistant", Content: "Hi there"},
+	})
+
+	// Force render to populate cache
+	chat.View()
+
+	// Cache should be populated after View
+	if len(chat.messageCache) != 2 {
+		t.Fatalf("Expected 2 cached messages after initial render, got %d", len(chat.messageCache))
+	}
+
+	// Remember the wrap width from first render
+	firstWrapWidth := chat.messageCache[0].wrapWidth
+
+	// Change width significantly - this triggers re-render with new wrap width
+	chat.SetSize(120, 24)
+
+	// After SetSize with width change, cache should be repopulated (not nil)
+	// because SetSize now calls updateContent() when width changes
+	if len(chat.messageCache) != 2 {
+		t.Fatalf("Expected 2 cached messages after resize, got %d", len(chat.messageCache))
+	}
+
+	// Wrap width should be different
+	secondWrapWidth := chat.messageCache[0].wrapWidth
+	if secondWrapWidth == firstWrapWidth {
+		t.Errorf("Expected different wrap width after resize, but both are %d", firstWrapWidth)
+	}
+}
+
+// TestMessageCache_HitsOnSameWidth verifies cache hits when content
+// and width are unchanged.
+func TestMessageCache_HitsOnSameWidth(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", []claude.Message{
+		{Role: "user", Content: "Test message"},
+	})
+
+	// Force render to populate cache
+	chat.View()
+
+	if len(chat.messageCache) == 0 {
+		t.Fatal("Cache should be populated after View")
+	}
+
+	// Get first rendered content
+	firstRendered := chat.messageCache[0].rendered
+
+	// Call View again (should use cache)
+	chat.View()
+
+	// Rendered content should be identical (same object reference or same content)
+	secondRendered := chat.messageCache[0].rendered
+	if firstRendered != secondRendered {
+		t.Error("Expected cache hit - rendered content should be identical")
+	}
+}
+
+// TestMessageCache_GrowsWithNewMessages verifies cache grows when
+// new messages are added.
+func TestMessageCache_GrowsWithNewMessages(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test", []claude.Message{
+		{Role: "user", Content: "First message"},
+	})
+
+	// Force render to populate cache
+	chat.View()
+
+	// Should have 1 cached message
+	initialCacheLen := len(chat.messageCache)
+	if initialCacheLen != 1 {
+		t.Fatalf("Expected 1 cached message, got %d", initialCacheLen)
+	}
+
+	// Add a new message through the API
+	chat.AddUserMessage("Second message")
+
+	// Cache should now have 2 entries
+	if len(chat.messageCache) != 2 {
+		t.Errorf("Expected 2 cached messages after AddUserMessage, got %d", len(chat.messageCache))
+	}
+
+	// The new message should be cached
+	if len(chat.messageCache) >= 2 && !strings.Contains(chat.messageCache[1].content, "Second") {
+		t.Error("Second message should be in cache")
+	}
+}
+
+// TestMessageCache_ClearedOnSessionChange verifies cache is cleared
+// when session changes.
+func TestMessageCache_ClearedOnSessionChange(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+	chat.SetSession("test1", []claude.Message{
+		{Role: "user", Content: "Session 1 message"},
+	})
+
+	// Force render to populate cache
+	chat.View()
+
+	// Cache should be populated
+	if len(chat.messageCache) == 0 {
+		t.Fatal("Expected cache to be populated after View")
+	}
+
+	// Change session
+	chat.SetSession("test2", []claude.Message{
+		{Role: "user", Content: "Session 2 message"},
+	})
+
+	// Force render with new session
+	chat.View()
+
+	// Verify no stale content from old session
+	if len(chat.messageCache) > 0 && strings.Contains(chat.messageCache[0].content, "Session 1") {
+		t.Error("Cache contains stale content from old session")
+	}
+
+	// Verify new session content is cached
+	if len(chat.messageCache) > 0 && !strings.Contains(chat.messageCache[0].content, "Session 2") {
+		t.Error("Cache should contain Session 2 content")
+	}
+}
+
+// =============================================================================
+// Boundary and Edge Case Tests
+// =============================================================================
+
+// TestMinimumTerminalSize verifies the UI handles minimum terminal sizes
+func TestMinimumTerminalSize(t *testing.T) {
+	chat := NewChat()
+
+	// Test with MinTerminalWidth and MinTerminalHeight
+	chat.SetSize(MinTerminalWidth, MinTerminalHeight)
+	chat.SetSession("test", []claude.Message{
+		{Role: "user", Content: "Test"},
+	})
+
+	// Should not panic and should produce valid output
+	view := chat.View()
+	if view == "" {
+		t.Error("View should not be empty at minimum terminal size")
+	}
+}
+
+// TestVeryNarrowWidth verifies wrapping at very narrow widths
+func TestVeryNarrowWidth(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		width   int
+	}{
+		{
+			name:    "narrow width with short words",
+			content: "a b c d e",
+			width:   5,
+		},
+		{
+			name:    "narrow width with long word",
+			content: "superlongwordthatcannotbreak",
+			width:   10,
+		},
+		{
+			name:    "minimum wrap width",
+			content: "test content here",
+			width:   MinWrapWidth,
+		},
+		{
+			name:    "below minimum wrap width uses default",
+			content: "test content",
+			width:   5, // Below MinWrapWidth
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Should not panic
+			result := renderMarkdown(tt.content, tt.width)
+			if result == "" && tt.content != "" {
+				t.Error("Result should not be empty for non-empty content")
+			}
+		})
+	}
+}
+
+// TestVerySmallViewport verifies the chat panel handles very small viewports
+func TestVerySmallViewport(t *testing.T) {
+	chat := NewChat()
+
+	sizes := []struct {
+		width  int
+		height int
+	}{
+		{40, 10}, // Minimum
+		{50, 12}, // Slightly above minimum
+		{30, 8},  // Below minimum (should clamp)
+		{1, 1},   // Extreme minimum
+	}
+
+	for _, size := range sizes {
+		t.Run(itoa(size.width)+"x"+itoa(size.height), func(t *testing.T) {
+			// Should not panic
+			chat.SetSize(size.width, size.height)
+			chat.SetSession("test", []claude.Message{
+				{Role: "user", Content: "Test message"},
+			})
+			view := chat.View()
+			if view == "" {
+				t.Error("View should not be empty")
+			}
+		})
+	}
+}
+
+// TestResizeSequence verifies multiple resize operations
+func TestResizeSequence(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", []claude.Message{
+		{Role: "user", Content: "This is a message that may need to rewrap on resize"},
+	})
+
+	// Sequence of resize operations
+	sizes := []struct{ w, h int }{
+		{80, 24},
+		{120, 40},
+		{60, 20},
+		{80, 24},  // Back to original
+		{40, 10},  // Minimum
+		{200, 60}, // Large
+		{80, 24},  // Back to original again
+	}
+
+	for _, size := range sizes {
+		chat.SetSize(size.w, size.h)
+		view := chat.View()
+		if view == "" {
+			t.Errorf("View empty after resize to %dx%d", size.w, size.h)
+		}
+	}
+}
+
+// =============================================================================
+// Table Overflow Tests
+// =============================================================================
+
+// TestTableColumnOverflow verifies tables handle more columns than available width
+func TestTableColumnOverflow(t *testing.T) {
+	// Table with many columns
+	rows := [][]string{
+		{"A", "B", "C", "D", "E", "F", "G", "H"},
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+	}
+
+	// Render at narrow width (8 columns * min 3 chars + borders = 33 chars minimum)
+	result := renderTable(rows, true, 30) // Less than minimum
+
+	// Should still render without panic
+	if result == "" {
+		t.Error("Table should render even at narrow width")
+	}
+
+	// Should contain all column headers
+	for _, header := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+		if !strings.Contains(result, header) {
+			t.Errorf("Table should contain header %q", header)
+		}
+	}
+}
+
+// TestTableNarrowWidth verifies table rendering at various narrow widths
+func TestTableNarrowWidth(t *testing.T) {
+	rows := [][]string{
+		{"Column 1", "Column 2"},
+		{"Data that is longer than column", "Short"},
+	}
+
+	widths := []int{20, 30, 40, 50, 60}
+
+	for _, width := range widths {
+		t.Run(itoa(width)+"_width", func(t *testing.T) {
+			result := renderTable(rows, true, width)
+			if result == "" {
+				t.Errorf("Table should render at width %d", width)
+			}
+
+			// Each line should not drastically exceed the width
+			// (some overflow is acceptable for borders and content)
+			lines := strings.Split(result, "\n")
+			for i, line := range lines {
+				visualWidth := lipgloss.Width(line)
+				// Allow 20% buffer for styling and edge cases
+				maxAllowed := width + width/5 + 10
+				if visualWidth > maxAllowed {
+					t.Errorf("Line %d width %d exceeds allowed %d at render width %d: %q",
+						i, visualWidth, maxAllowed, width, line)
+				}
+			}
+		})
+	}
+}
+
+// TestCalculateTableColumnWidths verifies the column width distribution algorithm
+func TestCalculateTableColumnWidths(t *testing.T) {
+	tests := []struct {
+		name           string
+		naturalWidths  []int
+		availableWidth int
+		checkFn        func(result []int) error
+	}{
+		{
+			name:           "fits naturally",
+			naturalWidths:  []int{10, 20, 15},
+			availableWidth: 50,
+			checkFn: func(result []int) error {
+				// Should use natural widths
+				if result[0] != 10 || result[1] != 20 || result[2] != 15 {
+					return errorf("expected natural widths [10, 20, 15], got %v", result)
+				}
+				return nil
+			},
+		},
+		{
+			name:           "needs shrinking",
+			naturalWidths:  []int{30, 30, 30},
+			availableWidth: 60,
+			checkFn: func(result []int) error {
+				// Total should not exceed available
+				total := 0
+				for _, w := range result {
+					total += w
+				}
+				if total > 60 {
+					return errorf("total width %d exceeds available 60", total)
+				}
+				return nil
+			},
+		},
+		{
+			name:           "minimum width columns preserved",
+			naturalWidths:  []int{3, 3, 3}, // Already at minimum (3)
+			availableWidth: 12,             // Exactly enough for 3 columns at min width
+			checkFn: func(result []int) error {
+				// Each should be exactly 3 since that's the natural width
+				// and there's just enough space
+				for i, w := range result {
+					if w != 3 {
+						return errorf("column %d width %d, expected 3", i, w)
+					}
+				}
+				return nil
+			},
+		},
+		{
+			name:           "very narrow available",
+			naturalWidths:  []int{50, 50, 50},
+			availableWidth: 10,
+			checkFn: func(result []int) error {
+				// Each should be at least minimum
+				for i, w := range result {
+					if w < TableMinColumnWidth {
+						return errorf("column %d width %d below minimum", i, w)
+					}
+				}
+				return nil
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := calculateTableColumnWidths(tt.naturalWidths, tt.availableWidth)
+			if err := tt.checkFn(result); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+}
+
+// TestTableWithLongCellContent verifies tables handle very long cell content
+func TestTableWithLongCellContent(t *testing.T) {
+	rows := [][]string{
+		{"Header", "Description"},
+		{"Short", strings.Repeat("This is very long content. ", 10)},
+	}
+
+	result := renderTable(rows, true, 60)
+
+	// Should contain content
+	if !strings.Contains(result, "Header") {
+		t.Error("Table should contain 'Header'")
+	}
+
+	// Should have proper borders
+	if !strings.Contains(result, "┌") || !strings.Contains(result, "┘") {
+		t.Error("Table should have proper corner borders")
+	}
+}
+
+// =============================================================================
+// Overlay Box Width Tests
+// =============================================================================
+
+// TestOverlayBoxWidthCapping verifies overlay boxes respect max widths
+func TestOverlayBoxWidthCapping(t *testing.T) {
+	// Test permission prompt at wide width
+	permResult := renderPermissionPrompt("Bash", "rm -rf /", 200)
+	permLines := strings.Split(permResult, "\n")
+	for i, line := range permLines {
+		visualWidth := lipgloss.Width(line)
+		if visualWidth > OverlayBoxMaxWidth+10 { // Allow some margin for borders
+			t.Errorf("Permission box line %d width %d exceeds max %d",
+				i, visualWidth, OverlayBoxMaxWidth)
+		}
+	}
+
+	// Test todo list at wide width
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "A todo item", Status: claude.TodoStatusPending, ActiveForm: "Pending"},
+		},
+	}
+	todoResult := renderTodoList(todoList, 200)
+	todoLines := strings.Split(todoResult, "\n")
+	for i, line := range todoLines {
+		visualWidth := lipgloss.Width(line)
+		if visualWidth > OverlayBoxMaxWidth+10 {
+			t.Errorf("Todo box line %d width %d exceeds max %d",
+				i, visualWidth, OverlayBoxMaxWidth)
+		}
+	}
+}
+
+// TestPlanBoxWidthCapping verifies plan boxes use their specific max width
+func TestPlanBoxWidthCapping(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(200, 40) // Wide terminal
+	chat.SetSession("test", nil)
+	chat.SetPendingPlanApproval("# Test Plan\n\nThis is a test plan.", nil)
+
+	result := chat.renderPlanApprovalPrompt(150)
+	lines := strings.Split(result, "\n")
+	for i, line := range lines {
+		visualWidth := lipgloss.Width(line)
+		if visualWidth > PlanBoxMaxWidth+10 { // Allow some margin
+			t.Errorf("Plan box line %d width %d exceeds max %d",
+				i, visualWidth, PlanBoxMaxWidth)
+		}
+	}
+}
+
+// =============================================================================
+// Constants Consistency Tests
+// =============================================================================
+
+// TestLayoutConstantsConsistency verifies layout constants are consistent
+func TestLayoutConstantsConsistency(t *testing.T) {
+	// InputTotalHeight should equal TextareaHeight + TextareaBorderHeight
+	if InputTotalHeight != TextareaHeight+TextareaBorderHeight {
+		t.Errorf("InputTotalHeight (%d) != TextareaHeight (%d) + TextareaBorderHeight (%d)",
+			InputTotalHeight, TextareaHeight, TextareaBorderHeight)
+	}
+
+	// MinTerminalHeight should be greater than basic chrome
+	minChrome := HeaderHeight + FooterHeight + InputTotalHeight + BorderSize
+	if MinTerminalHeight < minChrome {
+		t.Errorf("MinTerminalHeight (%d) is less than minimum chrome (%d)",
+			MinTerminalHeight, minChrome)
+	}
+
+	// OverlayBoxMaxWidth should be less than or equal to PlanBoxMaxWidth
+	if OverlayBoxMaxWidth > PlanBoxMaxWidth {
+		t.Errorf("OverlayBoxMaxWidth (%d) > PlanBoxMaxWidth (%d)",
+			OverlayBoxMaxWidth, PlanBoxMaxWidth)
+	}
+}

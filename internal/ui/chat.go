@@ -180,7 +180,8 @@ func (c *Chat) SetSize(width, height int) {
 	ctx := GetViewContext()
 	newInnerWidth := ctx.InnerWidth(width)
 	wasUninitialized := c.viewport.Width() <= 0
-	if c.viewport.Width() != newInnerWidth && c.viewport.Width() > 0 {
+	widthChanged := c.viewport.Width() != newInnerWidth && c.viewport.Width() > 0
+	if widthChanged {
 		c.messageCache = nil // Clear cache to force re-render at new width
 	}
 
@@ -205,8 +206,9 @@ func (c *Chat) SetSize(width, height int) {
 	inputInnerWidth := ctx.InnerWidth(width) - InputPaddingWidth
 	c.input.SetWidth(inputInnerWidth)
 
-	// If viewport was uninitialized, render content now that we have proper dimensions
-	if wasUninitialized && innerWidth > 0 {
+	// Re-render content if viewport was uninitialized or width changed
+	// This ensures text is wrapped correctly for the new dimensions
+	if (wasUninitialized || widthChanged) && innerWidth > 0 {
 		c.updateContent()
 	}
 
@@ -731,10 +733,10 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	sb.WriteString(hintStyle.Render(" + "))
 	sb.WriteString(keyStyle.Render("enter"))
 
-	// Wrap in a box
+	// Wrap in a box, capped at max width for readability
 	boxWidth := wrapWidth
-	if boxWidth > 80 {
-		boxWidth = 80
+	if boxWidth > OverlayBoxMaxWidth {
+		boxWidth = OverlayBoxMaxWidth
 	}
 	return QuestionBoxStyle.Width(boxWidth).Render(sb.String())
 }
@@ -752,8 +754,8 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	sb.WriteString(titleStyle.Render("📋 Plan Approval Required"))
 	sb.WriteString("\n\n")
 
-	// Render plan as markdown
-	renderedPlan := renderMarkdown(c.pendingPlan, wrapWidth-4) // -4 for box padding
+	// Render plan as markdown, accounting for box padding
+	renderedPlan := renderMarkdown(c.pendingPlan, wrapWidth-OverlayBoxPadding)
 	planLines := strings.Split(renderedPlan, "\n")
 	maxVisibleLines := PlanApprovalMaxVisible
 
@@ -818,10 +820,11 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 		sb.WriteString(hintStyle.Render(" Scroll"))
 	}
 
-	// Wrap in a box
+	// Wrap in a box, capped at max width for readability
+	// Plans use a wider max since they often contain code
 	boxWidth := wrapWidth
-	if boxWidth > 100 {
-		boxWidth = 100
+	if boxWidth > PlanBoxMaxWidth {
+		boxWidth = PlanBoxMaxWidth
 	}
 	return PlanApprovalBoxStyle.Width(boxWidth).Render(sb.String())
 }
@@ -837,9 +840,9 @@ func (c *Chat) updateContent() {
 	var sb strings.Builder
 
 	// Get wrap width (use viewport width, fallback to reasonable default)
-	// Subtract 2 for the horizontal padding (1 char on each side)
-	wrapWidth := c.viewport.Width() - 2
-	if wrapWidth <= 0 {
+	// Subtract ContentPadding for the horizontal padding applied via Padding(0, 1)
+	wrapWidth := c.viewport.Width() - ContentPadding
+	if wrapWidth < MinWrapWidth {
 		wrapWidth = DefaultWrapWidth
 	}
 

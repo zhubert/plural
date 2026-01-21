@@ -129,6 +129,25 @@ Some patterns in this codebase may appear unusual at first glance. These are int
 - ViewContext singleton (`context.go`) centralizes layout calculations
 - Key formula: `ChatViewportHeight = ContentHeight - InputTotalHeight - BorderSize`
 
+**Text Wrapping Width Constants** - See `internal/ui/constants.go`
+- All width subtractions for text wrapping are defined as named constants
+- Visual width is used (via `lipgloss.Width`), not byte length, since Unicode chars like `•` are multi-byte
+- Key constants and their purpose:
+  - `ContentPadding = 2`: Horizontal padding applied via `Padding(0, 1)` (1 char each side)
+  - `ListItemPrefixWidth = 4`: Visual width of `"  • "` (2 spaces + bullet + space)
+  - `NumberedListPrefixWidth = 5`: Visual width of `"  1. "` (for single-digit numbers)
+  - `BlockquotePrefixWidth = 4`: Effective width of blockquote left border and padding
+  - `OverlayBoxPadding = 4`: Padding inside permission/question/todo boxes
+  - `OverlayBoxMaxWidth = 80`: Max width for overlay boxes (readability)
+  - `PlanBoxMaxWidth = 100`: Wider max for plan boxes (often contain code)
+  - `TableMinColumnWidth = 3`: Minimum readable column width in tables
+
+**Message Cache** - See `internal/ui/chat.go`
+- Messages are cached after rendering to avoid expensive re-rendering
+- Cache is keyed on `{content, wrapWidth}` - both must match for cache hit
+- Cache is cleared and content re-rendered when viewport width changes
+- `SetSize()` now triggers `updateContent()` on width change to ensure proper re-wrapping
+
 ---
 
 ## Implementation Guide

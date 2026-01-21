@@ -205,3 +205,85 @@ const (
 	// TodoListFallbackWrapWidth is the fallback wrap width when viewport not initialized
 	TodoListFallbackWrapWidth = 80
 )
+
+// Text wrapping and indentation constants.
+//
+// These constants define the exact character widths used when wrapping text
+// for different markdown elements. Each constant documents its calculation
+// to prevent magic numbers and ensure continuation lines align properly.
+//
+// Visual structure for list items:
+//
+//	Unordered: "  • content here..."     (2 spaces + bullet + space = 4 chars)
+//	           "    continuation..."     (4 spaces for continuation)
+//
+//	Numbered:  "  1. content here..."    (2 spaces + digit + dot + space = 5 chars for 1-9)
+//	           "     continuation..."    (5 spaces for continuation)
+//
+//	Blockquote: "▎ content here..."      (bar + space = 2 chars visible, but styled)
+const (
+	// ContentPadding is the horizontal padding applied to viewport content.
+	// Applied as Padding(0, 1) which adds 1 char on each side = 2 total.
+	// This is subtracted from viewport width to get the usable wrap width.
+	ContentPadding = 2
+
+	// ListItemPrefixWidth is the width of the unordered list item prefix "  • ".
+	// Breakdown: 2 leading spaces + 1 bullet char + 1 trailing space = 4 chars.
+	ListItemPrefixWidth = 4
+
+	// ListItemContinuationIndent is the indentation for wrapped list item lines.
+	// Must match ListItemPrefixWidth so text aligns vertically.
+	ListItemContinuationIndent = 4
+
+	// NumberedListPrefixWidth is the width of numbered list prefixes "  N. ".
+	// Breakdown: 2 leading spaces + 1-2 digit chars + 1 dot + 1 space = 5-6 chars.
+	// We use 5 for single-digit numbers (1-9) as the common case.
+	NumberedListPrefixWidth = 5
+
+	// NumberedListContinuationIndent is the indentation for wrapped numbered list lines.
+	// Must match NumberedListPrefixWidth so text aligns vertically.
+	NumberedListContinuationIndent = 5
+
+	// BlockquotePrefixWidth is the effective width consumed by blockquote styling.
+	// The blockquote style adds a left border and padding. We account for 4 chars
+	// to ensure content doesn't overflow: 1 border + 1 padding + 2 safety margin.
+	BlockquotePrefixWidth = 4
+
+	// TodoMarkerWidth is the width of todo item markers "✓ ", "▸ ", or "○ ".
+	// Breakdown: 1 marker char + 1 space = 2 chars.
+	TodoMarkerWidth = 2
+
+	// TodoItemPadding is additional padding for todo items within the box.
+	// Combined with marker: 2 (marker) + 4 (leading space) + 2 (trailing) = 8 total.
+	TodoItemPadding = 6
+
+	// OverlayBoxPadding is the padding inside overlay boxes (permission, question, plan).
+	// The box style adds padding, so we subtract this from wrap width for content.
+	OverlayBoxPadding = 4
+
+	// OverlayBoxMaxWidth is the maximum width for overlay boxes.
+	// Capped at 80 chars for readability, matching traditional terminal width.
+	// This applies to permission prompts, question prompts, and todo lists.
+	OverlayBoxMaxWidth = 80
+
+	// PlanBoxMaxWidth is the maximum width for plan approval boxes.
+	// Plans can contain code and complex content, so we allow a wider box (100 chars)
+	// to reduce excessive wrapping while still fitting most terminals.
+	PlanBoxMaxWidth = 100
+
+	// MinWrapWidth is the minimum width below which wrapping degrades.
+	// At very narrow widths, wrapping produces poor results. This provides
+	// a floor for wrap width calculations.
+	MinWrapWidth = 20
+
+	// TableMinColumnWidth is the minimum characters per table column.
+	// Columns narrower than this become unreadable.
+	TableMinColumnWidth = 3
+
+	// TableCellPadding is the padding around table cell content.
+	// Each cell has 1 space padding on left and right = 2 chars per cell.
+	TableCellPadding = 2
+
+	// TableBorderWidth is the width of a single table border character "│".
+	TableBorderWidth = 1
+)

@@ -261,22 +261,21 @@ func renderTable(rows [][]string, hasHeader bool, width int) string {
 		}
 	}
 
-	// Ensure minimum column width of 3
+	// Ensure minimum column width
 	for i := range naturalWidths {
-		if naturalWidths[i] < 3 {
-			naturalWidths[i] = 3
+		if naturalWidths[i] < TableMinColumnWidth {
+			naturalWidths[i] = TableMinColumnWidth
 		}
 	}
 
 	// Calculate available width for content
-	// Each column has: 1 (left padding) + content + 1 (right padding) + 1 (border)
+	// Each column has: padding (2) + content + border (1) = 3 chars overhead per column
 	// Plus 1 for the leftmost border
-	// So: 1 + numCols * 3 + sum(colWidths) = total
-	// Available for content = width - 1 - numCols*3
-	borderOverhead := 1 + numCols*3
+	// Formula: 1 + numCols * (TableCellPadding + TableBorderWidth) + sum(colWidths) = total
+	borderOverhead := TableBorderWidth + numCols*(TableCellPadding+TableBorderWidth)
 	availableWidth := width - borderOverhead
-	if availableWidth < numCols*3 {
-		availableWidth = numCols * 3 // Minimum 3 chars per column
+	if availableWidth < numCols*TableMinColumnWidth {
+		availableWidth = numCols * TableMinColumnWidth
 	}
 
 	// Calculate final column widths
@@ -377,7 +376,10 @@ func renderTable(rows [][]string, hasHeader bool, width int) string {
 	return result.String()
 }
 
-// calculateTableColumnWidths distributes available width among columns
+// calculateTableColumnWidths distributes available width among columns.
+// When content fits naturally, columns use their natural width.
+// When content is too wide, larger columns are shrunk proportionally
+// while smaller columns keep their natural width.
 func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
 	numCols := len(naturalWidths)
 	colWidths := make([]int, numCols)
@@ -398,13 +400,12 @@ func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
 	// 1. Columns that are already small keep their width
 	// 2. Larger columns share the remaining space proportionally
 
-	minColWidth := 3
 	avgWidth := availableWidth / numCols
-	if avgWidth < minColWidth {
-		avgWidth = minColWidth
+	if avgWidth < TableMinColumnWidth {
+		avgWidth = TableMinColumnWidth
 	}
 
-	// First pass: assign minimum width to small columns
+	// First pass: assign width to small columns (those at or below average)
 	remaining := availableWidth
 	flexibleCols := 0
 	for i, natural := range naturalWidths {
@@ -416,11 +417,11 @@ func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
 		}
 	}
 
-	// Second pass: distribute remaining width among flexible columns
+	// Second pass: distribute remaining width among flexible (wider) columns
 	if flexibleCols > 0 && remaining > 0 {
 		perFlexible := remaining / flexibleCols
-		if perFlexible < minColWidth {
-			perFlexible = minColWidth
+		if perFlexible < TableMinColumnWidth {
+			perFlexible = TableMinColumnWidth
 		}
 		for i, natural := range naturalWidths {
 			if natural > avgWidth {
@@ -429,10 +430,10 @@ func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
 		}
 	}
 
-	// Ensure minimum width
+	// Ensure minimum width for all columns
 	for i := range colWidths {
-		if colWidths[i] < minColWidth {
-			colWidths[i] = minColWidth
+		if colWidths[i] < TableMinColumnWidth {
+			colWidths[i] = TableMinColumnWidth
 		}
 	}
 
@@ -465,20 +466,21 @@ func renderMarkdownLine(line string, width int) string {
 	// Blockquote
 	if strings.HasPrefix(trimmed, "> ") {
 		content := strings.TrimPrefix(trimmed, "> ")
-		return MarkdownBlockquoteStyle.Render(wrapText(renderInlineMarkdown(content), width-4))
+		return MarkdownBlockquoteStyle.Render(wrapText(renderInlineMarkdown(content), width-BlockquotePrefixWidth))
 	}
 
 	// Unordered list items
 	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") {
 		content := trimmed[2:]
 		bullet := MarkdownListBulletStyle.Render("•")
-		// Wrap list item content, accounting for indent and bullet
-		wrapped := wrapText(renderInlineMarkdown(content), width-6)
-		// Indent continuation lines
+		// Wrap list item content, accounting for the prefix width "  • " = 4 chars
+		wrapped := wrapText(renderInlineMarkdown(content), width-ListItemPrefixWidth)
+		// Indent continuation lines to align with first line content
 		lines := strings.Split(wrapped, "\n")
 		if len(lines) > 1 {
+			indent := strings.Repeat(" ", ListItemContinuationIndent)
 			for i := 1; i < len(lines); i++ {
-				lines[i] = "    " + lines[i]
+				lines[i] = indent + lines[i]
 			}
 			wrapped = strings.Join(lines, "\n")
 		}
@@ -491,13 +493,20 @@ func renderMarkdownLine(line string, width int) string {
 		if strings.HasPrefix(trimmed, prefix) {
 			content := strings.TrimPrefix(trimmed, prefix)
 			number := MarkdownListBulletStyle.Render(fmt.Sprintf("%d.", i))
-			// Wrap list item content, accounting for indent and number
-			wrapped := wrapText(renderInlineMarkdown(content), width-6)
-			// Indent continuation lines
+			// Calculate prefix width: "  " + number + ". " (2 + len(number) + 2)
+			// For numbers 1-9: 5 chars, for 10-99: 6 chars
+			prefixWidth := NumberedListPrefixWidth
+			if i >= 10 {
+				prefixWidth = NumberedListPrefixWidth + 1
+			}
+			// Wrap list item content, accounting for the prefix width
+			wrapped := wrapText(renderInlineMarkdown(content), width-prefixWidth)
+			// Indent continuation lines to align with first line content
 			lines := strings.Split(wrapped, "\n")
 			if len(lines) > 1 {
+				indent := strings.Repeat(" ", prefixWidth)
 				for j := 1; j < len(lines); j++ {
-					lines[j] = "     " + lines[j]
+					lines[j] = indent + lines[j]
 				}
 				wrapped = strings.Join(lines, "\n")
 			}
@@ -661,8 +670,8 @@ func renderPermissionPrompt(tool, description string, wrapWidth int) string {
 	sb.WriteString(PermissionToolStyle.Render(tool))
 	sb.WriteString("\n")
 
-	// Description (wrapped)
-	descStyle := PermissionDescStyle.Width(wrapWidth - 4) // Account for box padding
+	// Description (wrapped to fit within box padding)
+	descStyle := PermissionDescStyle.Width(wrapWidth - OverlayBoxPadding)
 	sb.WriteString(descStyle.Render(description))
 	sb.WriteString("\n\n")
 
@@ -677,10 +686,10 @@ func renderPermissionPrompt(tool, description string, wrapWidth int) string {
 	sb.WriteString(keyStyle.Render("[a]"))
 	sb.WriteString(hintStyle.Render(" Always"))
 
-	// Wrap in a box - allow wider for horizontal content
+	// Wrap in a box, capped at max width for readability
 	boxWidth := wrapWidth
-	if boxWidth > 80 {
-		boxWidth = 80
+	if boxWidth > OverlayBoxMaxWidth {
+		boxWidth = OverlayBoxMaxWidth
 	}
 	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
 }
@@ -732,18 +741,21 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 			content = item.ActiveForm
 		}
 
-		// Wrap long content
-		maxContentWidth := wrapWidth - 8 // Account for marker and padding
-		if maxContentWidth < 20 {
-			maxContentWidth = 20
+		// Wrap long content, accounting for marker width and box padding
+		// Total prefix: marker (2) + box padding (6) = 8 chars
+		maxContentWidth := wrapWidth - TodoMarkerWidth - TodoItemPadding
+		if maxContentWidth < MinWrapWidth {
+			maxContentWidth = MinWrapWidth
 		}
 		wrappedContent := wrapText(content, maxContentWidth)
 
 		// Handle multi-line wrapped content - indent continuation lines
+		// Indent should match the marker width so text aligns
+		continuationIndent := strings.Repeat(" ", TodoMarkerWidth+1) // +1 for visual alignment
 		lines := strings.Split(wrappedContent, "\n")
 		for i, line := range lines {
 			if i > 0 {
-				sb.WriteString("   ") // Indent continuation lines
+				sb.WriteString(continuationIndent)
 			}
 			sb.WriteString(contentStyle.Render(line))
 			if i < len(lines)-1 {
@@ -755,17 +767,16 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 
 	// Show summary hint if tasks are in progress
 	if inProgress > 0 || pending > 0 {
-		// Add a blank line before the summary
 		summaryStyle := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
 		if inProgress > 0 {
 			sb.WriteString(summaryStyle.Render(fmt.Sprintf("Working on %d task(s)...", inProgress)))
 		}
 	}
 
-	// Wrap in a box
+	// Wrap in a box, capped at max width for readability
 	boxWidth := wrapWidth
-	if boxWidth > 80 {
-		boxWidth = 80
+	if boxWidth > OverlayBoxMaxWidth {
+		boxWidth = OverlayBoxMaxWidth
 	}
 	return TodoListBoxStyle.Width(boxWidth).Render(sb.String())
 }
