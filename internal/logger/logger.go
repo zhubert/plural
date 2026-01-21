@@ -3,12 +3,10 @@ package logger
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 // LogLevel represents the severity of a log message
@@ -24,21 +22,6 @@ const (
 	// LevelError is for error conditions
 	LevelError
 )
-
-func (l LogLevel) String() string {
-	switch l {
-	case LevelDebug:
-		return "DEBUG"
-	case LevelInfo:
-		return "INFO"
-	case LevelWarn:
-		return "WARN"
-	case LevelError:
-		return "ERROR"
-	default:
-		return "UNKNOWN"
-	}
-}
 
 // toSlogLevel converts our LogLevel to slog.Level
 func (l LogLevel) toSlogLevel() slog.Level {
@@ -58,6 +41,7 @@ func (l LogLevel) toSlogLevel() slog.Level {
 
 var (
 	slogLogger   *slog.Logger
+	levelVar     = new(slog.LevelVar) // Allows dynamic level changes
 	logFile      *os.File
 	mu           sync.Mutex
 	once         sync.Once
@@ -74,129 +58,12 @@ func MCPLogPath(sessionID string) string {
 	return fmt.Sprintf("/tmp/plural-mcp-%s.log", sessionID)
 }
 
-// PluralHandler is a custom slog.Handler that produces human-readable output
-// in the format: [HH:MM:SS.mmm] [LEVEL] message key=value...
-type PluralHandler struct {
-	w       io.Writer
-	level   slog.Level
-	mu      *sync.Mutex
-	attrs   []slog.Attr
-	groups  []string
-}
-
-// NewPluralHandler creates a handler with Plural's timestamp format
-func NewPluralHandler(w io.Writer, level slog.Level) *PluralHandler {
-	return &PluralHandler{
-		w:     w,
-		level: level,
-		mu:    &sync.Mutex{},
-	}
-}
-
-// Enabled reports whether the handler handles records at the given level
-func (h *PluralHandler) Enabled(_ context.Context, level slog.Level) bool {
-	return level >= h.level
-}
-
-// Handle writes the log record to the output
-func (h *PluralHandler) Handle(_ context.Context, r slog.Record) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Format: [HH:MM:SS.mmm] [LEVEL] message key=value...
-	timestamp := r.Time.Format("15:04:05.000")
-	levelStr := levelString(r.Level)
-
-	// Start building the log line
-	line := fmt.Sprintf("[%s] [%s] %s", timestamp, levelStr, r.Message)
-
-	// Append pre-set attributes from WithAttrs
-	for _, a := range h.attrs {
-		line += fmt.Sprintf(" %s=%v", a.Key, formatValue(a.Value))
-	}
-
-	// Append attributes from this record
-	r.Attrs(func(a slog.Attr) bool {
-		line += fmt.Sprintf(" %s=%v", a.Key, formatValue(a.Value))
-		return true
-	})
-
-	fmt.Fprintln(h.w, line)
-
-	// Sync to disk for durability
-	if f, ok := h.w.(*os.File); ok {
-		f.Sync()
-	}
-	return nil
-}
-
-// WithAttrs returns a new handler with the given attributes pre-attached
-func (h *PluralHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	newAttrs := make([]slog.Attr, len(h.attrs)+len(attrs))
-	copy(newAttrs, h.attrs)
-	copy(newAttrs[len(h.attrs):], attrs)
-	return &PluralHandler{
-		w:      h.w,
-		level:  h.level,
-		mu:     h.mu,
-		attrs:  newAttrs,
-		groups: h.groups,
-	}
-}
-
-// WithGroup returns a new handler with the given group name
-func (h *PluralHandler) WithGroup(name string) slog.Handler {
-	newGroups := make([]string, len(h.groups)+1)
-	copy(newGroups, h.groups)
-	newGroups[len(h.groups)] = name
-	return &PluralHandler{
-		w:      h.w,
-		level:  h.level,
-		mu:     h.mu,
-		attrs:  h.attrs,
-		groups: newGroups,
-	}
-}
-
-// levelString converts slog.Level to our string format
-func levelString(level slog.Level) string {
-	switch {
-	case level < slog.LevelInfo:
-		return "DEBUG"
-	case level < slog.LevelWarn:
-		return "INFO"
-	case level < slog.LevelError:
-		return "WARN"
-	default:
-		return "ERROR"
-	}
-}
-
-// formatValue formats a slog.Value for output
-func formatValue(v slog.Value) string {
-	switch v.Kind() {
-	case slog.KindString:
-		return v.String()
-	case slog.KindTime:
-		return v.Time().Format(time.RFC3339)
-	case slog.KindDuration:
-		return v.Duration().String()
-	default:
-		return fmt.Sprintf("%v", v.Any())
-	}
-}
-
 // SetLevel sets the minimum log level to output
 func SetLevel(level LogLevel) {
 	mu.Lock()
 	defer mu.Unlock()
 	currentLevel = level
-
-	// Recreate the logger with the new level if initialized
-	if logFile != nil {
-		handler := NewPluralHandler(logFile, level.toSlogLevel())
-		slogLogger = slog.New(handler)
-	}
+	levelVar.Set(level.toSlogLevel())
 }
 
 // SetDebug enables debug level logging
@@ -225,12 +92,12 @@ func Init(path string) error {
 		return fmt.Errorf("failed to open log file %s: %w", path, err)
 	}
 	logFile = f
-	handler := NewPluralHandler(f, currentLevel.toSlogLevel())
+	levelVar.Set(currentLevel.toSlogLevel())
+	handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: levelVar})
 	slogLogger = slog.New(handler)
 	initDone = true
 
-	// Log initialization message
-	slogLogger.Info("Logger initialized: " + path)
+	slogLogger.Info("Logger initialized", "path", path)
 	return nil
 }
 
@@ -245,12 +112,12 @@ func ensureInit() {
 				return
 			}
 			logFile = f
-			handler := NewPluralHandler(f, currentLevel.toSlogLevel())
+			levelVar.Set(currentLevel.toSlogLevel())
+			handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: levelVar})
 			slogLogger = slog.New(handler)
 			initDone = true
 
-			// Log initialization message
-			slogLogger.Info("Logger initialized: " + DefaultLogPath)
+			slogLogger.Info("Logger initialized", "path", DefaultLogPath)
 		})
 	}
 }
@@ -329,6 +196,7 @@ func Reset() {
 	logPath = ""
 	slogLogger = nil
 	currentLevel = LevelInfo
+	levelVar = new(slog.LevelVar)
 }
 
 // ClearLogs removes all plural log files from /tmp
@@ -366,8 +234,6 @@ func ClearLogs() (int, error) {
 //
 //	log := logger.ComponentLogger("Claude")
 //	log.Info("Runner created", "sessionID", sessID, "workDir", dir)
-//
-// Output: [14:05:23.456] [INFO] Runner created component=Claude sessionID=abc123 workDir=/path
 func ComponentLogger(component string) *slog.Logger {
 	mu.Lock()
 	defer mu.Unlock()
@@ -387,8 +253,6 @@ func ComponentLogger(component string) *slog.Logger {
 //
 //	sessionLog := logger.WithSession(sess.ID)
 //	sessionLog.Debug("Starting operation")
-//
-// Output: [14:05:23.456] [DEBUG] Starting operation sessionID=abc123
 func WithSession(sessionID string) *slog.Logger {
 	mu.Lock()
 	defer mu.Unlock()

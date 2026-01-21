@@ -1,8 +1,6 @@
 package logger
 
 import (
-	"context"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,23 +88,18 @@ func TestLog_Timestamp(t *testing.T) {
 	uniqueMsg := "timestamp-test-unique-marker"
 	Log("%s", uniqueMsg)
 
-	// Read and verify timestamp format [HH:MM:SS.mmm]
+	// Read and verify timestamp exists (slog uses time= prefix)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
 
-	// Should have timestamp in format [HH:MM:SS.mmm]
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
 		if strings.Contains(line, uniqueMsg) {
-			// Should start with [
-			if !strings.HasPrefix(line, "[") {
-				t.Error("Log line should start with timestamp bracket")
-			}
-			// Should contain ] after timestamp
-			if !strings.Contains(line, "]") {
-				t.Error("Log line should have closing timestamp bracket")
+			// slog TextHandler format includes time=
+			if !strings.Contains(line, "time=") {
+				t.Error("Log line should contain timestamp")
 			}
 			return
 		}
@@ -220,18 +213,18 @@ func TestLogLevels(t *testing.T) {
 		t.Error("Should contain error message")
 	}
 
-	// Verify level strings appear in output
-	if !strings.Contains(contentStr, "[DEBUG]") {
-		t.Error("Should contain [DEBUG] level marker")
+	// Verify level strings appear in output (slog uses level=DEBUG format)
+	if !strings.Contains(contentStr, "level=DEBUG") {
+		t.Error("Should contain level=DEBUG marker")
 	}
-	if !strings.Contains(contentStr, "[INFO]") {
-		t.Error("Should contain [INFO] level marker")
+	if !strings.Contains(contentStr, "level=INFO") {
+		t.Error("Should contain level=INFO marker")
 	}
-	if !strings.Contains(contentStr, "[WARN]") {
-		t.Error("Should contain [WARN] level marker")
+	if !strings.Contains(contentStr, "level=WARN") {
+		t.Error("Should contain level=WARN marker")
 	}
-	if !strings.Contains(contentStr, "[ERROR]") {
-		t.Error("Should contain [ERROR] level marker")
+	if !strings.Contains(contentStr, "level=ERROR") {
+		t.Error("Should contain level=ERROR marker")
 	}
 }
 
@@ -324,27 +317,7 @@ func TestWithSession(t *testing.T) {
 	}
 }
 
-func TestPluralHandler_Enabled(t *testing.T) {
-	handler := NewPluralHandler(os.Stdout, slog.LevelInfo)
-
-	// Should be enabled for Info and above
-	if !handler.Enabled(context.Background(), slog.LevelInfo) {
-		t.Error("Should be enabled for Info level")
-	}
-	if !handler.Enabled(context.Background(), slog.LevelWarn) {
-		t.Error("Should be enabled for Warn level")
-	}
-	if !handler.Enabled(context.Background(), slog.LevelError) {
-		t.Error("Should be enabled for Error level")
-	}
-
-	// Should not be enabled for Debug
-	if handler.Enabled(context.Background(), slog.LevelDebug) {
-		t.Error("Should not be enabled for Debug level when set to Info")
-	}
-}
-
-func TestPluralHandler_WithAttrs(t *testing.T) {
+func TestLoggerWithAttrs(t *testing.T) {
 	logPath, cleanup := setupTestLogger(t)
 	defer cleanup()
 
@@ -366,25 +339,6 @@ func TestPluralHandler_WithAttrs(t *testing.T) {
 	}
 	if !strings.Contains(contentStr, "userID=user-456") {
 		t.Error("Should contain 'userID=user-456' attribute")
-	}
-}
-
-func TestLogLevelString(t *testing.T) {
-	tests := []struct {
-		level    LogLevel
-		expected string
-	}{
-		{LevelDebug, "DEBUG"},
-		{LevelInfo, "INFO"},
-		{LevelWarn, "WARN"},
-		{LevelError, "ERROR"},
-		{LogLevel(99), "UNKNOWN"},
-	}
-
-	for _, tt := range tests {
-		if got := tt.level.String(); got != tt.expected {
-			t.Errorf("LogLevel(%d).String() = %q, want %q", tt.level, got, tt.expected)
-		}
 	}
 }
 
