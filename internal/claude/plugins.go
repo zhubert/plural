@@ -75,7 +75,8 @@ type pluginManifest struct {
 
 // ListMarketplaces returns configured marketplaces by reading the config files
 func ListMarketplaces() ([]Marketplace, error) {
-	logger.Log("Plugins: Listing marketplaces")
+	log := logger.WithComponent("plugins")
+	log.Debug("listing marketplaces")
 
 	claudeDir := getClaudeDir()
 	if claudeDir == "" {
@@ -86,7 +87,7 @@ func ListMarketplaces() ([]Marketplace, error) {
 	data, err := os.ReadFile(knownPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Log("Plugins: No marketplaces file found")
+			log.Debug("no marketplaces file found")
 			return []Marketplace{}, nil
 		}
 		return nil, fmt.Errorf("failed to read marketplaces: %w", err)
@@ -112,13 +113,14 @@ func ListMarketplaces() ([]Marketplace, error) {
 		marketplaces = append(marketplaces, mp)
 	}
 
-	logger.Log("Plugins: Found %d marketplaces", len(marketplaces))
+	log.Debug("found marketplaces", "count", len(marketplaces))
 	return marketplaces, nil
 }
 
 // ListPlugins returns all plugins with their status by reading config files and marketplace directories
 func ListPlugins() ([]Plugin, error) {
-	logger.Log("Plugins: Listing plugins")
+	log := logger.WithComponent("plugins")
+	log.Debug("listing plugins")
 
 	claudeDir := getClaudeDir()
 	if claudeDir == "" {
@@ -138,7 +140,7 @@ func ListPlugins() ([]Plugin, error) {
 			}
 		}
 	}
-	logger.Log("Plugins: Found %d installed plugins", len(installed))
+	log.Debug("found installed plugins", "count", len(installed))
 
 	// Load enabled plugins from settings
 	settingsPath := filepath.Join(claudeDir, "settings.json")
@@ -149,7 +151,7 @@ func ListPlugins() ([]Plugin, error) {
 			enabled = settings.EnabledPlugins
 		}
 	}
-	logger.Log("Plugins: Found %d enabled plugins", len(enabled))
+	log.Debug("found enabled plugins", "count", len(enabled))
 
 	// Load marketplace locations
 	knownPath := filepath.Join(claudeDir, "plugins", "known_marketplaces.json")
@@ -171,7 +173,7 @@ func ListPlugins() ([]Plugin, error) {
 		pluginsDir := filepath.Join(mpPath, "plugins")
 		entries, err := os.ReadDir(pluginsDir)
 		if err != nil {
-			logger.Log("Plugins: Could not read marketplace plugins dir %s: %v", pluginsDir, err)
+			log.Debug("could not read marketplace plugins dir", "path", pluginsDir, "error", err)
 			continue
 		}
 
@@ -223,13 +225,14 @@ func ListPlugins() ([]Plugin, error) {
 		}
 	}
 
-	logger.Log("Plugins: Found %d total plugins", len(plugins))
+	log.Debug("found total plugins", "count", len(plugins))
 	return plugins, nil
 }
 
 // AddMarketplace adds a marketplace from GitHub repo or URL
 func AddMarketplace(source string) error {
-	logger.Log("Plugins: Adding marketplace: %s", source)
+	log := logger.WithComponent("plugins")
+	log.Info("adding marketplace", "source", source)
 
 	cmd := exec.Command("claude", "plugin", "marketplace", "add", source)
 	output, err := cmd.CombinedOutput()
@@ -237,13 +240,14 @@ func AddMarketplace(source string) error {
 		return fmt.Errorf("failed to add marketplace: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully added marketplace: %s", source)
+	log.Info("successfully added marketplace", "source", source)
 	return nil
 }
 
 // RemoveMarketplace removes a marketplace by name
 func RemoveMarketplace(name string) error {
-	logger.Log("Plugins: Removing marketplace: %s", name)
+	log := logger.WithComponent("plugins")
+	log.Info("removing marketplace", "name", name)
 
 	cmd := exec.Command("claude", "plugin", "marketplace", "remove", name)
 	output, err := cmd.CombinedOutput()
@@ -251,18 +255,20 @@ func RemoveMarketplace(name string) error {
 		return fmt.Errorf("failed to remove marketplace: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully removed marketplace: %s", name)
+	log.Info("successfully removed marketplace", "name", name)
 	return nil
 }
 
 // UpdateMarketplace updates a marketplace (or all if name is empty)
 func UpdateMarketplace(name string) error {
+	log := logger.WithComponent("plugins")
+
 	var cmd *exec.Cmd
 	if name == "" {
-		logger.Log("Plugins: Updating all marketplaces")
+		log.Info("updating all marketplaces")
 		cmd = exec.Command("claude", "plugin", "marketplace", "update")
 	} else {
-		logger.Log("Plugins: Updating marketplace: %s", name)
+		log.Info("updating marketplace", "name", name)
 		cmd = exec.Command("claude", "plugin", "marketplace", "update", name)
 	}
 
@@ -271,13 +277,14 @@ func UpdateMarketplace(name string) error {
 		return fmt.Errorf("failed to update marketplace: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully updated marketplace(s)")
+	log.Info("successfully updated marketplace(s)")
 	return nil
 }
 
 // InstallPlugin installs a plugin
 func InstallPlugin(fullName string) error {
-	logger.Log("Plugins: Installing plugin: %s", fullName)
+	log := logger.WithComponent("plugins")
+	log.Info("installing plugin", "plugin", fullName)
 
 	cmd := exec.Command("claude", "plugin", "install", fullName)
 	output, err := cmd.CombinedOutput()
@@ -285,13 +292,14 @@ func InstallPlugin(fullName string) error {
 		return fmt.Errorf("failed to install plugin: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully installed plugin: %s", fullName)
+	log.Info("successfully installed plugin", "plugin", fullName)
 	return nil
 }
 
 // UninstallPlugin removes a plugin
 func UninstallPlugin(fullName string) error {
-	logger.Log("Plugins: Uninstalling plugin: %s", fullName)
+	log := logger.WithComponent("plugins")
+	log.Info("uninstalling plugin", "plugin", fullName)
 
 	cmd := exec.Command("claude", "plugin", "uninstall", fullName)
 	output, err := cmd.CombinedOutput()
@@ -299,13 +307,14 @@ func UninstallPlugin(fullName string) error {
 		return fmt.Errorf("failed to uninstall plugin: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully uninstalled plugin: %s", fullName)
+	log.Info("successfully uninstalled plugin", "plugin", fullName)
 	return nil
 }
 
 // EnablePlugin enables a plugin
 func EnablePlugin(fullName string) error {
-	logger.Log("Plugins: Enabling plugin: %s", fullName)
+	log := logger.WithComponent("plugins")
+	log.Info("enabling plugin", "plugin", fullName)
 
 	cmd := exec.Command("claude", "plugin", "enable", fullName)
 	output, err := cmd.CombinedOutput()
@@ -313,13 +322,14 @@ func EnablePlugin(fullName string) error {
 		return fmt.Errorf("failed to enable plugin: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully enabled plugin: %s", fullName)
+	log.Info("successfully enabled plugin", "plugin", fullName)
 	return nil
 }
 
 // DisablePlugin disables a plugin
 func DisablePlugin(fullName string) error {
-	logger.Log("Plugins: Disabling plugin: %s", fullName)
+	log := logger.WithComponent("plugins")
+	log.Info("disabling plugin", "plugin", fullName)
 
 	cmd := exec.Command("claude", "plugin", "disable", fullName)
 	output, err := cmd.CombinedOutput()
@@ -327,6 +337,6 @@ func DisablePlugin(fullName string) error {
 		return fmt.Errorf("failed to disable plugin: %s", strings.TrimSpace(string(output)))
 	}
 
-	logger.Log("Plugins: Successfully disabled plugin: %s", fullName)
+	log.Info("successfully disabled plugin", "plugin", fullName)
 	return nil
 }

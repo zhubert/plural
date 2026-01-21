@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,14 +174,17 @@ type Runner struct {
 	mcpConfigPath  string            // Path to MCP config file (persistent)
 	serverRunning  bool              // Whether the socket server is running
 
+	// Session-scoped logger with sessionID pre-attached
+	log *slog.Logger
+
 	// MCP interactive prompt channels. Each pair handles one type of interaction:
 	// - Permission: Tool use authorization (y/n/always)
 	// - Question: Multiple-choice questions from Claude
 	// - PlanApproval: Plan mode approval requests
 	// See PermissionChannelBuffer constant for buffer size rationale.
-	permReqChan    chan mcp.PermissionRequest
-	permRespChan   chan mcp.PermissionResponse
-	questReqChan   chan mcp.QuestionRequest
+	permReqChan  chan mcp.PermissionRequest
+	permRespChan chan mcp.PermissionResponse
+	questReqChan chan mcp.QuestionRequest
 	questRespChan  chan mcp.QuestionResponse
 	planReqChan    chan mcp.PlanApprovalRequest
 	planRespChan   chan mcp.PlanApprovalResponse
@@ -193,7 +197,7 @@ type Runner struct {
 	forkFromSessionID string
 
 	// Process management via ProcessManager
-	processManager *ProcessManager // Manages Claude CLI process lifecycle
+	processManager          *ProcessManager    // Manages Claude CLI process lifecycle
 	currentResponseCh       chan ResponseChunk // Current response channel for routing (protected by mu)
 	currentResponseChClosed bool               // Whether currentResponseCh has been closed (protected by mu)
 	closeResponseChOnce     *sync.Once         // Ensures response channel is closed exactly once per Send
@@ -226,7 +230,9 @@ type MCPServer struct {
 
 // New creates a new Claude runner for a session
 func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Message) *Runner {
-	logger.Log("Claude: New Runner created: sessionID=%s, workingDir=%s, started=%v, messages=%d", sessionID, workingDir, sessionStarted, len(initialMessages))
+	log := logger.WithSession(sessionID)
+	log.Debug("runner created", "workDir", workingDir, "started", sessionStarted, "messageCount", len(initialMessages))
+
 	msgs := initialMessages
 	if msgs == nil {
 		msgs = []Message{}
@@ -241,6 +247,7 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 		messages:       msgs,
 		sessionStarted: sessionStarted,
 		allowedTools:   allowedTools,
+		log:            log,
 		permReqChan:    make(chan mcp.PermissionRequest, PermissionChannelBuffer),
 		permRespChan:   make(chan mcp.PermissionResponse, PermissionChannelBuffer),
 		questReqChan:   make(chan mcp.QuestionRequest, PermissionChannelBuffer),
@@ -300,7 +307,7 @@ func (r *Runner) SetMCPServers(servers []MCPServer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.mcpServers = servers
-	logger.Log("Claude: Set %d external MCP servers for session %s", len(servers), r.sessionID)
+	r.log.Debug("set external MCP servers", "count", len(servers))
 }
 
 // SetForkFromSession sets the parent session ID to fork from.
@@ -310,7 +317,7 @@ func (r *Runner) SetForkFromSession(parentSessionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.forkFromSessionID = parentSessionID
-	logger.Log("Claude: Set fork from session %s for session %s", parentSessionID, r.sessionID)
+	r.log.Debug("set fork from session", "parentSessionID", parentSessionID)
 }
 
 // PermissionRequestChan returns the channel for receiving permission requests.
@@ -333,7 +340,7 @@ func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.mu.RUnlock()
 
 	if stopped || ch == nil {
-		logger.Log("Claude: SendPermissionResponse called on stopped runner, ignoring")
+		r.log.Debug("SendPermissionResponse called on stopped runner, ignoring")
 		return
 	}
 
@@ -341,7 +348,7 @@ func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	select {
 	case ch <- resp:
 	default:
-		logger.Log("Claude: SendPermissionResponse channel full or closed, ignoring")
+		r.log.Debug("SendPermissionResponse channel full or closed, ignoring")
 	}
 }
 
@@ -365,7 +372,7 @@ func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	r.mu.RUnlock()
 
 	if stopped || ch == nil {
-		logger.Log("Claude: SendQuestionResponse called on stopped runner, ignoring")
+		r.log.Debug("SendQuestionResponse called on stopped runner, ignoring")
 		return
 	}
 
@@ -373,7 +380,7 @@ func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	select {
 	case ch <- resp:
 	default:
-		logger.Log("Claude: SendQuestionResponse channel full or closed, ignoring")
+		r.log.Debug("SendQuestionResponse channel full or closed, ignoring")
 	}
 }
 
@@ -397,7 +404,7 @@ func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	r.mu.RUnlock()
 
 	if stopped || ch == nil {
-		logger.Log("Claude: SendPlanApprovalResponse called on stopped runner, ignoring")
+		r.log.Debug("SendPlanApprovalResponse called on stopped runner, ignoring")
 		return
 	}
 
@@ -405,7 +412,7 @@ func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	select {
 	case ch <- resp:
 	default:
-		logger.Log("Claude: SendPlanApprovalResponse channel full or closed, ignoring")
+		r.log.Debug("SendPlanApprovalResponse channel full or closed, ignoring")
 	}
 }
 
@@ -467,7 +474,7 @@ type streamMessage struct {
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output
 // and returns zero or more ResponseChunks representing the message content.
-func parseStreamMessage(line string) []ResponseChunk {
+func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return nil
@@ -475,8 +482,7 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		// Log the raw JSON for debugging
-		logger.Log("Claude: Failed to parse stream message: %v, line=%q", err, line)
+		log.Warn("failed to parse stream message", "error", err, "line", truncateForLog(line))
 		// Show user-friendly error requesting they report the issue
 		return []ResponseChunk{{
 			Type:    ChunkTypeText,
@@ -486,7 +492,7 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 	// If this looks like a stream-json message but we don't handle it, request a bug report
 	if msg.Type == "" && strings.HasPrefix(line, "{") {
-		logger.Log("Claude: Unrecognized JSON message type: %s", truncateForLog(line))
+		log.Warn("unrecognized JSON message type", "line", truncateForLog(line))
 		return []ResponseChunk{{
 			Type:    ChunkTypeText,
 			Content: "\n[Plural bug: unrecognized message format. Please open an issue at https://github.com/zhubert/plural/issues with your /tmp/plural-debug.log]\n",
@@ -499,7 +505,7 @@ func parseStreamMessage(line string) []ResponseChunk {
 	case "system":
 		// Init message - we could show "Session started" but skip for now
 		if msg.Subtype == "init" {
-			logger.Log("Claude: Session initialized")
+			log.Debug("session initialized")
 		}
 
 	case "assistant":
@@ -518,14 +524,14 @@ func parseStreamMessage(line string) []ResponseChunk {
 				if content.Name == "TodoWrite" {
 					todoList, err := ParseTodoWriteInput(content.Input)
 					if err != nil {
-						logger.Log("Claude: Failed to parse TodoWrite input: %v", err)
+						log.Warn("failed to parse TodoWrite input", "error", err)
 						// Fall through to regular tool use display on parse error
 					} else {
 						chunks = append(chunks, ResponseChunk{
 							Type:     ChunkTypeTodoUpdate,
 							TodoList: todoList,
 						})
-						logger.Log("Claude: TodoWrite with %d items", len(todoList.Items))
+						log.Debug("TodoWrite parsed", "itemCount", len(todoList.Items))
 						continue
 					}
 				}
@@ -537,7 +543,7 @@ func parseStreamMessage(line string) []ResponseChunk {
 					ToolName:  content.Name,
 					ToolInput: inputDesc,
 				})
-				logger.Log("Claude: Tool use: %s - %s", content.Name, inputDesc)
+				log.Debug("tool use", "tool", content.Name, "input", inputDesc)
 			}
 		}
 
@@ -553,7 +559,7 @@ func parseStreamMessage(line string) []ResponseChunk {
 				content.ToolUseId != ""
 			if isToolResult {
 				// Emit a tool result chunk so UI can mark tool as complete
-				logger.Log("Claude: Tool result received")
+				log.Debug("tool result received")
 				chunks = append(chunks, ResponseChunk{
 					Type: ChunkTypeToolResult,
 				})
@@ -563,7 +569,7 @@ func parseStreamMessage(line string) []ResponseChunk {
 	case "result":
 		// Final result - the actual result text is in msg.Result
 		// For error results, the error message is in msg.Result
-		logger.Log("Claude: Result received, subtype=%s, result=%s", msg.Subtype, msg.Result)
+		log.Debug("result received", "subtype", msg.Subtype, "result", msg.Result)
 	}
 
 	return chunks
@@ -571,9 +577,9 @@ func parseStreamMessage(line string) []ResponseChunk {
 
 // toolInputConfig defines how to extract a description from a tool's input.
 type toolInputConfig struct {
-	Field      string // JSON field to extract
+	Field       string // JSON field to extract
 	ShortenPath bool   // Whether to shorten file paths to just filename
-	MaxLen     int    // Maximum length before truncation (0 = no limit)
+	MaxLen      int    // Maximum length before truncation (0 = no limit)
 }
 
 // toolInputConfigs maps tool names to their input extraction configuration.
@@ -676,17 +682,17 @@ func (r *Runner) ensureServerRunning() error {
 		return nil
 	}
 
-	logger.Info("Claude: Starting persistent MCP server for session %s", r.sessionID)
+	r.log.Info("starting persistent MCP server")
 	startTime := time.Now()
 
 	// Create socket server
 	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan, r.questReqChan, r.questRespChan, r.planReqChan, r.planRespChan)
 	if err != nil {
-		logger.Error("Claude: Failed to create socket server: %v", err)
+		r.log.Error("failed to create socket server", "error", err)
 		return fmt.Errorf("failed to start permission server: %v", err)
 	}
 	r.socketServer = socketServer
-	logger.Debug("Claude: Socket server created in %v", time.Since(startTime))
+	r.log.Debug("socket server created", "elapsed", time.Since(startTime))
 
 	// Start socket server in background
 	go r.socketServer.Run()
@@ -696,14 +702,16 @@ func (r *Runner) ensureServerRunning() error {
 	if err != nil {
 		r.socketServer.Close()
 		r.socketServer = nil
-		logger.Error("Claude: Failed to create MCP config: %v", err)
+		r.log.Error("failed to create MCP config", "error", err)
 		return fmt.Errorf("failed to create MCP config: %v", err)
 	}
 	r.mcpConfigPath = mcpConfigPath
 
 	r.serverRunning = true
-	logger.Info("Claude: Persistent MCP server started in %v, socket=%s, config=%s",
-		time.Since(startTime), r.socketServer.SocketPath(), r.mcpConfigPath)
+	r.log.Info("persistent MCP server started",
+		"elapsed", time.Since(startTime),
+		"socket", r.socketServer.SocketPath(),
+		"config", r.mcpConfigPath)
 
 	return nil
 }
@@ -765,7 +773,7 @@ func (r *Runner) ensureProcessRunning() error {
 		}
 		copy(config.AllowedTools, r.allowedTools)
 
-		r.processManager = NewProcessManager(config, r.createProcessCallbacks())
+		r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
 	}
 
 	// Start the process if not running
@@ -802,7 +810,7 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 // handleProcessLine processes a line of output from the Claude process.
 func (r *Runner) handleProcessLine(line string) {
 	// Parse the JSON message
-	chunks := parseStreamMessage(line)
+	chunks := parseStreamMessage(line, r.log)
 
 	// Get the current response channel (nil if already closed)
 	r.mu.RLock()
@@ -848,7 +856,7 @@ func (r *Runner) handleProcessLine(line string) {
 		}
 
 		if r.firstChunk {
-			logger.Log("Claude: First response chunk received after %v", time.Since(r.responseStartTime))
+			r.log.Debug("first response chunk received", "elapsed", time.Since(r.responseStartTime))
 			r.firstChunk = false
 		}
 		r.mu.Unlock()
@@ -858,7 +866,7 @@ func (r *Runner) handleProcessLine(line string) {
 			if err := r.sendChunkWithTimeout(ch, chunk); err != nil {
 				if err == errChannelFull {
 					// Report error to user instead of silently dropping
-					logger.Error("Claude: Response channel full, reporting error")
+					r.log.Error("response channel full, reporting error")
 					r.sendChunkWithTimeout(ch, ResponseChunk{
 						Type:    ChunkTypeText,
 						Content: "\n[Error: Response buffer full - some output may be lost]\n",
@@ -873,9 +881,11 @@ func (r *Runner) handleProcessLine(line string) {
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
 		if msg.Type == "result" {
-			// Log detailed info for debugging
-			logger.Log("Claude: Result message received, subtype=%s, result=%q, error=%q, raw=%s",
-				msg.Subtype, msg.Result, msg.Error, strings.TrimSpace(line))
+			r.log.Debug("result message received",
+				"subtype", msg.Subtype,
+				"result", msg.Result,
+				"error", msg.Error,
+				"raw", strings.TrimSpace(line))
 
 			r.mu.Lock()
 			r.sessionStarted = true
@@ -953,7 +963,7 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 	// If response was already complete (we got a result message), the process
 	// exiting is expected behavior - don't restart
 	if responseComplete {
-		logger.Log("Claude: Process exited after response complete, not restarting")
+		r.log.Debug("process exited after response complete, not restarting")
 		r.mu.Unlock()
 		return false
 	}
@@ -993,7 +1003,7 @@ func (r *Runner) handleRestartAttempt(attemptNum int) {
 
 // handleRestartFailed is called when restart fails.
 func (r *Runner) handleRestartFailed(err error) {
-	logger.Error("Claude: Restart failed: %v", err)
+	r.log.Error("restart failed", "error", err)
 }
 
 // handleFatalError is called when max restarts exceeded or unrecoverable error.
@@ -1019,7 +1029,7 @@ func (r *Runner) sendChunkWithTimeout(ch chan ResponseChunk, chunk ResponseChunk
 	case ch <- chunk:
 		return nil
 	case <-time.After(ResponseChannelFullTimeout):
-		logger.Error("Claude: Response channel full after %v timeout", ResponseChannelFullTimeout)
+		r.log.Error("response channel full after timeout", "timeout", ResponseChannelFullTimeout)
 		return errChannelFull
 	}
 }
@@ -1047,7 +1057,7 @@ func (r *Runner) Interrupt() error {
 	r.mu.Unlock()
 
 	if pm == nil {
-		logger.Log("Claude: Interrupt called but no process manager")
+		r.log.Debug("interrupt called but no process manager")
 		return nil
 	}
 
@@ -1075,7 +1085,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		if len(promptPreview) > 50 {
 			promptPreview = promptPreview[:50] + "..."
 		}
-		logger.Log("Claude: SendContent started: sessionID=%s, content=%q", r.sessionID, promptPreview)
+		r.log.Debug("SendContent started", "content", promptPreview)
 
 		// Add user message to history
 		r.mu.Lock()
@@ -1129,7 +1139,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		// Serialize to JSON
 		msgJSON, err := json.Marshal(inputMsg)
 		if err != nil {
-			logger.Log("Claude: Failed to serialize message: %v", err)
+			r.log.Error("failed to serialize message", "error", err)
 			ch <- ResponseChunk{Error: fmt.Errorf("failed to serialize message: %v", err), Done: true}
 			close(ch)
 			return
@@ -1144,9 +1154,9 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			}
 		}
 		if hasImage {
-			logger.Log("Claude: Writing message to stdin: [message with image, %d bytes]", len(msgJSON))
+			r.log.Debug("writing message to stdin", "size", len(msgJSON), "hasImage", true)
 		} else {
-			logger.Log("Claude: Writing message to stdin: %s", string(msgJSON))
+			r.log.Debug("writing message to stdin", "message", string(msgJSON))
 		}
 
 		// Write to process via ProcessManager
@@ -1161,13 +1171,13 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		}
 
 		if err := pm.WriteMessage(append(msgJSON, '\n')); err != nil {
-			logger.Log("Claude: Failed to write to stdin: %v", err)
+			r.log.Error("failed to write to stdin", "error", err)
 			ch <- ResponseChunk{Error: err, Done: true}
 			close(ch)
 			return
 		}
 
-		logger.Log("Claude: Message sent in %v, waiting for response", time.Since(sendStartTime))
+		r.log.Debug("message sent, waiting for response", "elapsed", time.Since(sendStartTime))
 
 		// The response will be read by ProcessManager and routed via callbacks
 	}()
@@ -1201,7 +1211,7 @@ func (r *Runner) AddAssistantMessage(content string) {
 // This method is idempotent - multiple calls are safe.
 func (r *Runner) Stop() {
 	r.stopOnce.Do(func() {
-		logger.Info("Claude: Stopping runner for session %s", r.sessionID)
+		r.log.Info("stopping runner")
 
 		// Stop the ProcessManager first
 		r.mu.Lock()
@@ -1221,16 +1231,16 @@ func (r *Runner) Stop() {
 
 		// Close socket server if running
 		if r.socketServer != nil {
-			logger.Debug("Claude: Closing persistent socket server for session %s", r.sessionID)
+			r.log.Debug("closing persistent socket server")
 			r.socketServer.Close()
 			r.socketServer = nil
 		}
 
 		// Remove MCP config file and log any errors
 		if r.mcpConfigPath != "" {
-			logger.Debug("Claude: Removing MCP config file: %s", r.mcpConfigPath)
+			r.log.Debug("removing MCP config file", "path", r.mcpConfigPath)
 			if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
-				logger.Warn("Claude: Failed to remove MCP config file %s: %v", r.mcpConfigPath, err)
+				r.log.Warn("failed to remove MCP config file", "path", r.mcpConfigPath, "error", err)
 			}
 			r.mcpConfigPath = ""
 		}
@@ -1267,7 +1277,7 @@ func (r *Runner) Stop() {
 			r.planRespChan = nil
 		}
 
-		logger.Info("Claude: Runner stopped for session %s", r.sessionID)
+		r.log.Info("runner stopped")
 	})
 }
 

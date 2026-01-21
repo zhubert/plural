@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -59,11 +60,13 @@ type SocketServer struct {
 	planRespCh    <-chan PlanApprovalResponse
 	closed        bool         // Set to true when Close() is called
 	closedMu      sync.RWMutex // Guards closed flag
+	log           *slog.Logger // Logger with session context
 }
 
 // NewSocketServer creates a new socket server for the given session
 func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
 	socketPath := filepath.Join(os.TempDir(), "plural-"+sessionID+".sock")
+	log := logger.WithSession(sessionID).With("component", "mcp-socket")
 
 	// Remove existing socket if present
 	os.Remove(socketPath)
@@ -73,7 +76,7 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 		return nil, err
 	}
 
-	logger.Log("MCP Socket: Listening on %s", socketPath)
+	log.Info("listening", "socketPath", socketPath)
 
 	return &SocketServer{
 		socketPath: socketPath,
@@ -84,6 +87,7 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 		answerCh:   ansCh,
 		planReqCh:  planReqCh,
 		planRespCh: planRespCh,
+		log:        log,
 	}, nil
 }
 
@@ -100,7 +104,7 @@ func (s *SocketServer) Run() {
 		closed := s.closed
 		s.closedMu.RUnlock()
 		if closed {
-			logger.Log("MCP Socket: Server closed, stopping accept loop")
+			s.log.Info("server closed, stopping accept loop")
 			return
 		}
 
@@ -111,15 +115,15 @@ func (s *SocketServer) Run() {
 			closed := s.closed
 			s.closedMu.RUnlock()
 			if closed {
-				logger.Log("MCP Socket: Listener closed during shutdown, stopping")
+				s.log.Info("listener closed during shutdown, stopping")
 				return
 			}
 			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
-				logger.Log("MCP Socket: Listener closed, stopping")
+				s.log.Info("listener closed, stopping")
 				return
 			}
 			// Log error but continue accepting connections
-			logger.Log("MCP Socket: Accept error (continuing): %v", err)
+			s.log.Warn("accept error (continuing)", "error", err)
 			continue
 		}
 
@@ -129,7 +133,7 @@ func (s *SocketServer) Run() {
 
 func (s *SocketServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
-	logger.Log("MCP Socket: Connection accepted")
+	s.log.Debug("connection accepted")
 
 	reader := bufio.NewReader(conn)
 
@@ -139,7 +143,7 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		closed := s.closed
 		s.closedMu.RUnlock()
 		if closed {
-			logger.Log("MCP Socket: Server closed, closing connection handler")
+			s.log.Debug("server closed, closing connection handler")
 			return
 		}
 
@@ -155,19 +159,19 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				closed := s.closed
 				s.closedMu.RUnlock()
 				if closed {
-					logger.Log("MCP Socket: Server closed during timeout, exiting handler")
+					s.log.Debug("server closed during timeout, exiting handler")
 					return
 				}
 				// Server still running, continue waiting for messages
 				continue
 			}
-			logger.Log("MCP Socket: Read error: %v", err)
+			s.log.Error("read error", "error", err)
 			return
 		}
 
 		var msg SocketMessage
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			logger.Log("MCP Socket: JSON parse error: %v", err)
+			s.log.Error("JSON parse error", "error", err)
 			continue
 		}
 
@@ -179,14 +183,14 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		case MessageTypePlanApproval:
 			s.handlePlanApprovalMessage(conn, msg.PlanReq)
 		default:
-			logger.Log("MCP Socket: Unknown message type: %s", msg.Type)
+			s.log.Warn("unknown message type", "type", msg.Type)
 		}
 	}
 }
 
 func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionRequest) {
 	if req == nil {
-		logger.Log("MCP Socket: Nil permission request, sending deny response")
+		s.log.Warn("nil permission request, sending deny response")
 		// Send a deny response to prevent client from hanging
 		s.sendPermissionResponse(conn, PermissionResponse{
 			Allowed: false,
@@ -195,14 +199,14 @@ func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionReq
 		return
 	}
 
-	logger.Log("MCP Socket: Received permission request: tool=%s", req.Tool)
+	s.log.Info("received permission request", "tool", req.Tool)
 
 	// Send to TUI (non-blocking with timeout)
 	select {
 	case s.requestCh <- *req:
 		// Request sent successfully
 	case <-time.After(SocketReadTimeout):
-		logger.Log("MCP Socket: Timeout sending permission request to TUI")
+		s.log.Warn("timeout sending permission request to TUI")
 		s.sendPermissionResponse(conn, PermissionResponse{
 			ID:      req.ID,
 			Allowed: false,
@@ -215,10 +219,10 @@ func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionReq
 	select {
 	case resp := <-s.responseCh:
 		s.sendPermissionResponse(conn, resp)
-		logger.Log("MCP Socket: Sent permission response: allowed=%v", resp.Allowed)
+		s.log.Info("sent permission response", "allowed", resp.Allowed)
 
 	case <-time.After(PermissionResponseTimeout):
-		logger.Log("MCP Socket: Timeout waiting for permission response")
+		s.log.Warn("timeout waiting for permission response")
 		s.sendPermissionResponse(conn, PermissionResponse{
 			ID:      req.ID,
 			Allowed: false,
@@ -229,7 +233,7 @@ func (s *SocketServer) handlePermissionMessage(conn net.Conn, req *PermissionReq
 
 func (s *SocketServer) handleQuestionMessage(conn net.Conn, req *QuestionRequest) {
 	if req == nil {
-		logger.Log("MCP Socket: Nil question request, sending empty response")
+		s.log.Warn("nil question request, sending empty response")
 		// Send an empty response to prevent client from hanging
 		s.sendQuestionResponse(conn, QuestionResponse{
 			Answers: map[string]string{},
@@ -237,14 +241,14 @@ func (s *SocketServer) handleQuestionMessage(conn net.Conn, req *QuestionRequest
 		return
 	}
 
-	logger.Log("MCP Socket: Received question request with %d questions", len(req.Questions))
+	s.log.Info("received question request", "questionCount", len(req.Questions))
 
 	// Send to TUI (non-blocking with timeout)
 	select {
 	case s.questionCh <- *req:
 		// Request sent successfully
 	case <-time.After(SocketReadTimeout):
-		logger.Log("MCP Socket: Timeout sending question request to TUI")
+		s.log.Warn("timeout sending question request to TUI")
 		s.sendQuestionResponse(conn, QuestionResponse{
 			ID:      req.ID,
 			Answers: map[string]string{},
@@ -256,10 +260,10 @@ func (s *SocketServer) handleQuestionMessage(conn net.Conn, req *QuestionRequest
 	select {
 	case resp := <-s.answerCh:
 		s.sendQuestionResponse(conn, resp)
-		logger.Log("MCP Socket: Sent question response with %d answers", len(resp.Answers))
+		s.log.Info("sent question response", "answerCount", len(resp.Answers))
 
 	case <-time.After(PermissionResponseTimeout):
-		logger.Log("MCP Socket: Timeout waiting for question response")
+		s.log.Warn("timeout waiting for question response")
 		s.sendQuestionResponse(conn, QuestionResponse{
 			ID:      req.ID,
 			Answers: map[string]string{},
@@ -274,13 +278,13 @@ func (s *SocketServer) sendPermissionResponse(conn net.Conn, resp PermissionResp
 	}
 	respJSON, err := json.Marshal(msg)
 	if err != nil {
-		logger.Log("MCP Socket: Failed to marshal permission response: %v", err)
+		s.log.Error("failed to marshal permission response", "error", err)
 		return
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
 	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		logger.Log("MCP Socket: Write error: %v", err)
+		s.log.Error("write error", "error", err)
 	}
 }
 
@@ -291,33 +295,33 @@ func (s *SocketServer) sendQuestionResponse(conn net.Conn, resp QuestionResponse
 	}
 	respJSON, err := json.Marshal(msg)
 	if err != nil {
-		logger.Log("MCP Socket: Failed to marshal question response: %v", err)
+		s.log.Error("failed to marshal question response", "error", err)
 		return
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
 	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		logger.Log("MCP Socket: Write error: %v", err)
+		s.log.Error("write error", "error", err)
 	}
 }
 
 func (s *SocketServer) handlePlanApprovalMessage(conn net.Conn, req *PlanApprovalRequest) {
 	if req == nil {
-		logger.Log("MCP Socket: Nil plan approval request, sending reject response")
+		s.log.Warn("nil plan approval request, sending reject response")
 		s.sendPlanApprovalResponse(conn, PlanApprovalResponse{
 			Approved: false,
 		})
 		return
 	}
 
-	logger.Log("MCP Socket: Received plan approval request with %d chars", len(req.Plan))
+	s.log.Info("received plan approval request", "planLength", len(req.Plan))
 
 	// Send to TUI (non-blocking with timeout)
 	select {
 	case s.planReqCh <- *req:
 		// Request sent successfully
 	case <-time.After(SocketReadTimeout):
-		logger.Log("MCP Socket: Timeout sending plan approval request to TUI")
+		s.log.Warn("timeout sending plan approval request to TUI")
 		s.sendPlanApprovalResponse(conn, PlanApprovalResponse{
 			ID:       req.ID,
 			Approved: false,
@@ -329,10 +333,10 @@ func (s *SocketServer) handlePlanApprovalMessage(conn net.Conn, req *PlanApprova
 	select {
 	case resp := <-s.planRespCh:
 		s.sendPlanApprovalResponse(conn, resp)
-		logger.Log("MCP Socket: Sent plan approval response: approved=%v", resp.Approved)
+		s.log.Info("sent plan approval response", "approved", resp.Approved)
 
 	case <-time.After(PermissionResponseTimeout):
-		logger.Log("MCP Socket: Timeout waiting for plan approval response")
+		s.log.Warn("timeout waiting for plan approval response")
 		s.sendPlanApprovalResponse(conn, PlanApprovalResponse{
 			ID:       req.ID,
 			Approved: false,
@@ -347,19 +351,19 @@ func (s *SocketServer) sendPlanApprovalResponse(conn net.Conn, resp PlanApproval
 	}
 	respJSON, err := json.Marshal(msg)
 	if err != nil {
-		logger.Log("MCP Socket: Failed to marshal plan approval response: %v", err)
+		s.log.Error("failed to marshal plan approval response", "error", err)
 		return
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
 	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		logger.Log("MCP Socket: Write error: %v", err)
+		s.log.Error("write error", "error", err)
 	}
 }
 
 // Close shuts down the socket server
 func (s *SocketServer) Close() error {
-	logger.Log("MCP Socket: Closing")
+	s.log.Info("closing socket server")
 
 	// Mark as closed BEFORE closing listener to signal Run() goroutine to exit
 	s.closedMu.Lock()
@@ -371,7 +375,7 @@ func (s *SocketServer) Close() error {
 
 	// Remove socket file, logging any errors
 	if removeErr := os.Remove(s.socketPath); removeErr != nil && !os.IsNotExist(removeErr) {
-		logger.Log("MCP Socket: Warning: failed to remove socket file %s: %v", s.socketPath, removeErr)
+		s.log.Warn("failed to remove socket file", "socketPath", s.socketPath, "error", removeErr)
 	}
 
 	return err

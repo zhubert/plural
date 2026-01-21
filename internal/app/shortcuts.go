@@ -256,10 +256,12 @@ func (m *Model) isShortcutApplicable(s Shortcut) bool {
 // Returns (model, cmd, true) if the shortcut was found and executed.
 // Returns (model, nil, false) if the shortcut was not found or guards failed.
 func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
+	log := logger.WithComponent("Shortcut")
+
 	// If sidebar is in search mode, don't process shortcuts - let keys go to search input
 	// Exception: "/" is handled by its own Condition guard to allow entering search mode
 	if m.sidebar.IsSearchMode() && key != "/" {
-		logger.Log("Shortcut: Sidebar in search mode, letting key %q go to search input", key)
+		log.Debug("sidebar in search mode, letting key go to search input", "key", key)
 		return m, nil, false
 	}
 
@@ -279,21 +281,21 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 			if selectedSess != nil {
 				selectedID = selectedSess.ID
 			}
-			logger.Log("Shortcut: Found shortcut for key=%q, checking guards: chatFocused=%v, selectedSession=%q", key, m.chat.IsFocused(), selectedID)
+			log.Debug("found shortcut, checking guards", "key", key, "chatFocused", m.chat.IsFocused(), "selectedSession", selectedID)
 			// Check guards
 			if s.RequiresSidebar && m.chat.IsFocused() {
-				logger.Log("Shortcut: Guard failed - RequiresSidebar but chat is focused")
+				log.Debug("guard failed - RequiresSidebar but chat is focused")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			if s.RequiresSession && selectedSess == nil {
-				logger.Log("Shortcut: Guard failed - RequiresSession but no session selected")
+				log.Debug("guard failed - RequiresSession but no session selected")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			if s.Condition != nil && !s.Condition(m) {
-				logger.Log("Shortcut: Guard failed - Condition returned false")
+				log.Debug("guard failed - Condition returned false")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
-			logger.Log("Shortcut: All guards passed, executing handler for %q", key)
+			log.Debug("all guards passed, executing handler", "key", key)
 			result, cmd := s.Handler(m)
 			return result, cmd, true
 		}
@@ -422,7 +424,7 @@ func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
 	if sess == nil {
 		return m, nil
 	}
-	logger.Log("Shortcut: Opening terminal at worktree: %s", sess.WorkTree)
+	logger.WithSession(sess.ID).Debug("opening terminal at worktree", "path", sess.WorkTree)
 	return m, openTerminalAtPath(sess.WorkTree)
 }
 
@@ -575,7 +577,8 @@ type TerminalErrorMsg struct {
 // Supports macOS (Terminal.app) and Linux (common terminal emulators).
 func openTerminalAtPath(path string) tea.Cmd {
 	return func() tea.Msg {
-		logger.Log("Shortcut: openTerminalAtPath called for OS=%s, path=%s", runtime.GOOS, path)
+		log := logger.WithComponent("Shortcut")
+		log.Debug("opening terminal at path", "os", runtime.GOOS, "path", path)
 
 		switch runtime.GOOS {
 		case "darwin":
@@ -588,7 +591,7 @@ func openTerminalAtPath(path string) tea.Cmd {
 	activate
 end tell`, escapedPath)
 			cmd := exec.Command("osascript", "-e", script)
-			logger.Log("Shortcut: Running AppleScript to open Terminal")
+			log.Debug("running AppleScript to open Terminal")
 
 			// Run and capture any error output
 			output, err := cmd.CombinedOutput()
@@ -597,10 +600,10 @@ end tell`, escapedPath)
 				if len(output) > 0 {
 					errMsg = fmt.Sprintf("Failed to open terminal: %s", strings.TrimSpace(string(output)))
 				}
-				logger.Log("Shortcut: %s", errMsg)
+				log.Error("failed to open terminal", "error", errMsg)
 				return TerminalErrorMsg{Error: errMsg}
 			}
-			logger.Log("Shortcut: Terminal opened successfully")
+			log.Debug("terminal opened successfully")
 			return nil
 
 		case "linux":
@@ -630,15 +633,15 @@ end tell`, escapedPath)
 
 			if err := cmd.Start(); err != nil {
 				errMsg := fmt.Sprintf("Failed to open terminal: %v", err)
-				logger.Log("Shortcut: %s", errMsg)
+				log.Error("failed to open terminal", "error", errMsg)
 				return TerminalErrorMsg{Error: errMsg}
 			}
-			logger.Log("Shortcut: Terminal opened successfully")
+			log.Debug("terminal opened successfully")
 			return nil
 
 		default:
 			errMsg := fmt.Sprintf("Unsupported OS for terminal: %s", runtime.GOOS)
-			logger.Log("Shortcut: %s", errMsg)
+			log.Error("unsupported OS for terminal", "os", runtime.GOOS)
 			return TerminalErrorMsg{Error: errMsg}
 		}
 	}

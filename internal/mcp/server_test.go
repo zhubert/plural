@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/zhubert/plural/internal/logger"
 )
 
 func TestBuildToolDescription(t *testing.T) {
@@ -729,6 +731,7 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 			planApprovalChan: planApprovalChan,
 			planResponseChan: planResponseChan,
 			writer:           &buf,
+			log:              logger.WithSession("test"),
 		}
 
 		go func() {
@@ -752,6 +755,7 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 			planApprovalChan: planApprovalChan,
 			planResponseChan: planResponseChan,
 			writer:           &buf,
+			log:              logger.WithSession("test"),
 		}
 
 		go func() {
@@ -784,6 +788,7 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 			planApprovalChan: planApprovalChan,
 			planResponseChan: planResponseChan,
 			writer:           &buf,
+			log:              logger.WithSession("test"),
 		}
 
 		go func() {
@@ -802,6 +807,8 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 }
 
 func TestReadPlanFromPath(t *testing.T) {
+	s := &Server{log: logger.WithSession("test")}
+
 	t.Run("reads existing file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		planContent := "# Test Plan\n\n1. Step one\n2. Step two"
@@ -810,14 +817,14 @@ func TestReadPlanFromPath(t *testing.T) {
 			t.Fatalf("Failed to write plan file: %v", err)
 		}
 
-		result := readPlanFromPath(planPath)
+		result := s.readPlanFromPath(planPath)
 		if result != planContent {
 			t.Errorf("readPlanFromPath() = %q, want %q", result, planContent)
 		}
 	})
 
 	t.Run("returns error message when file missing", func(t *testing.T) {
-		result := readPlanFromPath("/nonexistent/path/plan.md")
+		result := s.readPlanFromPath("/nonexistent/path/plan.md")
 		if !strings.Contains(result, "Plan file not found") {
 			t.Errorf("Expected 'Plan file not found' message, got: %q", result)
 		}
@@ -833,6 +840,7 @@ func TestHandleExitPlanMode_ParsesAllowedPrompts(t *testing.T) {
 		planApprovalChan: planApprovalChan,
 		planResponseChan: planResponseChan,
 		writer:           &buf,
+		log:              logger.WithSession("test"),
 	}
 
 	arguments := map[string]interface{}{

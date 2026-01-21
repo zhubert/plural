@@ -70,7 +70,7 @@ func (m *Model) handleSlashCommand(input string) SlashCommandResult {
 		args = parts[1]
 	}
 
-	logger.Log("App: Slash command detected: /%s args=%q", cmdName, args)
+	logger.Get().Debug("slash command detected", "command", cmdName, "args", args)
 
 	// Dispatch to the appropriate handler
 	switch cmdName {
@@ -84,7 +84,7 @@ func (m *Model) handleSlashCommand(input string) SlashCommandResult {
 		return handlePluginsCommand(m, args)
 	default:
 		// Unknown slash command - let Claude handle it (might be a custom command)
-		logger.Log("App: Unknown slash command /%s, passing to Claude", cmdName)
+		logger.Get().Debug("unknown slash command, passing to Claude", "command", cmdName)
 		return SlashCommandResult{Handled: false}
 	}
 }
@@ -168,7 +168,7 @@ func handleCostCommand(m *Model, _ string) SlashCommandResult {
 	// Find the Claude session JSONL file
 	stats, err := getSessionUsageStats(sessionID, workingDir)
 	if err != nil {
-		logger.Log("App: Failed to get session usage stats: %v", err)
+		logger.WithSession(sessionID).Warn("failed to get session usage stats", "error", err)
 		return SlashCommandResult{
 			Handled:  true,
 			Response: fmt.Sprintf("Could not retrieve usage data: %v", err),
@@ -216,7 +216,7 @@ func getSessionUsageStats(sessionID string, workingDir string) (*UsageStats, err
 
 	jsonlPath := filepath.Join(homeDir, ".claude", "projects", escapedPath, sessionID+".jsonl")
 
-	logger.Log("App: Looking for session JSONL at: %s", jsonlPath)
+	logger.Get().Debug("looking for session JSONL", "path", jsonlPath)
 
 	data, err := os.ReadFile(jsonlPath)
 	if err != nil {

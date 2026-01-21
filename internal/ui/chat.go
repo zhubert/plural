@@ -212,8 +212,14 @@ func (c *Chat) SetSize(width, height int) {
 		c.updateContent()
 	}
 
-	ctx.Log("Chat.SetSize: outer=%dx%d, chatPanel=%d, input=%d", width, height, chatPanelHeight, InputTotalHeight)
-	ctx.Log("  Chat viewport: w=%d, h=%d", c.viewport.Width(), c.viewport.Height())
+	ctx.Log("Chat.SetSize",
+		"outerWidth", width,
+		"outerHeight", height,
+		"chatPanelHeight", chatPanelHeight,
+		"inputTotalHeight", InputTotalHeight,
+		"viewportWidth", c.viewport.Width(),
+		"viewportHeight", c.viewport.Height(),
+	)
 }
 
 // SetFocused sets the focus state
@@ -349,7 +355,7 @@ func (c *Chat) AddSystemMessage(content string) {
 // GetInput returns the current input text
 func (c *Chat) GetInput() string {
 	val := strings.TrimSpace(c.input.Value())
-	logger.Log("Chat.GetInput: value=%q, len=%d", val, len(val))
+	logger.Get().Debug("Chat.GetInput", "value", val, "len", len(val))
 	return val
 }
 

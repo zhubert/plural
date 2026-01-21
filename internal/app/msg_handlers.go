@@ -19,7 +19,7 @@ func (m *Model) handleClaudeResponseMsg(msg ClaudeResponseMsg) (tea.Model, tea.C
 	runner := m.sessionMgr.GetRunner(msg.SessionID)
 	exists := runner != nil
 	if !exists {
-		logger.Warn("App: Received response for unknown session %s", msg.SessionID)
+		logger.WithSession(msg.SessionID).Warn("received response for unknown session")
 		return m, nil
 	}
 
@@ -38,7 +38,7 @@ func (m *Model) handleClaudeResponseMsg(msg ClaudeResponseMsg) (tea.Model, tea.C
 
 // handleClaudeError handles error responses from Claude.
 func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSession bool) (tea.Model, tea.Cmd) {
-	logger.Error("App: Error in session %s: %v", sessionID, errMsg)
+	logger.WithSession(sessionID).Error("error in session", "error", errMsg)
 	m.sidebar.SetStreaming(sessionID, false)
 	m.sessionState().StopWaiting(sessionID)
 
@@ -60,7 +60,7 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 
 // handleClaudeDone handles completion of Claude streaming.
 func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
-	logger.Info("App: Session %s completed streaming", sessionID)
+	logger.WithSession(sessionID).Info("completed streaming")
 	m.sidebar.SetStreaming(sessionID, false)
 	m.sessionState().StopWaiting(sessionID)
 
@@ -255,7 +255,7 @@ func (m *Model) handleMergeError(sessionID string, result git.Result, isActiveSe
 		if sess != nil {
 			sessionName = ui.SessionDisplayName(sess.Branch, sess.Name)
 		}
-		logger.Log("App: Merge conflict detected for session %s, files: %v", sessionID, result.ConflictedFiles)
+		logger.WithSession(sessionID).Warn("merge conflict detected", "files", result.ConflictedFiles)
 		m.modal.Show(ui.NewMergeConflictState(sessionID, sessionName, result.ConflictedFiles, result.RepoPath))
 		// Clean up merge state
 		m.sessionState().StopMerge(sessionID)
@@ -295,6 +295,7 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 	}
 
 	// Mark session as merged or PR created based on operation type
+	log := logger.WithSession(sessionID)
 	state := m.sessionState().GetIfExists(sessionID)
 	mergeType := MergeTypeNone
 	if state != nil {
@@ -303,28 +304,28 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 	switch mergeType {
 	case MergeTypePR:
 		m.config.MarkSessionPRCreated(sessionID)
-		logger.Log("App: Marked session %s as PR created", sessionID)
+		log.Info("marked session as PR created")
 	case MergeTypeMerge:
 		m.config.MarkSessionMerged(sessionID)
-		logger.Log("App: Marked session %s as merged", sessionID)
+		log.Info("marked session as merged")
 	case MergeTypeParent:
 		// Get child session to find parent
 		childSess := m.config.GetSession(sessionID)
 		if childSess != nil && childSess.ParentID != "" {
 			// Merge conversation history from child to parent
 			if err := m.mergeConversationHistory(sessionID, childSess.ParentID); err != nil {
-				logger.Log("App: Failed to merge conversation history: %v", err)
+				log.Error("failed to merge conversation history", "error", err)
 				cmds = append(cmds, m.ShowFlashWarning("Failed to merge conversation history"))
 			} else {
-				logger.Log("App: Merged conversation history from %s to parent %s", sessionID, childSess.ParentID)
+				log.Info("merged conversation history to parent", "parentID", childSess.ParentID)
 			}
 		}
 		m.config.MarkSessionMergedToParent(sessionID)
-		logger.Log("App: Marked session %s as merged to parent", sessionID)
+		log.Info("marked session as merged to parent")
 	}
 
 	if err := m.config.Save(); err != nil {
-		logger.Log("App: Failed to save config after merge: %v", err)
+		log.Error("failed to save config after merge", "error", err)
 		cmds = append(cmds, m.ShowFlashError("Failed to save session state"))
 	}
 	// Update sidebar with new session status
@@ -340,6 +341,7 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 
 // handleSendPendingMessageMsg processes queued messages submitted during streaming.
 func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
 	pendingMsg := m.sessionState().GetPendingMessage(msg.SessionID)
 	if pendingMsg == "" {
 		return m, nil
@@ -348,7 +350,7 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	// Only send if this session is still valid and can accept messages
 	sess := m.sessionMgr.GetSession(msg.SessionID)
 	if sess == nil || sess.MergedToParent {
-		logger.Log("App: Cannot send pending message for session %s (invalid or merged)", msg.SessionID)
+		log.Warn("cannot send pending message - session invalid or merged")
 		return m, nil
 	}
 
@@ -363,11 +365,11 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	// Get the runner for this session
 	runner := m.sessionMgr.GetRunner(msg.SessionID)
 	if runner == nil {
-		logger.Log("App: No runner for session %s to send pending message", msg.SessionID)
+		log.Warn("no runner to send pending message")
 		return m, nil
 	}
 
-	logger.Log("App: Sending pending message for session %s: %s", msg.SessionID, pendingMsg)
+	log.Debug("sending pending message", "message", pendingMsg)
 
 	// If this is the active session, add to chat and clear queued display
 	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
@@ -399,16 +401,17 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 
 // handlePermissionRequestMsg handles permission requests from Claude.
 func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
 	// Get the runner for this session
 	runner := m.sessionMgr.GetRunner(msg.SessionID)
 	exists := runner != nil
 	if !exists {
-		logger.Log("App: Received permission request for unknown session %s", msg.SessionID)
+		log.Warn("received permission request for unknown session")
 		return m, nil
 	}
 
 	// Store permission request for this session (inline, not modal)
-	logger.Log("App: Permission request for session %s: tool=%s", msg.SessionID, msg.Request.Tool)
+	log.Debug("permission request received", "tool", msg.Request.Tool)
 	m.sessionState().GetOrCreate(msg.SessionID).SetPendingPermission(&msg.Request)
 	m.sidebar.SetPendingPermission(msg.SessionID, true)
 
@@ -423,16 +426,17 @@ func (m *Model) handlePermissionRequestMsg(msg PermissionRequestMsg) (tea.Model,
 
 // handleQuestionRequestMsg handles question requests from Claude.
 func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
 	// Get the runner for this session
 	runner := m.sessionMgr.GetRunner(msg.SessionID)
 	exists := runner != nil
 	if !exists {
-		logger.Log("App: Received question request for unknown session %s", msg.SessionID)
+		log.Warn("received question request for unknown session")
 		return m, nil
 	}
 
 	// Store question request for this session
-	logger.Log("App: Question request for session %s: %d questions", msg.SessionID, len(msg.Request.Questions))
+	log.Debug("question request received", "questionCount", len(msg.Request.Questions))
 	m.sessionState().GetOrCreate(msg.SessionID).SetPendingQuestion(&msg.Request)
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
 
@@ -447,17 +451,17 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 
 // handlePlanApprovalRequestMsg handles plan approval requests from Claude.
 func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
 	// Get the runner for this session
 	runner := m.sessionMgr.GetRunner(msg.SessionID)
 	exists := runner != nil
 	if !exists {
-		logger.Log("App: Received plan approval request for unknown session %s", msg.SessionID)
+		log.Warn("received plan approval request for unknown session")
 		return m, nil
 	}
 
 	// Store plan approval request for this session
-	logger.Log("App: Plan approval request for session %s: plan %d chars, %d allowed prompts",
-		msg.SessionID, len(msg.Request.Plan), len(msg.Request.AllowedPrompts))
+	log.Debug("plan approval request received", "planChars", len(msg.Request.Plan), "allowedPrompts", len(msg.Request.AllowedPrompts))
 	m.sessionState().GetOrCreate(msg.SessionID).SetPendingPlanApproval(&msg.Request)
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for plan approval
 

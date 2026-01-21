@@ -23,13 +23,15 @@ func Init() error {
 		return nil
 	}
 
+	log := logger.WithComponent("clipboard")
+
 	if err := clipboard.Init(); err != nil {
-		logger.Log("Clipboard: Failed to initialize: %v", err)
+		log.Error("failed to initialize", "error", err)
 		return fmt.Errorf("failed to initialize clipboard: %w", err)
 	}
 
 	initialized = true
-	logger.Log("Clipboard: Initialized successfully")
+	log.Debug("initialized successfully")
 	return nil
 }
 
@@ -43,19 +45,21 @@ func ReadImage() (*ImageData, error) {
 		}
 	}
 
+	log := logger.WithComponent("clipboard")
+
 	// Read image bytes from clipboard
 	imgBytes := clipboard.Read(clipboard.FmtImage)
 	if len(imgBytes) == 0 {
-		logger.Log("Clipboard: No image data found")
+		log.Debug("no image data found")
 		return nil, nil // No image in clipboard, not an error
 	}
 
-	logger.Log("Clipboard: Read %d bytes of image data", len(imgBytes))
+	log.Debug("read image data", "bytes", len(imgBytes))
 
 	// Decode the image to get dimensions
 	img, format, err := image.Decode(bytes.NewReader(imgBytes))
 	if err != nil {
-		logger.Log("Clipboard: Failed to decode image: %v", err)
+		log.Debug("failed to decode image", "error", err)
 		return nil, fmt.Errorf("failed to decode clipboard image: %w", err)
 	}
 
@@ -63,17 +67,17 @@ func ReadImage() (*ImageData, error) {
 	width := bounds.Dx()
 	height := bounds.Dy()
 
-	logger.Log("Clipboard: Image decoded: %dx%d, format=%s", width, height, format)
+	log.Debug("image decoded", "width", width, "height", height, "format", format)
 
 	// Re-encode as PNG for consistent format
 	var pngBuf bytes.Buffer
 	if err := png.Encode(&pngBuf, img); err != nil {
-		logger.Log("Clipboard: Failed to encode as PNG: %v", err)
+		log.Debug("failed to encode as PNG", "error", err)
 		return nil, fmt.Errorf("failed to encode image as PNG: %w", err)
 	}
 
 	pngBytes := pngBuf.Bytes()
-	logger.Log("Clipboard: Re-encoded to PNG: %d bytes", len(pngBytes))
+	log.Debug("re-encoded to PNG", "bytes", len(pngBytes))
 
 	return &ImageData{
 		Data:      pngBytes,
@@ -91,7 +95,8 @@ func WriteText(text string) error {
 		}
 	}
 
+	log := logger.WithComponent("clipboard")
 	clipboard.Write(clipboard.FmtText, []byte(text))
-	logger.Log("Clipboard: Wrote %d bytes of text", len(text))
+	log.Debug("wrote text", "bytes", len(text))
 	return nil
 }

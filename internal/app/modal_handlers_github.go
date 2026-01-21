@@ -107,14 +107,14 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 		// Check if branch already exists and skip if so
 		ctx := context.Background()
 		if m.sessionService.BranchExists(ctx, repoPath, fullBranchName) {
-			logger.Log("App: Skipping issue #%d, branch %s already exists", issue.Number, fullBranchName)
+			logger.Get().Debug("skipping issue - branch already exists", "issue", issue.Number, "branch", fullBranchName)
 			continue
 		}
 
 		// Create new session (always from origin for issue-based sessions)
 		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, session.BasePointOrigin)
 		if err != nil {
-			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
+			logger.Get().Error("failed to create session for issue", "issue", issue.Number, "error", err)
 			failedIssues = append(failedIssues, issue.Number)
 			continue
 		}
@@ -127,7 +127,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			issue.Number, issue.Title, issue.Body)
 
 		// No parent ID - these are top-level sessions
-		logger.Log("App: Created session for issue #%d: id=%s, name=%s", issue.Number, sess.ID, sess.Name)
+		logger.WithSession(sess.ID).Info("created session for issue", "issue", issue.Number, "name", sess.Name)
 
 		m.config.AddSession(*sess)
 		createdSessions = append(createdSessions, issueSessionInfo{
@@ -143,7 +143,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 	// Save config and update sidebar
 	var cmds []tea.Cmd
 	if err := m.config.Save(); err != nil {
-		logger.Log("App: Failed to save config: %v", err)
+		logger.Get().Error("failed to save config", "error", err)
 		cmds = append(cmds, m.ShowFlashError("Failed to save configuration"))
 	}
 	m.sidebar.SetSessions(m.config.GetSessions())
@@ -166,7 +166,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			// Get or create runner for this session
 			result := m.sessionMgr.Select(sess, "", "", "")
 			if result == nil || result.Runner == nil {
-				logger.Log("App: Failed to get runner for issue session %s", sess.ID)
+				logger.WithSession(sess.ID).Error("failed to get runner for issue session")
 				continue
 			}
 
@@ -177,7 +177,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			m.sessionState().StartWaiting(sess.ID, cancel)
 			m.sidebar.SetStreaming(sess.ID, true)
 
-			logger.Log("App: Auto-starting issue session %s with issue #%d", sess.ID, sess.IssueNumber)
+			logger.WithSession(sess.ID).Debug("auto-starting issue session", "issue", sess.IssueNumber)
 
 			// Send the initial message to Claude
 			content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}
@@ -224,7 +224,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 	parentSession := m.activeSession
 	parentMessages := m.claudeRunner.GetMessages()
 
-	logger.Log("App: Creating %d parallel sessions from session %s", len(selectedOptions), parentSession.ID)
+	logger.WithSession(parentSession.ID).Info("creating parallel sessions", "count", len(selectedOptions))
 
 	// Generate branch names for all options in a single Claude call
 	ctx := context.Background()
@@ -240,7 +240,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 	}
 	branchNames, err := m.gitService.GenerateBranchNamesFromOptions(ctx, optionsForClaude)
 	if err != nil {
-		logger.Log("App: Failed to generate branch names with Claude: %v", err)
+		logger.Get().Warn("failed to generate branch names with Claude, using fallback names", "error", err)
 		branchNames = make(map[int]string) // Will use fallback names
 	}
 
@@ -260,12 +260,12 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		// Create new session forked from parent's branch
 		sess, err := m.sessionService.CreateFromBranch(ctx, parentSession.RepoPath, parentSession.Branch, branchName, branchPrefix)
 		if err != nil {
-			logger.Log("App: Failed to create parallel session for option %d: %v", opt.Number, err)
+			logger.Get().Error("failed to create parallel session for option", "option", opt.Number, "error", err)
 			m.chat.AppendStreaming(fmt.Sprintf("[Error creating session for option %d: %v]\n", opt.Number, err))
 			continue
 		}
 
-		logger.Log("App: Created parallel session %s for option %d", sess.ID, opt.Number)
+		logger.WithSession(sess.ID).Debug("created parallel session for option", "option", opt.Number)
 
 		// Build message history: parent messages only (option prompt will be added by SendContent)
 		var messages []config.Message
@@ -281,7 +281,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 		// Save parent messages to disk for this new session
 		if err := config.SaveSessionMessages(sess.ID, messages, config.MaxSessionMessageLines); err != nil {
-			logger.Log("App: Failed to save messages for parallel session %s: %v", sess.ID, err)
+			logger.WithSession(sess.ID).Warn("failed to save messages for parallel session", "error", err)
 		}
 
 		// Set parent ID to track fork relationship
@@ -301,7 +301,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 	// Save config
 	if err := m.config.Save(); err != nil {
-		logger.Log("App: Failed to save config after creating parallel sessions: %v", err)
+		logger.Get().Error("failed to save config after creating parallel sessions", "error", err)
 	}
 
 	// Update sidebar
@@ -324,7 +324,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			// Get or create runner for this session (this loads pre-populated messages)
 			result := m.sessionMgr.Select(sess, "", "", "")
 			if result == nil || result.Runner == nil {
-				logger.Log("App: Failed to get runner for parallel session %s", sess.ID)
+				logger.WithSession(sess.ID).Error("failed to get runner for parallel session")
 				continue
 			}
 
@@ -335,7 +335,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			m.sessionState().StartWaiting(sess.ID, cancel)
 			m.sidebar.SetStreaming(sess.ID, true)
 
-			logger.Log("App: Auto-starting parallel session %s with prompt: %s", sess.ID, optionPrompt)
+			logger.WithSession(sess.ID).Debug("auto-starting parallel session", "prompt", optionPrompt)
 
 			// Send the option choice to Claude
 			content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: optionPrompt}}

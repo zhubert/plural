@@ -84,7 +84,12 @@ func (s *Sidebar) SetSize(width, height int) {
 	s.height = height
 
 	ctx := GetViewContext()
-	ctx.Log("Sidebar.SetSize: outer=%dx%d, inner=%dx%d", width, height, ctx.InnerWidth(width), ctx.InnerHeight(height))
+	ctx.Log("Sidebar.SetSize",
+		"outerWidth", width,
+		"outerHeight", height,
+		"innerWidth", ctx.InnerWidth(width),
+		"innerHeight", ctx.InnerHeight(height),
+	)
 }
 
 // Width returns the sidebar width
@@ -272,12 +277,13 @@ func (s *Sidebar) SelectSession(id string) {
 
 // SetStreaming sets the streaming state for a session
 func (s *Sidebar) SetStreaming(sessionID string, streaming bool) {
+	log := logger.WithComponent("sidebar")
 	if streaming {
 		s.streamingSessions[sessionID] = true
-		logger.Info("Sidebar: SetStreaming(%s, true), total streaming: %d", sessionID, len(s.streamingSessions))
+		log.Info("SetStreaming", "sessionID", sessionID, "streaming", true, "totalStreaming", len(s.streamingSessions))
 	} else {
 		delete(s.streamingSessions, sessionID)
-		logger.Info("Sidebar: SetStreaming(%s, false), total streaming: %d", sessionID, len(s.streamingSessions))
+		log.Info("SetStreaming", "sessionID", sessionID, "streaming", false, "totalStreaming", len(s.streamingSessions))
 	}
 }
 

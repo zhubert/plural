@@ -2,10 +2,17 @@ package claude
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// pmTestLogger creates a discard logger for process manager tests
+func pmTestLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestNewProcessManager(t *testing.T) {
 	config := ProcessConfig{
@@ -20,7 +27,7 @@ func TestNewProcessManager(t *testing.T) {
 		OnLine: func(line string) {},
 	}
 
-	pm := NewProcessManager(config, callbacks)
+	pm := NewProcessManager(config, callbacks, pmTestLogger())
 
 	if pm == nil {
 		t.Fatal("NewProcessManager returned nil")
@@ -51,7 +58,7 @@ func TestProcessManager_IsRunning(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	if pm.IsRunning() {
 		t.Error("IsRunning should be false before Start")
@@ -65,7 +72,7 @@ func TestProcessManager_SetInterrupted(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Initially false
 	pm.mu.Lock()
@@ -103,7 +110,7 @@ func TestProcessManager_GetRestartAttempts(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Initially 0
 	if pm.GetRestartAttempts() != 0 {
@@ -124,7 +131,7 @@ func TestProcessManager_ResetRestartAttempts(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Set some attempts
 	pm.mu.Lock()
@@ -144,7 +151,7 @@ func TestProcessManager_UpdateConfig(t *testing.T) {
 		SessionID:      "old-session",
 		WorkingDir:     "/old",
 		SessionStarted: false,
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	newConfig := ProcessConfig{
 		SessionID:      "new-session",
@@ -174,7 +181,7 @@ func TestProcessManager_MarkSessionStarted(t *testing.T) {
 		SessionID:      "test-session",
 		WorkingDir:     "/tmp",
 		SessionStarted: false,
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	pm.mu.Lock()
 	if pm.config.SessionStarted {
@@ -195,7 +202,7 @@ func TestProcessManager_Stop_Idempotent(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Stop should be safe to call multiple times
 	pm.Stop()
@@ -215,7 +222,7 @@ func TestProcessManager_WriteMessage_NotRunning(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	err := pm.WriteMessage([]byte("test message"))
 	if err == nil {
@@ -227,7 +234,7 @@ func TestProcessManager_Interrupt_NotRunning(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Interrupt should not error when no process is running
 	err := pm.Interrupt()
@@ -240,7 +247,7 @@ func TestProcessManager_Start_AfterStop(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	pm.Stop()
 
@@ -344,7 +351,7 @@ func TestProcessCallbacks_NilCallbacks(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// These should not panic even when callbacks are nil
 	pm.callbacks.OnLine = nil
@@ -395,7 +402,7 @@ func TestProcessManager_CleanupLocked(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Set some fields that would be set during Start()
 	pm.mu.Lock()
@@ -452,7 +459,7 @@ func TestProcessManager_ConcurrentAccess(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Test concurrent access to various methods
 	done := make(chan bool)
@@ -499,7 +506,7 @@ func TestProcessManager_UpdateConfig_AfterStop(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	pm.Stop()
 
@@ -523,7 +530,7 @@ func TestProcessManager_MarkSessionStarted_ThreadSafe(t *testing.T) {
 		SessionID:      "test-session",
 		WorkingDir:     "/tmp",
 		SessionStarted: false,
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	done := make(chan bool)
 
@@ -737,7 +744,7 @@ func TestProcessManager_WaitGroup_InitiallyZero(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// WaitGroup should be at zero initially (no goroutines started)
 	// This test verifies we can call Stop() without blocking forever
@@ -761,7 +768,7 @@ func TestProcessManager_Stop_WaitsForGoroutines(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Manually simulate what Start() does with the WaitGroup
 	pm.mu.Lock()
@@ -805,7 +812,7 @@ func TestProcessManager_MultipleStartStop_NoLeak(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Multiple stops should be safe
 	for i := 0; i < 5; i++ {
@@ -828,7 +835,7 @@ func TestProcessManager_GoroutineExitOnContextCancel(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Set up context
 	pm.mu.Lock()

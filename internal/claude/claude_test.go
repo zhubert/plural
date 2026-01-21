@@ -3,12 +3,19 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/zhubert/plural/internal/mcp"
 )
+
+// testLogger creates a discard logger for tests
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
 
 func TestNew(t *testing.T) {
 	tests := []struct {
@@ -246,19 +253,21 @@ func TestRunner_Stop_Idempotent(t *testing.T) {
 }
 
 func TestParseStreamMessage_Empty(t *testing.T) {
-	chunks := parseStreamMessage("")
+	log := testLogger()
+	chunks := parseStreamMessage("", log)
 	if len(chunks) != 0 {
 		t.Errorf("Expected 0 chunks for empty line, got %d", len(chunks))
 	}
 
-	chunks = parseStreamMessage("   ")
+	chunks = parseStreamMessage("   ", log)
 	if len(chunks) != 0 {
 		t.Errorf("Expected 0 chunks for whitespace line, got %d", len(chunks))
 	}
 }
 
 func TestParseStreamMessage_InvalidJSON(t *testing.T) {
-	chunks := parseStreamMessage("not valid json")
+	log := testLogger()
+	chunks := parseStreamMessage("not valid json", log)
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 error chunk, got %d", len(chunks))
 	}
@@ -273,8 +282,9 @@ func TestParseStreamMessage_InvalidJSON(t *testing.T) {
 }
 
 func TestParseStreamMessage_SystemInit(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"system","subtype":"init","session_id":"abc123"}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	// System init messages are logged but don't produce chunks
 	if len(chunks) != 0 {
@@ -283,8 +293,9 @@ func TestParseStreamMessage_SystemInit(t *testing.T) {
 }
 
 func TestParseStreamMessage_AssistantText(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello, world!"}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
@@ -300,8 +311,9 @@ func TestParseStreamMessage_AssistantText(t *testing.T) {
 }
 
 func TestParseStreamMessage_AssistantToolUse(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/path/to/file.go"}}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
@@ -321,8 +333,9 @@ func TestParseStreamMessage_AssistantToolUse(t *testing.T) {
 }
 
 func TestParseStreamMessage_MultipleContent(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"assistant","message":{"content":[{"type":"text","text":"Here's the file:"},{"type":"tool_use","name":"Read","input":{"file_path":"main.go"}}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 2 {
 		t.Fatalf("Expected 2 chunks, got %d", len(chunks))
@@ -338,10 +351,11 @@ func TestParseStreamMessage_MultipleContent(t *testing.T) {
 }
 
 func TestParseStreamMessage_UserToolResult(t *testing.T) {
+	log := testLogger()
 	// User messages with tool results should emit ChunkTypeToolResult
 	// so the UI can mark the tool use as complete
 	msg := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"123","content":"file contents"}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Errorf("Expected 1 chunk for tool result, got %d", len(chunks))
@@ -352,9 +366,10 @@ func TestParseStreamMessage_UserToolResult(t *testing.T) {
 }
 
 func TestParseStreamMessage_UserToolResultCamelCase(t *testing.T) {
+	log := testLogger()
 	// Handle both snake_case and camelCase variants
 	msg := `{"type":"user","message":{"content":[{"toolUseId":"123","content":"file contents"}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Errorf("Expected 1 chunk for tool result (camelCase), got %d", len(chunks))
@@ -365,8 +380,9 @@ func TestParseStreamMessage_UserToolResultCamelCase(t *testing.T) {
 }
 
 func TestParseStreamMessage_Result(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"result","subtype":"success","result":"Operation completed"}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	// Result messages are logged but don't produce user-visible chunks
 	if len(chunks) != 0 {
@@ -375,8 +391,9 @@ func TestParseStreamMessage_Result(t *testing.T) {
 }
 
 func TestParseStreamMessage_ErrorResult(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"result","subtype":"error_during_execution","result":"Claude ran out of context window"}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	// Error result messages are logged but don't produce user-visible chunks in parseStreamMessage
 	// (the error display is handled in handleResponse instead)
@@ -677,9 +694,10 @@ func TestChunkTypes(t *testing.T) {
 }
 
 func TestParseStreamMessage_EmptyText(t *testing.T) {
+	log := testLogger()
 	// Empty text content should not produce a chunk
 	msg := `{"type":"assistant","message":{"content":[{"type":"text","text":""}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 0 {
 		t.Errorf("Expected 0 chunks for empty text, got %d", len(chunks))
@@ -687,9 +705,10 @@ func TestParseStreamMessage_EmptyText(t *testing.T) {
 }
 
 func TestParseStreamMessage_UnrecognizedJSON(t *testing.T) {
+	log := testLogger()
 	// JSON that parses but has no recognized type
 	msg := `{"something":"else"}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	// Should return an error chunk
 	if len(chunks) != 1 {
@@ -742,9 +761,10 @@ func TestRunner_SessionStarted(t *testing.T) {
 }
 
 func TestParseStreamMessage_NestedToolInput(t *testing.T) {
+	log := testLogger()
 	// Test tool use with nested input object
 	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/path/to/file.go","old_string":"foo","new_string":"bar"}}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
@@ -760,8 +780,9 @@ func TestParseStreamMessage_NestedToolInput(t *testing.T) {
 }
 
 func TestParseStreamMessage_EmptyContent(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"assistant","message":{"content":[]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 0 {
 		t.Errorf("Expected 0 chunks for empty content array, got %d", len(chunks))
@@ -769,8 +790,9 @@ func TestParseStreamMessage_EmptyContent(t *testing.T) {
 }
 
 func TestParseStreamMessage_NullContent(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"assistant","message":{"content":null}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 0 {
 		t.Errorf("Expected 0 chunks for null content, got %d", len(chunks))
@@ -778,13 +800,14 @@ func TestParseStreamMessage_NullContent(t *testing.T) {
 }
 
 func TestParseStreamMessage_MixedContentTypes(t *testing.T) {
+	log := testLogger()
 	msg := `{"type":"assistant","message":{"content":[
 		{"type":"text","text":"First text"},
 		{"type":"tool_use","name":"Read","input":{"file_path":"test.go"}},
 		{"type":"text","text":"Second text"},
 		{"type":"tool_use","name":"Bash","input":{"command":"ls"}}
 	]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 4 {
 		t.Fatalf("Expected 4 chunks, got %d", len(chunks))
@@ -919,6 +942,7 @@ func TestTruncateString_EdgeCases(t *testing.T) {
 }
 
 func TestParseStreamMessage_WhitespaceOnly(t *testing.T) {
+	log := testLogger()
 	tests := []string{
 		"   ",
 		"\t\t",
@@ -927,7 +951,7 @@ func TestParseStreamMessage_WhitespaceOnly(t *testing.T) {
 	}
 
 	for _, line := range tests {
-		chunks := parseStreamMessage(line)
+		chunks := parseStreamMessage(line, log)
 		if len(chunks) != 0 {
 			t.Errorf("parseStreamMessage(%q) should return 0 chunks, got %d", line, len(chunks))
 		}
@@ -935,8 +959,9 @@ func TestParseStreamMessage_WhitespaceOnly(t *testing.T) {
 }
 
 func TestParseStreamMessage_LeadingTrailingWhitespace(t *testing.T) {
+	log := testLogger()
 	msg := `  {"type":"assistant","message":{"content":[{"type":"text","text":"test"}]}}  `
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
@@ -1064,7 +1089,7 @@ func TestProcessManager_RestartTracking(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, testLogger())
 
 	// Initially, restart attempts should be 0
 	if pm.GetRestartAttempts() != 0 {
@@ -1536,7 +1561,7 @@ func TestProcessManager_InterruptSetsFlag(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
-	}, ProcessCallbacks{})
+	}, ProcessCallbacks{}, testLogger())
 
 	// Initially, interrupted should be false
 	pm.mu.Lock()
@@ -1613,9 +1638,10 @@ func TestShortenPath_WindowsStyle(t *testing.T) {
 }
 
 func TestParseStreamMessage_TodoWrite(t *testing.T) {
+	log := testLogger()
 	// Test that TodoWrite tool_use produces ChunkTypeTodoUpdate
 	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"content":"Task 1","status":"pending","activeForm":"Working on task 1"},{"content":"Task 2","status":"in_progress","activeForm":"Doing task 2"},{"content":"Task 3","status":"completed","activeForm":"Done"}]}}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
@@ -1653,9 +1679,10 @@ func TestParseStreamMessage_TodoWrite(t *testing.T) {
 }
 
 func TestParseStreamMessage_TodoWrite_InvalidInput(t *testing.T) {
+	log := testLogger()
 	// Test that TodoWrite with invalid input falls back to regular tool use
 	msg := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{"invalid":"data"}}]}}`
-	chunks := parseStreamMessage(msg)
+	chunks := parseStreamMessage(msg, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("Expected 1 chunk, got %d", len(chunks))

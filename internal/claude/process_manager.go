@@ -5,13 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/zhubert/plural/internal/logger"
 )
 
 // errChannelFull is returned when the response channel is full for too long.
@@ -137,6 +136,7 @@ type ProcessCallbacks struct {
 type ProcessManager struct {
 	config    ProcessConfig
 	callbacks ProcessCallbacks
+	log       *slog.Logger
 
 	// Process state (protected by mu)
 	mu              sync.Mutex
@@ -144,7 +144,7 @@ type ProcessManager struct {
 	stdin           io.WriteCloser
 	stdout          *bufio.Reader
 	stderr          io.ReadCloser
-	stderrContent   string    // Captured stderr content (read by drainStderr goroutine)
+	stderrContent   string        // Captured stderr content (read by drainStderr goroutine)
 	stderrDone      chan struct{} // Signals when stderr has been fully read
 	running         bool
 	interrupted     bool
@@ -164,10 +164,11 @@ type ProcessManager struct {
 }
 
 // NewProcessManager creates a new ProcessManager with the given configuration and callbacks.
-func NewProcessManager(config ProcessConfig, callbacks ProcessCallbacks) *ProcessManager {
+func NewProcessManager(config ProcessConfig, callbacks ProcessCallbacks, log *slog.Logger) *ProcessManager {
 	return &ProcessManager{
 		config:    config,
 		callbacks: callbacks,
+		log:       log,
 	}
 }
 
@@ -236,7 +237,7 @@ func (pm *ProcessManager) Start() error {
 		return fmt.Errorf("process manager has been stopped")
 	}
 
-	logger.Info("ProcessManager: Starting process for session %s", pm.config.SessionID)
+	pm.log.Info("starting process")
 	startTime := time.Now()
 
 	// Build command arguments
@@ -244,10 +245,10 @@ func (pm *ProcessManager) Start() error {
 
 	// Log fork operation if applicable
 	if pm.config.ForkFromSessionID != "" {
-		logger.Log("ProcessManager: Forking session from parent %s to new session %s", pm.config.ForkFromSessionID, pm.config.SessionID)
+		pm.log.Debug("forking session from parent", "parentSessionID", pm.config.ForkFromSessionID)
 	}
 
-	logger.Log("ProcessManager: Starting process: claude %s", strings.Join(args, " "))
+	pm.log.Debug("starting process", "command", "claude "+strings.Join(args, " "))
 
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = pm.config.WorkingDir
@@ -255,7 +256,7 @@ func (pm *ProcessManager) Start() error {
 	// Get stdin pipe for writing messages
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		logger.Error("ProcessManager: Failed to get stdin pipe: %v", err)
+		pm.log.Error("failed to get stdin pipe", "error", err)
 		return fmt.Errorf("failed to get stdin pipe: %v", err)
 	}
 
@@ -263,7 +264,7 @@ func (pm *ProcessManager) Start() error {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		stdin.Close()
-		logger.Error("ProcessManager: Failed to get stdout pipe: %v", err)
+		pm.log.Error("failed to get stdout pipe", "error", err)
 		return fmt.Errorf("failed to get stdout pipe: %v", err)
 	}
 
@@ -272,7 +273,7 @@ func (pm *ProcessManager) Start() error {
 	if err != nil {
 		stdin.Close()
 		stdout.Close()
-		logger.Error("ProcessManager: Failed to get stderr pipe: %v", err)
+		pm.log.Error("failed to get stderr pipe", "error", err)
 		return fmt.Errorf("failed to get stderr pipe: %v", err)
 	}
 
@@ -280,7 +281,7 @@ func (pm *ProcessManager) Start() error {
 		stdin.Close()
 		stdout.Close()
 		stderr.Close()
-		logger.Error("ProcessManager: Failed to start process: %v", err)
+		pm.log.Error("failed to start process", "error", err)
 		return fmt.Errorf("failed to start process: %v", err)
 	}
 
@@ -295,7 +296,7 @@ func (pm *ProcessManager) Start() error {
 	// Create context for process goroutines
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
 
-	logger.Info("ProcessManager: Process started in %v, pid=%d", time.Since(startTime), cmd.Process.Pid)
+	pm.log.Info("process started", "elapsed", time.Since(startTime), "pid", cmd.Process.Pid)
 
 	// Start goroutines to read output, drain stderr, and monitor process
 	// Track them with WaitGroup for proper cleanup on Stop()
@@ -335,7 +336,7 @@ func (pm *ProcessManager) Stop() {
 			return
 		}
 
-		logger.Log("ProcessManager: Stopping process for session %s", pm.config.SessionID)
+		pm.log.Debug("stopping process")
 
 		// Close stdin to signal EOF to the process
 		if pm.stdin != nil {
@@ -356,18 +357,18 @@ func (pm *ProcessManager) Stop() {
 
 			select {
 			case <-done:
-				logger.Log("ProcessManager: Process exited gracefully")
+				pm.log.Debug("process exited gracefully")
 			case <-time.After(2 * time.Second):
-				logger.Log("ProcessManager: Force killing process")
+				pm.log.Debug("force killing process")
 				cmd.Process.Kill()
 			}
 		}
 
 		// Wait for goroutines (readOutput, monitorExit) to complete
 		// This prevents resource leaks when process is started/stopped quickly
-		logger.Log("ProcessManager: Waiting for goroutines to complete")
+		pm.log.Debug("waiting for goroutines to complete")
 		pm.wg.Wait()
-		logger.Log("ProcessManager: All goroutines completed")
+		pm.log.Debug("all goroutines completed")
 
 		pm.mu.Lock()
 		if pm.stderr != nil {
@@ -412,14 +413,14 @@ func (pm *ProcessManager) Interrupt() error {
 	defer pm.mu.Unlock()
 
 	if !pm.running || pm.cmd == nil || pm.cmd.Process == nil {
-		logger.Log("ProcessManager: Interrupt called but process not running")
+		pm.log.Debug("interrupt called but process not running")
 		return nil
 	}
 
-	logger.Info("ProcessManager: Sending SIGINT to session %s (pid=%d)", pm.config.SessionID, pm.cmd.Process.Pid)
+	pm.log.Info("sending SIGINT", "pid", pm.cmd.Process.Pid)
 
 	if err := pm.cmd.Process.Signal(syscall.SIGINT); err != nil {
-		logger.Error("ProcessManager: Failed to send SIGINT: %v", err)
+		pm.log.Error("failed to send SIGINT", "error", err)
 		return fmt.Errorf("failed to send interrupt signal: %w", err)
 	}
 
@@ -464,13 +465,13 @@ func (pm *ProcessManager) MarkSessionStarted() {
 
 // readOutput continuously reads from stdout and invokes callbacks.
 func (pm *ProcessManager) readOutput() {
-	logger.Log("ProcessManager: Output reader started for session %s", pm.config.SessionID)
+	pm.log.Debug("output reader started")
 
 	for {
 		// Check for cancellation first
 		select {
 		case <-pm.ctx.Done():
-			logger.Log("ProcessManager: Output reader exiting - context cancelled")
+			pm.log.Debug("output reader exiting - context cancelled")
 			return
 		default:
 		}
@@ -481,7 +482,7 @@ func (pm *ProcessManager) readOutput() {
 		pm.mu.Unlock()
 
 		if !running || reader == nil {
-			logger.Log("ProcessManager: Output reader exiting - process not running")
+			pm.log.Debug("output reader exiting - process not running")
 			return
 		}
 
@@ -490,15 +491,15 @@ func (pm *ProcessManager) readOutput() {
 			// Check if we were cancelled during the read
 			select {
 			case <-pm.ctx.Done():
-				logger.Log("ProcessManager: Output reader exiting - context cancelled during read")
+				pm.log.Debug("output reader exiting - context cancelled during read")
 				return
 			default:
 			}
 
 			if err == io.EOF {
-				logger.Log("ProcessManager: EOF on stdout - process exited")
+				pm.log.Debug("EOF on stdout - process exited")
 			} else {
-				logger.Log("ProcessManager: Error reading stdout: %v", err)
+				pm.log.Debug("error reading stdout", "error", err)
 			}
 			// Process exit is handled by monitorExit goroutine
 			return
@@ -560,7 +561,7 @@ func (pm *ProcessManager) drainStderr() {
 
 	stderrBytes, err := io.ReadAll(stderr)
 	if err != nil {
-		logger.Log("ProcessManager: Error reading stderr: %v", err)
+		pm.log.Debug("error reading stderr", "error", err)
 		return
 	}
 
@@ -568,7 +569,7 @@ func (pm *ProcessManager) drainStderr() {
 		pm.mu.Lock()
 		pm.stderrContent = strings.TrimSpace(string(stderrBytes))
 		pm.mu.Unlock()
-		logger.Log("ProcessManager: Captured stderr: %s", pm.stderrContent)
+		pm.log.Debug("captured stderr", "content", pm.stderrContent)
 	}
 }
 
@@ -591,10 +592,10 @@ func (pm *ProcessManager) monitorExit() {
 	// Wait for either process exit or context cancellation
 	select {
 	case err := <-done:
-		logger.Log("ProcessManager: Process exited: %v", err)
+		pm.log.Debug("process exited", "error", err)
 		pm.handleExit(err)
 	case <-pm.ctx.Done():
-		logger.Log("ProcessManager: Process monitor exiting - context cancelled")
+		pm.log.Debug("process monitor exiting - context cancelled")
 	}
 }
 
@@ -607,7 +608,7 @@ func (pm *ProcessManager) handleExit(err error) {
 		return
 	}
 
-	logger.Log("ProcessManager: Handling process exit for session %s", pm.config.SessionID)
+	pm.log.Debug("handling process exit")
 
 	wasInterrupted := pm.interrupted
 	pm.interrupted = false // Reset for next operation
@@ -625,7 +626,7 @@ func (pm *ProcessManager) handleExit(err error) {
 	pm.mu.Lock()
 	stderrContent := pm.stderrContent
 	if stderrContent != "" {
-		logger.Log("ProcessManager: Stderr output: %s", stderrContent)
+		pm.log.Debug("stderr output", "content", stderrContent)
 	}
 
 	// Clean up pipes
@@ -634,7 +635,7 @@ func (pm *ProcessManager) handleExit(err error) {
 
 	// If user interrupted or manager is stopped, don't attempt restart
 	if wasInterrupted || stopped {
-		logger.Log("ProcessManager: Process exit due to user interrupt or stop, not restarting")
+		pm.log.Debug("process exit due to user interrupt or stop, not restarting")
 		if pm.callbacks.OnProcessExit != nil {
 			pm.callbacks.OnProcessExit(err, stderrContent)
 		}
@@ -658,8 +659,9 @@ func (pm *ProcessManager) handleExit(err error) {
 		pm.lastRestartTime = time.Now()
 		pm.mu.Unlock()
 
-		logger.Warn("ProcessManager: Process crashed, attempting restart %d/%d for session %s",
-			restartAttempts+1, MaxProcessRestartAttempts, pm.config.SessionID)
+		pm.log.Warn("process crashed, attempting restart",
+			"attempt", restartAttempts+1,
+			"maxAttempts", MaxProcessRestartAttempts)
 
 		// Notify about restart attempt
 		if pm.callbacks.OnRestartAttempt != nil {
@@ -671,7 +673,7 @@ func (pm *ProcessManager) handleExit(err error) {
 
 		// Attempt restart
 		if err := pm.Start(); err != nil {
-			logger.Error("ProcessManager: Failed to restart process: %v", err)
+			pm.log.Error("failed to restart process", "error", err)
 			if pm.callbacks.OnRestartFailed != nil {
 				pm.callbacks.OnRestartFailed(err)
 			}
@@ -681,13 +683,13 @@ func (pm *ProcessManager) handleExit(err error) {
 				pm.callbacks.OnFatalError(exitErr)
 			}
 		} else {
-			logger.Info("ProcessManager: Process restarted successfully for session %s", pm.config.SessionID)
+			pm.log.Info("process restarted successfully")
 		}
 		return
 	}
 
 	// Max restarts exceeded - report fatal error
-	logger.Error("ProcessManager: Max restart attempts (%d) exceeded for session %s", MaxProcessRestartAttempts, pm.config.SessionID)
+	pm.log.Error("max restart attempts exceeded", "maxAttempts", MaxProcessRestartAttempts)
 	var exitErr error
 	if stderrContent != "" {
 		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %s", MaxProcessRestartAttempts, stderrContent)

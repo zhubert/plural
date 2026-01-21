@@ -102,21 +102,23 @@ func (s *GitService) GetWorktreeStatus(ctx context.Context, worktreePath string)
 		status.Summary = fmt.Sprintf("%d files changed", fileCount)
 	}
 
+	log := logger.WithComponent("git")
+
 	// Get diff (use --no-ext-diff to ensure output goes to stdout even if external diff is configured)
 	diffOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
 		// If HEAD doesn't exist (new repo), try diff without HEAD
-		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
+		log.Debug("diff HEAD failed, trying without HEAD", "error", err, "worktree", worktreePath)
 		diffOutput, err = s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
 		if err != nil {
-			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
+			log.Warn("git diff failed", "error", err, "worktree", worktreePath)
 		}
 	}
 
 	// Also include staged changes in diff-like format
 	cachedDiff, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
 	if err != nil {
-		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
+		log.Warn("git diff --cached failed", "error", err, "worktree", worktreePath)
 	}
 
 	status.Diff = string(diffOutput) + string(cachedDiff)
@@ -212,7 +214,7 @@ func (s *GitService) generateUntrackedFileDiff(ctx context.Context, worktreePath
 		// git diff --no-index returns exit code 1 when files differ, which is expected
 		// Only treat it as an error if there's no output
 		if len(output) == 0 {
-			logger.Log("Git: Warning - failed to generate diff for untracked file %s: %v", file, err)
+			logger.WithComponent("git").Warn("failed to generate diff for untracked file", "file", file, "error", err)
 			return "(no diff available - file may be binary)"
 		}
 	}
@@ -221,7 +223,7 @@ func (s *GitService) generateUntrackedFileDiff(ctx context.Context, worktreePath
 
 // CommitAll stages all changes and commits them with the given message
 func (s *GitService) CommitAll(ctx context.Context, worktreePath, message string) error {
-	logger.Log("Git: Committing all changes in %s", worktreePath)
+	logger.WithComponent("git").Info("committing all changes", "worktree", worktreePath)
 
 	// Stage all changes
 	if output, err := s.executor.CombinedOutput(ctx, worktreePath, "git", "add", "-A"); err != nil {
@@ -250,7 +252,7 @@ func (s *GitService) GenerateCommitMessage(ctx context.Context, worktreePath str
 	// Get the diff stats for a better message (use --no-ext-diff to ensure output goes to stdout)
 	statOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--stat", "HEAD")
 	if err != nil {
-		logger.Log("Git: Warning - git diff --stat failed (best-effort): %v", err)
+		logger.WithComponent("git").Warn("git diff --stat failed", "error", err, "worktree", worktreePath)
 	}
 
 	// Create a simple but descriptive message
@@ -268,7 +270,8 @@ func (s *GitService) GenerateCommitMessage(ctx context.Context, worktreePath str
 
 // GenerateCommitMessageWithClaude uses Claude to generate a commit message from the diff
 func (s *GitService) GenerateCommitMessageWithClaude(ctx context.Context, worktreePath string) (string, error) {
-	logger.Log("Git: Generating commit message with Claude for %s", worktreePath)
+	log := logger.WithComponent("git")
+	log.Info("generating commit message with Claude", "worktree", worktreePath)
 
 	status, err := s.GetWorktreeStatus(ctx, worktreePath)
 	if err != nil {
@@ -283,17 +286,17 @@ func (s *GitService) GenerateCommitMessageWithClaude(ctx context.Context, worktr
 	diffOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
 		// Try without HEAD for new repos
-		logger.Log("Git: diff HEAD failed (may be new repo), trying without HEAD: %v", err)
+		log.Debug("diff HEAD failed, trying without HEAD", "error", err, "worktree", worktreePath)
 		diffOutput, err = s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
 		if err != nil {
-			logger.Log("Git: Warning - git diff failed (best-effort): %v", err)
+			log.Warn("git diff failed", "error", err, "worktree", worktreePath)
 		}
 	}
 
 	// Also get staged changes
 	cachedOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
 	if err != nil {
-		logger.Log("Git: Warning - git diff --cached failed (best-effort): %v", err)
+		log.Warn("git diff --cached failed", "error", err, "worktree", worktreePath)
 	}
 
 	fullDiff := string(diffOutput) + string(cachedOutput)
@@ -321,7 +324,7 @@ Diff:
 	// Call Claude CLI directly with --print for a simple response
 	output, err := s.executor.Output(ctx, worktreePath, "claude", "--print", "-p", prompt)
 	if err != nil {
-		logger.Log("Git: Claude commit message generation failed: %v", err)
+		log.Error("Claude commit message generation failed", "error", err)
 		return "", fmt.Errorf("failed to generate commit message with Claude: %w", err)
 	}
 
@@ -330,28 +333,29 @@ Diff:
 		return "", fmt.Errorf("Claude returned empty commit message")
 	}
 
-	logger.Log("Git: Generated commit message: %s", strings.Split(commitMsg, "\n")[0])
+	log.Info("generated commit message", "title", strings.Split(commitMsg, "\n")[0])
 	return commitMsg, nil
 }
 
 // GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
 // If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
 func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
-	logger.Log("Git: Generating PR title and body with Claude for branch %s (issue: %d)", branch, issueNumber)
+	log := logger.WithComponent("git")
+	log.Info("generating PR title and body with Claude", "branch", branch, "issueNumber", issueNumber)
 
 	defaultBranch := s.GetDefaultBranch(ctx, repoPath)
 
 	// Get the commit log for this branch
 	commitLog, err := s.executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
 	if err != nil {
-		logger.Log("Git: Failed to get commit log: %v", err)
+		log.Error("failed to get commit log", "error", err, "branch", branch)
 		return "", "", fmt.Errorf("failed to get commit log: %w", err)
 	}
 
 	// Get the diff from base branch (use --no-ext-diff to ensure output goes to stdout)
 	diffOutput, err := s.executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
 	if err != nil {
-		logger.Log("Git: Failed to get diff: %v", err)
+		log.Error("failed to get diff", "error", err, "branch", branch)
 		return "", "", fmt.Errorf("failed to get diff: %w", err)
 	}
 
@@ -394,7 +398,7 @@ Diff:
 	// Call Claude CLI
 	output, err := s.executor.Output(ctx, repoPath, "claude", "--print", "-p", prompt)
 	if err != nil {
-		logger.Log("Git: Claude PR generation failed: %v", err)
+		log.Error("Claude PR generation failed", "error", err)
 		return "", "", fmt.Errorf("failed to generate PR with Claude: %w", err)
 	}
 
@@ -427,10 +431,10 @@ Diff:
 	if issueNumber > 0 {
 		fixesLine := fmt.Sprintf("\n\nFixes #%d", issueNumber)
 		body = body + fixesLine
-		logger.Log("Git: Added issue reference: Fixes #%d", issueNumber)
+		log.Info("added issue reference", "issueNumber", issueNumber)
 	}
 
-	logger.Log("Git: Generated PR title: %s", title)
+	log.Info("generated PR title", "title", title)
 	return title, body, nil
 }
 
@@ -551,7 +555,7 @@ func (s *GitService) AbortMerge(ctx context.Context, repoPath string) error {
 // CommitConflictResolution stages all changes and commits with the given message.
 // This is used after resolving merge conflicts to complete the merge.
 func (s *GitService) CommitConflictResolution(ctx context.Context, repoPath, message string) error {
-	logger.Log("Git: Committing conflict resolution in %s", repoPath)
+	logger.WithComponent("git").Info("committing conflict resolution", "repoPath", repoPath)
 
 	// Stage all changes
 	if output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "add", "-A"); err != nil {
@@ -575,8 +579,9 @@ func (s *GitService) MergeToMain(ctx context.Context, repoPath, worktreePath, br
 	go func() {
 		defer close(ch)
 
+		log := logger.WithComponent("git")
 		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
-		logger.Log("Git: Merging %s into %s in %s (worktree: %s)", branch, defaultBranch, repoPath, worktreePath)
+		log.Info("merging branch into default", "branch", branch, "defaultBranch", defaultBranch, "repoPath", repoPath, "worktree", worktreePath)
 
 		// First, check for uncommitted changes in the worktree and commit them
 		if !s.EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
@@ -614,7 +619,7 @@ func (s *GitService) MergeToMain(ctx context.Context, repoPath, worktreePath, br
 				// Check for divergence using programmatic git commands
 				divergence, divErr := s.GetBranchDivergence(ctx, repoPath, defaultBranch, remoteBranch)
 				if divErr != nil {
-					logger.Log("Git: Warning - could not check divergence: %v", divErr)
+					log.Warn("could not check divergence", "error", divErr)
 				} else if divergence.IsDiverged() {
 					// Local branch has diverged from remote - this is dangerous
 					hint := fmt.Sprintf(`
@@ -701,8 +706,9 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 	go func() {
 		defer close(ch)
 
+		log := logger.WithComponent("git")
 		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
-		logger.Log("Git: Creating PR for %s -> %s in %s (worktree: %s)", branch, defaultBranch, repoPath, worktreePath)
+		log.Info("creating PR", "branch", branch, "defaultBranch", defaultBranch, "repoPath", repoPath, "worktree", worktreePath)
 
 		// Check if gh CLI is available
 		if _, err := exec.LookPath("gh"); err != nil {
@@ -729,7 +735,7 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 		prTitle, prBody, err := s.GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
 		var ghArgs []string
 		if err != nil {
-			logger.Log("Git: Claude PR generation failed, using --fill: %v", err)
+			log.Warn("Claude PR generation failed, using --fill", "error", err)
 			ch <- Result{Output: "Claude unavailable, using commit info for PR...\n"}
 			// Fall back to --fill which uses commit info
 			ghArgs = []string{"pr", "create", "--base", defaultBranch, "--head", branch, "--fill"}
@@ -776,8 +782,11 @@ func (s *GitService) MergeToParent(ctx context.Context, childWorktreePath, child
 	go func() {
 		defer close(ch)
 
-		logger.Log("Git: Merging child %s into parent %s (child worktree: %s, parent worktree: %s)",
-			childBranch, parentBranch, childWorktreePath, parentWorktreePath)
+		logger.WithComponent("git").Info("merging child into parent",
+			"childBranch", childBranch,
+			"parentBranch", parentBranch,
+			"childWorktree", childWorktreePath,
+			"parentWorktree", parentWorktreePath)
 
 		// First, check for uncommitted changes in the child worktree and commit them
 		if !s.EnsureCommitted(ctx, ch, childWorktreePath, commitMsg) {
@@ -833,7 +842,7 @@ func (s *GitService) PushUpdates(ctx context.Context, repoPath, worktreePath, br
 	go func() {
 		defer close(ch)
 
-		logger.Log("Git: Pushing updates for branch %s (worktree: %s)", branch, worktreePath)
+		logger.WithComponent("git").Info("pushing updates", "branch", branch, "worktree", worktreePath)
 
 		// First, check for uncommitted changes in the worktree and commit them
 		if !s.EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
@@ -866,7 +875,8 @@ func (s *GitService) GenerateBranchNamesFromOptions(ctx context.Context, options
 		return nil, nil
 	}
 
-	logger.Log("Git: Generating branch names for %d options", len(options))
+	log := logger.WithComponent("git")
+	log.Info("generating branch names", "optionCount", len(options))
 
 	// Build the options list for the prompt
 	var optionsList strings.Builder
@@ -891,7 +901,7 @@ Example output format:
 
 	output, err := s.executor.Output(ctx, "", "claude", "--print", "-p", prompt)
 	if err != nil {
-		logger.Log("Git: Claude branch name generation failed: %v", err)
+		log.Error("Claude branch name generation failed", "error", err)
 		return nil, fmt.Errorf("failed to generate branch names with Claude: %w", err)
 	}
 
@@ -918,7 +928,7 @@ Example output format:
 		}
 	}
 
-	logger.Log("Git: Generated %d branch names", len(result))
+	log.Info("generated branch names", "count", len(result))
 	return result, nil
 }
 
@@ -996,17 +1006,19 @@ func (s *GitService) GetDiffStats(ctx context.Context, worktreePath string) (*Di
 		}
 	}
 
+	log := logger.WithComponent("git")
+
 	// Get diff stats using git diff --numstat for unstaged changes
 	// (without HEAD to get only working tree changes vs staged)
 	numstatOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--numstat")
 	if err != nil {
-		logger.Log("Git: Warning - git diff --numstat failed: %v", err)
+		log.Warn("git diff --numstat failed", "error", err, "worktree", worktreePath)
 	}
 
 	// Get staged changes separately
 	cachedOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--numstat", "--cached")
 	if err != nil {
-		logger.Log("Git: Warning - git diff --numstat --cached failed: %v", err)
+		log.Warn("git diff --numstat --cached failed", "error", err, "worktree", worktreePath)
 	}
 
 	// Parse numstat output: each line is "additions<tab>deletions<tab>filename"
@@ -1041,7 +1053,7 @@ func (s *GitService) GetDiffStats(ctx context.Context, worktreePath string) (*Di
 	for _, filename := range untrackedFiles {
 		lineCount, err := s.countFileLines(ctx, worktreePath, filename)
 		if err != nil {
-			logger.Log("Git: Warning - failed to count lines in untracked file %s: %v", filename, err)
+			log.Warn("failed to count lines in untracked file", "file", filename, "error", err)
 			continue
 		}
 		stats.Additions += lineCount
@@ -1119,6 +1131,6 @@ func (s *GitService) RenameBranch(ctx context.Context, worktreePath, oldName, ne
 		return fmt.Errorf("git branch rename failed: %s: %w", string(output), err)
 	}
 
-	logger.Log("Git: Renamed branch %q to %q in %s", oldName, newName, worktreePath)
+	logger.WithComponent("git").Info("renamed branch", "oldName", oldName, "newName", newName, "worktree", worktreePath)
 	return nil
 }

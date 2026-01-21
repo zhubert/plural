@@ -186,7 +186,7 @@ func New(cfg *config.Config, version string) *Model {
 // Close gracefully shuts down all Claude sessions and releases resources.
 // This should be called when the application is exiting.
 func (m *Model) Close() {
-	logger.Info("App: Closing and shutting down all sessions")
+	logger.Get().Info("closing and shutting down all sessions")
 	m.sessionMgr.Shutdown()
 }
 
@@ -218,7 +218,7 @@ func (m *Model) CanSendMessage() bool {
 // setState transitions to a new state with logging
 func (m *Model) setState(newState AppState) {
 	if m.state != newState {
-		logger.Log("App: State transition %s -> %s", m.state, newState)
+		logger.Get().Debug("state transition", "from", m.state.String(), "to", newState.String())
 		m.state = newState
 	}
 }
@@ -238,7 +238,7 @@ func (m *Model) refreshDiffStats() {
 	ctx := context.Background()
 	gitStats, err := m.gitService.GetDiffStats(ctx, m.activeSession.WorkTree)
 	if err != nil {
-		logger.Log("App: Failed to refresh diff stats: %v", err)
+		logger.Get().Debug("failed to refresh diff stats", "error", err)
 		m.header.SetDiffStats(nil)
 		return
 	}
@@ -270,16 +270,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.FocusMsg:
 		m.windowFocused = true
-		logger.Log("App: Window focused")
+		logger.Get().Debug("window focused")
 
 	case tea.BlurMsg:
 		m.windowFocused = false
-		logger.Log("App: Window blurred")
+		logger.Get().Debug("window blurred")
 
 	case tea.PasteStartMsg:
 		// Handle paste events - check for images in clipboard when paste starts
 		// Terminals intercept Ctrl+V and send paste events instead of key presses
-		logger.Log("App: PasteStartMsg received, focus=%v, hasActiveSession=%v", m.focus, m.activeSession != nil)
+		logger.Get().Debug("paste start received", "focus", m.focus, "hasActiveSession", m.activeSession != nil)
 		if m.focus == FocusChat && m.activeSession != nil {
 			model, cmd := m.handleImagePaste()
 			if m.chat.HasPendingImage() {
@@ -296,10 +296,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(preview) > ui.PasteContentPreviewLen {
 			preview = preview[:ui.PasteContentPreviewLen] + "..."
 		}
-		logger.Log("App: PasteMsg received: len=%d, preview=%q", len(content), preview)
+		logger.Get().Debug("paste received", "length", len(content), "preview", preview)
 
 	case tea.KeyPressMsg:
-		logger.Log("App: KeyPressMsg received: key=%q, focus=%v, modalVisible=%v", msg.String(), m.focus, m.modal.IsVisible())
+		logger.Get().Debug("key press received", "key", msg.String(), "focus", m.focus, "modalVisible", m.modal.IsVisible())
 
 		// Handle modal first if visible
 		if m.modal.IsVisible() {
@@ -322,12 +322,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeSession != nil {
 				if state := m.sessionState().GetIfExists(m.activeSession.ID); state != nil {
 					if cancel := state.GetStreamCancel(); cancel != nil {
-						logger.Log("App: Interrupting streaming for session %s", m.activeSession.ID)
+						logger.WithSession(m.activeSession.ID).Debug("interrupting streaming")
 						cancel()
 						// Send SIGINT to interrupt the Claude process (handles sub-agent work)
 						if m.claudeRunner != nil {
 							if err := m.claudeRunner.Interrupt(); err != nil {
-								logger.Error("App: Failed to interrupt Claude: %v", err)
+								logger.WithSession(m.activeSession.ID).Error("failed to interrupt Claude", "error", err)
 							}
 						}
 						m.sessionState().StopWaiting(m.activeSession.ID)
@@ -464,7 +464,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							sessState.PendingMessage = input
 							m.chat.ClearInput()
 							m.chat.SetQueuedMessage(input)
-							logger.Log("App: Queued message for session %s while streaming", m.activeSession.ID)
+							logger.WithSession(m.activeSession.ID).Debug("queued message while streaming")
 						}
 					}
 				}
@@ -486,7 +486,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case CommitMessageGeneratedMsg:
 		// Commit message generation completed
 		if msg.Error != nil {
-			logger.Log("App: Commit message generation failed: %v", msg.Error)
+			logger.Get().Error("commit message generation failed", "error", msg.Error)
 			m.chat.AppendStreaming(fmt.Sprintf("Failed to generate commit message: %v\n", msg.Error))
 			m.pendingCommitSession = ""
 			m.pendingCommitType = MergeTypeNone
@@ -898,37 +898,37 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.ClearQueuedMessage()
 	}
 
-	logger.Log("App: Session selected and focused: %s", sess.ID)
+	logger.WithSession(sess.ID).Debug("session selected and focused")
 }
 
 // handleImagePaste attempts to read an image from the clipboard and attach it
 func (m *Model) handleImagePaste() (tea.Model, tea.Cmd) {
-	logger.Debug("App: Handling image paste")
+	logger.Get().Debug("handling image paste")
 
 	// Try to read image from clipboard
 	img, err := clipboard.ReadImage()
 	if err != nil {
-		logger.Debug("App: Failed to read image from clipboard: %v", err)
+		logger.Get().Debug("failed to read image from clipboard", "error", err)
 		// Don't show error to user - might just be text paste
 		return m, nil
 	}
 
 	if img == nil {
-		logger.Debug("App: No image in clipboard")
+		logger.Get().Debug("no image in clipboard")
 		// No image, let text paste happen normally
 		return m, nil
 	}
 
 	// Validate the image
 	if err := img.Validate(); err != nil {
-		logger.Warn("App: Image validation failed: %v", err)
+		logger.Get().Warn("image validation failed", "error", err)
 		// Show error message in chat
 		m.chat.AppendStreaming(fmt.Sprintf("\n[Error: %s]\n", err.Error()))
 		return m, nil
 	}
 
 	// Attach the image
-	logger.Info("App: Attaching image: %dKB, %s", img.SizeKB(), img.MediaType)
+	logger.Get().Info("attaching image", "sizeKB", img.SizeKB(), "mediaType", img.MediaType)
 	m.chat.AttachImage(img.Data, img.MediaType)
 
 	return m, nil
@@ -937,7 +937,7 @@ func (m *Model) handleImagePaste() (tea.Model, tea.Cmd) {
 func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	input := m.chat.GetInput()
 	hasImage := m.chat.HasPendingImage()
-	logger.Log("App: sendMessage called, input=%q, len=%d, hasImage=%v, canSend=%v", input, len(input), hasImage, m.CanSendMessage())
+	logger.Get().Debug("sendMessage called", "inputLen", len(input), "hasImage", hasImage, "canSend", m.CanSendMessage())
 
 	// Need either text or image
 	if input == "" && !hasImage {
@@ -977,7 +977,7 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	if len(inputPreview) > ui.InputMessagePreviewLen {
 		inputPreview = inputPreview[:ui.InputMessagePreviewLen] + "..."
 	}
-	logger.Log("App: Sending message to session %s: %q, hasImage=%v", m.activeSession.ID, inputPreview, hasImage)
+	logger.WithSession(m.activeSession.ID).Debug("sending message", "preview", inputPreview, "hasImage", hasImage)
 
 	// Capture session info before any async operations
 	sessionID := m.activeSession.ID
@@ -1042,7 +1042,7 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.PermissionRequest) (tea.Model, tea.Cmd) {
 	runner := m.sessionMgr.GetRunner(sessionID)
 	if runner == nil {
-		logger.Log("App: Permission response for unknown session %s", sessionID)
+		logger.WithSession(sessionID).Warn("permission response for unknown session")
 		return m, nil
 	}
 
@@ -1057,7 +1057,7 @@ func (m *Model) handlePermissionResponse(key string, sessionID string, req *mcp.
 		allowed = false
 	}
 
-	logger.Log("App: Permission response for session %s: key=%s, allowed=%v, always=%v", sessionID, key, allowed, always)
+	logger.WithSession(sessionID).Debug("permission response", "key", key, "allowed", allowed, "always", always)
 
 	// Build response
 	resp := mcp.PermissionResponse{
@@ -1167,26 +1167,27 @@ func (m *Model) listenForSessionQuestion(sessionID string, runner claude.RunnerI
 
 // submitQuestionResponse sends the collected question answers back to Claude
 func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(sessionID)
 	runner := m.sessionMgr.GetRunner(sessionID)
 	if runner == nil {
-		logger.Log("App: Question response for unknown session %s", sessionID)
+		log.Warn("question response for unknown session")
 		return m, nil
 	}
 
 	state := m.sessionState().GetIfExists(sessionID)
 	if state == nil {
-		logger.Log("App: No pending question for session %s", sessionID)
+		log.Warn("no pending question for session")
 		return m, nil
 	}
 	req := state.GetPendingQuestion()
 	if req == nil {
-		logger.Log("App: No pending question for session %s", sessionID)
+		log.Warn("no pending question for session")
 		return m, nil
 	}
 
 	// Get answers from chat
 	answers := m.chat.GetQuestionAnswers()
-	logger.Log("App: Question response for session %s: %d answers", sessionID, len(answers))
+	log.Debug("question response", "answerCount", len(answers))
 
 	// Build response
 	resp := mcp.QuestionResponse{
@@ -1228,24 +1229,25 @@ func (m *Model) listenForSessionPlanApproval(sessionID string, runner claude.Run
 
 // submitPlanApprovalResponse sends the plan approval response back to Claude
 func (m *Model) submitPlanApprovalResponse(sessionID string, approved bool) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(sessionID)
 	runner := m.sessionMgr.GetRunner(sessionID)
 	if runner == nil {
-		logger.Log("App: Plan approval response for unknown session %s", sessionID)
+		log.Warn("plan approval response for unknown session")
 		return m, nil
 	}
 
 	state := m.sessionState().GetIfExists(sessionID)
 	if state == nil {
-		logger.Log("App: No pending plan approval for session %s", sessionID)
+		log.Warn("no pending plan approval for session")
 		return m, nil
 	}
 	req := state.GetPendingPlanApproval()
 	if req == nil {
-		logger.Log("App: No pending plan approval for session %s", sessionID)
+		log.Warn("no pending plan approval for session")
 		return m, nil
 	}
 
-	logger.Log("App: Plan approval response for session %s: approved=%v", sessionID, approved)
+	log.Debug("plan approval response", "approved", approved)
 
 	// Build response
 	resp := mcp.PlanApprovalResponse{
@@ -1358,7 +1360,7 @@ func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInt
 		if msgs[i].Role == "assistant" {
 			options := DetectOptions(msgs[i].Content)
 			if len(options) >= 2 {
-				logger.Log("App: Detected %d options in session %s", len(options), sessionID)
+				logger.WithSession(sessionID).Debug("detected options", "count", len(options))
 				state.DetectedOptions = options
 				return
 			}
@@ -1404,7 +1406,7 @@ func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
 func (m *Model) handleStartupModals() (tea.Model, tea.Cmd) {
 	// Priority 1: Welcome modal for first-time users
 	if !m.config.HasSeenWelcome() {
-		logger.Log("App: Showing welcome modal (first-time user)")
+		logger.Get().Debug("showing welcome modal for first-time user")
 		m.modal.Show(ui.NewWelcomeState())
 		return m, nil
 	}
@@ -1414,7 +1416,7 @@ func (m *Model) handleStartupModals() (tea.Model, tea.Cmd) {
 	if m.version != "" && m.version != "dev" {
 		lastSeen := m.config.GetLastSeenVersion()
 		if lastSeen != m.version {
-			logger.Log("App: Fetching changelog from GitHub (version %s -> %s)", lastSeen, m.version)
+			logger.Get().Debug("fetching changelog from GitHub", "lastSeen", lastSeen, "current", m.version)
 			return m, m.fetchChangelog()
 		}
 	}
@@ -1453,7 +1455,7 @@ func (m *Model) fetchChangelogAll() tea.Cmd {
 // handleChangelogFetchedMsg handles the fetched changelog entries
 func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, tea.Cmd) {
 	if msg.Error != nil {
-		logger.Log("App: Failed to fetch changelog: %v", msg.Error)
+		logger.Get().Warn("failed to fetch changelog", "error", msg.Error)
 		if !msg.IsManual {
 			// Only update lastSeen on startup flow failures
 			m.config.SetLastSeenVersion(m.version)
@@ -1475,7 +1477,7 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 	}
 
 	if len(changes) > 0 {
-		logger.Log("App: Showing changelog modal (%d entries, showAll=%v)", len(changes), msg.ShowAll)
+		logger.Get().Debug("showing changelog modal", "entries", len(changes), "showAll", msg.ShowAll)
 		// Convert changelog entries to UI entries
 		uiEntries := make([]ui.ChangelogEntry, len(changes))
 		for i, e := range changes {

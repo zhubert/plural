@@ -34,14 +34,15 @@ func GetViewContext() *ViewContext {
 			HeaderHeight: HeaderHeight,
 			FooterHeight: FooterHeight,
 		}
-		ctx.Log("ViewContext initialized")
+		logger.WithComponent("ui").Debug("ViewContext initialized")
 	})
 	return ctx
 }
 
-// Log writes a debug message to the log file
-func (v *ViewContext) Log(format string, args ...interface{}) {
-	logger.Log(format, args...)
+// Log writes a debug message to the log file using slog structured logging.
+// For new code, prefer using logger.WithComponent("ui").Debug() directly.
+func (v *ViewContext) Log(msg string, args ...interface{}) {
+	logger.WithComponent("ui").Debug(msg, args...)
 }
 
 // UpdateTerminalSize recalculates all dimensions when terminal size changes.
@@ -74,13 +75,16 @@ func (v *ViewContext) UpdateTerminalSize(width, height int) {
 	v.SidebarWidth = width / SidebarWidthRatio
 	v.ChatWidth = width - v.SidebarWidth
 
-	v.Log("Terminal size updated: %dx%d", width, height)
-	v.Log("  HeaderHeight: %d", v.HeaderHeight)
-	v.Log("  FooterHeight: %d", v.FooterHeight)
-	v.Log("  ContentHeight: %d (terminal %d - header %d - footer %d)",
-		v.ContentHeight, height, v.HeaderHeight, v.FooterHeight)
-	v.Log("  SidebarWidth: %d", v.SidebarWidth)
-	v.Log("  ChatWidth: %d", v.ChatWidth)
+	log := logger.WithComponent("ui")
+	log.Debug("Terminal size updated",
+		"width", width,
+		"height", height,
+		"headerHeight", v.HeaderHeight,
+		"footerHeight", v.FooterHeight,
+		"contentHeight", v.ContentHeight,
+		"sidebarWidth", v.SidebarWidth,
+		"chatWidth", v.ChatWidth,
+	)
 }
 
 // InnerWidth returns the usable width inside a panel with borders

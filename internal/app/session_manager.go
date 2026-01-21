@@ -153,18 +153,20 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 	if previousSessionID != "" {
 		if previousInput != "" || previousStreaming != "" {
 			prevState := sm.stateManager.GetOrCreate(previousSessionID)
+			prevLog := logger.WithSession(previousSessionID)
 			if previousInput != "" {
 				prevState.InputText = previousInput
-				logger.Log("SessionManager: Saved input for session %s", previousSessionID)
+				prevLog.Debug("saved input for session")
 			}
 			if previousStreaming != "" {
 				prevState.StreamingContent = previousStreaming
-				logger.Log("SessionManager: Saved streaming content for session %s", previousSessionID)
+				prevLog.Debug("saved streaming content for session")
 			}
 		}
 	}
 
-	logger.Log("SessionManager: Selecting session: id=%s, name=%s", sess.ID, sess.Name)
+	log := logger.WithSession(sess.ID)
+	log.Debug("selecting session", "name", sess.Name)
 
 	// Get or create runner
 	runner := sm.getOrCreateRunner(sess)
@@ -186,7 +188,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 				Deletions:    gitStats.Deletions,
 			}
 		} else {
-			logger.Log("SessionManager: Failed to get diff stats for %s: %v", sess.WorkTree, err)
+			log.Debug("failed to get diff stats", "workTree", sess.WorkTree, "error", err)
 		}
 	}
 
@@ -224,7 +226,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 			if s.StreamingContent != "" {
 				result.Streaming = s.StreamingContent
 				s.StreamingContent = ""
-				logger.Log("SessionManager: Retrieved streaming content for session %s", sess.ID)
+				log.Debug("retrieved streaming content for session")
 			}
 		})
 
@@ -232,7 +234,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		result.SavedInput = state.GetInputText()
 	}
 
-	logger.Log("SessionManager: Session selected: %s", sess.ID)
+	log.Debug("session selected")
 	return result
 }
 
@@ -240,11 +242,13 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 // Uses double-checked locking to prevent race conditions where multiple goroutines
 // could create duplicate runners for the same session.
 func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerInterface {
+	log := logger.WithSession(sess.ID)
+
 	// Fast path: check with read lock
 	sm.mu.RLock()
 	if runner, exists := sm.runners[sess.ID]; exists {
 		sm.mu.RUnlock()
-		logger.Log("SessionManager: Reusing existing runner for session %s", sess.ID)
+		log.Debug("reusing existing runner")
 		return runner
 	}
 	sm.mu.RUnlock()
@@ -255,11 +259,11 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	// Double-check: another goroutine may have created the runner while we waited for the lock
 	if runner, exists := sm.runners[sess.ID]; exists {
 		sm.mu.Unlock()
-		logger.Log("SessionManager: Reusing existing runner for session %s (created by another goroutine)", sess.ID)
+		log.Debug("reusing existing runner (created by another goroutine)")
 		return runner
 	}
 
-	logger.Log("SessionManager: Creating new runner for session %s", sess.ID)
+	log.Debug("creating new runner")
 
 	var initialMsgs []claude.Message
 
@@ -268,9 +272,9 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 	if !sm.skipMessageLoad {
 		savedMsgs, err := config.LoadSessionMessages(sess.ID)
 		if err != nil {
-			logger.Log("SessionManager: Warning - failed to load session messages for %s: %v", sess.ID, err)
+			log.Warn("failed to load session messages", "error", err)
 		} else {
-			logger.Log("SessionManager: Loaded %d saved messages for session %s", len(savedMsgs), sess.ID)
+			log.Debug("loaded saved messages", "count", len(savedMsgs))
 			for _, msg := range savedMsgs {
 				initialMsgs = append(initialMsgs, claude.Message{
 					Role:    msg.Role,
@@ -279,7 +283,7 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 			}
 		}
 	} else {
-		logger.Log("SessionManager: Skipping message load for session %s (demo/test mode)", sess.ID)
+		log.Debug("skipping message load (demo/test mode)")
 	}
 
 	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
@@ -297,29 +301,29 @@ func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerI
 			// This is required because Claude CLI stores sessions by project path (worktree),
 			// so the child can't find the parent session unless we copy it.
 			if err := copyClaudeSessionForFork(sess.ParentID, parentSess.WorkTree, sess.WorkTree); err != nil {
-				logger.Log("SessionManager: Failed to copy Claude session for fork: %v (starting as new session)", err)
+				log.Warn("failed to copy Claude session for fork, starting as new session", "error", err)
 			} else {
 				runner.SetForkFromSession(sess.ParentID)
-				logger.Log("SessionManager: Session %s will fork from parent %s", sess.ID, sess.ParentID)
+				log.Debug("session will fork from parent", "parentID", sess.ParentID)
 			}
 		} else if parentSess == nil {
-			logger.Log("SessionManager: Parent session %s not found, starting as new session", sess.ParentID)
+			log.Debug("parent session not found, starting as new session", "parentID", sess.ParentID)
 		} else {
-			logger.Log("SessionManager: Parent session %s not started yet, starting as new session", sess.ParentID)
+			log.Debug("parent session not started yet, starting as new session", "parentID", sess.ParentID)
 		}
 	}
 
 	// Load allowed tools from config (global + per-repo)
 	allowedTools := sm.config.GetAllowedToolsForRepo(sess.RepoPath)
 	if len(allowedTools) > 0 {
-		logger.Log("SessionManager: Loaded %d allowed tools for repo %s", len(allowedTools), sess.RepoPath)
+		log.Debug("loaded allowed tools", "count", len(allowedTools), "repo", sess.RepoPath)
 		runner.SetAllowedTools(allowedTools)
 	}
 
 	// Load MCP servers for this session's repo
 	mcpServers := sm.config.GetMCPServersForRepo(sess.RepoPath)
 	if len(mcpServers) > 0 {
-		logger.Log("SessionManager: Loaded %d MCP servers for session %s (repo: %s)", len(mcpServers), sess.ID, sess.RepoPath)
+		log.Debug("loaded MCP servers", "count", len(mcpServers), "repo", sess.RepoPath)
 		var servers []claude.MCPServer
 		for _, s := range mcpServers {
 			servers = append(servers, claude.MCPServer{
@@ -376,11 +380,12 @@ func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner claude.Run
 // DeleteSession cleans up all resources for a deleted session.
 // Returns the runner if it existed (so caller can check if it was active).
 func (sm *SessionManager) DeleteSession(sessionID string) claude.RunnerInterface {
+	log := logger.WithSession(sessionID)
 	// Stop and remove runner
 	sm.mu.Lock()
 	var runner claude.RunnerInterface
 	if r, exists := sm.runners[sessionID]; exists {
-		logger.Log("SessionManager: Stopping runner for deleted session %s", sessionID)
+		log.Debug("stopping runner for deleted session")
 		r.Stop()
 		runner = r
 		delete(sm.runners, sessionID)
@@ -410,7 +415,7 @@ func (sm *SessionManager) AddAllowedTool(sessionID string, tool string) {
 		runner.AddAllowedTool(tool)
 	}
 
-	logger.Log("SessionManager: Added tool %s to allowed list for repo %s", tool, sess.RepoPath)
+	logger.WithSession(sessionID).Debug("added tool to allowed list", "tool", tool, "repo", sess.RepoPath)
 }
 
 // SetRunner sets a runner for a session (used when manually creating runners).
@@ -426,13 +431,14 @@ func (sm *SessionManager) SetRunner(sessionID string, runner claude.RunnerInterf
 func (sm *SessionManager) Shutdown() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	logger.Log("SessionManager: Shutting down all runners (%d total)", len(sm.runners))
+	log := logger.WithComponent("SessionManager")
+	log.Info("shutting down all runners", "count", len(sm.runners))
 	for sessionID, runner := range sm.runners {
-		logger.Log("SessionManager: Stopping runner for session %s", sessionID)
+		logger.WithSession(sessionID).Debug("stopping runner")
 		runner.Stop()
 	}
 	sm.runners = make(map[string]claude.RunnerInterface)
-	logger.Log("SessionManager: Shutdown complete")
+	log.Info("shutdown complete")
 }
 
 // copyClaudeSessionForFork copies Claude's session JSONL file from the parent's
@@ -489,6 +495,6 @@ func copyClaudeSessionForFork(parentSessionID, parentWorktree, childWorktree str
 		return err
 	}
 
-	logger.Log("SessionManager: Copied Claude session %s from %s to %s", parentSessionID, parentProjectDir, childProjectDir)
+	logger.WithSession(parentSessionID).Debug("copied Claude session for fork", "from", parentProjectDir, "to", childProjectDir)
 	return nil
 }
