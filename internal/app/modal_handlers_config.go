@@ -27,7 +27,7 @@ func (m *Model) handleMCPServersModal(key string, msg tea.KeyPressMsg, state *ui
 				m.config.RemoveRepoMCPServer(server.RepoPath, server.Name)
 			}
 			if err := m.config.Save(); err != nil {
-				logger.Log("App: Failed to save config after MCP server deletion: %v", err)
+				logger.Get().Error("failed to save config after MCP server deletion", "error", err)
 				m.modal.Hide()
 				return m, m.ShowFlashError("Failed to save configuration")
 			}
@@ -68,7 +68,7 @@ func (m *Model) handleAddMCPServerModal(key string, msg tea.KeyPressMsg, state *
 			m.config.AddRepoMCPServer(repoPath, server)
 		}
 		if err := m.config.Save(); err != nil {
-			logger.Log("App: Failed to save MCP server config: %v", err)
+			logger.Get().Error("failed to save MCP server config", "error", err)
 			m.modal.Hide()
 			return m, m.ShowFlashError("Failed to save MCP server configuration")
 		}
@@ -232,7 +232,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		if err := m.config.Save(); err != nil {
-			logger.Log("App: Failed to save settings: %v", err)
+			logger.Get().Error("failed to save settings", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}

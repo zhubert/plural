@@ -21,6 +21,7 @@ type ClaudeProcess struct {
 // after a crash.
 func FindClaudeProcesses() ([]ClaudeProcess, error) {
 	var processes []ClaudeProcess
+	log := logger.WithComponent("process")
 
 	switch runtime.GOOS {
 	case "darwin", "linux":
@@ -81,7 +82,7 @@ func FindClaudeProcesses() ([]ClaudeProcess, error) {
 		}
 	}
 
-	logger.Log("Process: Found %d Claude processes", len(processes))
+	log.Debug("found Claude processes", "count", len(processes))
 	return processes, nil
 }
 
@@ -106,12 +107,13 @@ func FindOrphanedClaudeProcesses(knownSessionIDs map[string]bool) ([]ClaudeProce
 		return nil, err
 	}
 
+	log := logger.WithComponent("process")
 	var orphans []ClaudeProcess
 	for _, proc := range allProcesses {
 		sessionID := extractSessionID(proc.Command)
 		if sessionID != "" && !knownSessionIDs[sessionID] {
 			orphans = append(orphans, proc)
-			logger.Log("Process: Found orphaned Claude process: PID=%d, sessionID=%s", proc.PID, sessionID)
+			log.Info("found orphaned Claude process", "pid", proc.PID, "sessionID", sessionID)
 		}
 	}
 
@@ -149,11 +151,12 @@ func CleanupOrphanedProcesses(knownSessionIDs map[string]bool) (int, error) {
 		return 0, err
 	}
 
+	log := logger.WithComponent("process")
 	killed := 0
 	for _, proc := range orphans {
-		logger.Log("Process: Killing orphaned Claude process: PID=%d", proc.PID)
+		log.Info("killing orphaned Claude process", "pid", proc.PID)
 		if err := KillProcess(proc.PID); err != nil {
-			logger.Error("Process: Failed to kill PID %d: %v", proc.PID, err)
+			log.Error("failed to kill process", "pid", proc.PID, "error", err)
 			continue
 		}
 		killed++

@@ -35,10 +35,11 @@ func ResetNotifier() {
 // On Linux, it uses D-Bus or notify-send.
 // On Windows, it uses the Windows Runtime COM API.
 func Send(title, message string) error {
-	logger.Log("Notification: Sending notification - title=%q, message=%q", title, message)
+	log := logger.WithComponent("notification")
+	log.Debug("sending notification", "title", title, "message", message)
 	err := notifier(title, message, icon)
 	if err != nil {
-		logger.Log("Notification: Failed to send notification: %v", err)
+		log.Error("failed to send notification", "error", err)
 	}
 	return err
 }

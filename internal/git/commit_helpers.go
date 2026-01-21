@@ -59,7 +59,7 @@ func (s *GitService) CommitWithMessage(
 		// Try to generate commit message with Claude, fall back to simple message
 		commitMsg, err = s.GenerateCommitMessageWithClaude(ctx, worktreePath)
 		if err != nil {
-			logger.Log("Git: Claude commit message failed, using fallback: %v", err)
+			logger.WithComponent("git").Warn("Claude commit message failed, using fallback", "error", err)
 			progressFn("Claude unavailable, using fallback message...\n")
 			commitMsg, err = s.GenerateCommitMessage(ctx, worktreePath)
 			if err != nil {

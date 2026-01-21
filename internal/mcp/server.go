@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -41,10 +42,11 @@ type Server struct {
 	planResponseChan <-chan PlanApprovalResponse   // Receive plan approval responses from TUI
 	allowedTools     []string                      // Pre-allowed tools for this session
 	mu               sync.Mutex
+	log              *slog.Logger                  // Logger with session context
 }
 
 // NewServer creates a new MCP server
-func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, planApprovalChan chan<- PlanApprovalRequest, planResponseChan <-chan PlanApprovalResponse, allowedTools []string) *Server {
+func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, planApprovalChan chan<- PlanApprovalRequest, planResponseChan <-chan PlanApprovalResponse, allowedTools []string, sessionID string) *Server {
 	return &Server{
 		reader:           bufio.NewReader(r),
 		writer:           w,
@@ -55,21 +57,22 @@ func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respC
 		planApprovalChan: planApprovalChan,
 		planResponseChan: planResponseChan,
 		allowedTools:     allowedTools,
+		log:              logger.WithSession(sessionID).With("component", "mcp"),
 	}
 }
 
 // Run starts the MCP server loop
 func (s *Server) Run() error {
-	logger.Log("MCP: Server starting")
+	s.log.Info("server starting")
 
 	for {
 		line, err := s.reader.ReadString('\n')
 		if err == io.EOF {
-			logger.Log("MCP: EOF received, shutting down")
+			s.log.Info("EOF received, shutting down")
 			return nil
 		}
 		if err != nil {
-			logger.Log("MCP: Read error: %v", err)
+			s.log.Error("read error", "error", err)
 			return err
 		}
 
@@ -78,11 +81,11 @@ func (s *Server) Run() error {
 			continue
 		}
 
-		logger.Log("MCP: Received: %s", line)
+		s.log.Debug("received message", "line", line)
 
 		var req JSONRPCRequest
 		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			logger.Log("MCP: JSON parse error: %v", err)
+			s.log.Error("JSON parse error", "error", err)
 			s.sendError(nil, -32700, "Parse error", nil)
 			continue
 		}
@@ -97,13 +100,13 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 		s.handleInitialize(req)
 	case "initialized":
 		// Notification, no response needed
-		logger.Log("MCP: Initialized notification received")
+		s.log.Debug("initialized notification received")
 	case "tools/list":
 		s.handleToolsList(req)
 	case "tools/call":
 		s.handleToolsCall(req)
 	default:
-		logger.Log("MCP: Unknown method: %s", req.Method)
+		s.log.Warn("unknown method", "method", req.Method)
 		s.sendError(req.ID, -32601, "Method not found", nil)
 	}
 }
@@ -158,13 +161,13 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) {
 func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	var params ToolCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		logger.Log("MCP: Failed to parse tool call params: %v", err)
+		s.log.Error("failed to parse tool call params", "error", err)
 		s.sendError(req.ID, -32602, "Invalid params", nil)
 		return
 	}
 
 	if params.Name != ToolName {
-		logger.Log("MCP: Unknown tool: %s", params.Name)
+		s.log.Warn("unknown tool", "tool", params.Name)
 		s.sendError(req.ID, -32602, "Unknown tool", nil)
 		return
 	}
@@ -172,9 +175,9 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	// Log the full arguments for debugging
 	argsJSON, err := json.Marshal(params.Arguments)
 	if err != nil {
-		logger.Log("MCP: Permission tool called (failed to marshal arguments: %v)", err)
+		s.log.Debug("permission tool called", "marshalError", err)
 	} else {
-		logger.Log("MCP: Permission tool called with arguments: %s", string(argsJSON))
+		s.log.Debug("permission tool called", "arguments", string(argsJSON))
 	}
 
 	// Extract permission request details from Claude Code's format
@@ -202,7 +205,7 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 		tool = "Operation"
 	}
 
-	logger.Log("MCP: Permission request for tool=%s, desc=%s", tool, description)
+	s.log.Info("permission request", "tool", tool, "description", description)
 
 	// Special handling for AskUserQuestion
 	if tool == "AskUserQuestion" {
@@ -218,7 +221,7 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 
 	// Check if tool is pre-allowed
 	if s.isToolAllowed(tool) {
-		logger.Log("MCP: Tool %s is pre-allowed", tool)
+		s.log.Debug("tool is pre-allowed", "tool", tool)
 		s.sendPermissionResult(req.ID, true, arguments, "")
 		return
 	}
@@ -234,9 +237,9 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	// Send to TUI with timeout to prevent deadlock if TUI is unresponsive
 	select {
 	case s.requestChan <- permReq:
-		logger.Log("MCP: Waiting for TUI response...")
+		s.log.Debug("waiting for TUI response")
 	case <-time.After(ChannelSendTimeout):
-		logger.Log("MCP: Timeout sending permission request to TUI")
+		s.log.Warn("timeout sending permission request to TUI")
 		s.sendPermissionResult(req.ID, false, arguments, "TUI not responding")
 		return
 	}
@@ -244,7 +247,7 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 	// Wait for response with timeout
 	select {
 	case resp := <-s.responseChan:
-		logger.Log("MCP: Received TUI response: allowed=%v, always=%v", resp.Allowed, resp.Always)
+		s.log.Info("received TUI response", "allowed", resp.Allowed, "always", resp.Always)
 
 		// If user selected "always allow", remember this tool for future requests
 		if resp.Always {
@@ -253,26 +256,26 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 
 		s.sendPermissionResult(req.ID, resp.Allowed, arguments, resp.Message)
 	case <-time.After(ChannelReceiveTimeout):
-		logger.Log("MCP: Timeout waiting for TUI response")
+		s.log.Warn("timeout waiting for TUI response")
 		s.sendPermissionResult(req.ID, false, arguments, "Permission request timed out")
 	}
 }
 
 // handleAskUserQuestion handles the AskUserQuestion tool specially
 func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]interface{}) {
-	logger.Log("MCP: Handling AskUserQuestion")
+	s.log.Debug("handling AskUserQuestion")
 
 	// Parse questions from arguments
 	questionsRaw, ok := arguments["questions"]
 	if !ok {
-		logger.Log("MCP: AskUserQuestion missing 'questions' field")
+		s.log.Warn("AskUserQuestion missing 'questions' field")
 		s.sendPermissionResult(reqID, false, arguments, "Missing questions field")
 		return
 	}
 
 	questionsSlice, ok := questionsRaw.([]interface{})
 	if !ok {
-		logger.Log("MCP: AskUserQuestion 'questions' is not an array")
+		s.log.Warn("AskUserQuestion 'questions' is not an array")
 		s.sendPermissionResult(reqID, false, arguments, "Invalid questions format")
 		return
 	}
@@ -317,12 +320,12 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 	}
 
 	if len(questions) == 0 {
-		logger.Log("MCP: AskUserQuestion has no valid questions")
+		s.log.Warn("AskUserQuestion has no valid questions")
 		s.sendPermissionResult(reqID, false, arguments, "No valid questions")
 		return
 	}
 
-	logger.Log("MCP: Parsed %d questions, sending to TUI", len(questions))
+	s.log.Debug("parsed questions, sending to TUI", "count", len(questions))
 
 	// Send question request to TUI
 	questionReq := QuestionRequest{
@@ -333,9 +336,9 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 	// Send to TUI with timeout to prevent deadlock if TUI is unresponsive
 	select {
 	case s.questionChan <- questionReq:
-		logger.Log("MCP: Waiting for TUI answer...")
+		s.log.Debug("waiting for TUI answer")
 	case <-time.After(ChannelSendTimeout):
-		logger.Log("MCP: Timeout sending question request to TUI")
+		s.log.Warn("timeout sending question request to TUI")
 		s.sendPermissionResult(reqID, false, arguments, "TUI not responding")
 		return
 	}
@@ -344,9 +347,9 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 	var answer QuestionResponse
 	select {
 	case answer = <-s.answerChan:
-		logger.Log("MCP: Received TUI answer with %d responses", len(answer.Answers))
+		s.log.Info("received TUI answer", "answerCount", len(answer.Answers))
 	case <-time.After(ChannelReceiveTimeout):
-		logger.Log("MCP: Timeout waiting for TUI answer")
+		s.log.Warn("timeout waiting for TUI answer")
 		s.sendPermissionResult(reqID, false, arguments, "Question request timed out")
 		return
 	}
@@ -362,17 +365,17 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 
 // handleExitPlanMode handles the ExitPlanMode tool specially to show a plan approval UI
 func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]interface{}) {
-	logger.Log("MCP: Handling ExitPlanMode with arguments: %v", arguments)
+	s.log.Debug("handling ExitPlanMode", "arguments", arguments)
 
 	// Extract plan content - try multiple sources
 	plan, _ := arguments["plan"].(string)
 	if plan == "" {
 		// Try to get file path from arguments (Claude Code stores plans in ~/.claude/plans/)
 		if filePath, ok := arguments["filePath"].(string); ok && filePath != "" {
-			logger.Log("MCP: ExitPlanMode has filePath: %s, reading from file", filePath)
-			plan = readPlanFromPath(filePath)
+			s.log.Debug("ExitPlanMode has filePath, reading from file", "filePath", filePath)
+			plan = s.readPlanFromPath(filePath)
 		} else {
-			logger.Log("MCP: ExitPlanMode missing both 'plan' and 'filePath' fields")
+			s.log.Warn("ExitPlanMode missing both 'plan' and 'filePath' fields")
 			plan = "*No plan content provided. Please check the plan file manually.*"
 		}
 	}
@@ -398,7 +401,7 @@ func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]inte
 		}
 	}
 
-	logger.Log("MCP: Parsed plan (%d chars) with %d allowed prompts, sending to TUI", len(plan), len(allowedPrompts))
+	s.log.Debug("parsed plan, sending to TUI", "planLength", len(plan), "allowedPromptCount", len(allowedPrompts))
 
 	// Send plan approval request to TUI
 	planReq := PlanApprovalRequest{
@@ -411,9 +414,9 @@ func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]inte
 	// Send to TUI with timeout
 	select {
 	case s.planApprovalChan <- planReq:
-		logger.Log("MCP: Waiting for TUI plan approval...")
+		s.log.Debug("waiting for TUI plan approval")
 	case <-time.After(ChannelSendTimeout):
-		logger.Log("MCP: Timeout sending plan approval request to TUI")
+		s.log.Warn("timeout sending plan approval request to TUI")
 		s.sendPermissionResult(reqID, false, arguments, "TUI not responding")
 		return
 	}
@@ -422,9 +425,9 @@ func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]inte
 	var response PlanApprovalResponse
 	select {
 	case response = <-s.planResponseChan:
-		logger.Log("MCP: Received TUI plan approval response: approved=%v", response.Approved)
+		s.log.Info("received TUI plan approval response", "approved", response.Approved)
 	case <-time.After(ChannelReceiveTimeout):
-		logger.Log("MCP: Timeout waiting for TUI plan approval")
+		s.log.Warn("timeout waiting for TUI plan approval")
 		s.sendPermissionResult(reqID, false, arguments, "Plan approval request timed out")
 		return
 	}
@@ -483,7 +486,7 @@ func (s *Server) sendPermissionResult(id interface{}, allowed bool, args map[str
 	// Wrap result in tool call result format
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
-		logger.Log("MCP: Failed to marshal permission result: %v", err)
+		s.log.Error("failed to marshal permission result", "error", err)
 		// Send a fallback error response to prevent blocking
 		toolResult := ToolCallResult{
 			Content: []ContentItem{
@@ -535,7 +538,7 @@ func (s *Server) sendError(id interface{}, code int, message string, data interf
 func (s *Server) send(resp JSONRPCResponse) {
 	data, err := json.Marshal(resp)
 	if err != nil {
-		logger.Log("MCP: Failed to marshal response: %v", err)
+		s.log.Error("failed to marshal response", "error", err)
 		return
 	}
 
@@ -544,26 +547,26 @@ func (s *Server) send(resp JSONRPCResponse) {
 
 	_, err = fmt.Fprintf(s.writer, "%s\n", data)
 	if err != nil {
-		logger.Log("MCP: Failed to write response: %v", err)
+		s.log.Error("failed to write response", "error", err)
 	} else {
-		logger.Log("MCP: Sent: %s", string(data))
+		s.log.Debug("sent response", "data", string(data))
 	}
 }
 
 // readPlanFromPath attempts to read the plan from the specified file path.
 // Returns the file contents if found, or an error message if not.
-func readPlanFromPath(planPath string) string {
+func (s *Server) readPlanFromPath(planPath string) string {
 	content, err := os.ReadFile(planPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.Log("MCP: Plan file not found at %s", planPath)
+			s.log.Warn("plan file not found", "path", planPath)
 			return fmt.Sprintf("*Plan file not found at %s*", planPath)
 		}
-		logger.Log("MCP: Failed to read plan file: %v", err)
+		s.log.Error("failed to read plan file", "error", err)
 		return fmt.Sprintf("*Error reading plan file: %v*", err)
 	}
 
-	logger.Log("MCP: Successfully read plan file (%d bytes) from %s", len(content), planPath)
+	s.log.Debug("successfully read plan file", "bytes", len(content), "path", planPath)
 	return string(content)
 }
 

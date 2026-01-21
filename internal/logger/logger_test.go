@@ -24,25 +24,45 @@ func setupTestLogger(t *testing.T) (string, func()) {
 	}
 }
 
-func TestLog(t *testing.T) {
+func TestGet(t *testing.T) {
 	_, cleanup := setupTestLogger(t)
 	defer cleanup()
 
-	// Log should not panic
-	Log("test message")
-	Log("test with %s", "argument")
-	Log("test with %d and %s", 42, "string")
+	log := Get()
+	if log == nil {
+		t.Fatal("Get() returned nil")
+	}
+
+	// Should not panic
+	log.Info("test message")
+	log.Debug("debug message", "key", "value")
+	log.Warn("warning", "count", 42)
+	log.Error("error occurred", "err", "something failed")
 }
 
-func TestLog_Formatting(t *testing.T) {
-	_, cleanup := setupTestLogger(t)
+func TestGet_StructuredLogging(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
 	defer cleanup()
 
-	// Test that formatting works correctly
-	Log("integer: %d", 123)
-	Log("string: %s", "hello")
-	Log("float: %.2f", 3.14159)
-	Log("multiple: %s=%d", "count", 5)
+	log := Get()
+	log.Info("user action", "action", "login", "userID", 123)
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	if !strings.Contains(contentStr, "user action") {
+		t.Error("Should contain message")
+	}
+	if !strings.Contains(contentStr, "action=login") {
+		t.Error("Should contain action=login")
+	}
+	if !strings.Contains(contentStr, "userID=123") {
+		t.Error("Should contain userID=123")
+	}
 }
 
 func TestClose(t *testing.T) {
@@ -57,13 +77,9 @@ func TestLogFile_Exists(t *testing.T) {
 	logPath, cleanup := setupTestLogger(t)
 	defer cleanup()
 
-	// Enable debug level to test Log() which maps to debug
-	SetDebug(true)
-	defer SetDebug(false)
-
 	// Write a test message
 	testMsg := "test-unique-string-12345"
-	Log("%s", testMsg)
+	Get().Info(testMsg)
 
 	// Read the log file and verify our message is there
 	content, err := os.ReadFile(logPath)
@@ -80,31 +96,22 @@ func TestLog_Timestamp(t *testing.T) {
 	logPath, cleanup := setupTestLogger(t)
 	defer cleanup()
 
-	// Enable debug level to test Log() which maps to debug
-	SetDebug(true)
-	defer SetDebug(false)
-
 	// Log a unique message
 	uniqueMsg := "timestamp-test-unique-marker"
-	Log("%s", uniqueMsg)
+	Get().Info(uniqueMsg)
 
-	// Read and verify timestamp format [HH:MM:SS.mmm]
+	// Read and verify timestamp exists (slog uses time= prefix)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
 
-	// Should have timestamp in format [HH:MM:SS.mmm]
 	lines := strings.Split(string(content), "\n")
 	for _, line := range lines {
 		if strings.Contains(line, uniqueMsg) {
-			// Should start with [
-			if !strings.HasPrefix(line, "[") {
-				t.Error("Log line should start with timestamp bracket")
-			}
-			// Should contain ] after timestamp
-			if !strings.Contains(line, "]") {
-				t.Error("Log line should have closing timestamp bracket")
+			// slog TextHandler format includes time=
+			if !strings.Contains(line, "time=") {
+				t.Error("Log line should contain timestamp")
 			}
 			return
 		}
@@ -122,8 +129,9 @@ func TestLog_Concurrent(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		go func(n int) {
+			log := Get()
 			for j := 0; j < 100; j++ {
-				Log("concurrent test %d-%d", n, j)
+				log.Debug("concurrent test", "goroutine", n, "iteration", j)
 			}
 			done <- true
 		}(i)
@@ -143,8 +151,7 @@ func TestReset(t *testing.T) {
 		t.Fatalf("Failed to init logger: %v", err)
 	}
 
-	SetDebug(true)
-	Log("message to log1")
+	Get().Info("message to log1")
 
 	// Reset and reinitialize to a different path
 	Reset()
@@ -154,7 +161,7 @@ func TestReset(t *testing.T) {
 		t.Fatalf("Failed to reinit logger: %v", err)
 	}
 
-	Log("message to log2")
+	Get().Info("message to log2")
 
 	// Verify log1 has the first message but not the second
 	content1, err := os.ReadFile(logPath1)
@@ -181,5 +188,206 @@ func TestReset(t *testing.T) {
 	}
 
 	Reset()
+}
+
+func TestLogLevels(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
+	defer cleanup()
+
+	// Enable debug level
+	SetDebug(true)
+	defer SetDebug(false)
+
+	log := Get()
+	log.Debug("debug message")
+	log.Info("info message")
+	log.Warn("warn message")
+	log.Error("error message")
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// All messages should be present at debug level
+	if !strings.Contains(contentStr, "debug message") {
+		t.Error("Should contain debug message")
+	}
+	if !strings.Contains(contentStr, "info message") {
+		t.Error("Should contain info message")
+	}
+	if !strings.Contains(contentStr, "warn message") {
+		t.Error("Should contain warn message")
+	}
+	if !strings.Contains(contentStr, "error message") {
+		t.Error("Should contain error message")
+	}
+
+	// Verify level strings appear in output (slog uses level=DEBUG format)
+	if !strings.Contains(contentStr, "level=DEBUG") {
+		t.Error("Should contain level=DEBUG marker")
+	}
+	if !strings.Contains(contentStr, "level=INFO") {
+		t.Error("Should contain level=INFO marker")
+	}
+	if !strings.Contains(contentStr, "level=WARN") {
+		t.Error("Should contain level=WARN marker")
+	}
+	if !strings.Contains(contentStr, "level=ERROR") {
+		t.Error("Should contain level=ERROR marker")
+	}
+}
+
+func TestLogLevel_Filtering(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
+	defer cleanup()
+
+	// Default is Info level - Debug should be filtered
 	SetDebug(false)
+
+	log := Get()
+	log.Debug("debug-filtered")
+	log.Info("info-visible")
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Debug should be filtered out
+	if strings.Contains(contentStr, "debug-filtered") {
+		t.Error("Debug message should be filtered at Info level")
+	}
+
+	// Info should be visible
+	if !strings.Contains(contentStr, "info-visible") {
+		t.Error("Info message should be visible at Info level")
+	}
+}
+
+func TestWithComponent(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
+	defer cleanup()
+
+	// Get a component logger
+	claudeLog := WithComponent("Claude")
+
+	// Log a message with the component logger
+	claudeLog.Info("Runner created", "sessionID", "abc123")
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should contain the message
+	if !strings.Contains(contentStr, "Runner created") {
+		t.Error("Should contain 'Runner created' message")
+	}
+
+	// Should contain the component attribute
+	if !strings.Contains(contentStr, "component=Claude") {
+		t.Error("Should contain 'component=Claude' attribute")
+	}
+
+	// Should contain the sessionID attribute
+	if !strings.Contains(contentStr, "sessionID=abc123") {
+		t.Error("Should contain 'sessionID=abc123' attribute")
+	}
+}
+
+func TestWithSession(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
+	defer cleanup()
+
+	// Get a session logger
+	sessionLog := WithSession("session-xyz")
+
+	// Log a message with the session logger
+	sessionLog.Info("Operation started")
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should contain the message
+	if !strings.Contains(contentStr, "Operation started") {
+		t.Error("Should contain 'Operation started' message")
+	}
+
+	// Should contain the sessionID attribute
+	if !strings.Contains(contentStr, "sessionID=session-xyz") {
+		t.Error("Should contain 'sessionID=session-xyz' attribute")
+	}
+}
+
+func TestWithSession_AdditionalAttrs(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
+	defer cleanup()
+
+	// Get a session logger and add more context
+	sessionLog := WithSession("sess-123").With("component", "runner")
+
+	sessionLog.Info("process started", "pid", 12345)
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should contain all attributes
+	if !strings.Contains(contentStr, "sessionID=sess-123") {
+		t.Error("Should contain sessionID")
+	}
+	if !strings.Contains(contentStr, "component=runner") {
+		t.Error("Should contain component")
+	}
+	if !strings.Contains(contentStr, "pid=12345") {
+		t.Error("Should contain pid")
+	}
+}
+
+func TestLoggerWithAttrs(t *testing.T) {
+	logPath, cleanup := setupTestLogger(t)
+	defer cleanup()
+
+	// Create a logger with pre-attached attributes
+	log := Get().With("requestID", "req-123", "userID", "user-456")
+
+	log.Info("Request processed")
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("Failed to read log file: %v", err)
+	}
+
+	contentStr := string(content)
+
+	// Should contain all pre-attached attributes
+	if !strings.Contains(contentStr, "requestID=req-123") {
+		t.Error("Should contain 'requestID=req-123' attribute")
+	}
+	if !strings.Contains(contentStr, "userID=user-456") {
+		t.Error("Should contain 'userID=user-456' attribute")
+	}
+}
+
+func TestMCPLogPath(t *testing.T) {
+	sessionID := "test-session-123"
+	expected := "/tmp/plural-mcp-test-session-123.log"
+
+	if got := MCPLogPath(sessionID); got != expected {
+		t.Errorf("MCPLogPath(%q) = %q, want %q", sessionID, got, expected)
+	}
 }

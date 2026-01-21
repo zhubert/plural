@@ -24,17 +24,18 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		if option == "" || sess == nil {
 			return m, nil
 		}
+		log := logger.WithSession(sess.ID)
 		// Check if this session already has a merge in progress
 		if state := m.sessionState().GetIfExists(sess.ID); state != nil && state.IsMerging() {
-			logger.Log("App: Merge already in progress for session %s", sess.ID)
+			log.Debug("merge already in progress")
 			return m, nil
 		}
 		// Check if there's already a pending commit message generation
 		if m.pendingCommitSession == sess.ID {
-			logger.Log("App: Commit message generation already pending for session %s", sess.ID)
+			log.Debug("commit message generation already pending")
 			return m, nil
 		}
-		logger.Log("App: Starting merge operation: option=%q, session=%s, branch=%s, worktree=%s", option, sess.ID, sess.Branch, sess.WorkTree)
+		log.Debug("starting merge operation", "option", option, "branch", sess.Branch, "worktree", sess.WorkTree)
 		m.modal.Hide()
 		if m.activeSession == nil || m.activeSession.ID != sess.ID {
 			m.selectSession(sess)
@@ -92,19 +93,19 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		mergeCtx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
-			logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
+			log.Info("creating PR (no uncommitted changes)")
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
 		case MergeTypePush:
-			logger.Log("App: Pushing updates for branch %s (no uncommitted changes)", sess.Branch)
+			log.Info("pushing updates (no uncommitted changes)")
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePush)
 		case MergeTypeParent:
-			logger.Log("App: Merging branch %s to parent %s (no uncommitted changes)", sess.Branch, parentSess.Branch)
+			log.Info("merging to parent (no uncommitted changes)", "parentBranch", parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, MergeTypeParent)
 		default:
-			logger.Log("App: Merging branch %s to main (no uncommitted changes)", sess.Branch)
+			log.Info("merging to main (no uncommitted changes)")
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
 		}
@@ -161,14 +162,15 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		// Proceed with merge/PR/push using the edited commit message
 		// Finish any existing streaming before starting merge operation
 		m.chat.FinishStreaming()
+		log := logger.WithSession(sess.ID)
 		mergeCtx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
-			logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
+			log.Info("creating PR with user-edited commit message")
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg, sess.IssueNumber), cancel, MergeTypePR)
 		case MergeTypePush:
-			logger.Log("App: Pushing updates for branch %s with user-edited commit message", sess.Branch)
+			log.Info("pushing updates with user-edited commit message")
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePush)
 		case MergeTypeParent:
@@ -178,11 +180,11 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 				cancel()
 				return m, nil
 			}
-			logger.Log("App: Merging branch %s to parent %s with user-edited commit message", sess.Branch, parentSess.Branch)
+			log.Info("merging to parent with user-edited commit message", "parentBranch", parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, MergeTypeParent)
 		default:
-			logger.Log("App: Merging branch %s to main with user-edited commit message", sess.Branch)
+			log.Info("merging to main with user-edited commit message")
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
 		}
@@ -201,7 +203,7 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 		return m, nil
 	}
 
-	logger.Log("App: Committing conflict resolution in %s", m.pendingConflictRepoPath)
+	logger.Get().Debug("committing conflict resolution", "repoPath", m.pendingConflictRepoPath)
 	ctx := context.Background()
 	err := m.gitService.CommitConflictResolution(ctx, m.pendingConflictRepoPath, commitMsg)
 	if err != nil {
@@ -216,7 +218,7 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 		m.config.MarkSessionMerged(m.pendingConflictSessionID)
 		m.config.Save()
 		m.sidebar.SetSessions(m.config.GetSessions())
-		logger.Log("App: Marked session %s as merged after conflict resolution", m.pendingConflictSessionID)
+		logger.WithSession(m.pendingConflictSessionID).Info("marked session as merged after conflict resolution")
 	}
 
 	// Clear pending conflict state
@@ -283,7 +285,7 @@ Please resolve these merge conflicts by:
 5. Stage the resolved files with git add
 6. Commit the merge with a descriptive commit message explaining the resolution`, filesList.String())
 
-	logger.Log("App: Sending conflict resolution prompt to Claude for session %s", sess.ID)
+	logger.WithSession(sess.ID).Debug("sending conflict resolution prompt to Claude")
 	m.chat.AddUserMessage(prompt)
 
 	// Store conflict info for later commit

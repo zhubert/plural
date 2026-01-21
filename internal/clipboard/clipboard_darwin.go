@@ -180,26 +180,27 @@ func readNativeImage() ([]byte, error) {
 // ReadImage attempts to read an image from the clipboard.
 // Returns nil if clipboard doesn't contain an image.
 func ReadImage() (*ImageData, error) {
-	logger.Log("Clipboard: Reading image using native macOS API")
+	log := logger.WithComponent("clipboard")
+	log.Debug("reading image using native macOS API")
 
 	// Use native macOS implementation that handles TIFF, PNG, etc.
 	imgBytes, err := readNativeImage()
 	if err != nil {
-		logger.Log("Clipboard: Native read error: %v", err)
+		log.Debug("native read error", "error", err)
 		return nil, err
 	}
 
 	if len(imgBytes) == 0 {
-		logger.Log("Clipboard: No image data found in pasteboard")
+		log.Debug("no image data found in pasteboard")
 		return nil, nil
 	}
 
-	logger.Log("Clipboard: Read %d bytes of PNG image data from pasteboard", len(imgBytes))
+	log.Debug("read PNG image data from pasteboard", "bytes", len(imgBytes))
 
 	// Decode the PNG to get dimensions and validate
 	img, format, err := image.Decode(bytes.NewReader(imgBytes))
 	if err != nil {
-		logger.Log("Clipboard: Failed to decode image: %v", err)
+		log.Debug("failed to decode image", "error", err)
 		return nil, fmt.Errorf("failed to decode clipboard image: %w", err)
 	}
 
@@ -207,17 +208,17 @@ func ReadImage() (*ImageData, error) {
 	width := bounds.Dx()
 	height := bounds.Dy()
 
-	logger.Log("Clipboard: Image decoded: %dx%d, format=%s", width, height, format)
+	log.Debug("image decoded", "width", width, "height", height, "format", format)
 
 	// Re-encode to ensure consistent PNG format
 	var pngBuf bytes.Buffer
 	if err := png.Encode(&pngBuf, img); err != nil {
-		logger.Log("Clipboard: Failed to re-encode as PNG: %v", err)
+		log.Debug("failed to re-encode as PNG", "error", err)
 		return nil, fmt.Errorf("failed to encode image as PNG: %w", err)
 	}
 
 	pngBytes := pngBuf.Bytes()
-	logger.Log("Clipboard: Final PNG: %d bytes", len(pngBytes))
+	log.Debug("final PNG encoded", "bytes", len(pngBytes))
 
 	return &ImageData{
 		Data:      pngBytes,
@@ -229,7 +230,8 @@ func ReadImage() (*ImageData, error) {
 
 // WriteText writes text to the clipboard.
 func WriteText(text string) error {
-	logger.Log("Clipboard: Writing text using native macOS API")
+	log := logger.WithComponent("clipboard")
+	log.Debug("writing text using native macOS API")
 
 	cText := C.CString(text)
 	defer C.free(unsafe.Pointer(cText))
@@ -239,6 +241,6 @@ func WriteText(text string) error {
 		return fmt.Errorf("failed to write text to clipboard")
 	}
 
-	logger.Log("Clipboard: Wrote %d bytes of text", len(text))
+	log.Debug("wrote text to clipboard", "bytes", len(text))
 	return nil
 }

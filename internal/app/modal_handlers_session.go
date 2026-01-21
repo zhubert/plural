@@ -100,17 +100,17 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		if state.GetBaseIndex() == 1 {
 			basePoint = session.BasePointHead
 		}
-		logger.Log("App: Creating new session for repo=%s, branch=%q, prefix=%q, basePoint=%v", repoPath, branchName, branchPrefix, basePoint)
+		logger.Get().Debug("creating new session", "repo", repoPath, "branch", branchName, "prefix", branchPrefix, "basePoint", basePoint)
 		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
 		if err != nil {
-			logger.Log("App: Failed to create session: %v", err)
+			logger.Get().Error("failed to create session", "error", err)
 			m.modal.SetError(err.Error())
 			return m, nil
 		}
-		logger.Log("App: Session created: id=%s, name=%s", sess.ID, sess.Name)
+		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
 		m.config.AddSession(*sess)
 		if err := m.config.Save(); err != nil {
-			logger.Log("App: Failed to save config: %v", err)
+			logger.Get().Error("failed to save config", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
@@ -134,14 +134,15 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 		return m, nil
 	case "enter":
 		if sess := m.sidebar.SelectedSession(); sess != nil {
+			log := logger.WithSession(sess.ID)
 			deleteWorktree := state.ShouldDeleteWorktree()
-			logger.Log("App: Deleting session: id=%s, name=%s, deleteWorktree=%v", sess.ID, sess.Name, deleteWorktree)
+			log.Debug("deleting session", "name", sess.Name, "deleteWorktree", deleteWorktree)
 
 			// Delete worktree if requested
 			if deleteWorktree {
 				ctx := context.Background()
 				if err := m.sessionService.Delete(ctx, sess); err != nil {
-					logger.Log("App: Failed to delete worktree: %v", err)
+					log.Warn("failed to delete worktree", "error", err)
 					// Continue with session removal even if worktree deletion fails
 				}
 			}
@@ -153,18 +154,13 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			// Clean up runner and all per-session state via SessionManager
 			deletedRunner := m.sessionMgr.DeleteSession(sess.ID)
 			m.sidebar.SetPendingPermission(sess.ID, false)
-			logger.Log("App: Checking if active session should be cleared: activeSession=%v, activeSessionID=%s, deletedSessionID=%s",
-				m.activeSession != nil,
-				func() string {
-					if m.activeSession != nil {
-						return m.activeSession.ID
-					} else {
-						return "<nil>"
-					}
-				}(),
-				sess.ID)
+			activeSessionID := "<nil>"
+			if m.activeSession != nil {
+				activeSessionID = m.activeSession.ID
+			}
+			log.Debug("checking if active session should be cleared", "activeSessionExists", m.activeSession != nil, "activeSessionID", activeSessionID)
 			if m.activeSession != nil && m.activeSession.ID == sess.ID {
-				logger.Log("App: Clearing active session and chat")
+				log.Debug("clearing active session and chat")
 				m.activeSession = nil
 				m.claudeRunner = nil
 				m.chat.ClearSession()
@@ -172,12 +168,12 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 				m.header.SetBaseBranch("")
 				m.header.SetDiffStats(nil)
 			} else {
-				logger.Log("App: Not clearing chat - deleted session was not the active session")
+				log.Debug("not clearing chat - deleted session was not the active session")
 			}
 			if deletedRunner != nil {
-				logger.Log("App: Session deleted successfully (runner stopped): %s", sess.ID)
+				log.Info("session deleted successfully (runner stopped)")
 			} else {
-				logger.Log("App: Session deleted successfully: %s", sess.ID)
+				log.Info("session deleted successfully")
 			}
 		}
 		m.modal.Hide()
@@ -224,30 +220,31 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
-		logger.Log("App: Forking session %s (branch=%s), copyMessages=%v, newBranch=%q, prefix=%q",
-			state.ParentSessionID, parentSess.Branch, state.CopyMessages, branchName, branchPrefix)
+		logger.WithSession(state.ParentSessionID).Debug("forking session", "parentBranch", parentSess.Branch, "copyMessages", state.CopyMessages, "newBranch", branchName, "prefix", branchPrefix)
 
 		// Create new session forked from parent's branch
 		sess, err := m.sessionService.CreateFromBranch(ctx, state.RepoPath, parentSess.Branch, branchName, branchPrefix)
 		if err != nil {
-			logger.Log("App: Failed to create forked session: %v", err)
+			logger.Get().Error("failed to create forked session", "error", err)
 			m.modal.SetError(err.Error())
 			return m, nil
 		}
+
+		log := logger.WithSession(sess.ID)
 
 		// Copy messages if requested
 		var messageCopyFailed bool
 		if state.CopyMessages {
 			parentMsgs, err := config.LoadSessionMessages(state.ParentSessionID)
 			if err != nil {
-				logger.Log("App: Warning - failed to load parent session messages: %v", err)
+				log.Warn("failed to load parent session messages", "error", err)
 				messageCopyFailed = true
 			} else if len(parentMsgs) > 0 {
 				if err := config.SaveSessionMessages(sess.ID, parentMsgs, config.MaxSessionMessageLines); err != nil {
-					logger.Log("App: Warning - failed to save forked session messages: %v", err)
+					log.Warn("failed to save forked session messages", "error", err)
 					messageCopyFailed = true
 				} else {
-					logger.Log("App: Copied %d messages from parent session", len(parentMsgs))
+					log.Debug("copied messages from parent session", "count", len(parentMsgs))
 				}
 			}
 		}
@@ -255,10 +252,10 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
 
-		logger.Log("App: Forked session created: id=%s, name=%s, parentID=%s", sess.ID, sess.Name, sess.ParentID)
+		log.Info("forked session created", "name", sess.Name, "parentID", sess.ParentID)
 		m.config.AddSession(*sess)
 		if err := m.config.Save(); err != nil {
-			logger.Log("App: Failed to save config: %v", err)
+			log.Error("failed to save config", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
@@ -336,7 +333,7 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		logger.Log("App: Renamed session %s: branch=%q", state.SessionID, newBranch)
+		logger.WithSession(state.SessionID).Info("renamed session", "branch", newBranch)
 
 		// Update sidebar and header
 		m.sidebar.SetSessions(m.config.GetSessions())
@@ -363,7 +360,7 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 		return m, nil
 	case "enter":
 		repoPath := state.GetRepoPath()
-		logger.Log("App: Deleting repository: %s", repoPath)
+		logger.Get().Debug("deleting repository", "path", repoPath)
 
 		if !m.config.RemoveRepo(repoPath) {
 			m.modal.SetError("Repository not found")
@@ -373,7 +370,7 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		logger.Log("App: Repository deleted successfully: %s", repoPath)
+		logger.Get().Info("repository deleted successfully", "path", repoPath)
 
 		// Return to new session modal with updated repo list
 		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))

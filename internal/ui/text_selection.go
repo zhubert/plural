@@ -350,7 +350,7 @@ func (c *Chat) CopySelectedText() tea.Cmd {
 		// Native clipboard fallback - returns error message if it fails
 		func() tea.Msg {
 			if err := clipboard.WriteText(selectedText); err != nil {
-				logger.Log("Failed to write to clipboard: %v", err)
+				logger.Get().Error("Failed to write to clipboard", "error", err)
 				return ClipboardErrorMsg{Error: err}
 			}
 			return nil

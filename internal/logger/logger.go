@@ -2,48 +2,20 @@ package logger
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
-
-// LogLevel represents the severity of a log message
-type LogLevel int
-
-const (
-	// LevelDebug is for verbose debugging information
-	LevelDebug LogLevel = iota
-	// LevelInfo is for general operational information
-	LevelInfo
-	// LevelWarn is for warning conditions
-	LevelWarn
-	// LevelError is for error conditions
-	LevelError
-)
-
-func (l LogLevel) String() string {
-	switch l {
-	case LevelDebug:
-		return "DEBUG"
-	case LevelInfo:
-		return "INFO"
-	case LevelWarn:
-		return "WARN"
-	case LevelError:
-		return "ERROR"
-	default:
-		return "UNKNOWN"
-	}
-}
 
 var (
-	logFile      *os.File
-	mu           sync.Mutex
-	once         sync.Once
-	logPath      string
-	initDone     bool
-	currentLevel LogLevel = LevelInfo // Default to Info level
+	root     *slog.Logger
+	levelVar = new(slog.LevelVar)
+	logFile  *os.File
+	mu       sync.Mutex
+	once     sync.Once
+	logPath  string
+	initDone bool
 )
 
 // DefaultLogPath is the default log file for the main process
@@ -54,24 +26,17 @@ func MCPLogPath(sessionID string) string {
 	return fmt.Sprintf("/tmp/plural-mcp-%s.log", sessionID)
 }
 
-// SetLevel sets the minimum log level to output
-func SetLevel(level LogLevel) {
-	mu.Lock()
-	defer mu.Unlock()
-	currentLevel = level
-}
-
-// SetDebug enables debug level logging
+// SetDebug enables or disables debug level logging
 func SetDebug(enabled bool) {
 	if enabled {
-		SetLevel(LevelDebug)
+		levelVar.Set(slog.LevelDebug)
 	} else {
-		SetLevel(LevelInfo)
+		levelVar.Set(slog.LevelInfo)
 	}
 }
 
-// Init initializes the logger with a custom path. Must be called before Log().
-// If not called, the default path will be used on first Log() call.
+// Init initializes the logger with a custom path. Must be called before logging.
+// If not called, the default path will be used on first log call.
 // Returns an error if the log file cannot be opened.
 func Init(path string) error {
 	mu.Lock()
@@ -87,8 +52,11 @@ func Init(path string) error {
 		return fmt.Errorf("failed to open log file %s: %w", path, err)
 	}
 	logFile = f
+	handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: levelVar})
+	root = slog.New(handler)
 	initDone = true
-	writeLog(LevelInfo, "Logger initialized: %s", path)
+
+	root.Info("logger initialized", "path", path)
 	return nil
 }
 
@@ -98,73 +66,71 @@ func ensureInit() {
 			logPath = DefaultLogPath
 			f, err := os.OpenFile(DefaultLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 			if err != nil {
-				// Print to stderr since we can't log
 				fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", DefaultLogPath, err)
 				return
 			}
 			logFile = f
+			handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: levelVar})
+			root = slog.New(handler)
 			initDone = true
-			writeLog(LevelInfo, "Logger initialized: %s", DefaultLogPath)
+
+			root.Info("logger initialized", "path", DefaultLogPath)
 		})
 	}
 }
 
-func writeLog(level LogLevel, format string, args ...interface{}) {
-	if logFile == nil {
-		return
+// Get returns the root logger instance.
+// Use this when you don't have session context.
+func Get() *slog.Logger {
+	mu.Lock()
+	defer mu.Unlock()
+
+	ensureInit()
+
+	if root == nil {
+		return slog.Default()
 	}
-	if level < currentLevel {
-		return
+	return root
+}
+
+// WithSession returns a logger with the session ID attached.
+// All log entries from this logger will include sessionID as a structured field.
+//
+// Example:
+//
+//	log := logger.WithSession(sess.ID)
+//	log.Info("runner created", "workDir", dir)
+//	// Output: level=INFO msg="runner created" sessionID=abc123 workDir=/path
+func WithSession(sessionID string) *slog.Logger {
+	mu.Lock()
+	defer mu.Unlock()
+
+	ensureInit()
+
+	if root == nil {
+		return slog.Default().With("sessionID", sessionID)
 	}
-	timestamp := time.Now().Format("15:04:05.000")
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(logFile, "[%s] [%s] %s\n", timestamp, level.String(), msg)
-	logFile.Sync()
+	return root.With("sessionID", sessionID)
 }
 
-// Debug writes a debug message to the log file (only if level is LevelDebug)
-func Debug(format string, args ...interface{}) {
+// WithComponent returns a logger with the component name attached.
+// Useful for non-session-scoped logging where you want to identify the source.
+//
+// Example:
+//
+//	log := logger.WithComponent("git")
+//	log.Info("commit created", "hash", hash)
+//	// Output: level=INFO msg="commit created" component=git hash=abc123
+func WithComponent(component string) *slog.Logger {
 	mu.Lock()
 	defer mu.Unlock()
 
 	ensureInit()
-	writeLog(LevelDebug, format, args...)
-}
 
-// Info writes an info message to the log file
-func Info(format string, args ...interface{}) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	ensureInit()
-	writeLog(LevelInfo, format, args...)
-}
-
-// Warn writes a warning message to the log file
-func Warn(format string, args ...interface{}) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	ensureInit()
-	writeLog(LevelWarn, format, args...)
-}
-
-// Error writes an error message to the log file
-func Error(format string, args ...interface{}) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	ensureInit()
-	writeLog(LevelError, format, args...)
-}
-
-// Log writes a debug message to the log file (legacy function, use Debug/Info/Warn/Error instead)
-func Log(format string, args ...interface{}) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	ensureInit()
-	writeLog(LevelDebug, format, args...)
+	if root == nil {
+		return slog.Default().With("component", component)
+	}
+	return root.With("component", component)
 }
 
 // Close closes the log file
@@ -176,6 +142,7 @@ func Close() {
 		logFile.Close()
 		logFile = nil
 	}
+	root = nil
 }
 
 // Reset resets the logger state, allowing reinitialization.
@@ -191,6 +158,8 @@ func Reset() {
 	initDone = false
 	once = sync.Once{}
 	logPath = ""
+	root = nil
+	levelVar = new(slog.LevelVar)
 }
 
 // ClearLogs removes all plural log files from /tmp

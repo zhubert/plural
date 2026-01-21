@@ -113,7 +113,7 @@ func (m *Model) handleSearchMessagesModal(key string, msg tea.KeyPressMsg, state
 			m.modal.Hide()
 			// Scroll to message - for now we just close the modal
 			// Future enhancement: could scroll the chat viewport to the message
-			logger.Log("App: Search - selected message %d (%s)", result.MessageIndex+1, result.Role)
+			logger.Get().Debug("search - selected message", "index", result.MessageIndex+1, "role", result.Role)
 		}
 		return m, nil
 	}
