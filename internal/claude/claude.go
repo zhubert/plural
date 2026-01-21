@@ -196,6 +196,7 @@ type Runner struct {
 	processManager *ProcessManager // Manages Claude CLI process lifecycle
 	currentResponseCh       chan ResponseChunk // Current response channel for routing (protected by mu)
 	currentResponseChClosed bool               // Whether currentResponseCh has been closed (protected by mu)
+	closeResponseChOnce     *sync.Once         // Ensures response channel is closed exactly once per Send
 
 	// Per-session streaming state (all protected by mu)
 	isStreaming  bool               // Whether this runner is currently streaming
@@ -917,8 +918,7 @@ func (r *Runner) handleProcessLine(line string) {
 				case ch <- ResponseChunk{Done: true}:
 				default:
 				}
-				close(ch)
-				r.currentResponseChClosed = true
+				r.closeResponseChannel()
 			}
 			r.isStreaming = false
 
@@ -964,8 +964,7 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 		case ch <- ResponseChunk{Done: true}:
 		default:
 		}
-		close(ch)
-		r.currentResponseChClosed = true
+		r.closeResponseChannel()
 	}
 	r.isStreaming = false
 	r.mu.Unlock()
@@ -1008,8 +1007,7 @@ func (r *Runner) handleFatalError(err error) {
 		case ch <- ResponseChunk{Error: err, Done: true}:
 		default:
 		}
-		close(ch)
-		r.currentResponseChClosed = true
+		r.closeResponseChannel()
 	}
 	r.isStreaming = false
 	r.mu.Unlock()
@@ -1024,6 +1022,20 @@ func (r *Runner) sendChunkWithTimeout(ch chan ResponseChunk, chunk ResponseChunk
 		logger.Error("Claude: Response channel full after %v timeout", ResponseChannelFullTimeout)
 		return errChannelFull
 	}
+}
+
+// closeResponseChannel safely closes the current response channel exactly once.
+// Uses sync.Once to prevent double-close panics when multiple code paths
+// (processResponse, handleProcessExit, handleFatalError) race to close the channel.
+// The caller must hold r.mu when calling this method.
+func (r *Runner) closeResponseChannel() {
+	if r.closeResponseChOnce == nil || r.currentResponseCh == nil {
+		return
+	}
+	r.closeResponseChOnce.Do(func() {
+		close(r.currentResponseCh)
+		r.currentResponseChClosed = true
+	})
 }
 
 // Interrupt sends SIGINT to the Claude process to interrupt its current operation.
@@ -1083,7 +1095,8 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		r.mu.Lock()
 		r.isStreaming = true
 		r.currentResponseCh = ch
-		r.currentResponseChClosed = false // Reset closed flag for new channel
+		r.currentResponseChClosed = false    // Reset closed flag for new channel
+		r.closeResponseChOnce = &sync.Once{} // Fresh sync.Once for this channel
 		r.streamCtx = cmdCtx
 		r.responseStartTime = time.Now()
 		r.responseComplete = false // Reset for new message - we haven't received result yet
