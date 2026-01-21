@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -181,7 +182,9 @@ For more information, visit: https://github.com/zhubert/plural
 			}
 		}
 
-		prunedWorktrees, err := session.PruneOrphanedWorktrees(cfg)
+		sessionSvc := session.NewSessionService()
+		ctx := context.Background()
+		prunedWorktrees, err := sessionSvc.PruneOrphanedWorktrees(ctx, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error pruning worktrees: %v\n", err)
 			os.Exit(1)

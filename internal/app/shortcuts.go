@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +12,6 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -433,7 +433,8 @@ func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
 		m.selectSession(sess)
 	}
 	// Get worktree status and display it in view changes overlay
-	status, err := git.GetWorktreeStatus(sess.WorkTree)
+	ctx := context.Background()
+	status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
 	var files []git.FileDiff
 	if err != nil {
 		files = []git.FileDiff{{
@@ -465,10 +466,11 @@ func shortcutMerge(m *Model) (tea.Model, tea.Cmd) {
 	if (state != nil && state.IsMerging()) || m.pendingCommitSession == sess.ID {
 		return m, nil
 	}
-	hasRemote := git.HasRemoteOrigin(sess.RepoPath)
+	ctx := context.Background()
+	hasRemote := m.gitService.HasRemoteOrigin(ctx, sess.RepoPath)
 	// Get changes summary to display in modal
 	var changesSummary string
-	if status, err := git.GetWorktreeStatus(sess.WorkTree); err == nil && status.HasChanges {
+	if status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree); err == nil && status.HasChanges {
 		changesSummary = status.Summary
 		// Add file list if not too many files
 		if len(status.Files) <= 5 {
@@ -493,7 +495,8 @@ func shortcutCommitConflicts(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutAddRepo(m *Model) (tea.Model, tea.Cmd) {
 	// Check if current directory is a git repo and not already added
-	currentRepo := session.GetCurrentDirGitRoot()
+	ctx := context.Background()
+	currentRepo := m.sessionService.GetCurrentDirGitRoot(ctx)
 	if currentRepo != "" {
 		// Check if already added
 		for _, repo := range m.config.GetRepos() {

@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
@@ -106,13 +105,14 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 		fullBranchName := branchPrefix + branchName
 
 		// Check if branch already exists and skip if so
-		if session.BranchExists(repoPath, fullBranchName) {
+		ctx := context.Background()
+		if m.sessionService.BranchExists(ctx, repoPath, fullBranchName) {
 			logger.Log("App: Skipping issue #%d, branch %s already exists", issue.Number, fullBranchName)
 			continue
 		}
 
 		// Create new session (always from origin for issue-based sessions)
-		sess, err := session.Create(repoPath, branchName, branchPrefix, session.BasePointOrigin)
+		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, session.BasePointOrigin)
 		if err != nil {
 			logger.Log("App: Failed to create session for issue #%d: %v", issue.Number, err)
 			failedIssues = append(failedIssues, issue.Number)
@@ -238,7 +238,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 			Text   string
 		}{Number: opt.Number, Text: opt.Text}
 	}
-	branchNames, err := git.GenerateBranchNamesFromOptions(ctx, optionsForClaude)
+	branchNames, err := m.gitService.GenerateBranchNamesFromOptions(ctx, optionsForClaude)
 	if err != nil {
 		logger.Log("App: Failed to generate branch names with Claude: %v", err)
 		branchNames = make(map[int]string) // Will use fallback names
@@ -258,7 +258,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		}
 
 		// Create new session forked from parent's branch
-		sess, err := session.CreateFromBranch(parentSession.RepoPath, parentSession.Branch, branchName, branchPrefix)
+		sess, err := m.sessionService.CreateFromBranch(ctx, parentSession.RepoPath, parentSession.Branch, branchName, branchPrefix)
 		if err != nil {
 			logger.Log("App: Failed to create parallel session for option %d: %v", opt.Number, err)
 			m.chat.AppendStreaming(fmt.Sprintf("[Error creating session for option %d: %v]\n", opt.Number, err))

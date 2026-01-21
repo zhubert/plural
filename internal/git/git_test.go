@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// svc creates a new GitService for testing
+var svc = NewGitService()
+
+// ctx is a background context for testing
+var ctx = context.Background()
+
 // createTestRepo creates a temporary git repository for testing
 func createTestRepo(t *testing.T) string {
 	t.Helper()
@@ -80,7 +86,7 @@ func TestHasRemoteOrigin_NoRemote(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	if HasRemoteOrigin(repoPath) {
+	if svc.HasRemoteOrigin(ctx, repoPath) {
 		t.Error("HasRemoteOrigin should return false for repo without origin")
 	}
 }
@@ -96,13 +102,13 @@ func TestHasRemoteOrigin_WithRemote(t *testing.T) {
 		t.Fatalf("Failed to add remote: %v", err)
 	}
 
-	if !HasRemoteOrigin(repoPath) {
+	if !svc.HasRemoteOrigin(ctx, repoPath) {
 		t.Error("HasRemoteOrigin should return true for repo with origin")
 	}
 }
 
 func TestHasRemoteOrigin_InvalidPath(t *testing.T) {
-	if HasRemoteOrigin("/nonexistent/path") {
+	if svc.HasRemoteOrigin(ctx, "/nonexistent/path") {
 		t.Error("HasRemoteOrigin should return false for invalid path")
 	}
 }
@@ -117,7 +123,7 @@ func TestGetDefaultBranch_Master(t *testing.T) {
 	cmd.Dir = repoPath
 	cmd.Run()
 
-	branch := GetDefaultBranch(repoPath)
+	branch := svc.GetDefaultBranch(ctx, repoPath)
 	// Should return either main or master
 	if branch != "main" && branch != "master" {
 		t.Errorf("GetDefaultBranch = %q, want 'main' or 'master'", branch)
@@ -135,7 +141,7 @@ func TestGetDefaultBranch_Main(t *testing.T) {
 		t.Skip("Could not rename branch to main")
 	}
 
-	branch := GetDefaultBranch(repoPath)
+	branch := svc.GetDefaultBranch(ctx, repoPath)
 	if branch != "main" && branch != "master" {
 		t.Errorf("GetDefaultBranch = %q, want 'main' or 'master'", branch)
 	}
@@ -172,7 +178,7 @@ func TestMergeToMain(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "feature-branch", "")
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "feature-branch", "")
 
 	var lastResult Result
 	for result := range ch {
@@ -237,7 +243,7 @@ func TestMergeToMain_Conflict(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "conflict-branch", "")
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "conflict-branch", "")
 
 	var hadError bool
 	for result := range ch {
@@ -264,7 +270,7 @@ func TestMergeToMain_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "test-branch", "")
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "test-branch", "")
 
 	// Drain channel
 	for range ch {
@@ -284,7 +290,7 @@ func TestCreatePR_NoGh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := CreatePR(ctx, repoPath, repoPath, "test-branch", "", 0)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "test-branch", "", 0)
 
 	var hadError bool
 	for result := range ch {
@@ -302,7 +308,7 @@ func TestGetWorktreeStatus_NoChanges(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	status, err := GetWorktreeStatus(repoPath)
+	status, err := svc.GetWorktreeStatus(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -336,7 +342,7 @@ func TestGetWorktreeStatus_WithChanges(t *testing.T) {
 		t.Fatalf("Failed to modify test file: %v", err)
 	}
 
-	status, err := GetWorktreeStatus(repoPath)
+	status, err := svc.GetWorktreeStatus(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -364,7 +370,7 @@ func TestGetWorktreeStatus_SingleFile(t *testing.T) {
 		t.Fatalf("Failed to create file: %v", err)
 	}
 
-	status, err := GetWorktreeStatus(repoPath)
+	status, err := svc.GetWorktreeStatus(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -375,7 +381,7 @@ func TestGetWorktreeStatus_SingleFile(t *testing.T) {
 }
 
 func TestGetWorktreeStatus_InvalidPath(t *testing.T) {
-	_, err := GetWorktreeStatus("/nonexistent/path")
+	_, err := svc.GetWorktreeStatus(ctx, "/nonexistent/path")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -392,19 +398,19 @@ func TestCommitAll_Success(t *testing.T) {
 	}
 
 	// Verify changes exist before commit
-	status, _ := GetWorktreeStatus(repoPath)
+	status, _ := svc.GetWorktreeStatus(ctx, repoPath)
 	if !status.HasChanges {
 		t.Fatal("Expected changes before commit")
 	}
 
 	// Commit all changes
-	err := CommitAll(repoPath, "Test commit message")
+	err := svc.CommitAll(ctx, repoPath, "Test commit message")
 	if err != nil {
 		t.Fatalf("CommitAll failed: %v", err)
 	}
 
 	// Verify no changes after commit
-	status, _ = GetWorktreeStatus(repoPath)
+	status, _ = svc.GetWorktreeStatus(ctx, repoPath)
 	if status.HasChanges {
 		t.Error("Expected no changes after CommitAll")
 	}
@@ -427,7 +433,7 @@ func TestCommitAll_NoChanges(t *testing.T) {
 	defer os.RemoveAll(repoPath)
 
 	// Try to commit with no changes - should fail
-	err := CommitAll(repoPath, "Empty commit")
+	err := svc.CommitAll(ctx, repoPath, "Empty commit")
 	if err == nil {
 		t.Error("Expected CommitAll to fail with no changes")
 	}
@@ -452,13 +458,13 @@ func TestCommitAll_MultipleFiles(t *testing.T) {
 	}
 
 	// Commit all
-	err := CommitAll(repoPath, "Multiple files commit")
+	err := svc.CommitAll(ctx, repoPath, "Multiple files commit")
 	if err != nil {
 		t.Fatalf("CommitAll failed: %v", err)
 	}
 
 	// Verify clean state
-	status, _ := GetWorktreeStatus(repoPath)
+	status, _ := svc.GetWorktreeStatus(ctx, repoPath)
 	if status.HasChanges {
 		t.Error("Expected no changes after committing multiple files")
 	}
@@ -474,7 +480,7 @@ func TestGenerateCommitMessage_Success(t *testing.T) {
 		t.Fatalf("Failed to create file: %v", err)
 	}
 
-	msg, err := GenerateCommitMessage(repoPath)
+	msg, err := svc.GenerateCommitMessage(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GenerateCommitMessage failed: %v", err)
 	}
@@ -498,7 +504,7 @@ func TestGenerateCommitMessage_NoChanges(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	_, err := GenerateCommitMessage(repoPath)
+	_, err := svc.GenerateCommitMessage(ctx, repoPath)
 	if err == nil {
 		t.Error("Expected error when generating commit message with no changes")
 	}
@@ -540,7 +546,7 @@ func TestMergeToMain_WithProvidedCommitMessage(t *testing.T) {
 	defer cancel()
 
 	customCommitMsg := "Custom commit message for merge"
-	ch := MergeToMain(ctx, repoPath, repoPath, "feature-with-msg", customCommitMsg)
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "feature-with-msg", customCommitMsg)
 
 	var lastResult Result
 	for result := range ch {
@@ -591,7 +597,7 @@ func TestCreatePR_WithProvidedCommitMessage(t *testing.T) {
 	defer cancel()
 
 	// CreatePR will fail without a real remote, but we can verify it tries
-	ch := CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "Custom PR commit", 0)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "Custom PR commit", 0)
 
 	// Drain channel - expect an error since no remote
 	for range ch {
@@ -615,7 +621,7 @@ func TestGetWorktreeStatus_StagedChanges(t *testing.T) {
 		t.Fatalf("Failed to stage file: %v", err)
 	}
 
-	status, err := GetWorktreeStatus(repoPath)
+	status, err := svc.GetWorktreeStatus(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -688,7 +694,7 @@ func TestMergeToMain_NoChangesToCommit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "clean-feature", "")
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "clean-feature", "")
 
 	var sawNoChangesMsg bool
 	for result := range ch {
@@ -718,7 +724,7 @@ func TestCreatePR_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", 0)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", 0)
 
 	// Drain channel - should not hang
 	for range ch {
@@ -726,7 +732,7 @@ func TestCreatePR_Cancelled(t *testing.T) {
 }
 
 func TestCommitAll_InvalidPath(t *testing.T) {
-	err := CommitAll("/nonexistent/path", "Test commit")
+	err := svc.CommitAll(ctx, "/nonexistent/path", "Test commit")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -754,7 +760,7 @@ func TestGetWorktreeStatus_DiffFallback(t *testing.T) {
 	}
 
 	// This should work even without a HEAD commit
-	status, err := GetWorktreeStatus(tmpDir)
+	status, err := svc.GetWorktreeStatus(ctx, tmpDir)
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -776,7 +782,7 @@ func TestGenerateCommitMessage_MultipleFiles(t *testing.T) {
 		}
 	}
 
-	msg, err := GenerateCommitMessage(repoPath)
+	msg, err := svc.GenerateCommitMessage(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GenerateCommitMessage failed: %v", err)
 	}
@@ -913,7 +919,7 @@ func TestMergeToParent_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+	ch := svc.MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
 
 	var lastResult Result
 	for result := range ch {
@@ -948,7 +954,7 @@ func TestMergeToParent_WithUncommittedChanges(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "Custom child commit")
+	ch := svc.MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "Custom child commit")
 
 	var sawUncommittedMsg bool
 	var lastResult Result
@@ -1013,7 +1019,7 @@ func TestMergeToParent_Conflict(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+	ch := svc.MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
 
 	var hadConflict bool
 	var conflictedFiles []string
@@ -1042,7 +1048,7 @@ func TestMergeToParent_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+	ch := svc.MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
 
 	// Drain channel - should not hang
 	for range ch {
@@ -1072,7 +1078,7 @@ func TestMergeToParent_NoChangesToCommit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
+	ch := svc.MergeToParent(ctx, childWorktree, childBranch, parentWorktree, parentBranch, "")
 
 	var sawNoChangesMsg bool
 	for result := range ch {
@@ -1315,7 +1321,7 @@ func TestMergeToMain_PullFailsDiverged(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "feature-diverged", "")
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "feature-diverged", "")
 
 	var hadDivergedError bool
 	var sawHelpfulMessage bool
@@ -1383,7 +1389,7 @@ func TestMergeToMain_PullFailsNoRemote(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	ch := MergeToMain(ctx, repoPath, repoPath, "feature-no-remote", "")
+	ch := svc.MergeToMain(ctx, repoPath, repoPath, "feature-no-remote", "")
 
 	var sawNoRemoteMessage bool
 	var lastResult Result
@@ -1421,7 +1427,7 @@ func TestGetDiffStats_NoChanges(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1449,7 +1455,7 @@ func TestGetDiffStats_WithModifiedFile(t *testing.T) {
 		t.Fatalf("Failed to modify test file: %v", err)
 	}
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1475,7 +1481,7 @@ func TestGetDiffStats_WithNewFile(t *testing.T) {
 		t.Fatalf("Failed to create new file: %v", err)
 	}
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1506,7 +1512,7 @@ func TestGetDiffStats_WithStagedChanges(t *testing.T) {
 		t.Fatalf("Failed to stage file: %v", err)
 	}
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1531,7 +1537,7 @@ func TestGetDiffStats_WithDeletions(t *testing.T) {
 		t.Fatalf("Failed to modify test file: %v", err)
 	}
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1564,7 +1570,7 @@ func TestGetDiffStats_MultipleFiles(t *testing.T) {
 	cmd.Dir = repoPath
 	cmd.Run()
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1580,7 +1586,7 @@ func TestGetDiffStats_MultipleFiles(t *testing.T) {
 }
 
 func TestGetDiffStats_InvalidPath(t *testing.T) {
-	_, err := GetDiffStats("/nonexistent/path")
+	_, err := svc.GetDiffStats(ctx, "/nonexistent/path")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
@@ -1606,7 +1612,7 @@ func TestGetDiffStats_MixedChanges(t *testing.T) {
 	cmd.Dir = repoPath
 	cmd.Run()
 
-	stats, err := GetDiffStats(repoPath)
+	stats, err := svc.GetDiffStats(ctx, repoPath)
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1677,7 +1683,7 @@ func TestGetBranchDivergence_InSync(t *testing.T) {
 	repoPath, _, cleanup := createTestRepoWithRemote(t)
 	defer cleanup()
 
-	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1715,7 +1721,7 @@ func TestGetBranchDivergence_LocalAhead(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1787,7 +1793,7 @@ func TestGetBranchDivergence_LocalBehind(t *testing.T) {
 		t.Fatalf("Failed to fetch: %v", err)
 	}
 
-	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1875,7 +1881,7 @@ func TestGetBranchDivergence_Diverged(t *testing.T) {
 		t.Fatalf("Failed to fetch: %v", err)
 	}
 
-	divergence, err := GetBranchDivergence(repoPath, "main", "origin/main")
+	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1897,7 +1903,7 @@ func TestGetBranchDivergence_InvalidBranch(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	_, err := GetBranchDivergence(repoPath, "main", "origin/nonexistent")
+	_, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/nonexistent")
 	if err == nil {
 		t.Error("Expected error for nonexistent branch")
 	}
@@ -1913,7 +1919,7 @@ func TestHasTrackingBranch_NoTracking(t *testing.T) {
 	output, _ := cmd.Output()
 	branch := strings.TrimSpace(string(output))
 
-	if HasTrackingBranch(repoPath, branch) {
+	if svc.HasTrackingBranch(ctx, repoPath, branch) {
 		t.Error("HasTrackingBranch should return false for branch without upstream")
 	}
 }
@@ -1923,13 +1929,13 @@ func TestHasTrackingBranch_WithTracking(t *testing.T) {
 	defer cleanup()
 
 	// main should have tracking after push -u
-	if !HasTrackingBranch(repoPath, "main") {
+	if !svc.HasTrackingBranch(ctx, repoPath, "main") {
 		t.Error("HasTrackingBranch should return true for branch with upstream")
 	}
 }
 
 func TestHasTrackingBranch_InvalidPath(t *testing.T) {
-	if HasTrackingBranch("/nonexistent/path", "main") {
+	if svc.HasTrackingBranch(ctx, "/nonexistent/path", "main") {
 		t.Error("HasTrackingBranch should return false for invalid path")
 	}
 }
@@ -1938,7 +1944,7 @@ func TestRemoteBranchExists_Exists(t *testing.T) {
 	repoPath, _, cleanup := createTestRepoWithRemote(t)
 	defer cleanup()
 
-	if !RemoteBranchExists(repoPath, "origin/main") {
+	if !svc.RemoteBranchExists(ctx, repoPath, "origin/main") {
 		t.Error("RemoteBranchExists should return true for existing remote branch")
 	}
 }
@@ -1947,7 +1953,7 @@ func TestRemoteBranchExists_NotExists(t *testing.T) {
 	repoPath, _, cleanup := createTestRepoWithRemote(t)
 	defer cleanup()
 
-	if RemoteBranchExists(repoPath, "origin/nonexistent") {
+	if svc.RemoteBranchExists(ctx, repoPath, "origin/nonexistent") {
 		t.Error("RemoteBranchExists should return false for non-existent remote branch")
 	}
 }
@@ -1956,13 +1962,13 @@ func TestRemoteBranchExists_NoRemote(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
-	if RemoteBranchExists(repoPath, "origin/main") {
+	if svc.RemoteBranchExists(ctx, repoPath, "origin/main") {
 		t.Error("RemoteBranchExists should return false when no remote configured")
 	}
 }
 
 func TestRemoteBranchExists_InvalidPath(t *testing.T) {
-	if RemoteBranchExists("/nonexistent/path", "origin/main") {
+	if svc.RemoteBranchExists(ctx, "/nonexistent/path", "origin/main") {
 		t.Error("RemoteBranchExists should return false for invalid path")
 	}
 }

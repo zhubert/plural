@@ -27,7 +27,7 @@ type CommitResult struct {
 // Returns:
 //   - CommitResult with the commit message used and any error
 //   - The callback function is called with progress messages
-func CommitWithMessage(
+func (s *GitService) CommitWithMessage(
 	ctx context.Context,
 	worktreePath string,
 	commitMsg string,
@@ -37,7 +37,7 @@ func CommitWithMessage(
 	result := CommitResult{}
 
 	// Check for uncommitted changes
-	status, err := GetWorktreeStatus(worktreePath)
+	status, err := s.GetWorktreeStatus(ctx, worktreePath)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to get worktree status: %w", err)
 		return result
@@ -57,11 +57,11 @@ func CommitWithMessage(
 		progressFn("Generating commit message with Claude...\n")
 
 		// Try to generate commit message with Claude, fall back to simple message
-		commitMsg, err = GenerateCommitMessageWithClaude(ctx, worktreePath)
+		commitMsg, err = s.GenerateCommitMessageWithClaude(ctx, worktreePath)
 		if err != nil {
 			logger.Log("Git: Claude commit message failed, using fallback: %v", err)
 			progressFn("Claude unavailable, using fallback message...\n")
-			commitMsg, err = GenerateCommitMessage(worktreePath)
+			commitMsg, err = s.GenerateCommitMessage(ctx, worktreePath)
 			if err != nil {
 				result.Error = fmt.Errorf("failed to generate commit message: %w", err)
 				return result
@@ -78,7 +78,7 @@ func CommitWithMessage(
 	}
 
 	progressFn("Committing changes...\n")
-	if err := CommitAll(worktreePath, commitMsg); err != nil {
+	if err := s.CommitAll(ctx, worktreePath, commitMsg); err != nil {
 		result.Error = fmt.Errorf("failed to commit changes: %w", err)
 		return result
 	}
@@ -93,13 +93,13 @@ func CommitWithMessage(
 //
 // Returns true if the commit was successful or no changes were present,
 // false if there was an error (error is sent to channel with Done=true).
-func EnsureCommitted(
+func (s *GitService) EnsureCommitted(
 	ctx context.Context,
 	ch chan<- Result,
 	worktreePath string,
 	commitMsg string,
 ) bool {
-	result := CommitWithMessage(
+	result := s.CommitWithMessage(
 		ctx,
 		worktreePath,
 		commitMsg,

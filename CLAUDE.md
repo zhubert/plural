@@ -443,7 +443,60 @@ var MyScenario = &demo.Scenario{
 **Git Command Mocking:**
 The demo executor uses a MockExecutor to intercept git commands, enabling demos of fork/merge operations without real filesystem changes. Common git commands are pre-mocked with sensible defaults. Custom responses can be added via `executor.AddMockResponse()`.
 
-### Command Executor Pattern
+### Service Pattern with Context Propagation
+
+The `internal/git` and `internal/session` packages use a service struct pattern with explicit dependency injection and context propagation:
+
+**Service Structs:**
+- `GitService` (`internal/git/service.go`) - All git operations (status, commit, merge, PR)
+- `SessionService` (`internal/session/service.go`) - Session lifecycle (create, delete, validate)
+
+**Key Principles:**
+1. **Context as first parameter**: All I/O operations accept `context.Context` for cancellation/timeout
+2. **Explicit dependencies**: Services hold their executor rather than using global state
+3. **Testability**: `NewGitServiceWithExecutor()` / `NewSessionServiceWithExecutor()` for mocking
+
+**Usage in app:**
+```go
+// In app.Model (internal/app/app.go)
+type Model struct {
+    gitService     *git.GitService
+    sessionService *session.SessionService
+    // ...
+}
+
+func New(cfg *config.Config, version string) *Model {
+    gitSvc := git.NewGitService()
+    sessionSvc := session.NewSessionService()
+    return &Model{
+        gitService:     gitSvc,
+        sessionService: sessionSvc,
+        sessionMgr:     NewSessionManager(cfg, gitSvc),
+        // ...
+    }
+}
+
+// Calling service methods with context
+ctx := context.Background()
+status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
+sess, err := m.sessionService.Create(ctx, repoPath, branch, prefix, basePoint)
+```
+
+**For testing/demos:**
+```go
+mockExec := pexec.NewMockExecutor(nil)
+mockExec.AddPrefixMatch("git", []string{"status"}, pexec.MockResponse{
+    Stdout: []byte("On branch main\n"),
+})
+
+mockGitService := git.NewGitServiceWithExecutor(mockExec)
+mockSessionService := session.NewSessionServiceWithExecutor(mockExec)
+
+model.SetGitService(mockGitService)
+model.SetSessionService(mockSessionService)
+```
+
+### Command Executor Interface
 
 The `internal/exec` package provides a `CommandExecutor` interface for abstracting command execution:
 
@@ -459,28 +512,6 @@ type CommandExecutor interface {
 **Implementations:**
 - `RealExecutor` - Wraps `os/exec.Command` for production use
 - `MockExecutor` - Returns pre-recorded responses for testing/demos
-
-**Usage in packages:**
-```go
-// In session or git package
-var executor pexec.CommandExecutor = pexec.NewRealExecutor()
-
-func SetExecutor(e pexec.CommandExecutor) { executor = e }
-func GetExecutor() pexec.CommandExecutor { return executor }
-
-// Use in functions
-output, err := executor.CombinedOutput(ctx, dir, "git", "status")
-```
-
-**Adding mock responses:**
-```go
-mock := pexec.NewMockExecutor(nil)
-mock.AddPrefixMatch("git", []string{"status"}, pexec.MockResponse{
-    Stdout: []byte("On branch main\n"),
-})
-session.SetExecutor(mock)
-git.SetExecutor(mock)
-```
 
 ---
 

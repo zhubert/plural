@@ -16,6 +16,7 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -68,6 +69,10 @@ type Model struct {
 
 	// Session lifecycle management
 	sessionMgr *SessionManager
+
+	// Service instances for dependency injection
+	gitService     *git.GitService
+	sessionService *session.SessionService
 
 	// State machine
 	state AppState // Current application state
@@ -152,18 +157,23 @@ func New(cfg *config.Config, version string) *Model {
 		ui.SetThemeByName(savedTheme)
 	}
 
+	gitSvc := git.NewGitService()
+	sessionSvc := session.NewSessionService()
+
 	m := &Model{
-		config:        cfg,
-		version:       version,
-		header:        ui.NewHeader(),
-		footer:        ui.NewFooter(),
-		sidebar:       ui.NewSidebar(),
-		chat:          ui.NewChat(),
-		modal:         ui.NewModal(),
-		focus:         FocusSidebar,
-		sessionMgr:    NewSessionManager(cfg),
-		state:         StateIdle,
-		windowFocused: true, // Assume window is focused on startup
+		config:         cfg,
+		version:        version,
+		header:         ui.NewHeader(),
+		footer:         ui.NewFooter(),
+		sidebar:        ui.NewSidebar(),
+		chat:           ui.NewChat(),
+		modal:          ui.NewModal(),
+		focus:          FocusSidebar,
+		sessionMgr:     NewSessionManager(cfg, gitSvc),
+		gitService:     gitSvc,
+		sessionService: sessionSvc,
+		state:          StateIdle,
+		windowFocused:  true, // Assume window is focused on startup
 	}
 
 	// Load sessions into sidebar
@@ -225,7 +235,8 @@ func (m *Model) refreshDiffStats() {
 		return
 	}
 
-	gitStats, err := git.GetDiffStats(m.activeSession.WorkTree)
+	ctx := context.Background()
+	gitStats, err := m.gitService.GetDiffStats(ctx, m.activeSession.WorkTree)
 	if err != nil {
 		logger.Log("App: Failed to refresh diff stats: %v", err)
 		m.header.SetDiffStats(nil)
@@ -764,7 +775,8 @@ func (m *Model) showPluginsModalOnTab(tab int) {
 // showCommitConflictModal shows the commit message modal for resolved merge conflicts.
 func (m *Model) showCommitConflictModal() (tea.Model, tea.Cmd) {
 	// Check if there are still conflicts
-	conflictedFiles, err := git.GetConflictedFiles(m.pendingConflictRepoPath)
+	ctx := context.Background()
+	conflictedFiles, err := m.gitService.GetConflictedFiles(ctx, m.pendingConflictRepoPath)
 	if err != nil {
 		m.chat.AppendStreaming(fmt.Sprintf("[Error checking conflicts: %v]\n", err))
 		return m, nil
@@ -1303,14 +1315,15 @@ func (m *Model) mergeConversationHistory(childSessionID, parentSessionID string)
 
 // generateCommitMessage creates a command to generate a commit message asynchronously
 func (m *Model) generateCommitMessage(sessionID, worktreePath string) tea.Cmd {
+	gitSvc := m.gitService
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 
-		msg, err := git.GenerateCommitMessageWithClaude(ctx, worktreePath)
+		msg, err := gitSvc.GenerateCommitMessageWithClaude(ctx, worktreePath)
 		if err != nil {
 			// Fall back to simple message
-			msg, err = git.GenerateCommitMessage(worktreePath)
+			msg, err = gitSvc.GenerateCommitMessage(ctx, worktreePath)
 		}
 
 		return CommitMessageGeneratedMsg{
@@ -1564,8 +1577,10 @@ func (m *Model) View() tea.View {
 
 // fetchGitHubIssues creates a command to fetch GitHub issues asynchronously
 func (m *Model) fetchGitHubIssues(repoPath string) tea.Cmd {
+	gitSvc := m.gitService
 	return func() tea.Msg {
-		issues, err := git.FetchGitHubIssues(repoPath)
+		ctx := context.Background()
+		issues, err := gitSvc.FetchGitHubIssues(ctx, repoPath)
 		return GitHubIssuesFetchedMsg{
 			RepoPath: repoPath,
 			Issues:   issues,
@@ -1586,6 +1601,17 @@ func (m *Model) ActiveSession() *config.Session {
 // SessionMgr returns the session manager.
 func (m *Model) SessionMgr() *SessionManager {
 	return m.sessionMgr
+}
+
+// SetGitService sets the git service (for testing/demos).
+func (m *Model) SetGitService(svc *git.GitService) {
+	m.gitService = svc
+	m.sessionMgr.SetGitService(svc)
+}
+
+// SetSessionService sets the session service (for testing/demos).
+func (m *Model) SetSessionService(svc *session.SessionService) {
+	m.sessionService = svc
 }
 
 // RenderToString renders the current view as a string.

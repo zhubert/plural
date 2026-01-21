@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -42,7 +41,8 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		}
 
 		// Check for uncommitted changes
-		status, err := git.GetWorktreeStatus(sess.WorkTree)
+		ctx := context.Background()
+		status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
 		if err != nil {
 			m.chat.AppendStreaming(fmt.Sprintf("Error checking worktree status: %v\n", err))
 			return m, nil
@@ -89,24 +89,24 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		// No changes - proceed directly with merge/PR/push
 		// Finish any existing streaming before starting merge operation
 		m.chat.FinishStreaming()
-		ctx, cancel := context.WithCancel(context.Background())
+		mergeCtx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
 		case MergeTypePush:
 			logger.Log("App: Pushing updates for branch %s (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.PushUpdates(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePush)
+			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePush)
 		case MergeTypeParent:
 			logger.Log("App: Merging branch %s to parent %s (no uncommitted changes)", sess.Branch, parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.MergeToParent(ctx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, MergeTypeParent)
+			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, MergeTypeParent)
 		default:
 			logger.Log("App: Merging branch %s to main (no uncommitted changes)", sess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}
@@ -161,16 +161,16 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		// Proceed with merge/PR/push using the edited commit message
 		// Finish any existing streaming before starting merge operation
 		m.chat.FinishStreaming()
-		ctx, cancel := context.WithCancel(context.Background())
+		mergeCtx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
 		case MergeTypePR:
 			logger.Log("App: Creating PR for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg, sess.IssueNumber), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg, sess.IssueNumber), cancel, MergeTypePR)
 		case MergeTypePush:
 			logger.Log("App: Pushing updates for branch %s with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.PushUpdates(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePush)
+			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePush)
 		case MergeTypeParent:
 			parentSess := m.config.GetSession(parentSessionID)
 			if parentSess == nil {
@@ -180,11 +180,11 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 			}
 			logger.Log("App: Merging branch %s to parent %s with user-edited commit message", sess.Branch, parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.MergeToParent(ctx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, MergeTypeParent)
+			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, MergeTypeParent)
 		default:
 			logger.Log("App: Merging branch %s to main with user-edited commit message", sess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-			m.sessionState().StartMerge(sess.ID, git.MergeToMain(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}
@@ -202,7 +202,8 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 	}
 
 	logger.Log("App: Committing conflict resolution in %s", m.pendingConflictRepoPath)
-	err := git.CommitConflictResolution(m.pendingConflictRepoPath, commitMsg)
+	ctx := context.Background()
+	err := m.gitService.CommitConflictResolution(ctx, m.pendingConflictRepoPath, commitMsg)
 	if err != nil {
 		m.chat.AppendStreaming(fmt.Sprintf("[Error committing: %v]\n", err))
 		return m, nil
@@ -319,7 +320,8 @@ Please resolve these merge conflicts by:
 
 // handleAbortMerge aborts the in-progress merge.
 func (m *Model) handleAbortMerge(state *ui.MergeConflictState) (tea.Model, tea.Cmd) {
-	err := git.AbortMerge(state.RepoPath)
+	ctx := context.Background()
+	err := m.gitService.AbortMerge(ctx, state.RepoPath)
 	if err != nil {
 		m.chat.AppendStreaming(fmt.Sprintf("[Error aborting merge: %v]\n", err))
 	} else {
