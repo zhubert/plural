@@ -293,20 +293,20 @@ func TestSessionStateManager_ConcurrentAccess(t *testing.T) {
 					m.GetOrCreate(sessionID)
 				case 1:
 					state := m.GetOrCreate(sessionID)
-					state.PendingPermission = &mcp.PermissionRequest{ID: "perm"}
-					state.PendingPermission = nil
+					state.SetPendingPermission(&mcp.PermissionRequest{ID: "perm"})
+					state.SetPendingPermission(nil)
 				case 2:
 					state := m.GetOrCreate(sessionID)
-					state.InputText = "input"
-					_ = state.InputText
+					state.SetInputText("input")
+					_ = state.GetInputText()
 				case 3:
 					state := m.GetOrCreate(sessionID)
-					state.StreamingContent += "chunk"
-					_ = state.StreamingContent
+					state.AppendStreamingContent("chunk")
+					_ = state.GetStreamingContent()
 				case 4:
 					state := m.GetIfExists(sessionID)
 					if state != nil {
-						_ = state.IsWaiting
+						_ = state.GetIsWaiting()
 					}
 				case 5:
 					state := m.GetIfExists(sessionID)

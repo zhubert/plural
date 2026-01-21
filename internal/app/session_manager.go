@@ -199,26 +199,28 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 	// Get state for remaining fields
 	if state := sm.stateManager.GetIfExists(sess.ID); state != nil {
 		// Get pending permission
-		result.Permission = state.PendingPermission
+		result.Permission = state.GetPendingPermission()
 
 		// Get pending question
-		result.Question = state.PendingQuestion
+		result.Question = state.GetPendingQuestion()
 
 		// Get pending plan approval
-		result.PlanApproval = state.PendingPlanApproval
+		result.PlanApproval = state.GetPendingPlanApproval()
 
 		// Get todo list
-		result.TodoList = state.CurrentTodoList
+		result.TodoList = state.GetCurrentTodoList()
 
-		// Get streaming content (and clear it)
-		if state.StreamingContent != "" {
-			result.Streaming = state.StreamingContent
-			state.StreamingContent = ""
-			logger.Log("SessionManager: Retrieved streaming content for session %s", sess.ID)
-		}
+		// Get streaming content (and clear it) - use WithLock for atomic read-and-clear
+		state.WithLock(func(s *SessionState) {
+			if s.StreamingContent != "" {
+				result.Streaming = s.StreamingContent
+				s.StreamingContent = ""
+				logger.Log("SessionManager: Retrieved streaming content for session %s", sess.ID)
+			}
+		})
 
 		// Get saved input
-		result.SavedInput = state.InputText
+		result.SavedInput = state.GetInputText()
 	}
 
 	logger.Log("SessionManager: Session selected: %s", sess.ID)

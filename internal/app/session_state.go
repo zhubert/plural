@@ -14,10 +14,17 @@ import (
 // This consolidates what was previously 11 separate maps in the Model,
 // making it easier to manage session lifecycle and avoid race conditions.
 //
-// Fields are accessed directly after obtaining a *SessionState via
-// GetOrCreate() or GetIfExists(). For operations involving multiple
-// fields or special semantics, use the dedicated methods on SessionStateManager.
+// Thread Safety:
+// SessionState has an internal mutex to protect concurrent field access.
+// For simple reads/writes, use the thread-safe methods (e.g., AppendStreamingContent,
+// GetStreamingContent, SetStreamingContent). For operations that need to access
+// multiple fields atomically, use WithLock() to hold the mutex during the operation.
+//
+// The SessionStateManager's mutex protects the map of sessions, while each
+// SessionState's internal mutex protects its own fields.
 type SessionState struct {
+	mu sync.Mutex // Protects all fields below
+
 	// Permission, question, and plan approval handling
 	PendingPermission   *mcp.PermissionRequest
 	PendingQuestion     *mcp.QuestionRequest
@@ -52,35 +59,269 @@ type SessionState struct {
 }
 
 // HasDetectedOptions returns true if there are at least 2 detected options.
+// Thread-safe.
 func (s *SessionState) HasDetectedOptions() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return len(s.DetectedOptions) >= 2
 }
 
 // HasTodoList returns true if there is a non-empty todo list.
+// Thread-safe.
 func (s *SessionState) HasTodoList() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.CurrentTodoList != nil && len(s.CurrentTodoList.Items) > 0
 }
 
 // IsMerging returns true if a merge operation is in progress.
+// Thread-safe.
 func (s *SessionState) IsMerging() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.MergeChan != nil
+}
+
+// WithLock executes fn while holding the session state lock.
+// Use this for operations that need to access multiple fields atomically.
+// The function receives the SessionState pointer for direct field access.
+//
+// Example:
+//
+//	state.WithLock(func(s *SessionState) {
+//	    s.ToolUsePos = len(s.StreamingContent)
+//	    s.StreamingContent += line
+//	})
+func (s *SessionState) WithLock(fn func(*SessionState)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	fn(s)
+}
+
+// --- Thread-safe accessors for StreamingContent ---
+
+// GetStreamingContent returns the current streaming content.
+// Thread-safe.
+func (s *SessionState) GetStreamingContent() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.StreamingContent
+}
+
+// SetStreamingContent sets the streaming content.
+// Thread-safe.
+func (s *SessionState) SetStreamingContent(content string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.StreamingContent = content
+}
+
+// AppendStreamingContent appends to the streaming content.
+// Thread-safe.
+func (s *SessionState) AppendStreamingContent(content string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.StreamingContent += content
+}
+
+// --- Thread-safe accessors for ToolUsePos ---
+
+// GetToolUsePos returns the current tool use position.
+// Thread-safe.
+func (s *SessionState) GetToolUsePos() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ToolUsePos
+}
+
+// SetToolUsePos sets the tool use position.
+// Thread-safe.
+func (s *SessionState) SetToolUsePos(pos int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ToolUsePos = pos
+}
+
+// --- Thread-safe accessors for PendingPermission ---
+
+// GetPendingPermission returns the pending permission request.
+// Thread-safe.
+func (s *SessionState) GetPendingPermission() *mcp.PermissionRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PendingPermission
+}
+
+// SetPendingPermission sets the pending permission request.
+// Thread-safe.
+func (s *SessionState) SetPendingPermission(req *mcp.PermissionRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PendingPermission = req
+}
+
+// --- Thread-safe accessors for PendingQuestion ---
+
+// GetPendingQuestion returns the pending question request.
+// Thread-safe.
+func (s *SessionState) GetPendingQuestion() *mcp.QuestionRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PendingQuestion
+}
+
+// SetPendingQuestion sets the pending question request.
+// Thread-safe.
+func (s *SessionState) SetPendingQuestion(req *mcp.QuestionRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PendingQuestion = req
+}
+
+// --- Thread-safe accessors for PendingPlanApproval ---
+
+// GetPendingPlanApproval returns the pending plan approval request.
+// Thread-safe.
+func (s *SessionState) GetPendingPlanApproval() *mcp.PlanApprovalRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PendingPlanApproval
+}
+
+// SetPendingPlanApproval sets the pending plan approval request.
+// Thread-safe.
+func (s *SessionState) SetPendingPlanApproval(req *mcp.PlanApprovalRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PendingPlanApproval = req
+}
+
+// --- Thread-safe accessors for CurrentTodoList ---
+
+// GetCurrentTodoList returns the current todo list.
+// Thread-safe.
+func (s *SessionState) GetCurrentTodoList() *claude.TodoList {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.CurrentTodoList
+}
+
+// SetCurrentTodoList sets the current todo list.
+// Thread-safe.
+func (s *SessionState) SetCurrentTodoList(list *claude.TodoList) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CurrentTodoList = list
+}
+
+// --- Thread-safe accessors for WaitStart ---
+
+// GetWaitStartTime returns the wait start time.
+// Thread-safe.
+func (s *SessionState) GetWaitStartTime() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.WaitStart
+}
+
+// SetWaitStartTime sets the wait start time.
+// Thread-safe.
+func (s *SessionState) SetWaitStartTime(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.WaitStart = t
+}
+
+// --- Thread-safe accessors for IsWaiting ---
+
+// GetIsWaiting returns whether the session is waiting.
+// Thread-safe.
+func (s *SessionState) GetIsWaiting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.IsWaiting
+}
+
+// --- Thread-safe accessors for PendingMessage ---
+
+// GetPendingMsg returns the pending message (non-consuming).
+// Thread-safe.
+func (s *SessionState) GetPendingMsg() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PendingMessage
+}
+
+// SetPendingMsg sets the pending message.
+// Thread-safe.
+func (s *SessionState) SetPendingMsg(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PendingMessage = msg
+}
+
+// --- Thread-safe accessors for InputText ---
+
+// GetInputText returns the saved input text.
+// Thread-safe.
+func (s *SessionState) GetInputText() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.InputText
+}
+
+// SetInputText sets the saved input text.
+// Thread-safe.
+func (s *SessionState) SetInputText(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputText = text
+}
+
+// --- Thread-safe accessors for StreamCancel ---
+
+// GetStreamCancel returns the stream cancel function.
+// Thread-safe.
+func (s *SessionState) GetStreamCancel() context.CancelFunc {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.StreamCancel
+}
+
+// --- Thread-safe accessors for MergeType ---
+
+// GetMergeType returns the current merge type.
+// Thread-safe.
+func (s *SessionState) GetMergeType() MergeType {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.MergeType
 }
 
 // SessionStateManager provides thread-safe access to per-session state.
 //
-// Basic usage pattern:
+// Basic usage pattern with thread-safe accessors:
 //
-//	// For writes or when state should be created:
+//	// For simple field access, use the thread-safe methods on SessionState:
 //	state := manager.GetOrCreate(sessionID)
-//	state.PendingPermission = req
+//	state.SetPendingPermission(req)          // Thread-safe write
+//	req := state.GetPendingPermission()      // Thread-safe read
+//	state.AppendStreamingContent("chunk")    // Thread-safe append
+//
+//	// For operations involving multiple fields atomically, use WithLock:
+//	state.WithLock(func(s *SessionState) {
+//	    s.ToolUsePos = len(s.StreamingContent)
+//	    s.StreamingContent += line
+//	})
 //
 //	// For reads when session may not exist:
 //	if state := manager.GetIfExists(sessionID); state != nil {
-//	    // use state.PendingPermission
+//	    req := state.GetPendingPermission()
 //	}
 //
-// For operations involving multiple fields atomically (StartWaiting, StartMerge, etc.)
-// or special semantics (consuming gets), use the dedicated methods.
+// For operations that span multiple fields with special semantics (StartWaiting,
+// StartMerge, consuming gets like GetPendingMessage), use the dedicated methods
+// on SessionStateManager which handle locking internally.
 type SessionStateManager struct {
 	mu     sync.RWMutex
 	states map[string]*SessionState
@@ -114,6 +355,9 @@ func (m *SessionStateManager) Delete(sessionID string) {
 	defer m.mu.Unlock()
 
 	if state, exists := m.states[sessionID]; exists {
+		// Lock the state to safely access and clear fields
+		state.mu.Lock()
+
 		// Cancel any in-progress operations
 		if state.MergeCancel != nil {
 			state.MergeCancel()
@@ -140,6 +384,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		state.DetectedOptions = nil
 		state.CurrentTodoList = nil
 
+		state.mu.Unlock()
 		delete(m.states, sessionID)
 	}
 }
@@ -148,9 +393,11 @@ func (m *SessionStateManager) Delete(sessionID string) {
 // This sets WaitStart, IsWaiting, and StreamCancel atomically.
 func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.CancelFunc) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	state := m.getOrCreate(sessionID)
+	m.mu.Unlock()
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
 	state.WaitStart = time.Now()
 	state.IsWaiting = true
 	state.StreamCancel = cancel
@@ -159,9 +406,16 @@ func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.Canc
 // GetWaitStart returns when the session started waiting, and whether it's waiting.
 func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
 
-	if state, exists := m.states[sessionID]; exists && state.IsWaiting {
+	if !exists {
+		return time.Time{}, false
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.IsWaiting {
 		return state.WaitStart, true
 	}
 	return time.Time{}, false
@@ -170,10 +424,13 @@ func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
 // StopWaiting marks a session as no longer waiting.
 // This clears IsWaiting, WaitStart, and StreamCancel atomically.
 func (m *SessionStateManager) StopWaiting(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
 
-	if state, exists := m.states[sessionID]; exists {
+	if exists {
+		state.mu.Lock()
+		defer state.mu.Unlock()
 		state.IsWaiting = false
 		state.WaitStart = time.Time{}
 		state.StreamCancel = nil
@@ -184,9 +441,11 @@ func (m *SessionStateManager) StopWaiting(sessionID string) {
 // This sets MergeChan, MergeCancel, and MergeType atomically.
 func (m *SessionStateManager) StartMerge(sessionID string, ch <-chan git.Result, cancel context.CancelFunc, mergeType MergeType) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	state := m.getOrCreate(sessionID)
+	m.mu.Unlock()
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
 	state.MergeChan = ch
 	state.MergeCancel = cancel
 	state.MergeType = mergeType
@@ -195,10 +454,13 @@ func (m *SessionStateManager) StartMerge(sessionID string, ch <-chan git.Result,
 // StopMerge clears the merge state for a session.
 // This clears MergeChan, MergeCancel, and MergeType atomically.
 func (m *SessionStateManager) StopMerge(sessionID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
 
-	if state, exists := m.states[sessionID]; exists {
+	if exists {
+		state.mu.Lock()
+		defer state.mu.Unlock()
 		state.MergeChan = nil
 		state.MergeCancel = nil
 		state.MergeType = MergeTypeNone
@@ -209,10 +471,14 @@ func (m *SessionStateManager) StopMerge(sessionID string) {
 // The function validates that the old marker actually exists at the given position
 // to prevent corruption if the streaming content has changed since the position was recorded.
 func (m *SessionStateManager) ReplaceToolUseMarker(sessionID, oldMarker, newMarker string, pos int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
 
-	if state, exists := m.states[sessionID]; exists {
+	if exists {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+
 		streaming := state.StreamingContent
 		markerLen := len(oldMarker)
 
@@ -235,12 +501,15 @@ func (m *SessionStateManager) ReplaceToolUseMarker(sessionID, oldMarker, newMark
 
 // GetPendingMessage returns and clears the pending message for a session.
 // This is a consuming get - the message is cleared after retrieval.
-// Use state.PendingMessage directly if you need to read without clearing.
+// Use state.GetPendingMsg() if you need to read without clearing.
 func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
 
-	if state, exists := m.states[sessionID]; exists {
+	if exists {
+		state.mu.Lock()
+		defer state.mu.Unlock()
 		msg := state.PendingMessage
 		state.PendingMessage = ""
 		return msg
@@ -250,12 +519,15 @@ func (m *SessionStateManager) GetPendingMessage(sessionID string) string {
 
 // GetInitialMessage returns and clears the initial message for a session.
 // This is a consuming get - the message is cleared after retrieval.
-// Use state.InitialMessage directly if you need to read without clearing.
+// Use state.InitialMessage directly (with WithLock) if you need to read without clearing.
 func (m *SessionStateManager) GetInitialMessage(sessionID string) string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
 
-	if state, exists := m.states[sessionID]; exists {
+	if exists {
+		state.mu.Lock()
+		defer state.mu.Unlock()
 		msg := state.InitialMessage
 		state.InitialMessage = ""
 		return msg
