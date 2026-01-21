@@ -1950,3 +1950,280 @@ Which would you prefer?`},
 		t.Errorf("Expected 2 detected options, got %d", len(state.DetectedOptions))
 	}
 }
+
+// =============================================================================
+// Exit Command Tests
+// =============================================================================
+
+func TestExitCommand_NoActiveSessions_ExitsImmediately(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// No sessions, no runners - should get tea.Quit command
+	m.chat.SetInput("exit")
+
+	// Call sendMessage which checks for exit command
+	_, cmd := m.sendMessage()
+
+	// Should return tea.Quit
+	if cmd == nil {
+		t.Fatal("Expected a command to be returned")
+	}
+
+	// Verify input was cleared
+	if m.chat.GetInput() != "" {
+		t.Error("Input should be cleared after exit command")
+	}
+}
+
+func TestExitCommand_WithStreamingSessions_ShowsModal(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session to create a runner
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+
+	// Set the runner to streaming state (simulates waiting for Claude response)
+	mock := factory.GetMock(m.activeSession.ID)
+	mock.SetStreaming(true)
+
+	// Switch to chat and type exit
+	m.chat.SetInput("exit")
+
+	// Call sendMessage
+	m.sendMessage()
+
+	// Should show confirmation modal because session is streaming
+	if !m.modal.IsVisible() {
+		t.Fatal("Exit confirmation modal should be visible when session is streaming")
+	}
+
+	state, ok := m.modal.State.(*ui.ConfirmExitState)
+	if !ok {
+		t.Fatalf("Expected ConfirmExitState, got %T", m.modal.State)
+	}
+
+	// Should show 1 streaming session
+	if state.ActiveSessionCount != 1 {
+		t.Errorf("Expected 1 streaming session in modal, got %d", state.ActiveSessionCount)
+	}
+}
+
+func TestExitCommand_WithIdleSessions_ExitsImmediately(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session to create a runner (but don't set it to streaming)
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+
+	// Switch to chat and type exit
+	m.chat.SetInput("exit")
+
+	// Call sendMessage - should exit immediately since no sessions are streaming
+	_, cmd := m.sendMessage()
+
+	// Should return tea.Quit, not show modal
+	if cmd == nil {
+		t.Fatal("Expected a command to be returned")
+	}
+
+	// Modal should NOT be visible
+	if m.modal.IsVisible() {
+		t.Error("Modal should not be visible when no sessions are streaming")
+	}
+}
+
+func TestExitCommand_CaseInsensitive(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session to create a runner
+	m = sendKey(m, "enter")
+
+	// Set the runner to streaming so modal will show
+	mock := factory.GetMock(m.activeSession.ID)
+	mock.SetStreaming(true)
+
+	// Test various cases
+	testCases := []string{"EXIT", "Exit", "eXiT", "  exit  ", " EXIT "}
+
+	for _, input := range testCases {
+		m.modal.Hide() // Reset modal state
+		m.chat.SetInput(input)
+		m.sendMessage()
+
+		if !m.modal.IsVisible() {
+			t.Errorf("Exit command should be recognized for input %q", input)
+		}
+	}
+}
+
+func TestExitCommand_NotTriggeredWithImage(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Simulate having an image attached
+	m.chat.AttachImage([]byte("fake image data"), "image/png")
+	m.chat.SetInput("exit")
+
+	// Call sendMessage - should not treat this as exit command
+	// because there's an image attached
+	_, _ = m.sendMessage()
+
+	// Modal should not be visible (exit command not processed when image attached)
+	// Instead, it would try to send to Claude (though that would fail without a runner)
+	if m.modal.IsVisible() {
+		state, ok := m.modal.State.(*ui.ConfirmExitState)
+		if ok {
+			t.Error("Exit command should not be triggered when image is attached")
+		}
+		_ = state
+	}
+}
+
+func TestConfirmExitModal_CancelWithEscape(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session
+	m = sendKey(m, "enter")
+
+	// Set to streaming so modal will show
+	mock := factory.GetMock(m.activeSession.ID)
+	mock.SetStreaming(true)
+
+	// Type exit to show modal
+	m.chat.SetInput("exit")
+	m.sendMessage()
+
+	if !m.modal.IsVisible() {
+		t.Fatal("Modal should be visible")
+	}
+
+	// Cancel with escape
+	m = sendKey(m, "esc")
+
+	if m.modal.IsVisible() {
+		t.Error("Modal should be closed after escape")
+	}
+}
+
+func TestConfirmExitModal_CancelWithEnterOnCancel(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session
+	m = sendKey(m, "enter")
+
+	// Set to streaming so modal will show
+	mock := factory.GetMock(m.activeSession.ID)
+	mock.SetStreaming(true)
+
+	// Type exit to show modal
+	m.chat.SetInput("exit")
+	m.sendMessage()
+
+	if !m.modal.IsVisible() {
+		t.Fatal("Modal should be visible")
+	}
+
+	state := m.modal.State.(*ui.ConfirmExitState)
+
+	// Initial selection should be on Cancel (index 0)
+	if state.SelectedIndex != 0 {
+		t.Errorf("Expected initial selection 0 (Cancel), got %d", state.SelectedIndex)
+	}
+
+	// Press enter to confirm cancel
+	m = sendKey(m, "enter")
+
+	// Modal should be closed (cancel selected)
+	if m.modal.IsVisible() {
+		t.Error("Modal should be closed after selecting Cancel")
+	}
+}
+
+func TestConfirmExitModal_NavigateAndConfirmExit(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session
+	m = sendKey(m, "enter")
+
+	// Set to streaming so modal will show
+	mock := factory.GetMock(m.activeSession.ID)
+	mock.SetStreaming(true)
+
+	// Type exit to show modal
+	m.chat.SetInput("exit")
+	m.sendMessage()
+
+	if !m.modal.IsVisible() {
+		t.Fatal("Modal should be visible")
+	}
+
+	// Navigate to Exit option
+	m = sendKey(m, "down")
+
+	state := m.modal.State.(*ui.ConfirmExitState)
+	if state.SelectedIndex != 1 {
+		t.Errorf("Expected selection 1 (Exit), got %d", state.SelectedIndex)
+	}
+
+	if !state.ShouldExit() {
+		t.Error("ShouldExit should return true when Exit is selected")
+	}
+
+	// Press enter - should trigger quit
+	_, cmd := m.Update(keyPress("enter"))
+
+	// The command should be tea.Quit
+	if cmd == nil {
+		t.Fatal("Expected a command to be returned")
+	}
+}
+
+func TestConfirmExitModal_VimNavigation(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session
+	m = sendKey(m, "enter")
+
+	// Set to streaming so modal will show
+	mock := factory.GetMock(m.activeSession.ID)
+	mock.SetStreaming(true)
+
+	// Type exit to show modal
+	m.chat.SetInput("exit")
+	m.sendMessage()
+
+	state := m.modal.State.(*ui.ConfirmExitState)
+
+	// Navigate with j
+	m = sendKey(m, "j")
+	state = m.modal.State.(*ui.ConfirmExitState)
+	if state.SelectedIndex != 1 {
+		t.Errorf("Expected selection 1 after j, got %d", state.SelectedIndex)
+	}
+
+	// Navigate with k
+	m = sendKey(m, "k")
+	state = m.modal.State.(*ui.ConfirmExitState)
+	if state.SelectedIndex != 0 {
+		t.Errorf("Expected selection 0 after k, got %d", state.SelectedIndex)
+	}
+}

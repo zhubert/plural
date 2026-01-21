@@ -33,6 +33,7 @@ type (
 	MergeConflictState      = modals.MergeConflictState
 	ConfirmDeleteState      = modals.ConfirmDeleteState
 	ConfirmDeleteRepoState  = modals.ConfirmDeleteRepoState
+	ConfirmExitState        = modals.ConfirmExitState
 	MCPServersState         = modals.MCPServersState
 	AddMCPServerState       = modals.AddMCPServerState
 	PluginsState            = modals.PluginsState
@@ -59,6 +60,7 @@ var (
 	NewMergeConflictState      = modals.NewMergeConflictState
 	NewConfirmDeleteState      = modals.NewConfirmDeleteState
 	NewConfirmDeleteRepoState  = modals.NewConfirmDeleteRepoState
+	NewConfirmExitState        = modals.NewConfirmExitState
 	NewMCPServersState         = modals.NewMCPServersState
 	NewAddMCPServerState       = modals.NewAddMCPServerState
 	NewPluginsState            = modals.NewPluginsState

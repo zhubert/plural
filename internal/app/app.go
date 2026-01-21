@@ -939,6 +939,12 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	hasImage := m.chat.HasPendingImage()
 	logger.Get().Debug("sendMessage called", "inputLen", len(input), "hasImage", hasImage, "canSend", m.CanSendMessage())
 
+	// Check for "exit" command (case-insensitive, no image)
+	if !hasImage && strings.TrimSpace(strings.ToLower(input)) == "exit" {
+		m.chat.ClearInput()
+		return m.handleExitCommand()
+	}
+
 	// Need either text or image
 	if input == "" && !hasImage {
 		return m, nil
@@ -1036,6 +1042,32 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 		ui.StopwatchTick(),
 	)
 	return m, tea.Batch(cmds...)
+}
+
+// handleExitCommand handles the "exit" text command.
+// If no sessions are currently streaming, it exits immediately.
+// If sessions are streaming, it shows a confirmation modal.
+func (m *Model) handleExitCommand() (tea.Model, tea.Cmd) {
+	log := logger.Get()
+
+	// Check if any sessions are actively streaming (waiting for Claude response)
+	if !m.sessionMgr.HasActiveStreaming() {
+		log.Info("no active streaming sessions, exiting immediately")
+		return m, tea.Quit
+	}
+
+	// Count streaming sessions for the modal message
+	streamingCount := 0
+	for _, runner := range m.sessionMgr.GetRunners() {
+		if runner.IsStreaming() {
+			streamingCount++
+		}
+	}
+
+	// Show confirmation modal
+	log.Debug("showing exit confirmation modal", "streamingCount", streamingCount)
+	m.modal.Show(ui.NewConfirmExitState(streamingCount))
+	return m, nil
 }
 
 // handlePermissionResponse handles y/n/a key presses for permission prompts

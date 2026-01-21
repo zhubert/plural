@@ -378,3 +378,26 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 	}
 	return m, nil
 }
+
+// handleConfirmExitModal handles key events for the Confirm Exit modal.
+func (m *Model) handleConfirmExitModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmExitState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		if state.ShouldExit() {
+			logger.Get().Info("user confirmed exit with active sessions")
+			return m, tea.Quit
+		}
+		// Cancel selected
+		m.modal.Hide()
+		return m, nil
+	case "up", "down", "j", "k":
+		// Forward navigation keys to modal for option selection
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
