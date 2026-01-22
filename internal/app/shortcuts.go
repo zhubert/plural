@@ -143,6 +143,14 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutCommitConflicts,
 		Condition:       func(m *Model) bool { return m.pendingConflictRepoPath != "" },
 	},
+	{
+		Key:             "p",
+		Description:     "Preview session in main repo",
+		Category:        CategoryGit,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutPreviewInMain,
+	},
 
 	// Configuration
 	{
@@ -223,7 +231,7 @@ var DisplayOnlyShortcuts = []Shortcut{
 
 	// Chat (display-only, context-sensitive)
 	{DisplayKey: "ctrl-v", Description: "Paste image", Category: CategoryChat},
-	{DisplayKey: "ctrl-p", Description: "Fork detected options", Category: CategoryChat},
+	{DisplayKey: "ctrl-o", Description: "Fork detected options", Category: CategoryChat},
 	{DisplayKey: "Mouse drag", Description: "Select text (auto-copies)", Category: CategoryChat},
 	{DisplayKey: "Esc", Description: "Clear input / selection", Category: CategoryChat},
 
@@ -566,6 +574,97 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutWhatsNew(m *Model) (tea.Model, tea.Cmd) {
 	return m, m.fetchChangelogAll()
+}
+
+func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	ctx := context.Background()
+	log := logger.WithSession(sess.ID)
+
+	// Check if this session is already being previewed - if so, end the preview
+	previewSessionID := m.config.GetPreviewSessionID()
+	if previewSessionID == sess.ID {
+		return m.endPreview()
+	}
+
+	// Check if a different session is being previewed
+	if previewSessionID != "" {
+		return m, m.ShowFlashWarning("Another session is being previewed. End that preview first (p).")
+	}
+
+	// Check if main repo has uncommitted changes
+	status, err := m.gitService.GetWorktreeStatus(ctx, sess.RepoPath)
+	if err != nil {
+		log.Error("failed to check main repo status", "error", err)
+		return m, m.ShowFlashError(fmt.Sprintf("Failed to check main repo: %v", err))
+	}
+	if status.HasChanges {
+		return m, m.ShowFlashError("Main repo has uncommitted changes. Commit or stash them first.")
+	}
+
+	// Get the current branch in main repo (to restore later)
+	currentBranch, err := m.gitService.GetCurrentBranch(ctx, sess.RepoPath)
+	if err != nil {
+		log.Error("failed to get current branch", "error", err)
+		return m, m.ShowFlashError(fmt.Sprintf("Failed to get current branch: %v", err))
+	}
+
+	// Checkout the session's branch in the main repo
+	if err := m.gitService.CheckoutBranch(ctx, sess.RepoPath, sess.Branch); err != nil {
+		log.Error("failed to checkout session branch", "error", err, "branch", sess.Branch)
+		return m, m.ShowFlashError(fmt.Sprintf("Failed to checkout branch: %v", err))
+	}
+
+	// Record the preview state
+	m.config.StartPreview(sess.ID, currentBranch, sess.RepoPath)
+	if err := m.config.Save(); err != nil {
+		log.Warn("failed to save config after starting preview", "error", err)
+	}
+
+	// Update header to show preview indicator
+	m.header.SetPreviewActive(true)
+
+	log.Info("started preview", "branch", sess.Branch, "previousBranch", currentBranch)
+	return m, m.ShowFlashSuccess(fmt.Sprintf("Previewing %s in main repo. Press 'p' to end.", sess.Branch))
+}
+
+// endPreview ends the current preview and restores the previous branch
+func (m *Model) endPreview() (tea.Model, tea.Cmd) {
+	sessionID, previousBranch, repoPath := m.config.GetPreviewState()
+	if sessionID == "" {
+		return m, nil
+	}
+
+	ctx := context.Background()
+	log := logger.WithSession(sessionID)
+
+	// Check if main repo has uncommitted changes (user may have made changes while previewing)
+	status, err := m.gitService.GetWorktreeStatus(ctx, repoPath)
+	if err != nil {
+		log.Error("failed to check main repo status", "error", err)
+		return m, m.ShowFlashError(fmt.Sprintf("Failed to check main repo: %v", err))
+	}
+	if status.HasChanges {
+		return m, m.ShowFlashError("Main repo has uncommitted changes. Commit or stash them before ending preview.")
+	}
+
+	// Checkout the previous branch
+	if err := m.gitService.CheckoutBranch(ctx, repoPath, previousBranch); err != nil {
+		log.Error("failed to restore previous branch", "error", err, "branch", previousBranch)
+		return m, m.ShowFlashError(fmt.Sprintf("Failed to restore branch: %v", err))
+	}
+
+	// Clear the preview state
+	m.config.EndPreview()
+	if err := m.config.Save(); err != nil {
+		log.Warn("failed to save config after ending preview", "error", err)
+	}
+
+	// Update header to hide preview indicator
+	m.header.SetPreviewActive(false)
+
+	log.Info("ended preview", "restoredBranch", previousBranch)
+	return m, m.ShowFlashSuccess(fmt.Sprintf("Preview ended. Restored to %s.", previousBranch))
 }
 
 // TerminalErrorMsg is sent when opening a terminal fails

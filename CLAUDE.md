@@ -180,7 +180,7 @@ To add a new shortcut:
 Sessions support parent-child relationships:
 
 - **Fork** (`f`): Creates child session with own worktree, optionally copies history
-- **Explore options** (`Ctrl+P`): Parses Claude's numbered options, forks into parallel sessions
+- **Explore options** (`Ctrl+O`): Parses Claude's numbered options, forks into parallel sessions
 - **Merge to parent** (`m`): Merges git changes and appends history to parent, locks child
 
 Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent), `MergeTypePush` (push to existing PR)
@@ -328,6 +328,39 @@ The header displays uncommitted changes for the current session:
 - `git/git.go`: `GetDiffStats()` runs `git diff --shortstat` to get stats
 - `session_manager.go`: Fetches stats for current session
 - `app.go`: Updates header when session changes or on refresh
+
+### Preview Session in Main
+
+Allows previewing a session's branch in the main repository so dev servers (puma, etc.) pick up the changes:
+
+**How it works**:
+1. User presses `p` on a session in the sidebar
+2. System checks if main repo has uncommitted changes (error if dirty)
+3. Records current branch in main repo (to restore later)
+4. Checks out the session's branch in the main repo
+5. Header shows `[PREVIEW]` indicator in amber/warning color
+6. Press `p` again to end preview and restore the original branch
+
+**State tracking** (`internal/config/config.go`):
+- `PreviewSessionID`: Session ID being previewed (empty if none)
+- `PreviewPreviousBranch`: Branch to restore when preview ends
+- `PreviewRepoPath`: Path to main repo where preview is active
+- Helper methods: `StartPreview()`, `EndPreview()`, `GetPreviewState()`, `IsPreviewActive()`, `GetPreviewSessionID()`
+
+**Git operations** (`internal/git/git.go`):
+- `GetCurrentBranch(ctx, repoPath)`: Returns current branch name
+- `CheckoutBranch(ctx, repoPath, branch)`: Checks out specified branch
+
+**UI** (`internal/ui/header.go`):
+- `previewActive` field controls display of `[PREVIEW]` indicator
+- `SetPreviewActive(bool)` updates the indicator state
+- Preview indicator uses warning color (amber) and bold styling
+
+**Safety**:
+- Cannot start preview if main repo has uncommitted changes
+- Cannot end preview if changes were made in main during preview (must commit/stash first)
+- Only one preview can be active at a time across all sessions
+- Preview state persists across app restarts (stored in config)
 
 ### Claude Process Management
 

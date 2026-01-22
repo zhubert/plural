@@ -54,6 +54,11 @@ type Config struct {
 	DefaultBranchPrefix  string `json:"default_branch_prefix,omitempty"`  // Prefix for auto-generated branch names (e.g., "zhubert/")
 	NotificationsEnabled bool   `json:"notifications_enabled,omitempty"` // Desktop notifications when Claude completes
 
+	// Preview state - tracks when a session's branch is checked out in the main repo
+	PreviewSessionID       string `json:"preview_session_id,omitempty"`       // Session ID currently being previewed (empty if none)
+	PreviewPreviousBranch  string `json:"preview_previous_branch,omitempty"`  // Branch that was checked out before preview started
+	PreviewRepoPath        string `json:"preview_repo_path,omitempty"`        // Path to the main repo where preview is active
+
 	mu       sync.RWMutex
 	filePath string
 }
@@ -799,4 +804,45 @@ func (c *Config) SetNotificationsEnabled(enabled bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.NotificationsEnabled = enabled
+}
+
+// GetPreviewState returns the current preview state (session ID, previous branch, repo path).
+// Returns empty strings if no preview is active.
+func (c *Config) GetPreviewState() (sessionID, previousBranch, repoPath string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PreviewSessionID, c.PreviewPreviousBranch, c.PreviewRepoPath
+}
+
+// IsPreviewActive returns true if a preview is currently active
+func (c *Config) IsPreviewActive() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PreviewSessionID != ""
+}
+
+// GetPreviewSessionID returns the session ID being previewed, or empty string if none
+func (c *Config) GetPreviewSessionID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.PreviewSessionID
+}
+
+// StartPreview records that a session's branch is being previewed in the main repo.
+// previousBranch is what was checked out before (to restore later).
+func (c *Config) StartPreview(sessionID, previousBranch, repoPath string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.PreviewSessionID = sessionID
+	c.PreviewPreviousBranch = previousBranch
+	c.PreviewRepoPath = repoPath
+}
+
+// EndPreview clears the preview state
+func (c *Config) EndPreview() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.PreviewSessionID = ""
+	c.PreviewPreviousBranch = ""
+	c.PreviewRepoPath = ""
 }

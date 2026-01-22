@@ -180,6 +180,11 @@ func New(cfg *config.Config, version string) *Model {
 	m.sidebar.SetSessions(cfg.GetSessions())
 	m.sidebar.SetFocused(true)
 
+	// Restore preview state from config (in case app was closed during a preview)
+	if cfg.IsPreviewActive() {
+		m.header.SetPreviewActive(true)
+	}
+
 	return m
 }
 
@@ -409,8 +414,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.handleImagePaste()
 			}
 
-			// Ctrl+P for parallel option exploration (reuse state from permission check)
-			if key == "ctrl+p" && state != nil && state.HasDetectedOptions() {
+			// Ctrl+O for parallel option exploration (reuse state from permission check)
+			if key == "ctrl+o" && state != nil && state.HasDetectedOptions() {
 				return m.showExploreOptionsModal()
 			}
 
@@ -823,6 +828,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	m.chat.SetSession(sess.Name, result.Messages)
 	m.header.SetSessionName(result.HeaderName)
 	m.header.SetBaseBranch(result.BaseBranch)
+	// Show preview indicator if this session is being previewed
+	m.header.SetPreviewActive(m.config.GetPreviewSessionID() == sess.ID)
 	if result.DiffStats != nil {
 		m.header.SetDiffStats(&ui.DiffStats{
 			FilesChanged: result.DiffStats.FilesChanged,

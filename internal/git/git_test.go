@@ -1972,3 +1972,155 @@ func TestRemoteBranchExists_InvalidPath(t *testing.T) {
 		t.Error("RemoteBranchExists should return false for invalid path")
 	}
 }
+
+func TestGetCurrentBranch_Success(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	branch, err := svc.GetCurrentBranch(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch failed: %v", err)
+	}
+
+	// Should return the default branch (main or master depending on git config)
+	if branch != "main" && branch != "master" {
+		t.Errorf("GetCurrentBranch = %q, want 'main' or 'master'", branch)
+	}
+}
+
+func TestGetCurrentBranch_FeatureBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create and checkout a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "my-feature")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create feature branch: %v", err)
+	}
+
+	branch, err := svc.GetCurrentBranch(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch failed: %v", err)
+	}
+
+	if branch != "my-feature" {
+		t.Errorf("GetCurrentBranch = %q, want 'my-feature'", branch)
+	}
+}
+
+func TestGetCurrentBranch_InvalidPath(t *testing.T) {
+	_, err := svc.GetCurrentBranch(ctx, "/nonexistent/path")
+	if err == nil {
+		t.Error("Expected error for invalid path")
+	}
+}
+
+func TestGetCurrentBranch_DetachedHead(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Get the current commit hash
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get HEAD commit: %v", err)
+	}
+	commit := strings.TrimSpace(string(output))
+
+	// Checkout the commit to create detached HEAD
+	cmd = exec.Command("git", "checkout", commit)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout commit: %v", err)
+	}
+
+	_, err = svc.GetCurrentBranch(ctx, repoPath)
+	if err == nil {
+		t.Error("Expected error for detached HEAD")
+	}
+	if !strings.Contains(err.Error(), "detached") {
+		t.Errorf("Expected error to mention 'detached', got: %v", err)
+	}
+}
+
+func TestCheckoutBranch_Success(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "checkout-test")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create branch: %v", err)
+	}
+
+	// Go back to default branch
+	defaultBranch := svc.GetDefaultBranch(ctx, repoPath)
+	cmd = exec.Command("git", "checkout", defaultBranch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout default branch: %v", err)
+	}
+
+	// Checkout the feature branch using our function
+	err := svc.CheckoutBranch(ctx, repoPath, "checkout-test")
+	if err != nil {
+		t.Fatalf("CheckoutBranch failed: %v", err)
+	}
+
+	// Verify we're on the feature branch
+	branch, _ := svc.GetCurrentBranch(ctx, repoPath)
+	if branch != "checkout-test" {
+		t.Errorf("GetCurrentBranch = %q, want 'checkout-test'", branch)
+	}
+}
+
+func TestCheckoutBranch_NonexistentBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	err := svc.CheckoutBranch(ctx, repoPath, "nonexistent-branch")
+	if err == nil {
+		t.Error("Expected error for nonexistent branch")
+	}
+}
+
+func TestCheckoutBranch_InvalidPath(t *testing.T) {
+	err := svc.CheckoutBranch(ctx, "/nonexistent/path", "main")
+	if err == nil {
+		t.Error("Expected error for invalid path")
+	}
+}
+
+func TestCheckoutBranch_WithUncommittedChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch and go back to default
+	cmd := exec.Command("git", "checkout", "-b", "changes-test")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	defaultBranch := svc.GetDefaultBranch(ctx, repoPath)
+	cmd = exec.Command("git", "checkout", defaultBranch)
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Make uncommitted changes to a tracked file
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
+		t.Fatalf("Failed to modify file: %v", err)
+	}
+
+	// Try to checkout - might succeed if changes don't conflict
+	// The behavior depends on whether the changes would be overwritten
+	err := svc.CheckoutBranch(ctx, repoPath, "changes-test")
+
+	// In this case, since both branches have the same test.txt, checkout should succeed
+	// (git will keep the local changes)
+	if err != nil {
+		t.Logf("CheckoutBranch with uncommitted changes: %v", err)
+	}
+}

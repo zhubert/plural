@@ -1209,3 +1209,108 @@ func TestCountLines_EdgeCases(t *testing.T) {
 		}
 	}
 }
+
+func TestConfig_PreviewState(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+	}
+
+	// Initially no preview should be active
+	if cfg.IsPreviewActive() {
+		t.Error("IsPreviewActive should return false initially")
+	}
+
+	if cfg.GetPreviewSessionID() != "" {
+		t.Error("GetPreviewSessionID should return empty string initially")
+	}
+
+	sessionID, previousBranch, repoPath := cfg.GetPreviewState()
+	if sessionID != "" || previousBranch != "" || repoPath != "" {
+		t.Error("GetPreviewState should return empty strings initially")
+	}
+
+	// Start a preview
+	cfg.StartPreview("session-123", "main", "/path/to/repo")
+
+	if !cfg.IsPreviewActive() {
+		t.Error("IsPreviewActive should return true after StartPreview")
+	}
+
+	if cfg.GetPreviewSessionID() != "session-123" {
+		t.Errorf("GetPreviewSessionID = %q, want 'session-123'", cfg.GetPreviewSessionID())
+	}
+
+	sessionID, previousBranch, repoPath = cfg.GetPreviewState()
+	if sessionID != "session-123" {
+		t.Errorf("sessionID = %q, want 'session-123'", sessionID)
+	}
+	if previousBranch != "main" {
+		t.Errorf("previousBranch = %q, want 'main'", previousBranch)
+	}
+	if repoPath != "/path/to/repo" {
+		t.Errorf("repoPath = %q, want '/path/to/repo'", repoPath)
+	}
+
+	// End the preview
+	cfg.EndPreview()
+
+	if cfg.IsPreviewActive() {
+		t.Error("IsPreviewActive should return false after EndPreview")
+	}
+
+	if cfg.GetPreviewSessionID() != "" {
+		t.Error("GetPreviewSessionID should return empty string after EndPreview")
+	}
+
+	sessionID, previousBranch, repoPath = cfg.GetPreviewState()
+	if sessionID != "" || previousBranch != "" || repoPath != "" {
+		t.Error("GetPreviewState should return empty strings after EndPreview")
+	}
+}
+
+func TestConfig_PreviewState_Persistence(t *testing.T) {
+	// Create a temp directory for test config
+	tmpDir, err := os.MkdirTemp("", "plural-preview-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create config with preview state
+	cfg := &Config{
+		Repos:    []string{"/path/to/repo"},
+		Sessions: []Session{},
+		filePath: configPath,
+	}
+
+	cfg.StartPreview("session-abc", "develop", "/path/to/repo")
+
+	// Save the config
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Read and verify JSON structure includes preview fields
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+
+	if loaded.PreviewSessionID != "session-abc" {
+		t.Errorf("PreviewSessionID = %q, want 'session-abc'", loaded.PreviewSessionID)
+	}
+	if loaded.PreviewPreviousBranch != "develop" {
+		t.Errorf("PreviewPreviousBranch = %q, want 'develop'", loaded.PreviewPreviousBranch)
+	}
+	if loaded.PreviewRepoPath != "/path/to/repo" {
+		t.Errorf("PreviewRepoPath = %q, want '/path/to/repo'", loaded.PreviewRepoPath)
+	}
+}

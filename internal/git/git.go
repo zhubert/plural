@@ -1134,3 +1134,31 @@ func (s *GitService) RenameBranch(ctx context.Context, worktreePath, oldName, ne
 	logger.WithComponent("git").Info("renamed branch", "oldName", oldName, "newName", newName, "worktree", worktreePath)
 	return nil
 }
+
+// GetCurrentBranch returns the name of the currently checked out branch in the given repo/worktree.
+// Returns an error if HEAD is detached or the command fails.
+func (s *GitService) GetCurrentBranch(ctx context.Context, repoPath string) (string, error) {
+	output, err := s.executor.Output(ctx, repoPath, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	branch := strings.TrimSpace(string(output))
+	if branch == "HEAD" {
+		return "", fmt.Errorf("HEAD is detached (not on a branch)")
+	}
+
+	return branch, nil
+}
+
+// CheckoutBranch checks out the specified branch in the given repo.
+// Returns an error if the checkout fails (e.g., uncommitted changes would be overwritten).
+func (s *GitService) CheckoutBranch(ctx context.Context, repoPath, branch string) error {
+	output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "checkout", branch)
+	if err != nil {
+		return fmt.Errorf("git checkout failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	logger.WithComponent("git").Info("checked out branch", "branch", branch, "repoPath", repoPath)
+	return nil
+}

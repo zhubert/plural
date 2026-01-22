@@ -16,10 +16,11 @@ type DiffStats struct {
 
 // Header represents the top header bar
 type Header struct {
-	width       int
-	sessionName string
-	baseBranch  string
-	diffStats   *DiffStats
+	width         int
+	sessionName   string
+	baseBranch    string
+	diffStats     *DiffStats
+	previewActive bool
 }
 
 // NewHeader creates a new header
@@ -47,11 +48,16 @@ func (h *Header) SetDiffStats(stats *DiffStats) {
 	h.diffStats = stats
 }
 
+// SetPreviewActive sets whether a preview is currently active
+func (h *Header) SetPreviewActive(active bool) {
+	h.previewActive = active
+}
+
 // headerRegion represents a styled region in the header
 type headerRegion struct {
 	start int
 	end   int
-	style string // "normal", "muted", "added", "deleted"
+	style string // "normal", "muted", "added", "deleted", "preview"
 }
 
 // View renders the header
@@ -64,6 +70,14 @@ func (h *Header) View() string {
 	var regions []headerRegion
 
 	if h.sessionName != "" {
+		// Add preview indicator if active
+		if h.previewActive {
+			previewStart := len(rightText)
+			rightText += "[PREVIEW] "
+			previewEnd := len(rightText)
+			regions = append(regions, headerRegion{start: previewStart, end: previewEnd, style: "preview"})
+		}
+
 		// Add diff stats before session name if available
 		if h.diffStats != nil && h.diffStats.FilesChanged > 0 {
 			// Format: "3 files, +157, -5 "
@@ -76,7 +90,7 @@ func (h *Header) View() string {
 			deletionsText := fmt.Sprintf("-%d", h.diffStats.Deletions)
 
 			// Build the stats string and track regions
-			rightText = filesText + ", "
+			rightText += filesText + ", "
 			addStart := len(rightText)
 			rightText += additionsText
 			addEnd := len(rightText)
@@ -146,6 +160,7 @@ func (h *Header) renderGradient(content string, regions []headerRegion) string {
 	mutedColor := lipgloss.Color(theme.TextMuted)
 	addedColor := lipgloss.Color(theme.DiffAdded)
 	deletedColor := lipgloss.Color(theme.DiffRemoved)
+	previewColor := lipgloss.Color(theme.Warning) // Use warning color (amber/yellow) for preview indicator
 
 	// Helper to get the style for a given position
 	getStyleForPos := func(pos int) string {
@@ -186,6 +201,8 @@ func (h *Header) renderGradient(content string, regions []headerRegion) string {
 			style = style.Foreground(addedColor)
 		case "deleted":
 			style = style.Foreground(deletedColor)
+		case "preview":
+			style = style.Foreground(previewColor).Bold(true)
 		default:
 			style = style.Foreground(textColor)
 		}
