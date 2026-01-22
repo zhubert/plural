@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	pexec "github.com/zhubert/plural/internal/exec"
+	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -711,6 +713,167 @@ func TestCommonLettersTypableInTextarea(t *testing.T) {
 		_, _, handled := m.ExecuteShortcut(key)
 		if handled {
 			t.Errorf("Letter %q intercepted by shortcut system - users cannot type this letter!", key)
+		}
+	}
+}
+
+// =============================================================================
+// Preview Session Tests
+// =============================================================================
+
+func TestPreviewInMain_CommitsSessionChangesFirst(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Create mock executor to simulate git operations
+	mockExec := pexec.NewMockExecutor(nil)
+
+	// Session worktree has uncommitted changes
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "status" && dir == "/test/worktree1"
+	}, pexec.MockResponse{
+		Stdout: []byte(" M modified.go\n"),
+	})
+
+	// Main repo is clean
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "status" && dir == "/test/repo1"
+	}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	// Git diff for session worktree (for commit message)
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 1 && args[0] == "diff" && dir == "/test/worktree1"
+	}, pexec.MockResponse{
+		Stdout: []byte(" 1 file changed, 5 insertions(+)"),
+	})
+
+	// Git add -A should succeed
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "add" && dir == "/test/worktree1"
+	}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	// Git commit should succeed
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "commit" && dir == "/test/worktree1"
+	}, pexec.MockResponse{
+		Stdout: []byte("[feature-branch abc1234] Plural session changes\n"),
+	})
+
+	// Get current branch of main repo
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "branch" && args[1] == "--show-current" && dir == "/test/repo1"
+	}, pexec.MockResponse{
+		Stdout: []byte("main\n"),
+	})
+
+	// Checkout branch in main repo (ignore worktrees)
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "checkout" && dir == "/test/repo1"
+	}, pexec.MockResponse{
+		Stdout: []byte("Switched to branch 'feature-branch'\n"),
+	})
+
+	// Set up mock git service
+	mockGitService := git.NewGitServiceWithExecutor(mockExec)
+	m.SetGitService(mockGitService)
+
+	// Execute the preview shortcut
+	_, _, handled := m.ExecuteShortcut("p")
+	if !handled {
+		t.Error("Expected 'p' shortcut to be handled")
+	}
+
+	// Verify git commands were called in the right order
+	calls := mockExec.GetCalls()
+	foundSessionStatus := false
+	foundCommit := false
+	foundMainStatus := false
+	foundCheckout := false
+
+	for _, call := range calls {
+		if call.Name == "git" && len(call.Args) > 0 {
+			if call.Args[0] == "status" && call.Dir == "/test/worktree1" {
+				foundSessionStatus = true
+			}
+			if call.Args[0] == "commit" && call.Dir == "/test/worktree1" {
+				foundCommit = true
+			}
+			if call.Args[0] == "status" && call.Dir == "/test/repo1" {
+				foundMainStatus = true
+			}
+			if call.Args[0] == "checkout" && call.Dir == "/test/repo1" {
+				foundCheckout = true
+			}
+		}
+	}
+
+	if !foundSessionStatus {
+		t.Error("Expected session worktree status to be checked")
+	}
+	if !foundCommit {
+		t.Error("Expected session changes to be committed before preview")
+	}
+	if !foundMainStatus {
+		t.Error("Expected main repo status to be checked")
+	}
+	if !foundCheckout {
+		t.Error("Expected session branch to be checked out in main repo")
+	}
+}
+
+func TestPreviewInMain_NoCommitWhenClean(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Create mock executor to simulate git operations
+	mockExec := pexec.NewMockExecutor(nil)
+
+	// Session worktree is clean (no uncommitted changes)
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "status" && dir == "/test/worktree1"
+	}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	// Main repo is clean
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "status" && dir == "/test/repo1"
+	}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	// Get current branch of main repo
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "branch" && args[1] == "--show-current" && dir == "/test/repo1"
+	}, pexec.MockResponse{
+		Stdout: []byte("main\n"),
+	})
+
+	// Checkout branch in main repo
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		return name == "git" && len(args) > 0 && args[0] == "checkout" && dir == "/test/repo1"
+	}, pexec.MockResponse{
+		Stdout: []byte("Switched to branch 'feature-branch'\n"),
+	})
+
+	// Set up mock git service
+	mockGitService := git.NewGitServiceWithExecutor(mockExec)
+	m.SetGitService(mockGitService)
+
+	// Execute the preview shortcut
+	m.ExecuteShortcut("p")
+
+	// Verify that commit was NOT called (since session was clean)
+	calls := mockExec.GetCalls()
+	for _, call := range calls {
+		if call.Name == "git" && len(call.Args) > 0 && call.Args[0] == "commit" {
+			t.Error("Expected no commit when session worktree is clean")
 		}
 	}
 }

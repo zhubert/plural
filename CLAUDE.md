@@ -335,11 +335,12 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 
 **How it works**:
 1. User presses `p` on a session in the sidebar
-2. System checks if main repo has uncommitted changes (error if dirty)
-3. Records current branch in main repo (to restore later)
-4. Checks out the session's branch in the main repo
-5. Header shows `[PREVIEW]` indicator in amber/warning color
-6. Press `p` again to end preview and restore the original branch
+2. System checks if session worktree has uncommitted changes - if so, auto-commits them first
+3. System checks if main repo has uncommitted changes (error if dirty)
+4. Records current branch in main repo (to restore later)
+5. Checks out the session's branch in the main repo
+6. Header shows `[PREVIEW]` indicator in amber/warning color
+7. Press `p` again to end preview and restore the original branch
 
 **State tracking** (`internal/config/config.go`):
 - `PreviewSessionID`: Session ID being previewed (empty if none)

@@ -592,6 +592,26 @@ func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {
 		return m, m.ShowFlashWarning("Another session is being previewed. End that preview first (p).")
 	}
 
+	// Check if session worktree has uncommitted changes - commit them first
+	sessionStatus, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
+	if err != nil {
+		log.Error("failed to check session worktree status", "error", err)
+		return m, m.ShowFlashError(fmt.Sprintf("Failed to check session status: %v", err))
+	}
+	if sessionStatus.HasChanges {
+		// Generate a commit message and commit the changes
+		commitMsg, err := m.gitService.GenerateCommitMessage(ctx, sess.WorkTree)
+		if err != nil {
+			log.Error("failed to generate commit message", "error", err)
+			return m, m.ShowFlashError(fmt.Sprintf("Failed to generate commit message: %v", err))
+		}
+		if err := m.gitService.CommitAll(ctx, sess.WorkTree, commitMsg); err != nil {
+			log.Error("failed to commit session changes", "error", err)
+			return m, m.ShowFlashError(fmt.Sprintf("Failed to commit session changes: %v", err))
+		}
+		log.Info("committed session changes for preview", "commitMsg", commitMsg)
+	}
+
 	// Check if main repo has uncommitted changes
 	status, err := m.gitService.GetWorktreeStatus(ctx, sess.RepoPath)
 	if err != nil {
