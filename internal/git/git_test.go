@@ -2124,3 +2124,59 @@ func TestCheckoutBranch_WithUncommittedChanges(t *testing.T) {
 		t.Logf("CheckoutBranch with uncommitted changes: %v", err)
 	}
 }
+
+func TestCheckoutBranchIgnoreWorktrees_Success(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "worktree-test")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create branch: %v", err)
+	}
+
+	// Go back to default branch
+	defaultBranch := svc.GetDefaultBranch(ctx, repoPath)
+	cmd = exec.Command("git", "checkout", defaultBranch)
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to checkout default branch: %v", err)
+	}
+
+	// Create a worktree using the feature branch
+	worktreePath := filepath.Join(os.TempDir(), "test-worktree-"+filepath.Base(repoPath))
+	defer os.RemoveAll(worktreePath)
+
+	cmd = exec.Command("git", "worktree", "add", worktreePath, "worktree-test")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create worktree: %v", err)
+	}
+
+	// Standard checkout should fail because branch is in use by worktree
+	err := svc.CheckoutBranch(ctx, repoPath, "worktree-test")
+	if err == nil {
+		t.Error("Expected CheckoutBranch to fail for branch in use by worktree")
+	}
+
+	// CheckoutBranchIgnoreWorktrees should succeed
+	err = svc.CheckoutBranchIgnoreWorktrees(ctx, repoPath, "worktree-test")
+	if err != nil {
+		t.Errorf("CheckoutBranchIgnoreWorktrees failed: %v", err)
+	}
+
+	// Verify we're on the correct branch
+	branch, err := svc.GetCurrentBranch(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("Failed to get current branch: %v", err)
+	}
+	if branch != "worktree-test" {
+		t.Errorf("Expected branch 'worktree-test', got '%s'", branch)
+	}
+
+	// Clean up worktree
+	cmd = exec.Command("git", "worktree", "remove", worktreePath)
+	cmd.Dir = repoPath
+	cmd.Run() // Ignore errors in cleanup
+}

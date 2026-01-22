@@ -1162,3 +1162,16 @@ func (s *GitService) CheckoutBranch(ctx context.Context, repoPath, branch string
 	logger.WithComponent("git").Info("checked out branch", "branch", branch, "repoPath", repoPath)
 	return nil
 }
+
+// CheckoutBranchIgnoreWorktrees checks out the specified branch, even if it's
+// already checked out in another worktree. This is useful for the preview feature
+// where we want to temporarily view a worktree's branch in the main repo.
+func (s *GitService) CheckoutBranchIgnoreWorktrees(ctx context.Context, repoPath, branch string) error {
+	output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "checkout", "--ignore-other-worktrees", branch)
+	if err != nil {
+		return fmt.Errorf("git checkout failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	logger.WithComponent("git").Info("checked out branch (ignoring worktrees)", "branch", branch, "repoPath", repoPath)
+	return nil
+}

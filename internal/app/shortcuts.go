@@ -610,7 +610,8 @@ func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {
 	}
 
 	// Checkout the session's branch in the main repo
-	if err := m.gitService.CheckoutBranch(ctx, sess.RepoPath, sess.Branch); err != nil {
+	// Use CheckoutBranchIgnoreWorktrees because the branch is already checked out in the session's worktree
+	if err := m.gitService.CheckoutBranchIgnoreWorktrees(ctx, sess.RepoPath, sess.Branch); err != nil {
 		log.Error("failed to checkout session branch", "error", err, "branch", sess.Branch)
 		return m, m.ShowFlashError(fmt.Sprintf("Failed to checkout branch: %v", err))
 	}
