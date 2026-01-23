@@ -104,6 +104,10 @@ type Chat struct {
 
 	// Selection flash animation (brief highlight after copy, then clear)
 	selectionFlashFrame int // -1 = inactive, 0 = flash visible, 1+ = done
+
+	// Streaming statistics display
+	streamStartTime time.Time           // When waiting/streaming started
+	streamStats     *pclaude.StreamStats // Latest stats from Claude (nil until result received)
 }
 
 // NewChat creates a new chat panel
@@ -926,13 +930,18 @@ func (c *Chat) updateContent() {
 			// Tool use lines are already included in streaming content with circle markers
 			streamContent := stripOptionsTags(strings.TrimSpace(c.streaming))
 			sb.WriteString(renderMarkdown(streamContent, wrapWidth))
+			// Add status line below streaming content
+			sb.WriteString("\n")
+			elapsed := time.Since(c.streamStartTime)
+			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(renderSpinner(c.waitingVerb, c.spinnerIdx))
+			elapsed := time.Since(c.streamStartTime)
+			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
 		} else if c.completionFlashFrame >= 0 {
 			// Show completion flash animation
 			if len(c.messages) > 0 {

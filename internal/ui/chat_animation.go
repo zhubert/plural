@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"fmt"
 	"math/rand"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	pclaude "github.com/zhubert/plural/internal/claude"
 )
 
 // StopwatchTickMsg is sent to update the animated waiting display
@@ -111,6 +114,62 @@ func renderSpinner(verb string, frameIdx int) string {
 	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...")
 }
 
+// renderStreamingStatus renders the full status line during streaming.
+// Format: ✺ Thinking... (esc to interrupt • 12s • ↓ 342 tokens)
+func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, stats *pclaude.StreamStats) string {
+	// Get the current spinner frame
+	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
+
+	// Style for the spinner character - uses theme's user color
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(ColorUser).
+		Bold(true)
+
+	// Style for the verb text - uses theme's primary color, italic
+	verbStyle := lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Italic(true)
+
+	// Style for the metadata - muted color
+	metaStyle := lipgloss.NewStyle().
+		Foreground(ColorTextMuted)
+
+	// Build metadata parts: (esc to interrupt • 12s • ↓ 342 tokens)
+	var parts []string
+	parts = append(parts, "esc to interrupt")
+	parts = append(parts, formatElapsed(elapsed))
+
+	if stats != nil && stats.OutputTokens > 0 {
+		parts = append(parts, fmt.Sprintf("↓ %s tokens", formatTokenCount(stats.OutputTokens)))
+	}
+
+	meta := metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
+	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...") + " " + meta
+}
+
+// formatElapsed formats a duration for display (e.g., "12s", "1m30s")
+func formatElapsed(d time.Duration) string {
+	secs := int(d.Seconds())
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	return fmt.Sprintf("%dm%ds", secs/60, secs%60)
+}
+
+// formatTokenCount formats a token count for display (e.g., "342", "1.4k")
+func formatTokenCount(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+// SetStreamStats updates the streaming statistics for display
+func (c *Chat) SetStreamStats(stats *pclaude.StreamStats) {
+	c.streamStats = stats
+	c.updateContent()
+}
+
 // renderCompletionFlash renders the checkmark completion flash
 func renderCompletionFlash(frame int) string {
 	checkmark := "✓"
@@ -142,18 +201,21 @@ func (c *Chat) SetWaiting(waiting bool) {
 		c.waitingVerb = randomThinkingVerb()
 		c.spinnerIdx = 0
 		c.spinnerTick = 0
+		c.streamStartTime = time.Now()
+		c.streamStats = nil // Reset stats for new request
 	}
 	c.updateContent()
 }
 
 // SetWaitingWithStart sets the waiting state with a specific start time (for session restoration)
-// Note: startTime parameter is kept for API compatibility but no longer used
 func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 	c.waiting = waiting
 	if waiting {
 		c.waitingVerb = randomThinkingVerb()
 		c.spinnerIdx = 0
 		c.spinnerTick = 0
+		c.streamStartTime = startTime
+		c.streamStats = nil // Reset stats for new request
 	}
 	c.updateContent()
 }
