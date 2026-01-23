@@ -1801,15 +1801,16 @@ func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
 	log := testLogger()
 	// Assistant message with usage data should emit stream stats chunk
 	// This enables incremental token count display during streaming
+	// Note: for assistant messages, usage is nested inside the message field
+	// and total_cost_usd is not present (only on result messages)
 	msg := `{
 		"type": "assistant",
 		"message": {
-			"content": [{"type": "text", "text": "Hello!"}]
-		},
-		"total_cost_usd": 0.05,
-		"usage": {
-			"input_tokens": 100,
-			"output_tokens": 25
+			"content": [{"type": "text", "text": "Hello!"}],
+			"usage": {
+				"input_tokens": 100,
+				"output_tokens": 25
+			}
 		}
 	}`
 	chunks := parseStreamMessage(msg, log)
@@ -1837,8 +1838,9 @@ func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
 	if chunks[1].Stats.OutputTokens != 25 {
 		t.Errorf("Expected OutputTokens 25, got %d", chunks[1].Stats.OutputTokens)
 	}
-	if chunks[1].Stats.TotalCostUSD != 0.05 {
-		t.Errorf("Expected TotalCostUSD 0.05, got %f", chunks[1].Stats.TotalCostUSD)
+	// TotalCostUSD is 0 for assistant messages (only populated on result messages)
+	if chunks[1].Stats.TotalCostUSD != 0 {
+		t.Errorf("Expected TotalCostUSD 0, got %f", chunks[1].Stats.TotalCostUSD)
 	}
 }
 

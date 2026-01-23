@@ -481,6 +481,7 @@ type streamMessage struct {
 			ToolUseId string          `json:"toolUseId,omitempty"` // camelCase variant from Claude CLI
 			Content   json.RawMessage `json:"content,omitempty"`   // tool result content (can be string or array)
 		} `json:"content"`
+		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
 	Result       string       `json:"result,omitempty"`        // Final result text
 	Error        string       `json:"error,omitempty"`         // Error message (alternative to result)
@@ -569,12 +570,13 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 		}
 
 		// Emit stream stats if usage data is present (for incremental token count updates)
-		if msg.Usage != nil && msg.Usage.OutputTokens > 0 {
+		// For assistant messages, usage is nested inside the message field
+		if msg.Message.Usage != nil && msg.Message.Usage.OutputTokens > 0 {
 			chunks = append(chunks, ResponseChunk{
 				Type: ChunkTypeStreamStats,
 				Stats: &StreamStats{
-					OutputTokens: msg.Usage.OutputTokens,
-					TotalCostUSD: msg.TotalCostUSD,
+					OutputTokens: msg.Message.Usage.OutputTokens,
+					TotalCostUSD: msg.TotalCostUSD, // Will be 0 for assistant messages (only set on result)
 				},
 			})
 		}
