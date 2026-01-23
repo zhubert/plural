@@ -1665,3 +1665,81 @@ func TestFocusRestoredAfterModal(t *testing.T) {
 		t.Error("Focus should return to sidebar after closing help modal")
 	}
 }
+
+// =============================================================================
+// Preview Active Modal Tests
+// =============================================================================
+
+func TestPreviewActiveModal_DismissWithEscape(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Manually show the preview modal
+	m.modal.Show(ui.NewPreviewActiveState("test-session", "feature-branch"))
+
+	if !m.modal.IsVisible() {
+		t.Fatal("Preview modal should be visible")
+	}
+
+	_, ok := m.modal.State.(*ui.PreviewActiveState)
+	if !ok {
+		t.Fatalf("Expected PreviewActiveState, got %T", m.modal.State)
+	}
+
+	// Press escape to dismiss
+	m = sendKey(m, "esc")
+
+	if m.modal.IsVisible() {
+		t.Error("Modal should be hidden after pressing escape")
+	}
+}
+
+func TestPreviewActiveModal_DismissWithEnter(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Manually show the preview modal
+	m.modal.Show(ui.NewPreviewActiveState("test-session", "feature-branch"))
+
+	if !m.modal.IsVisible() {
+		t.Fatal("Preview modal should be visible")
+	}
+
+	// Press enter to dismiss
+	m = sendKey(m, "enter")
+
+	if m.modal.IsVisible() {
+		t.Error("Modal should be hidden after pressing enter")
+	}
+}
+
+func TestPreviewActiveModal_RendersSessionAndBranchInfo(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Manually show the preview modal
+	state := ui.NewPreviewActiveState("my-session-name", "my-branch-name")
+	m.modal.Show(state)
+
+	if !m.modal.IsVisible() {
+		t.Fatal("Preview modal should be visible")
+	}
+
+	// Check the state has the correct values
+	previewState := m.modal.State.(*ui.PreviewActiveState)
+	if previewState.SessionName != "my-session-name" {
+		t.Errorf("Expected session name 'my-session-name', got '%s'", previewState.SessionName)
+	}
+	if previewState.BranchName != "my-branch-name" {
+		t.Errorf("Expected branch name 'my-branch-name', got '%s'", previewState.BranchName)
+	}
+
+	// Verify the rendered content contains the session and branch info
+	rendered := previewState.Render()
+	if !strings.Contains(rendered, "my-session-name") {
+		t.Error("Rendered modal should contain session name")
+	}
+	if !strings.Contains(rendered, "my-branch-name") {
+		t.Error("Rendered modal should contain branch name")
+	}
+}

@@ -1443,6 +1443,16 @@ func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
 
 // handleStartupModals checks and shows welcome or changelog modals on startup
 func (m *Model) handleStartupModals() (tea.Model, tea.Cmd) {
+	// Priority 0: Preview mode warning (highest priority - user needs to know immediately)
+	if m.config.IsPreviewActive() {
+		sessionID := m.config.GetPreviewSessionID()
+		if sess := m.config.GetSession(sessionID); sess != nil {
+			logger.Get().Debug("showing preview active modal on startup", "session", sess.Name)
+			m.modal.Show(ui.NewPreviewActiveState(sess.Name, sess.Branch))
+			return m, nil
+		}
+	}
+
 	// Priority 1: Welcome modal for first-time users
 	if !m.config.HasSeenWelcome() {
 		logger.Get().Debug("showing welcome modal for first-time user")

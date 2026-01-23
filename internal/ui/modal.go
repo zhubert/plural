@@ -46,6 +46,7 @@ type (
 	HelpState               = modals.HelpState
 	ExploreOptionsState     = modals.ExploreOptionsState
 	SearchMessagesState     = modals.SearchMessagesState
+	PreviewActiveState      = modals.PreviewActiveState
 )
 
 // Re-export constructor functions
@@ -73,6 +74,7 @@ var (
 	NewHelpStateFromSections   = modals.NewHelpStateFromSections
 	NewExploreOptionsState     = modals.NewExploreOptionsState
 	NewSearchMessagesState     = modals.NewSearchMessagesState
+	NewPreviewActiveState      = modals.NewPreviewActiveState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
 	TruncateString                 = modals.TruncateString

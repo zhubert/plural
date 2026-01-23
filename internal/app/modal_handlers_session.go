@@ -401,3 +401,17 @@ func (m *Model) handleConfirmExitModal(key string, msg tea.KeyPressMsg, state *u
 	}
 	return m, nil
 }
+
+// handlePreviewActiveModal handles key events for the Preview Active warning modal.
+func (m *Model) handlePreviewActiveModal(key string, msg tea.KeyPressMsg, state *ui.PreviewActiveState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "enter":
+		m.modal.Hide()
+		return m, nil
+	case "p":
+		// End preview and close modal
+		m.modal.Hide()
+		return m.endPreview()
+	}
+	return m, nil
+}

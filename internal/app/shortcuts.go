@@ -645,8 +645,11 @@ func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {
 	// Update header to show preview indicator
 	m.header.SetPreviewActive(true)
 
+	// Show the preview warning modal
+	m.modal.Show(ui.NewPreviewActiveState(sess.Name, sess.Branch))
+
 	log.Info("started preview", "branch", sess.Branch, "previousBranch", currentBranch)
-	return m, m.ShowFlashSuccess(fmt.Sprintf("Previewing %s in main repo. Press 'p' to end.", sess.Branch))
+	return m, nil
 }
 
 // endPreview ends the current preview and restores the previous branch
