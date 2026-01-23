@@ -1796,3 +1796,94 @@ func TestStreamStats(t *testing.T) {
 		t.Errorf("Expected TotalCostUSD 0.25, got %f", stats.TotalCostUSD)
 	}
 }
+
+func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
+	log := testLogger()
+	// Assistant message with usage data should emit stream stats chunk
+	// This enables incremental token count display during streaming
+	msg := `{
+		"type": "assistant",
+		"message": {
+			"content": [{"type": "text", "text": "Hello!"}]
+		},
+		"total_cost_usd": 0.05,
+		"usage": {
+			"input_tokens": 100,
+			"output_tokens": 25
+		}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	// Should have text chunk + stream stats chunk
+	if len(chunks) != 2 {
+		t.Fatalf("Expected 2 chunks (text + stats), got %d", len(chunks))
+	}
+
+	// First chunk should be text
+	if chunks[0].Type != ChunkTypeText {
+		t.Errorf("First chunk expected ChunkTypeText, got %v", chunks[0].Type)
+	}
+	if chunks[0].Content != "Hello!" {
+		t.Errorf("Expected content 'Hello!', got %q", chunks[0].Content)
+	}
+
+	// Second chunk should be stream stats
+	if chunks[1].Type != ChunkTypeStreamStats {
+		t.Errorf("Second chunk expected ChunkTypeStreamStats, got %v", chunks[1].Type)
+	}
+	if chunks[1].Stats == nil {
+		t.Fatal("Expected Stats to be non-nil")
+	}
+	if chunks[1].Stats.OutputTokens != 25 {
+		t.Errorf("Expected OutputTokens 25, got %d", chunks[1].Stats.OutputTokens)
+	}
+	if chunks[1].Stats.TotalCostUSD != 0.05 {
+		t.Errorf("Expected TotalCostUSD 0.05, got %f", chunks[1].Stats.TotalCostUSD)
+	}
+}
+
+func TestParseStreamMessage_AssistantWithoutUsage(t *testing.T) {
+	log := testLogger()
+	// Assistant message without usage data should not emit stream stats
+	msg := `{
+		"type": "assistant",
+		"message": {
+			"content": [{"type": "text", "text": "Hello!"}]
+		}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	// Should only have text chunk, no stats
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk (text only), got %d", len(chunks))
+	}
+
+	if chunks[0].Type != ChunkTypeText {
+		t.Errorf("Expected ChunkTypeText, got %v", chunks[0].Type)
+	}
+}
+
+func TestParseStreamMessage_AssistantWithZeroOutputTokens(t *testing.T) {
+	log := testLogger()
+	// Assistant message with zero output tokens should not emit stream stats
+	msg := `{
+		"type": "assistant",
+		"message": {
+			"content": [{"type": "text", "text": "Hello!"}]
+		},
+		"usage": {
+			"input_tokens": 100,
+			"output_tokens": 0
+		}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	// Should only have text chunk, no stats (0 output tokens)
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk (text only, no stats for 0 tokens), got %d", len(chunks))
+	}
+
+	if chunks[0].Type != ChunkTypeText {
+		t.Errorf("Expected ChunkTypeText, got %v", chunks[0].Type)
+	}
+}

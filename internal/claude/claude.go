@@ -568,6 +568,17 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 			}
 		}
 
+		// Emit stream stats if usage data is present (for incremental token count updates)
+		if msg.Usage != nil && msg.Usage.OutputTokens > 0 {
+			chunks = append(chunks, ResponseChunk{
+				Type: ChunkTypeStreamStats,
+				Stats: &StreamStats{
+					OutputTokens: msg.Usage.OutputTokens,
+					TotalCostUSD: msg.TotalCostUSD,
+				},
+			})
+		}
+
 	case "user":
 		// User messages in stream-json are tool results
 		// We don't display the content but we need to emit a ChunkTypeToolResult
