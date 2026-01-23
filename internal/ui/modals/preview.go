@@ -31,11 +31,6 @@ func (s *PreviewActiveState) Render() string {
 		MarginBottom(1).
 		Render(s.Title())
 
-	warningIcon := lipgloss.NewStyle().
-		Foreground(ColorWarning).
-		Bold(true).
-		Render("⚠")
-
 	message := lipgloss.NewStyle().
 		Foreground(ColorText).
 		Width(55).
@@ -60,7 +55,7 @@ func (s *PreviewActiveState) Render() string {
 	help := ModalHelpStyle.Render(s.Help())
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.JoinHorizontal(lipgloss.Center, warningIcon, " ", title),
+		title,
 		message,
 		branchInfo,
 		warning,
