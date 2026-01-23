@@ -391,3 +391,12 @@ func TestMCPLogPath(t *testing.T) {
 		t.Errorf("MCPLogPath(%q) = %q, want %q", sessionID, got, expected)
 	}
 }
+
+func TestStreamLogPath(t *testing.T) {
+	sessionID := "test-session-456"
+	expected := "/tmp/plural-stream-test-session-456.log"
+
+	if got := StreamLogPath(sessionID); got != expected {
+		t.Errorf("StreamLogPath(%q) = %q, want %q", sessionID, got, expected)
+	}
+}
