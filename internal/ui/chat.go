@@ -21,6 +21,19 @@ const ToolUseInProgress = "⏺"
 // ToolUseComplete is the green circle marker for completed tool use
 const ToolUseComplete = "●"
 
+// ToolUseItem represents a single tool use for rollup tracking
+type ToolUseItem struct {
+	ToolName  string // e.g., "Read", "Edit", "Bash"
+	ToolInput string // Brief description of tool parameters
+	Complete  bool   // Whether the tool has completed
+}
+
+// ToolUseRollup tracks consecutive tool uses for collapsible display
+type ToolUseRollup struct {
+	Items    []ToolUseItem // All tool uses in this group
+	Expanded bool          // Whether the rollup is expanded (show all) or collapsed (show summary)
+}
+
 // messageCache stores pre-rendered message content to avoid expensive re-rendering
 type messageCache struct {
 	content   string // The original message content
@@ -52,6 +65,9 @@ type Chat struct {
 
 	// Track last tool use position for marking as complete
 	lastToolUsePos int // Position in streaming content where last tool use marker starts
+
+	// Tool use rollup - tracks consecutive tool uses for collapsible display
+	toolUseRollup *ToolUseRollup // Current rollup group (nil when no tool uses yet)
 
 	// Pending permission prompt
 	hasPendingPermission  bool
@@ -263,7 +279,8 @@ func (c *Chat) ClearSession() {
 	c.hasSession = false
 	c.streaming = ""
 	c.lastToolUsePos = -1
-	c.messageCache = nil // Clear cache on session clear
+	c.toolUseRollup = nil // Clear tool use rollup
+	c.messageCache = nil  // Clear cache on session clear
 	c.hasPendingPermission = false
 	c.pendingPermissionTool = ""
 	c.pendingPermissionDesc = ""
@@ -282,6 +299,9 @@ func (c *Chat) ClearSession() {
 
 // AppendStreaming appends content to the current streaming response
 func (c *Chat) AppendStreaming(content string) {
+	// When text content arrives, flush any pending tool uses to streaming first
+	c.flushToolUseRollup()
+
 	// Add extra newline after tool use for visual separation
 	if c.lastToolUsePos >= 0 && strings.HasSuffix(c.streaming, "\n") && !strings.HasSuffix(c.streaming, "\n\n") && !strings.HasPrefix(content, "\n") {
 		c.streaming += "\n"
@@ -290,43 +310,71 @@ func (c *Chat) AppendStreaming(content string) {
 	c.updateContent()
 }
 
-// AppendToolUse appends a formatted tool use line to the streaming content
+// AppendToolUse adds a tool use to the current rollup group
 func (c *Chat) AppendToolUse(toolName, toolInput string) {
-	icon := GetToolIcon(toolName)
-	line := ToolUseInProgress + " " + icon + "(" + toolName
-	if toolInput != "" {
-		line += ": " + toolInput
+	// Initialize rollup if needed
+	if c.toolUseRollup == nil {
+		c.toolUseRollup = &ToolUseRollup{
+			Items:    []ToolUseItem{},
+			Expanded: false,
+		}
 	}
-	line += ")\n"
+
+	// Add the new tool use to the rollup
+	c.toolUseRollup.Items = append(c.toolUseRollup.Items, ToolUseItem{
+		ToolName:  toolName,
+		ToolInput: toolInput,
+		Complete:  false,
+	})
+
+	c.updateContent()
+}
+
+// MarkLastToolUseComplete marks the most recent tool use as complete
+func (c *Chat) MarkLastToolUseComplete() {
+	if c.toolUseRollup != nil && len(c.toolUseRollup.Items) > 0 {
+		// Mark the last item as complete
+		c.toolUseRollup.Items[len(c.toolUseRollup.Items)-1].Complete = true
+		c.updateContent()
+	}
+}
+
+// flushToolUseRollup writes the current rollup to streaming content and clears it
+func (c *Chat) flushToolUseRollup() {
+	if c.toolUseRollup == nil || len(c.toolUseRollup.Items) == 0 {
+		return
+	}
 
 	// Add newline before if there's existing content that doesn't end with newline
 	if c.streaming != "" && !strings.HasSuffix(c.streaming, "\n") {
 		c.streaming += "\n"
 	}
-	// Track position where the marker starts
-	c.lastToolUsePos = len(c.streaming)
-	c.streaming += line
-	c.updateContent()
-}
 
-// MarkLastToolUseComplete changes the last tool use marker from white to green
-func (c *Chat) MarkLastToolUseComplete() {
-	if c.lastToolUsePos >= 0 && c.lastToolUsePos < len(c.streaming) {
-		// Check if the marker is at the expected position
-		markerLen := len(ToolUseInProgress)
-		if c.lastToolUsePos+markerLen <= len(c.streaming) {
-			prefix := c.streaming[:c.lastToolUsePos]
-			suffix := c.streaming[c.lastToolUsePos+markerLen:]
-			c.streaming = prefix + ToolUseComplete + suffix
-			c.updateContent()
+	// Render all tool uses in the rollup to streaming content
+	for _, item := range c.toolUseRollup.Items {
+		marker := ToolUseInProgress
+		if item.Complete {
+			marker = ToolUseComplete
 		}
+		icon := GetToolIcon(item.ToolName)
+		line := marker + " " + icon + "(" + item.ToolName
+		if item.ToolInput != "" {
+			line += ": " + item.ToolInput
+		}
+		line += ")\n"
+		c.streaming += line
 	}
-	// Reset position after marking
+
+	// Clear the rollup - tool uses are now in streaming content
+	c.toolUseRollup = nil
 	c.lastToolUsePos = -1
 }
 
 // FinishStreaming completes the streaming and adds to messages
 func (c *Chat) FinishStreaming() {
+	// Flush any remaining tool uses before finishing
+	c.flushToolUseRollup()
+
 	if c.streaming != "" {
 		c.messages = append(c.messages, pclaude.Message{
 			Role:    "assistant",
@@ -334,8 +382,27 @@ func (c *Chat) FinishStreaming() {
 		})
 		c.streaming = ""
 		c.lastToolUsePos = -1 // Reset tool tracking to prevent stale state affecting future streaming
+		c.toolUseRollup = nil // Ensure rollup is cleared
 		c.updateContent()
 	}
+}
+
+// ToggleToolUseRollup toggles between expanded and collapsed view of tool uses
+func (c *Chat) ToggleToolUseRollup() {
+	if c.toolUseRollup != nil {
+		c.toolUseRollup.Expanded = !c.toolUseRollup.Expanded
+		c.updateContent()
+	}
+}
+
+// HasActiveToolUseRollup returns true if there's an active rollup with multiple items
+func (c *Chat) HasActiveToolUseRollup() bool {
+	return c.toolUseRollup != nil && len(c.toolUseRollup.Items) > 1
+}
+
+// GetToolUseRollup returns the current tool use rollup (for rendering)
+func (c *Chat) GetToolUseRollup() *ToolUseRollup {
+	return c.toolUseRollup
 }
 
 // AddUserMessage adds a user message
@@ -661,6 +728,79 @@ func GetToolIcon(toolName string) string {
 	}
 }
 
+// renderToolUseRollup renders the tool use rollup as either expanded or collapsed
+func (c *Chat) renderToolUseRollup() string {
+	if c.toolUseRollup == nil || len(c.toolUseRollup.Items) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Always show the most recent (last) tool use
+	lastItem := c.toolUseRollup.Items[len(c.toolUseRollup.Items)-1]
+	marker := ToolUseInProgress
+	if lastItem.Complete {
+		marker = ToolUseComplete
+	}
+	icon := GetToolIcon(lastItem.ToolName)
+	line := marker + " " + icon + "(" + lastItem.ToolName
+	if lastItem.ToolInput != "" {
+		line += ": " + lastItem.ToolInput
+	}
+	line += ")"
+
+	// Apply styling to tool use markers in the line
+	line = strings.ReplaceAll(line, ToolUseInProgress, ToolUseInProgressStyle.Render(ToolUseInProgress))
+	line = strings.ReplaceAll(line, ToolUseComplete, ToolUseCompleteStyle.Render(ToolUseComplete))
+
+	sb.WriteString(line)
+	sb.WriteString("\n")
+
+	// If there are multiple items and not expanded, show the rollup summary
+	if len(c.toolUseRollup.Items) > 1 {
+		if c.toolUseRollup.Expanded {
+			// Show all previous tool uses (oldest first, excluding the last one already shown)
+			for i := 0; i < len(c.toolUseRollup.Items)-1; i++ {
+				item := c.toolUseRollup.Items[i]
+				itemMarker := ToolUseInProgress
+				if item.Complete {
+					itemMarker = ToolUseComplete
+				}
+				itemIcon := GetToolIcon(item.ToolName)
+				itemLine := "  " + itemMarker + " " + itemIcon + "(" + item.ToolName
+				if item.ToolInput != "" {
+					itemLine += ": " + item.ToolInput
+				}
+				itemLine += ")"
+				// Apply styling
+				itemLine = strings.ReplaceAll(itemLine, ToolUseInProgress, ToolUseInProgressStyle.Render(ToolUseInProgress))
+				itemLine = strings.ReplaceAll(itemLine, ToolUseComplete, ToolUseCompleteStyle.Render(ToolUseComplete))
+				sb.WriteString(itemLine)
+				sb.WriteString("\n")
+			}
+		} else {
+			// Show collapsed summary
+			moreCount := len(c.toolUseRollup.Items) - 1
+			rollupStyle := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true)
+			keyStyle := lipgloss.NewStyle().
+				Foreground(ColorInfo)
+			summaryText := fmt.Sprintf("  +%d more tool use", moreCount)
+			if moreCount > 1 {
+				summaryText += "s"
+			}
+			summaryText += " ("
+			sb.WriteString(rollupStyle.Render(summaryText))
+			sb.WriteString(keyStyle.Render("ctrl-t"))
+			sb.WriteString(rollupStyle.Render(" to expand)"))
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
 // renderQuestionPrompt renders the inline question prompt
 func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
@@ -920,7 +1060,7 @@ func (c *Chat) updateContent() {
 		}
 
 		// Show streaming content or waiting indicator with stopwatch
-		if c.streaming != "" {
+		if c.streaming != "" || c.toolUseRollup != nil {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
 			}
@@ -928,8 +1068,14 @@ func (c *Chat) updateContent() {
 			sb.WriteString("\n")
 			// Render markdown for streaming content, stripping <options> tags
 			// Tool use lines are already included in streaming content with circle markers
-			streamContent := stripOptionsTags(strings.TrimSpace(c.streaming))
-			sb.WriteString(renderMarkdown(streamContent, wrapWidth))
+			if c.streaming != "" {
+				streamContent := stripOptionsTags(strings.TrimSpace(c.streaming))
+				sb.WriteString(renderMarkdown(streamContent, wrapWidth))
+			}
+			// Render active tool use rollup
+			if c.toolUseRollup != nil && len(c.toolUseRollup.Items) > 0 {
+				sb.WriteString(c.renderToolUseRollup())
+			}
 			// Add status line below streaming content
 			sb.WriteString("\n")
 			var elapsed time.Duration

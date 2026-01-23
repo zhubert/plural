@@ -253,6 +253,26 @@ The Add Repository modal (`a` key) supports Tab completion for paths:
 - Hidden files only shown when typing `.` prefix
 - Use up/down to navigate options, Tab/Enter to select
 
+### Tool Use Rollup
+
+When Claude performs multiple tool operations in sequence, they are collapsed into a compact rollup view to reduce visual noise:
+
+**Display behavior**:
+- Shows the most recent tool use with status marker (⏺ in progress, ● complete)
+- When multiple tool uses exist, shows "+N more tool uses (ctrl-t to expand)"
+- Expanded view shows all tool uses in the current group
+- Tool uses are flushed to streaming content when text arrives or streaming finishes
+
+**Data structures** (`internal/ui/chat.go`):
+- `ToolUseRollup`: Tracks items and expanded/collapsed state
+- `ToolUseItem`: Contains `ToolName`, `ToolInput`, `Complete` flag
+
+**Non-active sessions** (`internal/app/session_state.go`):
+- `ToolUseRollupState` mirrors the UI rollup for background sessions
+- `AddToolUse()`, `MarkLastToolUseComplete()`, `FlushToolUseRollup()` methods
+
+**Key binding** (`ctrl-t`): Toggle between collapsed and expanded view when chat is focused and multiple tool uses exist.
+
 ### Text Selection
 
 Chat panel supports mouse-based text selection with visual highlighting:

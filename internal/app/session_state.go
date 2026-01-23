@@ -46,6 +46,9 @@ type SessionState struct {
 	StreamingStartTime time.Time // When streaming started (for elapsed time display)
 	ToolUsePos         int       // Position of tool use marker for replacement
 
+	// Tool use rollup for non-active sessions
+	ToolUseRollup *ToolUseRollupState // Current rollup group (nil when no tool uses yet)
+
 	// Parallel options state
 	DetectedOptions []DetectedOption // Options detected in last assistant message
 
@@ -57,6 +60,19 @@ type SessionState struct {
 
 	// Current todo list from TodoWrite tool
 	CurrentTodoList *claude.TodoList
+}
+
+// ToolUseRollupState tracks consecutive tool uses for non-active sessions
+type ToolUseRollupState struct {
+	Items    []ToolUseItemState // All tool uses in this group
+	Expanded bool               // Whether the rollup is expanded
+}
+
+// ToolUseItemState represents a single tool use
+type ToolUseItemState struct {
+	ToolName  string
+	ToolInput string
+	Complete  bool
 }
 
 // HasDetectedOptions returns true if there are at least 2 detected options.
@@ -141,6 +157,86 @@ func (s *SessionState) SetToolUsePos(pos int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ToolUsePos = pos
+}
+
+// --- Thread-safe accessors for ToolUseRollup ---
+
+// GetToolUseRollup returns the current tool use rollup.
+// Thread-safe.
+func (s *SessionState) GetToolUseRollup() *ToolUseRollupState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ToolUseRollup
+}
+
+// SetToolUseRollup sets the tool use rollup.
+// Thread-safe.
+func (s *SessionState) SetToolUseRollup(rollup *ToolUseRollupState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ToolUseRollup = rollup
+}
+
+// AddToolUse adds a tool use to the rollup.
+// Thread-safe.
+func (s *SessionState) AddToolUse(toolName, toolInput string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ToolUseRollup == nil {
+		s.ToolUseRollup = &ToolUseRollupState{
+			Items:    []ToolUseItemState{},
+			Expanded: false,
+		}
+	}
+	s.ToolUseRollup.Items = append(s.ToolUseRollup.Items, ToolUseItemState{
+		ToolName:  toolName,
+		ToolInput: toolInput,
+		Complete:  false,
+	})
+}
+
+// MarkLastToolUseComplete marks the last tool use as complete.
+// Thread-safe.
+func (s *SessionState) MarkLastToolUseComplete() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ToolUseRollup != nil && len(s.ToolUseRollup.Items) > 0 {
+		s.ToolUseRollup.Items[len(s.ToolUseRollup.Items)-1].Complete = true
+	}
+}
+
+// FlushToolUseRollup flushes the tool use rollup to streaming content and clears it.
+// Thread-safe.
+func (s *SessionState) FlushToolUseRollup(getToolIcon func(string) string, inProgressMarker, completeMarker string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ToolUseRollup == nil || len(s.ToolUseRollup.Items) == 0 {
+		return
+	}
+
+	// Add newline before if there's existing content that doesn't end with newline
+	if s.StreamingContent != "" && len(s.StreamingContent) > 0 && s.StreamingContent[len(s.StreamingContent)-1] != '\n' {
+		s.StreamingContent += "\n"
+	}
+
+	// Render all tool uses in the rollup to streaming content
+	for _, item := range s.ToolUseRollup.Items {
+		marker := inProgressMarker
+		if item.Complete {
+			marker = completeMarker
+		}
+		icon := getToolIcon(item.ToolName)
+		line := marker + " " + icon + "(" + item.ToolName
+		if item.ToolInput != "" {
+			line += ": " + item.ToolInput
+		}
+		line += ")\n"
+		s.StreamingContent += line
+	}
+
+	// Clear the rollup
+	s.ToolUseRollup = nil
+	s.ToolUsePos = -1
 }
 
 // --- Thread-safe accessors for PendingPermission ---
@@ -384,6 +480,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		state.PendingPlanApproval = nil
 		state.DetectedOptions = nil
 		state.CurrentTodoList = nil
+		state.ToolUseRollup = nil
 
 		state.mu.Unlock()
 		delete(m.states, sessionID)

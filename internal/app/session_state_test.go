@@ -482,3 +482,112 @@ func TestSessionStateManager_ReplaceToolUseMarker(t *testing.T) {
 		t.Errorf("expected unchanged content, got %q", state.StreamingContent)
 	}
 }
+
+func TestSessionState_ToolUseRollup(t *testing.T) {
+	state := &SessionState{ToolUsePos: -1}
+
+	// Initially no rollup
+	if state.GetToolUseRollup() != nil {
+		t.Error("expected nil rollup initially")
+	}
+
+	// Add tool uses
+	state.AddToolUse("Read", "file1.go")
+	state.AddToolUse("Edit", "file2.go")
+
+	rollup := state.GetToolUseRollup()
+	if rollup == nil {
+		t.Fatal("expected rollup after adding tool uses")
+	}
+	if len(rollup.Items) != 2 {
+		t.Errorf("expected 2 items, got %d", len(rollup.Items))
+	}
+	if rollup.Items[0].ToolName != "Read" || rollup.Items[0].ToolInput != "file1.go" {
+		t.Errorf("first item mismatch: %+v", rollup.Items[0])
+	}
+	if rollup.Items[1].ToolName != "Edit" || rollup.Items[1].ToolInput != "file2.go" {
+		t.Errorf("second item mismatch: %+v", rollup.Items[1])
+	}
+
+	// Mark last complete
+	state.MarkLastToolUseComplete()
+	if !rollup.Items[1].Complete {
+		t.Error("expected second item to be complete")
+	}
+	if rollup.Items[0].Complete {
+		t.Error("expected first item to still be incomplete")
+	}
+}
+
+func TestSessionState_FlushToolUseRollup(t *testing.T) {
+	state := &SessionState{ToolUsePos: -1}
+
+	// Add tool uses
+	state.AddToolUse("Read", "file1.go")
+	state.AddToolUse("Edit", "file2.go")
+	state.MarkLastToolUseComplete()
+
+	// Mock GetToolIcon function
+	mockGetIcon := func(tool string) string {
+		switch tool {
+		case "Read":
+			return "Reading"
+		case "Edit":
+			return "Editing"
+		default:
+			return "Using"
+		}
+	}
+
+	// Flush to streaming content
+	state.FlushToolUseRollup(mockGetIcon, "⏺", "●")
+
+	// Rollup should be cleared
+	if state.GetToolUseRollup() != nil {
+		t.Error("expected rollup to be nil after flush")
+	}
+
+	// Streaming content should contain both tool uses
+	content := state.GetStreamingContent()
+	if content == "" {
+		t.Fatal("expected streaming content after flush")
+	}
+	if !contains(content, "file1.go") {
+		t.Error("expected streaming to contain 'file1.go'")
+	}
+	if !contains(content, "file2.go") {
+		t.Error("expected streaming to contain 'file2.go'")
+	}
+	// First should be in-progress marker, second should be complete
+	if !contains(content, "⏺") {
+		t.Error("expected in-progress marker in streaming")
+	}
+	if !contains(content, "●") {
+		t.Error("expected complete marker in streaming")
+	}
+}
+
+func TestSessionState_FlushToolUseRollupEmpty(t *testing.T) {
+	state := &SessionState{ToolUsePos: -1}
+
+	// Flush with no rollup should be a no-op
+	state.FlushToolUseRollup(func(s string) string { return s }, "⏺", "●")
+
+	if state.GetStreamingContent() != "" {
+		t.Error("expected empty streaming content when flushing empty rollup")
+	}
+}
+
+// Helper function for string contains check
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))
+}
+
+func containsImpl(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

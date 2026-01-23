@@ -185,6 +185,15 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutSearchMessages,
 		Condition:       func(m *Model) bool { return m.chat.IsFocused() },
 	},
+	{
+		Key:             "ctrl+t",
+		DisplayKey:      "ctrl-t",
+		Description:     "Toggle tool use expansion",
+		Category:        CategoryChat,
+		RequiresSession: true,
+		Handler:         shortcutToggleToolUseRollup,
+		Condition:       func(m *Model) bool { return m.chat.IsFocused() && m.chat.HasActiveToolUseRollup() },
+	},
 
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
@@ -564,6 +573,11 @@ func shortcutSearchMessages(m *Model) (tea.Model, tea.Cmd) {
 	}
 
 	m.modal.Show(ui.NewSearchMessagesState(searchMessages))
+	return m, nil
+}
+
+func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
+	m.chat.ToggleToolUseRollup()
 	return m, nil
 }
 
