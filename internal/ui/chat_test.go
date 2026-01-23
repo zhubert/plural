@@ -1270,6 +1270,49 @@ func TestChat_ToolUseRollupFlushOnText(t *testing.T) {
 	}
 }
 
+// TestChat_ToolUseRollupWhitespaceSeparation verifies that tool use rollup
+// is properly separated from streaming text content with a newline
+func TestChat_ToolUseRollupWhitespaceSeparation(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 40)
+
+	// Add streaming text content
+	chat.streaming = "Looking at the codebase, I need to search for any syntax highlighting implementation."
+
+	// Add tool use - this should appear on a new line, not concatenated with the text
+	chat.AppendToolUse("Grep", "code.*block|```")
+
+	// The key behavior: when we have both streaming content and a tool use rollup,
+	// the tool use rollup should be rendered on its own line, not concatenated
+	// with the streaming text.
+
+	// Verify the rollup contains the in-progress marker (may have ANSI styling)
+	rollup := chat.renderToolUseRollup()
+	if !strings.Contains(rollup, ToolUseInProgress) {
+		t.Errorf("Expected rollup to contain in-progress marker, got: %q", rollup)
+	}
+
+	// The streaming text should NOT have a trailing newline added by AppendToolUse
+	// (the newline separation is handled in updateContent, not in streaming content)
+	if strings.HasSuffix(chat.streaming, "\n") {
+		t.Error("Expected streaming content to not have trailing newline (separation is done during render)")
+	}
+
+	// Verify that when content is updated, the rendered output has proper separation
+	// by checking that updateContent adds a newline before the rollup
+	chat.updateContent()
+
+	// Get the viewport content which should have the proper formatting
+	viewportContent := chat.viewport.View()
+
+	// The text "implementation." should appear, followed eventually by the tool marker
+	// They should NOT be on the same line (there should be a newline between them)
+	if strings.Contains(viewportContent, "implementation."+ToolUseInProgress) {
+		t.Error("Expected newline between streaming text and tool use marker, but they appear concatenated")
+	}
+}
+
 func TestChat_UserMessage(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)

@@ -1079,6 +1079,10 @@ func (c *Chat) updateContent() {
 			}
 			// Render active tool use rollup
 			if c.toolUseRollup != nil && len(c.toolUseRollup.Items) > 0 {
+				// Add newline separator if there's streaming content before the rollup
+				if c.streaming != "" {
+					sb.WriteString("\n")
+				}
 				sb.WriteString(c.renderToolUseRollup())
 			}
 			// Add status line below streaming content
