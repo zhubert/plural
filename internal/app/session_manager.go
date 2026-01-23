@@ -219,11 +219,10 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		// StreamingContent, and StreamingStartTime are all read consistently
 		state.WithLock(func(s *SessionState) {
 			result.IsWaiting = s.IsWaiting
-			if s.IsWaiting {
-				result.WaitStart = s.WaitStart
-			} else if s.StreamingContent != "" {
-				// If not waiting but have streaming content (shouldn't happen normally,
-				// but handle gracefully), use StreamingStartTime
+			// Always use StreamingStartTime for elapsed time display - it's set when
+			// streaming starts and preserved throughout (WaitStart gets cleared when
+			// first chunk arrives, but we still need elapsed time for the UI)
+			if s.IsWaiting || s.StreamingContent != "" {
 				result.WaitStart = s.StreamingStartTime
 			}
 			if s.StreamingContent != "" {

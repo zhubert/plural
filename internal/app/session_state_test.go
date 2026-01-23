@@ -197,6 +197,46 @@ func TestStreamingStartTimeSetWithWaiting(t *testing.T) {
 	}
 }
 
+// TestGetWaitStartReturnsStreamingStartTime verifies that GetWaitStart returns
+// StreamingStartTime, which persists even when WaitStart is cleared.
+// This is important because WaitStart gets cleared when the first chunk arrives,
+// but we still need the start time for elapsed time display in the UI.
+func TestGetWaitStartReturnsStreamingStartTime(t *testing.T) {
+	m := NewSessionStateManager()
+
+	// Start waiting
+	cancel := func() {}
+	m.StartWaiting("session-1", cancel)
+	state := m.GetIfExists("session-1")
+
+	// Get the initial time from GetWaitStart
+	initialTime, ok := m.GetWaitStart("session-1")
+	if !ok {
+		t.Fatal("expected GetWaitStart to return true")
+	}
+	if initialTime.IsZero() {
+		t.Fatal("expected GetWaitStart to return non-zero time")
+	}
+
+	// Simulate what happens when first streaming chunk arrives:
+	// WaitStart gets cleared, but StreamingStartTime should be preserved
+	state.mu.Lock()
+	state.WaitStart = time.Time{} // Clear WaitStart like msg_handlers.go does
+	state.mu.Unlock()
+
+	// GetWaitStart should still return the original time (from StreamingStartTime)
+	afterClearTime, ok := m.GetWaitStart("session-1")
+	if !ok {
+		t.Error("expected GetWaitStart to still return true after WaitStart cleared")
+	}
+	if afterClearTime.IsZero() {
+		t.Error("expected GetWaitStart to return non-zero time from StreamingStartTime")
+	}
+	if !afterClearTime.Equal(initialTime) {
+		t.Error("expected GetWaitStart to return the same time after WaitStart cleared")
+	}
+}
+
 func TestSessionStateManager_Merge(t *testing.T) {
 	m := NewSessionStateManager()
 
