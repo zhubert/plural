@@ -34,8 +34,9 @@ go test ./...            # Test
 ## Debug Logs
 
 ```bash
-tail -f /tmp/plural-debug.log    # Main app logs
-tail -f /tmp/plural-mcp-*.log    # MCP permission logs (per-session)
+tail -f /tmp/plural-debug.log      # Main app logs
+tail -f /tmp/plural-mcp-*.log      # MCP permission logs (per-session)
+tail -f /tmp/plural-stream-*.log   # Raw Claude stream messages (per-session, pretty-printed JSON)
 ```
 
 Log levels: Debug, Info, Warn, Error. Default shows Info+. Use `--debug` for verbose output.

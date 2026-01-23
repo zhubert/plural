@@ -177,6 +177,9 @@ type Runner struct {
 	// Session-scoped logger with sessionID pre-attached
 	log *slog.Logger
 
+	// Stream log file for raw Claude messages (separate from main debug log)
+	streamLogFile *os.File
+
 	// MCP interactive prompt channels. Each pair handles one type of interaction:
 	// - Permission: Tool use authorization (y/n/always)
 	// - Question: Multiple-choice questions from Claude
@@ -246,6 +249,13 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 	allowedTools := make([]string, len(DefaultAllowedTools))
 	copy(allowedTools, DefaultAllowedTools)
 
+	// Open stream log file for raw Claude messages
+	streamLogPath := logger.StreamLogPath(sessionID)
+	streamLogFile, err := os.OpenFile(streamLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Warn("failed to open stream log file", "path", streamLogPath, "error", err)
+	}
+
 	r := &Runner{
 		sessionID:      sessionID,
 		workingDir:     workingDir,
@@ -253,6 +263,7 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 		sessionStarted: sessionStarted,
 		allowedTools:   allowedTools,
 		log:            log,
+		streamLogFile:  streamLogFile,
 		permReqChan:    make(chan mcp.PermissionRequest, PermissionChannelBuffer),
 		permRespChan:   make(chan mcp.PermissionResponse, PermissionChannelBuffer),
 		questReqChan:   make(chan mcp.QuestionRequest, PermissionChannelBuffer),
@@ -846,8 +857,19 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 
 // handleProcessLine processes a line of output from the Claude process.
 func (r *Runner) handleProcessLine(line string) {
-	// Log raw streaming message at debug level for troubleshooting
-	r.log.Debug("stream message received", "raw", line)
+	// Write raw message to dedicated stream log file (pretty-printed JSON)
+	if r.streamLogFile != nil {
+		var prettyJSON map[string]any
+		if err := json.Unmarshal([]byte(line), &prettyJSON); err == nil {
+			if formatted, err := json.MarshalIndent(prettyJSON, "", "  "); err == nil {
+				fmt.Fprintf(r.streamLogFile, "%s\n", formatted)
+			} else {
+				fmt.Fprintf(r.streamLogFile, "%s\n", line)
+			}
+		} else {
+			fmt.Fprintf(r.streamLogFile, "%s\n", line)
+		}
+	}
 
 	// Parse the JSON message
 	chunks := parseStreamMessage(line, r.log)
@@ -1398,6 +1420,12 @@ func (r *Runner) Stop() {
 		if r.planRespChan != nil {
 			close(r.planRespChan)
 			r.planRespChan = nil
+		}
+
+		// Close stream log file
+		if r.streamLogFile != nil {
+			r.streamLogFile.Close()
+			r.streamLogFile = nil
 		}
 
 		r.log.Info("runner stopped")

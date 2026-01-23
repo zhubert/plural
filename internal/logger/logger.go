@@ -26,6 +26,11 @@ func MCPLogPath(sessionID string) string {
 	return fmt.Sprintf("/tmp/plural-mcp-%s.log", sessionID)
 }
 
+// StreamLogPath returns the log path for Claude stream messages
+func StreamLogPath(sessionID string) string {
+	return fmt.Sprintf("/tmp/plural-stream-%s.log", sessionID)
+}
+
 // SetDebug enables or disables debug level logging
 func SetDebug(enabled bool) {
 	if enabled {
@@ -180,6 +185,20 @@ func ClearLogs() (int, error) {
 	}
 
 	for _, logPath := range mcpLogs {
+		if err := os.Remove(logPath); err == nil {
+			count++
+		} else if !os.IsNotExist(err) {
+			return count, err
+		}
+	}
+
+	// Remove stream session logs using glob pattern
+	streamLogs, err := filepath.Glob("/tmp/plural-stream-*.log")
+	if err != nil {
+		return count, err
+	}
+
+	for _, logPath := range streamLogs {
 		if err := os.Remove(logPath); err == nil {
 			count++
 		} else if !os.IsNotExist(err) {
