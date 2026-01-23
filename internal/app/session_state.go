@@ -41,9 +41,10 @@ type SessionState struct {
 	IsWaiting    bool      // Whether we're waiting for Claude response
 
 	// UI state preserved when switching sessions
-	InputText        string // Saved input text
-	StreamingContent string // In-progress streaming content
-	ToolUsePos       int    // Position of tool use marker for replacement
+	InputText          string    // Saved input text
+	StreamingContent   string    // In-progress streaming content
+	StreamingStartTime time.Time // When streaming started (for elapsed time display)
+	ToolUsePos         int       // Position of tool use marker for replacement
 
 	// Parallel options state
 	DetectedOptions []DetectedOption // Options detected in last assistant message
@@ -390,7 +391,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 }
 
 // StartWaiting marks a session as waiting for Claude response.
-// This sets WaitStart, IsWaiting, and StreamCancel atomically.
+// This sets WaitStart, IsWaiting, StreamCancel, and StreamingStartTime atomically.
 func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.CancelFunc) {
 	m.mu.Lock()
 	state := m.getOrCreate(sessionID)
@@ -398,7 +399,9 @@ func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.Canc
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	state.WaitStart = time.Now()
+	now := time.Now()
+	state.WaitStart = now
+	state.StreamingStartTime = now // Also set streaming start time for UI display
 	state.IsWaiting = true
 	state.StreamCancel = cancel
 }
@@ -422,7 +425,7 @@ func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
 }
 
 // StopWaiting marks a session as no longer waiting.
-// This clears IsWaiting, WaitStart, and StreamCancel atomically.
+// This clears IsWaiting, WaitStart, StreamCancel, and StreamingStartTime atomically.
 func (m *SessionStateManager) StopWaiting(sessionID string) {
 	m.mu.RLock()
 	state, exists := m.states[sessionID]
@@ -433,6 +436,7 @@ func (m *SessionStateManager) StopWaiting(sessionID string) {
 		defer state.mu.Unlock()
 		state.IsWaiting = false
 		state.WaitStart = time.Time{}
+		state.StreamingStartTime = time.Time{}
 		state.StreamCancel = nil
 	}
 }

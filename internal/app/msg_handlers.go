@@ -62,6 +62,11 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
 	logger.WithSession(sessionID).Info("completed streaming")
 	m.sidebar.SetStreaming(sessionID, false)
+
+	// Clear streaming content and stop waiting atomically
+	if state := m.sessionState().GetIfExists(sessionID); state != nil {
+		state.SetStreamingContent("")
+	}
 	m.sessionState().StopWaiting(sessionID)
 
 	var completionCmd tea.Cmd
@@ -73,12 +78,6 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 
 		// Refresh diff stats after Claude finishes (files may have changed)
 		m.refreshDiffStats()
-	} else {
-		// For non-active session, just clear our saved streaming content
-		// The runner already adds the assistant message when streaming completes (claude.go)
-		if state := m.sessionState().GetIfExists(sessionID); state != nil {
-			state.SetStreamingContent("")
-		}
 	}
 
 	// Mark session as started and save messages
