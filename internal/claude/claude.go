@@ -472,6 +472,12 @@ type ResponseChunk struct {
 	Error     error
 }
 
+// ModelUsageEntry represents usage statistics for a specific model in the result message.
+// This includes both the parent model and any sub-agents (e.g., Haiku for Task agents).
+type ModelUsageEntry struct {
+	OutputTokens int `json:"outputTokens"`
+}
+
 // streamMessage represents a JSON message from Claude's stream-json output
 type streamMessage struct {
 	Type    string `json:"type"`    // "system", "assistant", "user", "result"
@@ -489,15 +495,16 @@ type streamMessage struct {
 		} `json:"content"`
 		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
-	Result       string       `json:"result,omitempty"`        // Final result text
-	Error        string       `json:"error,omitempty"`         // Error message (alternative to result)
-	Errors       []string     `json:"errors,omitempty"`        // Error messages array (used by error_during_execution)
-	SessionID    string       `json:"session_id,omitempty"`
-	DurationMs   int          `json:"duration_ms,omitempty"`   // Total duration in milliseconds
-	DurationAPIMs int         `json:"duration_api_ms,omitempty"` // API duration in milliseconds
-	NumTurns     int          `json:"num_turns,omitempty"`     // Number of conversation turns
-	TotalCostUSD float64      `json:"total_cost_usd,omitempty"` // Total cost in USD
-	Usage        *StreamUsage `json:"usage,omitempty"`         // Token usage breakdown
+	Result        string                      `json:"result,omitempty"`        // Final result text
+	Error         string                      `json:"error,omitempty"`         // Error message (alternative to result)
+	Errors        []string                    `json:"errors,omitempty"`        // Error messages array (used by error_during_execution)
+	SessionID     string                      `json:"session_id,omitempty"`
+	DurationMs    int                         `json:"duration_ms,omitempty"`   // Total duration in milliseconds
+	DurationAPIMs int                         `json:"duration_api_ms,omitempty"` // API duration in milliseconds
+	NumTurns      int                         `json:"num_turns,omitempty"`     // Number of conversation turns
+	TotalCostUSD  float64                     `json:"total_cost_usd,omitempty"` // Total cost in USD
+	Usage         *StreamUsage                `json:"usage,omitempty"`         // Token usage breakdown
+	ModelUsage    map[string]*ModelUsageEntry `json:"modelUsage,omitempty"`    // Per-model usage breakdown (includes sub-agents)
 }
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output
@@ -995,26 +1002,43 @@ func (r *Runner) handleProcessLine(line string) {
 			r.messages = append(r.messages, Message{Role: "assistant", Content: r.fullResponse.String()})
 
 			// Emit stream stats chunk before Done if we have usage data
-			// Use accumulated total for accurate token count across all API calls
-			if ch != nil && !r.currentResponseChClosed && msg.Usage != nil {
-				// Add the final token count from the last API call to get total
-				totalOutputTokens := r.accumulatedOutputTokens + r.lastMessageOutputTokens
-				// If the result message has its own usage, it represents the final state
-				if msg.Usage.OutputTokens > r.lastMessageOutputTokens {
-					totalOutputTokens = r.accumulatedOutputTokens + msg.Usage.OutputTokens
+			// Prefer modelUsage (which includes sub-agent tokens) over the streaming accumulator
+			if ch != nil && !r.currentResponseChClosed {
+				var totalOutputTokens int
+
+				// If modelUsage is present, sum up output tokens from all models
+				// This includes both the parent model and any sub-agents (e.g., Haiku for Task)
+				if len(msg.ModelUsage) > 0 {
+					for _, usage := range msg.ModelUsage {
+						totalOutputTokens += usage.OutputTokens
+					}
+					r.log.Debug("using modelUsage for token count",
+						"modelCount", len(msg.ModelUsage),
+						"totalOutputTokens", totalOutputTokens)
+				} else if msg.Usage != nil {
+					// Fall back to streaming accumulator if no modelUsage
+					totalOutputTokens = r.accumulatedOutputTokens + r.lastMessageOutputTokens
+					if msg.Usage.OutputTokens > r.lastMessageOutputTokens {
+						totalOutputTokens = r.accumulatedOutputTokens + msg.Usage.OutputTokens
+					}
+					r.log.Debug("using streaming accumulator for token count",
+						"accumulated", r.accumulatedOutputTokens,
+						"lastMessage", r.lastMessageOutputTokens,
+						"totalOutputTokens", totalOutputTokens)
 				}
-				stats := &StreamStats{
-					OutputTokens: totalOutputTokens,
-					TotalCostUSD: msg.TotalCostUSD,
-				}
-				r.log.Debug("emitting final stream stats",
-					"outputTokens", stats.OutputTokens,
-					"accumulated", r.accumulatedOutputTokens,
-					"lastMessage", r.lastMessageOutputTokens,
-					"totalCostUSD", stats.TotalCostUSD)
-				select {
-				case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
-				default:
+
+				if totalOutputTokens > 0 || msg.TotalCostUSD > 0 {
+					stats := &StreamStats{
+						OutputTokens: totalOutputTokens,
+						TotalCostUSD: msg.TotalCostUSD,
+					}
+					r.log.Debug("emitting final stream stats",
+						"outputTokens", stats.OutputTokens,
+						"totalCostUSD", stats.TotalCostUSD)
+					select {
+					case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
+					default:
+					}
 				}
 			}
 

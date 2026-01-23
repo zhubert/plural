@@ -450,6 +450,118 @@ func TestStreamMessage_ErrorsArray_Multiple(t *testing.T) {
 	}
 }
 
+func TestStreamMessage_ModelUsage(t *testing.T) {
+	// Test that modelUsage is properly parsed from result messages
+	// This is important for getting accurate token counts when sub-agents are used
+	jsonMsg := `{
+		"type": "result",
+		"subtype": "success",
+		"total_cost_usd": 0.41071,
+		"usage": {"input_tokens": 4, "output_tokens": 926},
+		"modelUsage": {
+			"claude-haiku-4-5-20251001": {"outputTokens": 6944},
+			"claude-opus-4-5-20251101": {"outputTokens": 1461}
+		}
+	}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	// Verify modelUsage is parsed
+	if len(msg.ModelUsage) != 2 {
+		t.Errorf("Expected 2 models in ModelUsage, got %d", len(msg.ModelUsage))
+	}
+
+	// Verify individual model output tokens
+	if haiku, ok := msg.ModelUsage["claude-haiku-4-5-20251001"]; ok {
+		if haiku.OutputTokens != 6944 {
+			t.Errorf("Haiku outputTokens = %d, want 6944", haiku.OutputTokens)
+		}
+	} else {
+		t.Error("Missing haiku model in ModelUsage")
+	}
+
+	if opus, ok := msg.ModelUsage["claude-opus-4-5-20251101"]; ok {
+		if opus.OutputTokens != 1461 {
+			t.Errorf("Opus outputTokens = %d, want 1461", opus.OutputTokens)
+		}
+	} else {
+		t.Error("Missing opus model in ModelUsage")
+	}
+
+	// Verify total is correctly calculated by summing all models
+	var total int
+	for _, usage := range msg.ModelUsage {
+		total += usage.OutputTokens
+	}
+	expected := 6944 + 1461 // = 8405
+	if total != expected {
+		t.Errorf("Total output tokens = %d, want %d", total, expected)
+	}
+
+	// Verify usage.output_tokens (926) is NOT the same as the modelUsage total
+	// This demonstrates why we need modelUsage for accurate sub-agent token counting
+	if msg.Usage.OutputTokens == total {
+		t.Error("Usage.OutputTokens should NOT equal modelUsage total - this is the bug we're fixing")
+	}
+}
+
+func TestStreamMessage_ModelUsage_SingleModel(t *testing.T) {
+	// Test with single model (no sub-agents)
+	jsonMsg := `{
+		"type": "result",
+		"subtype": "success",
+		"usage": {"output_tokens": 500},
+		"modelUsage": {
+			"claude-opus-4-5-20251101": {"outputTokens": 500}
+		}
+	}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(msg.ModelUsage) != 1 {
+		t.Errorf("Expected 1 model in ModelUsage, got %d", len(msg.ModelUsage))
+	}
+
+	// In single-model case, modelUsage total should match usage.output_tokens
+	var total int
+	for _, usage := range msg.ModelUsage {
+		total += usage.OutputTokens
+	}
+	if total != msg.Usage.OutputTokens {
+		t.Errorf("Single model total = %d, usage.output_tokens = %d - should match", total, msg.Usage.OutputTokens)
+	}
+}
+
+func TestStreamMessage_NoModelUsage(t *testing.T) {
+	// Test backward compatibility when modelUsage is not present
+	jsonMsg := `{
+		"type": "result",
+		"subtype": "success",
+		"usage": {"output_tokens": 500}
+	}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	// ModelUsage should be nil/empty
+	if len(msg.ModelUsage) != 0 {
+		t.Errorf("Expected empty ModelUsage, got %d entries", len(msg.ModelUsage))
+	}
+
+	// Usage should still be present
+	if msg.Usage == nil || msg.Usage.OutputTokens != 500 {
+		t.Error("Usage.OutputTokens should be 500")
+	}
+}
+
 func TestExtractToolInputDescription_Read(t *testing.T) {
 	input := json.RawMessage(`{"file_path":"/path/to/file.go"}`)
 	desc := extractToolInputDescription("Read", input)
