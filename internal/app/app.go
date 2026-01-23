@@ -1580,6 +1580,7 @@ func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
+	v.ReportFocus = true
 
 	if m.width == 0 || m.height == 0 {
 		v.SetContent("Loading...")
