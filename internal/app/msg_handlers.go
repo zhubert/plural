@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -63,8 +62,9 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	logger.WithSession(sessionID).Info("completed streaming")
 	m.sidebar.SetStreaming(sessionID, false)
 
-	// Clear streaming content and stop waiting atomically
+	// Flush any pending tool uses and clear streaming content
 	if state := m.sessionState().GetIfExists(sessionID); state != nil {
+		state.FlushToolUseRollup(ui.GetToolIcon, ui.ToolUseInProgress, ui.ToolUseComplete)
 		state.SetStreamingContent("")
 	}
 	m.sessionState().StopWaiting(sessionID)
@@ -178,42 +178,17 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 
 	switch chunk.Type {
 	case claude.ChunkTypeToolUse:
-		// Format tool use for non-active session
-		icon := ui.GetToolIcon(chunk.ToolName)
-		line := ui.ToolUseInProgress + " " + icon + "(" + chunk.ToolName
-		if chunk.ToolInput != "" {
-			line += ": " + chunk.ToolInput
-		}
-		line += ")\n"
-		// Use WithLock for atomic access to multiple related fields
-		state.WithLock(func(s *SessionState) {
-			if s.StreamingContent != "" && !strings.HasSuffix(s.StreamingContent, "\n") {
-				s.StreamingContent += "\n"
-			}
-			// Track position where the marker starts
-			s.ToolUsePos = len(s.StreamingContent)
-			s.StreamingContent += line
-		})
+		// Add tool use to rollup for non-active session
+		state.AddToolUse(chunk.ToolName, chunk.ToolInput)
 
 	case claude.ChunkTypeToolResult:
-		// Mark the tool use as complete for non-active session
-		pos := state.GetToolUsePos()
-		if pos >= 0 {
-			m.sessionState().ReplaceToolUseMarker(sessionID, ui.ToolUseInProgress, ui.ToolUseComplete, pos)
-			state.SetToolUsePos(-1)
-		}
+		// Mark the last tool use as complete for non-active session
+		state.MarkLastToolUseComplete()
 
 	case claude.ChunkTypeText:
-		// Use WithLock for atomic access to multiple related fields
-		state.WithLock(func(s *SessionState) {
-			// Add extra newline after tool use for visual separation
-			if s.ToolUsePos >= 0 {
-				if strings.HasSuffix(s.StreamingContent, "\n") && !strings.HasSuffix(s.StreamingContent, "\n\n") {
-					s.StreamingContent += "\n"
-				}
-			}
-			s.StreamingContent += chunk.Content
-		})
+		// Flush any pending tool uses to streaming content before adding text
+		state.FlushToolUseRollup(ui.GetToolIcon, ui.ToolUseInProgress, ui.ToolUseComplete)
+		state.AppendStreamingContent(chunk.Content)
 
 	case claude.ChunkTypeTodoUpdate:
 		// Store todo list for non-active session
@@ -223,6 +198,8 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 
 	default:
 		if chunk.Content != "" {
+			// Flush any pending tool uses before adding other content
+			state.FlushToolUseRollup(ui.GetToolIcon, ui.ToolUseInProgress, ui.ToolUseComplete)
 			state.AppendStreamingContent(chunk.Content)
 		}
 	}

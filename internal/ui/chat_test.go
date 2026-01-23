@@ -1023,56 +1023,70 @@ func TestChat_ToolUseMarkers(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)
 
-	// Append tool use
+	// Append tool use - now goes to rollup, not directly to streaming
 	chat.AppendToolUse("Read", "file.go")
 
-	streaming := chat.GetStreaming()
-	if !strings.Contains(streaming, ToolUseInProgress) {
-		t.Error("Expected in-progress marker in streaming")
+	// Tool uses are now stored in rollup until text arrives
+	rollup := chat.GetToolUseRollup()
+	if rollup == nil || len(rollup.Items) != 1 {
+		t.Fatal("Expected one item in rollup")
 	}
-	if !strings.Contains(streaming, "Reading") {
-		t.Error("Expected 'Reading' icon in streaming")
+	if rollup.Items[0].ToolName != "Read" {
+		t.Errorf("Expected tool name 'Read', got %q", rollup.Items[0].ToolName)
 	}
-	if !strings.Contains(streaming, "file.go") {
-		t.Error("Expected 'file.go' in streaming")
+	if rollup.Items[0].ToolInput != "file.go" {
+		t.Errorf("Expected tool input 'file.go', got %q", rollup.Items[0].ToolInput)
+	}
+	if rollup.Items[0].Complete {
+		t.Error("Expected tool use to be incomplete")
 	}
 
 	// Mark complete
 	chat.MarkLastToolUseComplete()
 
-	streaming = chat.GetStreaming()
-	if strings.Contains(streaming, ToolUseInProgress) {
-		t.Error("Should not have in-progress marker after completion")
+	rollup = chat.GetToolUseRollup()
+	if !rollup.Items[0].Complete {
+		t.Error("Expected tool use to be complete after MarkLastToolUseComplete")
 	}
+
+	// When text arrives, tool uses are flushed to streaming
+	chat.AppendStreaming("File contents here")
+	streaming := chat.GetStreaming()
 	if !strings.Contains(streaming, ToolUseComplete) {
-		t.Error("Expected complete marker in streaming")
+		t.Error("Expected complete marker in streaming after flush")
+	}
+	if !strings.Contains(streaming, "Reading") {
+		t.Error("Expected 'Reading' icon in streaming after flush")
+	}
+	if !strings.Contains(streaming, "file.go") {
+		t.Error("Expected 'file.go' in streaming after flush")
 	}
 }
 
-func TestChat_ToolUsePositionResetOnFinishStreaming(t *testing.T) {
-	// This tests that lastToolUsePos is reset when FinishStreaming is called,
-	// preventing stale tool use state from causing extra newlines in subsequent
-	// streaming content (like merge output).
+func TestChat_ToolUseRollupResetOnFinishStreaming(t *testing.T) {
+	// This tests that tool use rollup is flushed and reset when FinishStreaming is called,
+	// preventing stale tool use state from affecting subsequent streaming content.
 	chat := NewChat()
 	chat.SetSession("test", nil)
 
 	// Simulate a tool use during Claude response
 	chat.AppendToolUse("Read", "file.go")
 
-	// Tool use should set lastToolUsePos
-	if chat.lastToolUsePos < 0 {
-		t.Fatal("Expected lastToolUsePos to be set after AppendToolUse")
+	// Tool use should be in rollup
+	rollup := chat.GetToolUseRollup()
+	if rollup == nil || len(rollup.Items) != 1 {
+		t.Fatal("Expected tool use to be in rollup after AppendToolUse")
 	}
 
-	// Add some response text
+	// Add some response text (flushes rollup)
 	chat.AppendStreaming("File contents here\n")
 
 	// Finish streaming (converts to message)
 	chat.FinishStreaming()
 
-	// After FinishStreaming, lastToolUsePos should be reset
-	if chat.lastToolUsePos != -1 {
-		t.Errorf("Expected lastToolUsePos to be -1 after FinishStreaming, got %d", chat.lastToolUsePos)
+	// After FinishStreaming, rollup should be nil
+	if chat.GetToolUseRollup() != nil {
+		t.Error("Expected rollup to be nil after FinishStreaming")
 	}
 
 	// Now simulate merge output (new streaming after previous response finished)
@@ -1085,6 +1099,174 @@ func TestChat_ToolUsePositionResetOnFinishStreaming(t *testing.T) {
 	expected := "Merging branch...\nChecking out main...\nAlready up to date.\n"
 	if streaming != expected {
 		t.Errorf("Expected streaming content %q, got %q", expected, streaming)
+	}
+}
+
+func TestChat_ToolUseRollupMultipleToolUses(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Add multiple tool uses
+	chat.AppendToolUse("Read", "file1.go")
+	chat.AppendToolUse("Read", "file2.go")
+	chat.AppendToolUse("Edit", "file3.go")
+
+	rollup := chat.GetToolUseRollup()
+	if rollup == nil || len(rollup.Items) != 3 {
+		t.Fatalf("Expected 3 items in rollup, got %v", rollup)
+	}
+
+	// Mark first two as complete
+	chat.MarkLastToolUseComplete() // marks file3.go
+	if !rollup.Items[2].Complete {
+		t.Error("Expected last item (file3.go) to be complete")
+	}
+	if rollup.Items[0].Complete || rollup.Items[1].Complete {
+		t.Error("Expected first two items to still be incomplete")
+	}
+
+	// Verify HasActiveToolUseRollup returns true for multiple items
+	if !chat.HasActiveToolUseRollup() {
+		t.Error("Expected HasActiveToolUseRollup to return true with 3 items")
+	}
+}
+
+func TestChat_ToolUseRollupToggle(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Add multiple tool uses
+	chat.AppendToolUse("Read", "file1.go")
+	chat.AppendToolUse("Read", "file2.go")
+
+	rollup := chat.GetToolUseRollup()
+	if rollup.Expanded {
+		t.Error("Expected rollup to start collapsed")
+	}
+
+	// Toggle to expanded
+	chat.ToggleToolUseRollup()
+	if !rollup.Expanded {
+		t.Error("Expected rollup to be expanded after toggle")
+	}
+
+	// Toggle back to collapsed
+	chat.ToggleToolUseRollup()
+	if rollup.Expanded {
+		t.Error("Expected rollup to be collapsed after second toggle")
+	}
+}
+
+func TestChat_ToolUseRollupRenderCollapsed(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	// Set viewport width for renderToolUseRollup to work
+	chat.SetSize(80, 40)
+
+	// Add multiple tool uses
+	chat.AppendToolUse("Read", "file1.go")
+	chat.AppendToolUse("Read", "file2.go")
+	chat.AppendToolUse("Edit", "main.go")
+
+	// Render the rollup
+	rendered := chat.renderToolUseRollup()
+
+	// Should show the most recent tool (main.go) and a "+2 more" indicator
+	if !strings.Contains(rendered, "main.go") {
+		t.Error("Expected rendered rollup to contain 'main.go'")
+	}
+	if !strings.Contains(rendered, "+2 more tool uses") {
+		t.Error("Expected rendered rollup to contain '+2 more tool uses'")
+	}
+	if !strings.Contains(rendered, "ctrl-t") {
+		t.Error("Expected rendered rollup to contain 'ctrl-t' hint")
+	}
+	// Should NOT show the other files when collapsed
+	if strings.Contains(rendered, "file1.go") || strings.Contains(rendered, "file2.go") {
+		t.Error("Expected collapsed rollup to NOT show earlier tool uses")
+	}
+}
+
+func TestChat_ToolUseRollupRenderExpanded(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	// Set viewport width for renderToolUseRollup to work
+	chat.SetSize(80, 40)
+
+	// Add multiple tool uses
+	chat.AppendToolUse("Read", "file1.go")
+	chat.AppendToolUse("Read", "file2.go")
+	chat.AppendToolUse("Edit", "main.go")
+
+	// Expand the rollup
+	chat.ToggleToolUseRollup()
+
+	// Render the rollup
+	rendered := chat.renderToolUseRollup()
+
+	// Should show all tool uses when expanded
+	if !strings.Contains(rendered, "main.go") {
+		t.Error("Expected expanded rollup to contain 'main.go'")
+	}
+	if !strings.Contains(rendered, "file1.go") {
+		t.Error("Expected expanded rollup to contain 'file1.go'")
+	}
+	if !strings.Contains(rendered, "file2.go") {
+		t.Error("Expected expanded rollup to contain 'file2.go'")
+	}
+}
+
+func TestChat_ToolUseRollupSingleItem(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 40)
+
+	// Add single tool use
+	chat.AppendToolUse("Read", "file.go")
+
+	// Should NOT have active rollup (need > 1 item)
+	if chat.HasActiveToolUseRollup() {
+		t.Error("Expected HasActiveToolUseRollup to return false with 1 item")
+	}
+
+	// Render should still work but not show "+N more" message
+	rendered := chat.renderToolUseRollup()
+	if !strings.Contains(rendered, "file.go") {
+		t.Error("Expected rendered rollup to contain 'file.go'")
+	}
+	if strings.Contains(rendered, "+") {
+		t.Error("Expected single-item rollup to NOT show '+N more' message")
+	}
+}
+
+func TestChat_ToolUseRollupFlushOnText(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Add tool uses
+	chat.AppendToolUse("Read", "file1.go")
+	chat.AppendToolUse("Read", "file2.go")
+
+	// Verify rollup exists
+	if chat.GetToolUseRollup() == nil {
+		t.Fatal("Expected rollup to exist before text")
+	}
+
+	// Append text - should flush rollup
+	chat.AppendStreaming("Here are the file contents")
+
+	// Rollup should be cleared
+	if chat.GetToolUseRollup() != nil {
+		t.Error("Expected rollup to be nil after text flush")
+	}
+
+	// Streaming should contain both tool uses
+	streaming := chat.GetStreaming()
+	if !strings.Contains(streaming, "file1.go") {
+		t.Error("Expected streaming to contain 'file1.go'")
+	}
+	if !strings.Contains(streaming, "file2.go") {
+		t.Error("Expected streaming to contain 'file2.go'")
 	}
 }
 
