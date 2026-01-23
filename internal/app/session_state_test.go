@@ -154,6 +154,49 @@ func TestSessionStateManager_Waiting(t *testing.T) {
 	}
 }
 
+// TestStreamingStartTimeSetWithWaiting verifies that StreamingStartTime
+// is set when StartWaiting is called, ensuring the elapsed time display
+// will work correctly even if session is switched during streaming.
+func TestStreamingStartTimeSetWithWaiting(t *testing.T) {
+	m := NewSessionStateManager()
+
+	// Start waiting
+	cancel := func() {}
+	m.StartWaiting("session-1", cancel)
+	state := m.GetIfExists("session-1")
+
+	// Both WaitStart and StreamingStartTime should be set
+	state.mu.Lock()
+	waitStart := state.WaitStart
+	streamingStart := state.StreamingStartTime
+	state.mu.Unlock()
+
+	if waitStart.IsZero() {
+		t.Error("expected WaitStart to be set")
+	}
+	if streamingStart.IsZero() {
+		t.Error("expected StreamingStartTime to be set")
+	}
+	if !waitStart.Equal(streamingStart) {
+		t.Error("expected WaitStart and StreamingStartTime to be equal")
+	}
+
+	// Stop waiting should clear both
+	m.StopWaiting("session-1")
+
+	state.mu.Lock()
+	waitStart = state.WaitStart
+	streamingStart = state.StreamingStartTime
+	state.mu.Unlock()
+
+	if !waitStart.IsZero() {
+		t.Error("expected WaitStart to be cleared after StopWaiting")
+	}
+	if !streamingStart.IsZero() {
+		t.Error("expected StreamingStartTime to be cleared after StopWaiting")
+	}
+}
+
 func TestSessionStateManager_Merge(t *testing.T) {
 	m := NewSessionStateManager()
 

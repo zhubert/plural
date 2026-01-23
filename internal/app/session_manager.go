@@ -201,13 +201,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		DiffStats:  diffStats,
 	}
 
-	// Get waiting state
-	if startTime, isWaiting := sm.stateManager.GetWaitStart(sess.ID); isWaiting {
-		result.WaitStart = startTime
-		result.IsWaiting = true
-	}
-
-	// Get state for remaining fields
+	// Get state for all fields - use WithLock to get streaming state atomically
 	if state := sm.stateManager.GetIfExists(sess.ID); state != nil {
 		// Get pending permission
 		result.Permission = state.GetPendingPermission()
@@ -221,8 +215,17 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		// Get todo list
 		result.TodoList = state.GetCurrentTodoList()
 
-		// Get streaming content (and clear it) - use WithLock for atomic read-and-clear
+		// Get streaming state atomically - this ensures IsWaiting, WaitStart,
+		// StreamingContent, and StreamingStartTime are all read consistently
 		state.WithLock(func(s *SessionState) {
+			result.IsWaiting = s.IsWaiting
+			if s.IsWaiting {
+				result.WaitStart = s.WaitStart
+			} else if s.StreamingContent != "" {
+				// If not waiting but have streaming content (shouldn't happen normally,
+				// but handle gracefully), use StreamingStartTime
+				result.WaitStart = s.StreamingStartTime
+			}
 			if s.StreamingContent != "" {
 				result.Streaming = s.StreamingContent
 				s.StreamingContent = ""

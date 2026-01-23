@@ -1151,6 +1151,57 @@ func TestChat_Waiting(t *testing.T) {
 	}
 }
 
+// TestFormatElapsed verifies the elapsed time formatting
+func TestFormatElapsed(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		expected string
+	}{
+		{"zero duration", 0, "0s"},
+		{"under a minute", 45 * time.Second, "45s"},
+		{"exactly one minute", 60 * time.Second, "1m0s"},
+		{"over a minute", 90 * time.Second, "1m30s"},
+		{"multiple minutes", 5*time.Minute + 23*time.Second, "5m23s"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatElapsed(tt.duration)
+			if result != tt.expected {
+				t.Errorf("formatElapsed(%v) = %q, want %q", tt.duration, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestChat_ZeroStreamStartTimeGivesZeroElapsed verifies that when
+// streamStartTime is zero (not set), the elapsed duration is 0
+// rather than calculating from the Go epoch (year 1).
+func TestChat_ZeroStreamStartTimeGivesZeroElapsed(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Set streaming content WITHOUT setting waiting state first
+	// This leaves streamStartTime as zero value
+	chat.streaming = "Some streaming content"
+
+	// Verify streamStartTime is zero
+	if !chat.streamStartTime.IsZero() {
+		t.Fatal("Expected streamStartTime to be zero for this test")
+	}
+
+	// The View should not crash and should handle zero streamStartTime
+	// by treating elapsed as 0, not as ~292 years since year 1
+	view := chat.View()
+
+	// View should contain "0s" (zero elapsed) not something like "153722867m"
+	if strings.Contains(view, "153722867m") {
+		t.Error("View contains absurdly large elapsed time (~292 years) due to zero streamStartTime")
+	}
+}
+
 func TestChat_FocusState(t *testing.T) {
 	chat := NewChat()
 

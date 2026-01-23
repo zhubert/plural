@@ -932,7 +932,10 @@ func (c *Chat) updateContent() {
 			sb.WriteString(renderMarkdown(streamContent, wrapWidth))
 			// Add status line below streaming content
 			sb.WriteString("\n")
-			elapsed := time.Since(c.streamStartTime)
+			var elapsed time.Duration
+			if !c.streamStartTime.IsZero() {
+				elapsed = time.Since(c.streamStartTime)
+			}
 			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
@@ -940,7 +943,10 @@ func (c *Chat) updateContent() {
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			elapsed := time.Since(c.streamStartTime)
+			var elapsed time.Duration
+			if !c.streamStartTime.IsZero() {
+				elapsed = time.Since(c.streamStartTime)
+			}
 			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
 		} else if c.completionFlashFrame >= 0 {
 			// Show completion flash animation
