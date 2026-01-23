@@ -1313,6 +1313,43 @@ func TestChat_ToolUseRollupWhitespaceSeparation(t *testing.T) {
 	}
 }
 
+// TestChat_ToolUseFlushedNewlineSeparation verifies that when tool uses are
+// flushed to streaming content and followed by text, there's a proper newline
+// separator between the tool use output and the following text.
+// This is a regression test for the bug where tool uses and following text
+// were squished together without a separator.
+func TestChat_ToolUseFlushedNewlineSeparation(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 40)
+
+	// Simulate a sequence: tool use runs, then text follows
+	// This is what happens when Claude does a search, then comments on results
+	chat.AppendToolUse("Grep", "HighlightDiff")
+	chat.MarkLastToolUseComplete()
+
+	// Now text arrives - this triggers flushToolUseRollup
+	chat.AppendStreaming("Yes, there is syntax highlighting for diffs")
+
+	streaming := chat.GetStreaming()
+
+	// The streaming content should have:
+	// 1. The tool use line ending with )\n
+	// 2. An extra newline for separation
+	// 3. The text content
+
+	// Check that there are two consecutive newlines between tool output and text
+	// The tool use line ends with ")\n" and we should have an extra "\n" before text
+	if !strings.Contains(streaming, ")\n\n") {
+		t.Errorf("Expected double newline after tool use, got streaming: %q", streaming)
+	}
+
+	// Check that the text is NOT directly concatenated with the closing paren
+	if strings.Contains(streaming, ")Yes") {
+		t.Error("Text should not be concatenated directly with tool use closing paren")
+	}
+}
+
 func TestChat_UserMessage(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)

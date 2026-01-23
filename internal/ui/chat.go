@@ -301,12 +301,9 @@ func (c *Chat) ClearSession() {
 // AppendStreaming appends content to the current streaming response
 func (c *Chat) AppendStreaming(content string) {
 	// When text content arrives, flush any pending tool uses to streaming first
+	// (flushToolUseRollup adds a trailing newline for visual separation)
 	c.flushToolUseRollup()
 
-	// Add extra newline after tool use for visual separation
-	if c.lastToolUsePos >= 0 && strings.HasSuffix(c.streaming, "\n") && !strings.HasSuffix(c.streaming, "\n\n") && !strings.HasPrefix(content, "\n") {
-		c.streaming += "\n"
-	}
 	c.streaming += content
 	c.updateContent()
 }
@@ -365,6 +362,10 @@ func (c *Chat) flushToolUseRollup() {
 		line += ")\n"
 		c.streaming += line
 	}
+
+	// Add extra newline after tool uses for visual separation from following text
+	// This is called from AppendStreaming, so there will be text content after
+	c.streaming += "\n"
 
 	// Clear the rollup - tool uses are now in streaming content
 	c.toolUseRollup = nil
