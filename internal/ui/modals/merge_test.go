@@ -1,6 +1,9 @@
 package modals
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUnwrapCommitMessage(t *testing.T) {
 	tests := []struct {
@@ -76,4 +79,93 @@ Word1 word2 word3`,
 			}
 		})
 	}
+}
+
+func TestLoadingCommitState(t *testing.T) {
+	t.Run("new state has correct defaults", func(t *testing.T) {
+		state := NewLoadingCommitState("pr")
+		if state.MergeType != "pr" {
+			t.Errorf("expected MergeType 'pr', got %q", state.MergeType)
+		}
+		if state.SpinnerFrame != 0 {
+			t.Errorf("expected SpinnerFrame 0, got %d", state.SpinnerFrame)
+		}
+	})
+
+	t.Run("title is correct", func(t *testing.T) {
+		state := NewLoadingCommitState("merge")
+		if state.Title() != "Generating Commit Message" {
+			t.Errorf("unexpected title: %q", state.Title())
+		}
+	})
+
+	t.Run("help text shows cancel option", func(t *testing.T) {
+		state := NewLoadingCommitState("merge")
+		help := state.Help()
+		if !strings.Contains(help, "Esc") {
+			t.Errorf("help should mention Esc key: %q", help)
+		}
+	})
+
+	t.Run("render shows operation label for each merge type", func(t *testing.T) {
+		tests := []struct {
+			mergeType     string
+			expectedLabel string
+		}{
+			{"pr", "Create PR"},
+			{"push", "Push updates to PR"},
+			{"parent", "Merge to parent"},
+			{"merge", "Merge to main"},
+		}
+
+		for _, tt := range tests {
+			state := NewLoadingCommitState(tt.mergeType)
+			rendered := state.Render()
+			if !strings.Contains(rendered, tt.expectedLabel) {
+				t.Errorf("render for %q should contain %q, got:\n%s", tt.mergeType, tt.expectedLabel, rendered)
+			}
+		}
+	})
+
+	t.Run("render shows waiting message", func(t *testing.T) {
+		state := NewLoadingCommitState("merge")
+		rendered := state.Render()
+		if !strings.Contains(rendered, "Waiting for Claude") {
+			t.Errorf("render should contain 'Waiting for Claude', got:\n%s", rendered)
+		}
+	})
+
+	t.Run("advance spinner increments frame", func(t *testing.T) {
+		state := NewLoadingCommitState("merge")
+		if state.SpinnerFrame != 0 {
+			t.Errorf("expected initial frame 0, got %d", state.SpinnerFrame)
+		}
+		state.AdvanceSpinner()
+		if state.SpinnerFrame != 1 {
+			t.Errorf("expected frame 1 after advance, got %d", state.SpinnerFrame)
+		}
+	})
+
+	t.Run("spinner wraps around", func(t *testing.T) {
+		state := NewLoadingCommitState("merge")
+		// Advance through all frames
+		for i := 0; i < len(spinnerFrames); i++ {
+			state.AdvanceSpinner()
+		}
+		// Should have wrapped to 0
+		if state.SpinnerFrame != 0 {
+			t.Errorf("expected frame to wrap to 0, got %d", state.SpinnerFrame)
+		}
+	})
+
+	t.Run("update returns self unchanged", func(t *testing.T) {
+		state := NewLoadingCommitState("merge")
+		newState, cmd := state.Update(nil)
+		if newState != state {
+			t.Error("update should return same state")
+		}
+		if cmd != nil {
+			t.Error("update should return nil cmd")
+		}
+	})
 }

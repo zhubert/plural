@@ -29,6 +29,7 @@ type (
 	ForkSessionState         = modals.ForkSessionState
 	RenameSessionState       = modals.RenameSessionState
 	MergeState              = modals.MergeState
+	LoadingCommitState      = modals.LoadingCommitState
 	EditCommitState         = modals.EditCommitState
 	MergeConflictState      = modals.MergeConflictState
 	ConfirmDeleteState      = modals.ConfirmDeleteState
@@ -57,6 +58,7 @@ var (
 	NewForkSessionState         = modals.NewForkSessionState
 	NewRenameSessionState       = modals.NewRenameSessionState
 	NewMergeState              = modals.NewMergeState
+	NewLoadingCommitState      = modals.NewLoadingCommitState
 	NewEditCommitState         = modals.NewEditCommitState
 	NewMergeConflictState      = modals.NewMergeConflictState
 	NewConfirmDeleteState      = modals.NewConfirmDeleteState

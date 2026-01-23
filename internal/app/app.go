@@ -492,6 +492,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Commit message generation completed
 		if msg.Error != nil {
 			logger.Get().Error("commit message generation failed", "error", msg.Error)
+			m.modal.Hide()
 			m.chat.AppendStreaming(fmt.Sprintf("Failed to generate commit message: %v\n", msg.Error))
 			m.pendingCommitSession = ""
 			m.pendingCommitType = MergeTypeNone
@@ -542,7 +543,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sidebar = sidebar
 		cmds = append(cmds, cmd)
 		return m, tea.Batch(cmds...)
-	case ui.StopwatchTickMsg, ui.SelectionCopyMsg:
+	case ui.StopwatchTickMsg:
+		// Update chat panel spinner if waiting
+		chat, cmd := m.chat.Update(msg)
+		m.chat = chat
+		cmds = append(cmds, cmd)
+		// Also update loading commit modal spinner if visible
+		if loadingState, ok := m.modal.State.(*ui.LoadingCommitState); ok {
+			loadingState.AdvanceSpinner()
+			cmds = append(cmds, ui.StopwatchTick())
+		}
+		return m, tea.Batch(cmds...)
+	case ui.SelectionCopyMsg:
 		chat, cmd := m.chat.Update(msg)
 		m.chat = chat
 		cmds = append(cmds, cmd)

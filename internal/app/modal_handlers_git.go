@@ -80,11 +80,11 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		if status.HasChanges {
 			// Finish any existing streaming before starting merge operation
 			m.chat.FinishStreaming()
-			// Generate commit message and show edit modal
-			m.chat.AppendStreaming("Generating commit message with Claude...\n")
+			// Show loading modal with spinner while generating commit message
+			m.modal.Show(ui.NewLoadingCommitState(mergeType.String()))
 			m.pendingCommitSession = sess.ID
 			m.pendingCommitType = mergeType
-			return m, m.generateCommitMessage(sess.ID, sess.WorkTree)
+			return m, tea.Batch(m.generateCommitMessage(sess.ID, sess.WorkTree), ui.StopwatchTick())
 		}
 
 		// No changes - proceed directly with merge/PR/push
@@ -115,6 +115,21 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleLoadingCommitModal handles key events for the Loading Commit modal.
+func (m *Model) handleLoadingCommitModal(key string, _ tea.KeyPressMsg, _ *ui.LoadingCommitState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		// Cancel commit message generation
+		m.modal.Hide()
+		m.pendingCommitSession = ""
+		m.pendingCommitType = MergeTypeNone
+		m.chat.AppendStreaming("Cancelled.\n")
+		return m, nil
+	}
+	// No other keys handled while loading
+	return m, nil
 }
 
 // handleEditCommitModal handles key events for the Edit Commit modal.

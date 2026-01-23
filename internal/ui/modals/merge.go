@@ -138,6 +138,84 @@ func NewMergeState(sessionName string, hasRemote bool, changesSummary string, pa
 }
 
 // =============================================================================
+// LoadingCommitState - State for waiting on commit message generation
+// =============================================================================
+
+// spinnerFrames are the characters used for the shimmering spinner animation
+// Same frames as used in chat_animation.go for consistency
+var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
+
+type LoadingCommitState struct {
+	MergeType    string // "merge", "pr", "push", or "parent"
+	SpinnerFrame int    // Current spinner animation frame
+}
+
+func (*LoadingCommitState) modalState() {}
+
+func (s *LoadingCommitState) Title() string { return "Generating Commit Message" }
+
+func (s *LoadingCommitState) Help() string {
+	return "Esc: cancel"
+}
+
+func (s *LoadingCommitState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Content width for text wrapping (modal width minus padding)
+	contentWidth := ModalWidth - 4
+
+	// Show what operation will follow
+	var operationLabel string
+	switch s.MergeType {
+	case "pr":
+		operationLabel = "Create PR"
+	case "push":
+		operationLabel = "Push updates to PR"
+	case "parent":
+		operationLabel = "Merge to parent"
+	default:
+		operationLabel = "Merge to main"
+	}
+	operationStyle := lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		MarginBottom(1).
+		Width(contentWidth)
+	operationSection := operationStyle.Render("After commit: " + operationLabel)
+
+	// Render spinner with "Waiting for Claude..." message
+	frame := spinnerFrames[s.SpinnerFrame%len(spinnerFrames)]
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(ColorUser).
+		Bold(true)
+	verbStyle := lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Italic(true)
+	spinnerLine := spinnerStyle.Render(frame) + " " + verbStyle.Render("Waiting for Claude...")
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left, title, operationSection, "", spinnerLine, "", help)
+}
+
+func (s *LoadingCommitState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	// No key handling needed - just wait
+	return s, nil
+}
+
+// AdvanceSpinner moves to the next spinner frame
+func (s *LoadingCommitState) AdvanceSpinner() {
+	s.SpinnerFrame = (s.SpinnerFrame + 1) % len(spinnerFrames)
+}
+
+// NewLoadingCommitState creates a new LoadingCommitState
+func NewLoadingCommitState(mergeType string) *LoadingCommitState {
+	return &LoadingCommitState{
+		MergeType:    mergeType,
+		SpinnerFrame: 0,
+	}
+}
+
+// =============================================================================
 // EditCommitState - State for the Edit Commit Message modal
 // =============================================================================
 

@@ -39,6 +39,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Git modals (modal_handlers_git.go)
 	case *ui.MergeState:
 		return m.handleMergeModal(key, msg, s)
+	case *ui.LoadingCommitState:
+		return m.handleLoadingCommitModal(key, msg, s)
 	case *ui.EditCommitState:
 		return m.handleEditCommitModal(key, msg, s)
 	case *ui.MergeConflictState:
