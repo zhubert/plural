@@ -106,8 +106,9 @@ type Chat struct {
 	selectionFlashFrame int // -1 = inactive, 0 = flash visible, 1+ = done
 
 	// Streaming statistics display
-	streamStartTime time.Time           // When waiting/streaming started
+	streamStartTime time.Time            // When waiting/streaming started
 	streamStats     *pclaude.StreamStats // Latest stats from Claude (nil until result received)
+	finalStats      *pclaude.StreamStats // Final stats from last completed response (persists for display)
 }
 
 // NewChat creates a new chat panel
@@ -334,6 +335,10 @@ func (c *Chat) FinishStreaming() {
 		})
 		c.streaming = ""
 		c.lastToolUsePos = -1 // Reset tool tracking to prevent stale state affecting future streaming
+		// Preserve final stats for display after streaming ends
+		if c.streamStats != nil {
+			c.finalStats = c.streamStats
+		}
 		c.updateContent()
 	}
 }
@@ -949,13 +954,13 @@ func (c *Chat) updateContent() {
 			}
 			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
 		} else if c.completionFlashFrame >= 0 {
-			// Show completion flash animation
+			// Show completion flash animation with final stats
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(renderCompletionFlash(c.completionFlashFrame))
+			sb.WriteString(renderCompletionFlash(c.completionFlashFrame, c.finalStats))
 		}
 
 		// Show queued message waiting to be sent

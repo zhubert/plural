@@ -3352,3 +3352,180 @@ func TestLayoutConstantsConsistency(t *testing.T) {
 			OverlayBoxMaxWidth, PlanBoxMaxWidth)
 	}
 }
+
+// =============================================================================
+// Final Stats and Model Breakdown Tests
+// =============================================================================
+
+func TestChat_FinalStatsPreservedAfterStreaming(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Start waiting/streaming
+	chat.SetWaiting(true)
+
+	// Add streaming content
+	chat.AppendStreaming("Hello, I'm Claude!")
+
+	// Set stream stats with model breakdown
+	stats := &claude.StreamStats{
+		OutputTokens: 231,
+		TotalCostUSD: 0.085,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5-20251101", OutputTokens: 207},
+			{Model: "claude-haiku-4-5-20251001", OutputTokens: 24},
+		},
+	}
+	chat.SetStreamStats(stats)
+
+	// Verify stats are set
+	if chat.streamStats == nil {
+		t.Fatal("streamStats should be set")
+	}
+
+	// Finish streaming
+	chat.FinishStreaming()
+
+	// finalStats should be preserved
+	if chat.finalStats == nil {
+		t.Fatal("finalStats should be preserved after FinishStreaming")
+	}
+
+	if chat.finalStats.OutputTokens != 231 {
+		t.Errorf("finalStats.OutputTokens = %d, want 231", chat.finalStats.OutputTokens)
+	}
+
+	if len(chat.finalStats.ByModel) != 2 {
+		t.Errorf("finalStats.ByModel length = %d, want 2", len(chat.finalStats.ByModel))
+	}
+}
+
+func TestChat_FinalStatsClearedOnNewRequest(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Set some final stats
+	chat.finalStats = &claude.StreamStats{
+		OutputTokens: 100,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5-20251101", OutputTokens: 100},
+		},
+	}
+
+	// Start a new request
+	chat.SetWaiting(true)
+
+	// finalStats should be cleared
+	if chat.finalStats != nil {
+		t.Error("finalStats should be cleared when starting new request")
+	}
+}
+
+func TestShortModelName(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected string
+	}{
+		{"claude-opus-4-5-20251101", "opus"},
+		{"claude-sonnet-3-5-20241022", "sonnet"},
+		{"claude-haiku-4-5-20251001", "haiku"},
+		{"unknown-model", "unknown-model"}, // Falls back to full name when no pattern matches
+		{"simple", "simple"},               // Single part fallback
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			result := shortModelName(tt.model)
+			if result != tt.expected {
+				t.Errorf("shortModelName(%q) = %q, want %q", tt.model, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderFinalStats(t *testing.T) {
+	// Test nil stats
+	result := renderFinalStats(nil)
+	if result != "" {
+		t.Errorf("renderFinalStats(nil) = %q, want empty string", result)
+	}
+
+	// Test zero tokens
+	stats := &claude.StreamStats{OutputTokens: 0}
+	result = renderFinalStats(stats)
+	if result != "" {
+		t.Errorf("renderFinalStats with 0 tokens = %q, want empty string", result)
+	}
+
+	// Test single model (no breakdown)
+	stats = &claude.StreamStats{
+		OutputTokens: 100,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5", OutputTokens: 100},
+		},
+	}
+	result = renderFinalStats(stats)
+	if !strings.Contains(result, "100 tokens") {
+		t.Errorf("renderFinalStats should contain '100 tokens', got %q", result)
+	}
+	// Single model should NOT show breakdown
+	if strings.Contains(result, "opus:") {
+		t.Errorf("Single model should not show breakdown, got %q", result)
+	}
+
+	// Test multiple models (shows breakdown)
+	stats = &claude.StreamStats{
+		OutputTokens: 231,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5-20251101", OutputTokens: 207},
+			{Model: "claude-haiku-4-5-20251001", OutputTokens: 24},
+		},
+	}
+	result = renderFinalStats(stats)
+	if !strings.Contains(result, "231 tokens") {
+		t.Errorf("renderFinalStats should contain '231 tokens', got %q", result)
+	}
+	if !strings.Contains(result, "opus:") {
+		t.Errorf("Multi-model should show opus breakdown, got %q", result)
+	}
+	if !strings.Contains(result, "haiku:") {
+		t.Errorf("Multi-model should show haiku breakdown, got %q", result)
+	}
+}
+
+func TestRenderCompletionFlash_WithStats(t *testing.T) {
+	// Test without stats
+	result := renderCompletionFlash(0, nil)
+	if !strings.Contains(result, "Done") {
+		t.Errorf("Completion flash frame 0 should contain 'Done', got %q", result)
+	}
+
+	// Test with stats
+	stats := &claude.StreamStats{
+		OutputTokens: 231,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5", OutputTokens: 207},
+			{Model: "claude-haiku-4-5", OutputTokens: 24},
+		},
+	}
+	result = renderCompletionFlash(0, stats)
+	if !strings.Contains(result, "Done") {
+		t.Errorf("Completion flash with stats should contain 'Done', got %q", result)
+	}
+	if !strings.Contains(result, "231") {
+		t.Errorf("Completion flash with stats should contain token count, got %q", result)
+	}
+
+	// Frame 1 should also show stats
+	result = renderCompletionFlash(1, stats)
+	if !strings.Contains(result, "231") {
+		t.Errorf("Completion flash frame 1 should contain token count, got %q", result)
+	}
+
+	// Frame 2+ should be empty
+	result = renderCompletionFlash(2, stats)
+	if result != "" {
+		t.Errorf("Completion flash frame 2+ should be empty, got %q", result)
+	}
+}

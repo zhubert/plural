@@ -170,8 +170,8 @@ func (c *Chat) SetStreamStats(stats *pclaude.StreamStats) {
 	c.updateContent()
 }
 
-// renderCompletionFlash renders the checkmark completion flash
-func renderCompletionFlash(frame int) string {
+// renderCompletionFlash renders the checkmark completion flash with final stats
+func renderCompletionFlash(frame int, stats *pclaude.StreamStats) string {
 	checkmark := "✓"
 
 	// Frame 0: bright checkmark (using theme's diff added color which is green)
@@ -183,14 +183,69 @@ func renderCompletionFlash(frame int) string {
 		style := lipgloss.NewStyle().
 			Foreground(DiffAddedStyle.GetForeground()).
 			Bold(true)
-		return style.Render(checkmark) + " " + lipgloss.NewStyle().Foreground(ColorSecondary).Italic(true).Render("Done")
+		result := style.Render(checkmark) + " " + lipgloss.NewStyle().Foreground(ColorSecondary).Italic(true).Render("Done")
+		// Add token stats if available
+		if stats != nil && stats.OutputTokens > 0 {
+			result += " " + renderFinalStats(stats)
+		}
+		return result
 	case 1:
-		// Normal checkmark (using theme's secondary color)
+		// Normal checkmark (using theme's secondary color) with stats
 		style := lipgloss.NewStyle().
 			Foreground(ColorSecondary)
-		return style.Render(checkmark)
+		result := style.Render(checkmark)
+		if stats != nil && stats.OutputTokens > 0 {
+			result += " " + renderFinalStats(stats)
+		}
+		return result
 	default:
 		return ""
+	}
+}
+
+// renderFinalStats renders the final token statistics with model breakdown
+func renderFinalStats(stats *pclaude.StreamStats) string {
+	if stats == nil || stats.OutputTokens == 0 {
+		return ""
+	}
+
+	metaStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+
+	// If we have a breakdown by model and more than one model was used, show it
+	if len(stats.ByModel) > 1 {
+		var parts []string
+		for _, m := range stats.ByModel {
+			// Extract short model name (e.g., "opus" from "claude-opus-4-5-20251101")
+			shortName := shortModelName(m.Model)
+			parts = append(parts, fmt.Sprintf("%s: %s", shortName, formatTokenCount(m.OutputTokens)))
+		}
+		return metaStyle.Render(fmt.Sprintf("(↓ %s tokens: %s)",
+			formatTokenCount(stats.OutputTokens),
+			strings.Join(parts, ", ")))
+	}
+
+	// Single model or no breakdown - just show total
+	return metaStyle.Render(fmt.Sprintf("(↓ %s tokens)", formatTokenCount(stats.OutputTokens)))
+}
+
+// shortModelName extracts a readable short name from a full model ID
+func shortModelName(model string) string {
+	// Map known model patterns to short names
+	switch {
+	case strings.Contains(model, "opus"):
+		return "opus"
+	case strings.Contains(model, "sonnet"):
+		return "sonnet"
+	case strings.Contains(model, "haiku"):
+		return "haiku"
+	default:
+		// For unknown models, try to extract a meaningful part
+		// e.g., "claude-3-5-sonnet-20241022" -> "sonnet"
+		parts := strings.Split(model, "-")
+		if len(parts) >= 3 {
+			return parts[len(parts)-2] // Second to last part often has the name
+		}
+		return model
 	}
 }
 
@@ -202,7 +257,8 @@ func (c *Chat) SetWaiting(waiting bool) {
 		c.spinnerIdx = 0
 		c.spinnerTick = 0
 		c.streamStartTime = time.Now()
-		c.streamStats = nil // Reset stats for new request
+		c.streamStats = nil  // Reset stats for new request
+		c.finalStats = nil   // Clear previous final stats
 	}
 	c.updateContent()
 }
@@ -215,7 +271,8 @@ func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 		c.spinnerIdx = 0
 		c.spinnerTick = 0
 		c.streamStartTime = startTime
-		c.streamStats = nil // Reset stats for new request
+		c.streamStats = nil  // Reset stats for new request
+		c.finalStats = nil   // Clear previous final stats
 	}
 	c.updateContent()
 }

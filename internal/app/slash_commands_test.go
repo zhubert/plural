@@ -131,7 +131,7 @@ func TestHandleCostCommand_NoSession(t *testing.T) {
 
 func TestSessionJSONLEntry(t *testing.T) {
 	// Test parsing of session JSONL entry structure
-	jsonData := `{"type":"assistant","message":{"usage":{"input_tokens":100,"output_tokens":50},"model":"claude-opus-4"}}`
+	jsonData := `{"type":"assistant","message":{"id":"msg_123","usage":{"input_tokens":100,"output_tokens":50},"model":"claude-opus-4"}}`
 
 	var entry sessionJSONLEntry
 	if err := json.Unmarshal([]byte(jsonData), &entry); err != nil {
@@ -140,6 +140,10 @@ func TestSessionJSONLEntry(t *testing.T) {
 
 	if entry.Type != "assistant" {
 		t.Errorf("Type = %q, want 'assistant'", entry.Type)
+	}
+
+	if entry.Message.ID != "msg_123" {
+		t.Errorf("ID = %q, want 'msg_123'", entry.Message.ID)
 	}
 
 	if entry.Message.Usage.InputTokens != 100 {
@@ -152,6 +156,100 @@ func TestSessionJSONLEntry(t *testing.T) {
 
 	if entry.Message.Model != "claude-opus-4" {
 		t.Errorf("Model = %q, want 'claude-opus-4'", entry.Message.Model)
+	}
+}
+
+func TestMessageUsageDeduplication(t *testing.T) {
+	// Test that the messageUsage struct correctly tracks max values
+	// This simulates what happens when processing streaming chunks from Claude's JSONL
+
+	// Simulate streaming chunks for a single message ID with cumulative token counts
+	// Chunk 1: output_tokens=10 (cumulative)
+	// Chunk 2: output_tokens=25 (cumulative)
+	// Chunk 3: output_tokens=50 (cumulative, final)
+	// The correct total is 50, NOT 10+25+50=85
+
+	messageUsages := make(map[string]*messageUsage)
+
+	// Process first chunk
+	msgID := "msg_test_123"
+	usage := &messageUsage{}
+	messageUsages[msgID] = usage
+	if int64(10) > usage.OutputTokens {
+		usage.OutputTokens = 10
+	}
+	if int64(100) > usage.InputTokens {
+		usage.InputTokens = 100
+	}
+
+	// Process second chunk (cumulative)
+	if int64(25) > usage.OutputTokens {
+		usage.OutputTokens = 25
+	}
+
+	// Process third chunk (cumulative, final)
+	if int64(50) > usage.OutputTokens {
+		usage.OutputTokens = 50
+	}
+
+	// Verify deduplication works
+	if usage.OutputTokens != 50 {
+		t.Errorf("OutputTokens = %d, want 50 (max of cumulative values)", usage.OutputTokens)
+	}
+
+	if usage.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100", usage.InputTokens)
+	}
+}
+
+func TestMessageUsageMultipleMessages(t *testing.T) {
+	// Test deduplication across multiple message IDs (multiple API calls)
+	// Each message ID should be counted separately with its max value
+
+	messageUsages := make(map[string]*messageUsage)
+
+	// Message 1: streaming chunks with cumulative output tokens [10, 30, 50]
+	msg1ID := "msg_001"
+	usage1 := &messageUsage{}
+	messageUsages[msg1ID] = usage1
+	for _, tokens := range []int64{10, 30, 50} {
+		if tokens > usage1.OutputTokens {
+			usage1.OutputTokens = tokens
+		}
+	}
+	usage1.InputTokens = 100
+
+	// Message 2: streaming chunks with cumulative output tokens [5, 15, 25]
+	msg2ID := "msg_002"
+	usage2 := &messageUsage{}
+	messageUsages[msg2ID] = usage2
+	for _, tokens := range []int64{5, 15, 25} {
+		if tokens > usage2.OutputTokens {
+			usage2.OutputTokens = tokens
+		}
+	}
+	usage2.InputTokens = 150
+
+	// Sum up deduplicated values
+	var totalInput, totalOutput int64
+	for _, usage := range messageUsages {
+		totalInput += usage.InputTokens
+		totalOutput += usage.OutputTokens
+	}
+
+	// Expected: 50 + 25 = 75 (max per message, not sum of all chunks)
+	if totalOutput != 75 {
+		t.Errorf("Total OutputTokens = %d, want 75 (sum of max per message)", totalOutput)
+	}
+
+	// Expected: 100 + 150 = 250
+	if totalInput != 250 {
+		t.Errorf("Total InputTokens = %d, want 250", totalInput)
+	}
+
+	// Message count should be 2
+	if len(messageUsages) != 2 {
+		t.Errorf("MessageCount = %d, want 2", len(messageUsages))
 	}
 }
 

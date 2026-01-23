@@ -139,6 +139,7 @@ type UsageStats struct {
 type sessionJSONLEntry struct {
 	Type    string `json:"type"`
 	Message struct {
+		ID    string `json:"id"` // Message ID - used to deduplicate streaming chunks
 		Usage struct {
 			InputTokens              int64 `json:"input_tokens"`
 			OutputTokens             int64 `json:"output_tokens"`
@@ -151,6 +152,16 @@ type sessionJSONLEntry struct {
 		} `json:"usage"`
 		Model string `json:"model"`
 	} `json:"message"`
+}
+
+// messageUsage tracks the maximum usage values seen for a single message ID.
+// Claude's JSONL contains multiple streaming chunks per API call, each with cumulative
+// token counts. We track the maximum to get the final (accurate) value.
+type messageUsage struct {
+	InputTokens              int64
+	OutputTokens             int64
+	CacheCreationInputTokens int64
+	CacheReadInputTokens     int64
 }
 
 // handleCostCommand shows token usage and estimated cost for the current session.
@@ -229,6 +240,11 @@ func getSessionUsageStats(sessionID string, workingDir string) (*UsageStats, err
 	stats := &UsageStats{}
 	lines := strings.Split(string(data), "\n")
 
+	// Track max usage per message ID to deduplicate streaming chunks.
+	// Claude's JSONL contains multiple entries per API call, each with cumulative
+	// token counts. We only want the final (maximum) value for each message.
+	messageUsages := make(map[string]*messageUsage)
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -240,15 +256,45 @@ func getSessionUsageStats(sessionID string, workingDir string) (*UsageStats, err
 			continue // Skip malformed lines
 		}
 
-		// Only count assistant messages which have usage data
+		// Only process assistant messages which have usage data
 		if entry.Type == "assistant" && entry.Message.Usage.InputTokens > 0 {
-			stats.InputTokens += entry.Message.Usage.InputTokens
-			stats.OutputTokens += entry.Message.Usage.OutputTokens
-			stats.CacheCreationInputTokens += entry.Message.Usage.CacheCreationInputTokens
-			stats.CacheReadInputTokens += entry.Message.Usage.CacheReadInputTokens
-			stats.MessageCount++
+			msgID := entry.Message.ID
+			if msgID == "" {
+				// Fallback for entries without message ID - generate a unique key
+				// This shouldn't happen in practice but handles edge cases
+				msgID = fmt.Sprintf("unknown-%d", len(messageUsages))
+			}
+
+			usage, exists := messageUsages[msgID]
+			if !exists {
+				usage = &messageUsage{}
+				messageUsages[msgID] = usage
+			}
+
+			// Update to maximum values (token counts are cumulative within each API call)
+			if entry.Message.Usage.InputTokens > usage.InputTokens {
+				usage.InputTokens = entry.Message.Usage.InputTokens
+			}
+			if entry.Message.Usage.OutputTokens > usage.OutputTokens {
+				usage.OutputTokens = entry.Message.Usage.OutputTokens
+			}
+			if entry.Message.Usage.CacheCreationInputTokens > usage.CacheCreationInputTokens {
+				usage.CacheCreationInputTokens = entry.Message.Usage.CacheCreationInputTokens
+			}
+			if entry.Message.Usage.CacheReadInputTokens > usage.CacheReadInputTokens {
+				usage.CacheReadInputTokens = entry.Message.Usage.CacheReadInputTokens
+			}
 		}
 	}
+
+	// Sum up the deduplicated usage values
+	for _, usage := range messageUsages {
+		stats.InputTokens += usage.InputTokens
+		stats.OutputTokens += usage.OutputTokens
+		stats.CacheCreationInputTokens += usage.CacheCreationInputTokens
+		stats.CacheReadInputTokens += usage.CacheReadInputTokens
+	}
+	stats.MessageCount = len(messageUsages)
 
 	stats.TotalTokens = stats.InputTokens + stats.OutputTokens +
 		stats.CacheCreationInputTokens + stats.CacheReadInputTokens

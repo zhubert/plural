@@ -465,10 +465,17 @@ type StreamUsage struct {
 	OutputTokens             int `json:"output_tokens"`
 }
 
+// ModelTokenCount represents token usage for a specific model
+type ModelTokenCount struct {
+	Model        string // Model name (e.g., "claude-opus-4-5-20251101")
+	OutputTokens int    // Output tokens for this model
+}
+
 // StreamStats represents streaming statistics for display in the UI
 type StreamStats struct {
-	OutputTokens int     // Output tokens generated
-	TotalCostUSD float64 // Total cost in USD
+	OutputTokens int               // Total output tokens generated (sum of all models)
+	TotalCostUSD float64           // Total cost in USD
+	ByModel      []ModelTokenCount // Per-model breakdown (only populated from result message)
 }
 
 // ResponseChunk represents a chunk of streaming response
@@ -1027,12 +1034,17 @@ func (r *Runner) handleProcessLine(line string) {
 			// Prefer modelUsage (which includes sub-agent tokens) over the streaming accumulator
 			if ch != nil && !r.currentResponseChClosed {
 				var totalOutputTokens int
+				var byModel []ModelTokenCount
 
 				// If modelUsage is present, sum up output tokens from all models
 				// This includes both the parent model and any sub-agents (e.g., Haiku for Task)
 				if len(msg.ModelUsage) > 0 {
-					for _, usage := range msg.ModelUsage {
+					for model, usage := range msg.ModelUsage {
 						totalOutputTokens += usage.OutputTokens
+						byModel = append(byModel, ModelTokenCount{
+							Model:        model,
+							OutputTokens: usage.OutputTokens,
+						})
 					}
 					r.log.Debug("using modelUsage for token count",
 						"modelCount", len(msg.ModelUsage),
@@ -1053,10 +1065,12 @@ func (r *Runner) handleProcessLine(line string) {
 					stats := &StreamStats{
 						OutputTokens: totalOutputTokens,
 						TotalCostUSD: msg.TotalCostUSD,
+						ByModel:      byModel,
 					}
 					r.log.Debug("emitting final stream stats",
 						"outputTokens", stats.OutputTokens,
-						"totalCostUSD", stats.TotalCostUSD)
+						"totalCostUSD", stats.TotalCostUSD,
+						"modelCount", len(byModel))
 					select {
 					case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
 					default:
