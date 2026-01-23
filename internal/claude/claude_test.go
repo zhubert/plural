@@ -1799,13 +1799,14 @@ func TestStreamStats(t *testing.T) {
 
 func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
 	log := testLogger()
-	// Assistant message with usage data should emit stream stats chunk
-	// This enables incremental token count display during streaming
-	// Note: for assistant messages, usage is nested inside the message field
-	// and total_cost_usd is not present (only on result messages)
+	// Assistant message with usage data should NOT emit stream stats from parseStreamMessage.
+	// Stream stats are now emitted by handleProcessLine which accumulates tokens across
+	// multiple API calls. parseStreamMessage is a pure function without state access.
+	// This test verifies that usage data is correctly parsed in the message struct.
 	msg := `{
 		"type": "assistant",
 		"message": {
+			"id": "msg_123",
 			"content": [{"type": "text", "text": "Hello!"}],
 			"usage": {
 				"input_tokens": 100,
@@ -1815,9 +1816,9 @@ func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
 	}`
 	chunks := parseStreamMessage(msg, log)
 
-	// Should have text chunk + stream stats chunk
-	if len(chunks) != 2 {
-		t.Fatalf("Expected 2 chunks (text + stats), got %d", len(chunks))
+	// Should only have text chunk - stats are emitted separately by handleProcessLine
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk (text only), got %d", len(chunks))
 	}
 
 	// First chunk should be text
@@ -1828,19 +1829,19 @@ func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
 		t.Errorf("Expected content 'Hello!', got %q", chunks[0].Content)
 	}
 
-	// Second chunk should be stream stats
-	if chunks[1].Type != ChunkTypeStreamStats {
-		t.Errorf("Second chunk expected ChunkTypeStreamStats, got %v", chunks[1].Type)
+	// Verify the usage data is correctly parsed (even though not emitted as a chunk)
+	var parsed streamMessage
+	if err := json.Unmarshal([]byte(msg), &parsed); err != nil {
+		t.Fatalf("Failed to parse message: %v", err)
 	}
-	if chunks[1].Stats == nil {
-		t.Fatal("Expected Stats to be non-nil")
+	if parsed.Message.Usage == nil {
+		t.Fatal("Expected Usage to be non-nil")
 	}
-	if chunks[1].Stats.OutputTokens != 25 {
-		t.Errorf("Expected OutputTokens 25, got %d", chunks[1].Stats.OutputTokens)
+	if parsed.Message.Usage.OutputTokens != 25 {
+		t.Errorf("Expected OutputTokens 25, got %d", parsed.Message.Usage.OutputTokens)
 	}
-	// TotalCostUSD is 0 for assistant messages (only populated on result messages)
-	if chunks[1].Stats.TotalCostUSD != 0 {
-		t.Errorf("Expected TotalCostUSD 0, got %f", chunks[1].Stats.TotalCostUSD)
+	if parsed.Message.ID != "msg_123" {
+		t.Errorf("Expected message ID 'msg_123', got %q", parsed.Message.ID)
 	}
 }
 
@@ -1887,5 +1888,104 @@ func TestParseStreamMessage_AssistantWithZeroOutputTokens(t *testing.T) {
 
 	if chunks[0].Type != ChunkTypeText {
 		t.Errorf("Expected ChunkTypeText, got %v", chunks[0].Type)
+	}
+}
+
+func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
+	// Test that token counts are accumulated correctly across multiple API calls.
+	// Each API call has a different message ID and its own cumulative token count.
+	// The displayed total should be the sum of all completed API calls' final counts
+	// plus the current API call's running count.
+
+	runner := New("test-session", "/tmp/test", false, nil)
+	defer runner.Stop()
+
+	// Simulate receiving messages from multiple API calls
+	// First API call: message ID "msg_1" with increasing token counts
+	msg1Chunk1 := `{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Hi"}],"usage":{"output_tokens":3}}}`
+	msg1Chunk2 := `{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Hello"}],"usage":{"output_tokens":8}}}`
+
+	// Second API call: message ID "msg_2" with its own token counts
+	msg2Chunk1 := `{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"More"}],"usage":{"output_tokens":5}}}`
+	msg2Chunk2 := `{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"text"}],"usage":{"output_tokens":12}}}`
+
+	// Set up the runner for streaming (similar to SendContent)
+	runner.mu.Lock()
+	runner.isStreaming = true
+	runner.accumulatedOutputTokens = 0
+	runner.lastMessageID = ""
+	runner.lastMessageOutputTokens = 0
+	ch := make(chan ResponseChunk, 100)
+	runner.currentResponseCh = ch
+	runner.currentResponseChClosed = false
+	runner.mu.Unlock()
+
+	// Process first API call's messages
+	runner.handleProcessLine(msg1Chunk1)
+	runner.handleProcessLine(msg1Chunk2)
+
+	// Check accumulated state after first API call
+	runner.mu.RLock()
+	if runner.lastMessageID != "msg_1" {
+		t.Errorf("Expected lastMessageID 'msg_1', got %q", runner.lastMessageID)
+	}
+	if runner.lastMessageOutputTokens != 8 {
+		t.Errorf("Expected lastMessageOutputTokens 8, got %d", runner.lastMessageOutputTokens)
+	}
+	if runner.accumulatedOutputTokens != 0 {
+		t.Errorf("Expected accumulatedOutputTokens 0 (first API call), got %d", runner.accumulatedOutputTokens)
+	}
+	runner.mu.RUnlock()
+
+	// Process second API call's messages
+	runner.handleProcessLine(msg2Chunk1)
+
+	// After seeing msg_2, the previous API call's tokens (8) should be accumulated
+	runner.mu.RLock()
+	if runner.lastMessageID != "msg_2" {
+		t.Errorf("Expected lastMessageID 'msg_2', got %q", runner.lastMessageID)
+	}
+	if runner.accumulatedOutputTokens != 8 {
+		t.Errorf("Expected accumulatedOutputTokens 8 (from msg_1), got %d", runner.accumulatedOutputTokens)
+	}
+	if runner.lastMessageOutputTokens != 5 {
+		t.Errorf("Expected lastMessageOutputTokens 5, got %d", runner.lastMessageOutputTokens)
+	}
+	runner.mu.RUnlock()
+
+	runner.handleProcessLine(msg2Chunk2)
+
+	// After final chunk, total should be 8 (from msg_1) + 12 (from msg_2) = 20
+	runner.mu.RLock()
+	expectedTotal := runner.accumulatedOutputTokens + runner.lastMessageOutputTokens
+	if expectedTotal != 20 {
+		t.Errorf("Expected total tokens 20 (8 + 12), got %d", expectedTotal)
+	}
+	runner.mu.RUnlock()
+
+	// Drain the channel and verify we received stream stats chunks
+	close(ch)
+	var statsChunks []ResponseChunk
+	for chunk := range ch {
+		if chunk.Type == ChunkTypeStreamStats {
+			statsChunks = append(statsChunks, chunk)
+		}
+	}
+
+	// Should have received 4 stats chunks (one for each assistant message chunk)
+	if len(statsChunks) != 4 {
+		t.Errorf("Expected 4 stream stats chunks, got %d", len(statsChunks))
+	}
+
+	// Verify the token counts are cumulative
+	// msg1_chunk1: 0 + 3 = 3
+	// msg1_chunk2: 0 + 8 = 8
+	// msg2_chunk1: 8 + 5 = 13
+	// msg2_chunk2: 8 + 12 = 20
+	expectedCounts := []int{3, 8, 13, 20}
+	for i, chunk := range statsChunks {
+		if chunk.Stats.OutputTokens != expectedCounts[i] {
+			t.Errorf("Stats chunk %d: expected %d tokens, got %d", i, expectedCounts[i], chunk.Stats.OutputTokens)
+		}
 	}
 }

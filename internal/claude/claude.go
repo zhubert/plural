@@ -216,6 +216,11 @@ type Runner struct {
 	responseStartTime     time.Time       // When response started
 	responseComplete      bool            // Track if result message was received (response is done)
 
+	// Token tracking state (protected by mu)
+	accumulatedOutputTokens int    // Accumulated output tokens from completed API calls
+	lastMessageID           string // Track the message ID to detect new API calls
+	lastMessageOutputTokens int    // Last seen output tokens for the current message ID
+
 	// External MCP servers to include in config
 	mcpServers []MCPServer
 }
@@ -472,6 +477,7 @@ type streamMessage struct {
 	Type    string `json:"type"`    // "system", "assistant", "user", "result"
 	Subtype string `json:"subtype"` // "init", "success", etc.
 	Message struct {
+		ID      string `json:"id,omitempty"` // Message ID for tracking API calls
 		Content []struct {
 			Type      string          `json:"type"` // "text", "tool_use", "tool_result"
 			Text      string          `json:"text,omitempty"`
@@ -568,18 +574,8 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 				log.Debug("tool use", "tool", content.Name, "input", inputDesc)
 			}
 		}
-
-		// Emit stream stats if usage data is present (for incremental token count updates)
-		// For assistant messages, usage is nested inside the message field
-		if msg.Message.Usage != nil && msg.Message.Usage.OutputTokens > 0 {
-			chunks = append(chunks, ResponseChunk{
-				Type: ChunkTypeStreamStats,
-				Stats: &StreamStats{
-					OutputTokens: msg.Message.Usage.OutputTokens,
-					TotalCostUSD: msg.TotalCostUSD, // Will be 0 for assistant messages (only set on result)
-				},
-			})
-		}
+		// Note: Stream stats are emitted by handleProcessLine with accumulated token counts,
+		// not here, because parseStreamMessage is a pure function without runner state access.
 
 	case "user":
 		// User messages in stream-json are tool results
@@ -914,9 +910,48 @@ func (r *Runner) handleProcessLine(line string) {
 		}
 	}
 
-	// Check for result message which indicates end of response
+	// Parse the message to handle token accumulation and result messages
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
+		// Handle token accumulation for assistant messages
+		// Claude CLI sends cumulative output_tokens within each API call, but resets on new API calls.
+		// We track message IDs to detect new API calls and accumulate across them.
+		if msg.Type == "assistant" && msg.Message.Usage != nil && msg.Message.Usage.OutputTokens > 0 {
+			r.mu.Lock()
+			messageID := msg.Message.ID
+
+			// If this is a new message ID, we're starting a new API call
+			// Add the final token count from the previous API call to the accumulator
+			if messageID != "" && messageID != r.lastMessageID {
+				if r.lastMessageID != "" {
+					// Add the previous message's final token count to the accumulator
+					r.accumulatedOutputTokens += r.lastMessageOutputTokens
+				}
+				r.lastMessageID = messageID
+				r.lastMessageOutputTokens = 0
+			}
+
+			// Update the current message's token count (this is cumulative within the API call)
+			r.lastMessageOutputTokens = msg.Message.Usage.OutputTokens
+
+			// The displayed total is accumulated tokens from completed API calls
+			// plus the current API call's running token count
+			currentTotal := r.accumulatedOutputTokens + r.lastMessageOutputTokens
+
+			r.mu.Unlock()
+
+			// Emit stream stats with the accumulated token count
+			if ch != nil {
+				r.sendChunkWithTimeout(ch, ResponseChunk{
+					Type: ChunkTypeStreamStats,
+					Stats: &StreamStats{
+						OutputTokens: currentTotal,
+						TotalCostUSD: 0, // Not available during streaming, only on result
+					},
+				})
+			}
+		}
+
 		if msg.Type == "result" {
 			r.log.Debug("result message received",
 				"subtype", msg.Subtype,
@@ -960,13 +995,22 @@ func (r *Runner) handleProcessLine(line string) {
 			r.messages = append(r.messages, Message{Role: "assistant", Content: r.fullResponse.String()})
 
 			// Emit stream stats chunk before Done if we have usage data
+			// Use accumulated total for accurate token count across all API calls
 			if ch != nil && !r.currentResponseChClosed && msg.Usage != nil {
+				// Add the final token count from the last API call to get total
+				totalOutputTokens := r.accumulatedOutputTokens + r.lastMessageOutputTokens
+				// If the result message has its own usage, it represents the final state
+				if msg.Usage.OutputTokens > r.lastMessageOutputTokens {
+					totalOutputTokens = r.accumulatedOutputTokens + msg.Usage.OutputTokens
+				}
 				stats := &StreamStats{
-					OutputTokens: msg.Usage.OutputTokens,
+					OutputTokens: totalOutputTokens,
 					TotalCostUSD: msg.TotalCostUSD,
 				}
-				r.log.Debug("emitting stream stats",
+				r.log.Debug("emitting final stream stats",
 					"outputTokens", stats.OutputTokens,
+					"accumulated", r.accumulatedOutputTokens,
+					"lastMessage", r.lastMessageOutputTokens,
 					"totalCostUSD", stats.TotalCostUSD)
 				select {
 				case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
@@ -1162,6 +1206,9 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		r.streamCtx = cmdCtx
 		r.responseStartTime = time.Now()
 		r.responseComplete = false // Reset for new message - we haven't received result yet
+		r.accumulatedOutputTokens = 0   // Reset token accumulator for new request
+		r.lastMessageID = ""            // Reset message ID tracker
+		r.lastMessageOutputTokens = 0   // Reset last message token count
 		if r.processManager != nil {
 			r.processManager.SetInterrupted(false) // Reset interrupt flag for new message
 		}
