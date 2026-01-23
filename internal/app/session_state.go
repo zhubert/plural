@@ -503,7 +503,9 @@ func (m *SessionStateManager) StartWaiting(sessionID string, cancel context.Canc
 	state.StreamCancel = cancel
 }
 
-// GetWaitStart returns when the session started waiting, and whether it's waiting.
+// GetWaitStart returns when the session started streaming, and whether it's waiting.
+// Returns StreamingStartTime (not WaitStart) because WaitStart gets cleared when
+// the first chunk arrives, but we still need the start time for elapsed display.
 func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
 	m.mu.RLock()
 	state, exists := m.states[sessionID]
@@ -516,7 +518,7 @@ func (m *SessionStateManager) GetWaitStart(sessionID string) (time.Time, bool) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.IsWaiting {
-		return state.WaitStart, true
+		return state.StreamingStartTime, true
 	}
 	return time.Time{}, false
 }
