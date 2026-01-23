@@ -153,6 +153,11 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 				m.sessionState().GetOrCreate(sessionID).SetCurrentTodoList(chunk.TodoList)
 				m.chat.SetTodoList(chunk.TodoList)
 			}
+		case claude.ChunkTypeStreamStats:
+			// Update streaming statistics display
+			if chunk.Stats != nil {
+				m.chat.SetStreamStats(chunk.Stats)
+			}
 		default:
 			// For backwards compatibility, treat unknown types as text
 			if chunk.Content != "" {

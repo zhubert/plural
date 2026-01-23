@@ -434,19 +434,35 @@ func (r *Runner) GetResponseChan() <-chan ResponseChunk {
 type ChunkType string
 
 const (
-	ChunkTypeText       ChunkType = "text"        // Regular text content
-	ChunkTypeToolUse    ChunkType = "tool_use"    // Claude is calling a tool
-	ChunkTypeToolResult ChunkType = "tool_result" // Tool execution result
-	ChunkTypeTodoUpdate ChunkType = "todo_update" // TodoWrite tool call with todo list
+	ChunkTypeText        ChunkType = "text"         // Regular text content
+	ChunkTypeToolUse     ChunkType = "tool_use"     // Claude is calling a tool
+	ChunkTypeToolResult  ChunkType = "tool_result"  // Tool execution result
+	ChunkTypeTodoUpdate  ChunkType = "todo_update"  // TodoWrite tool call with todo list
+	ChunkTypeStreamStats ChunkType = "stream_stats" // Streaming statistics from result message
 )
+
+// StreamUsage represents token usage data from Claude's result message
+type StreamUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+}
+
+// StreamStats represents streaming statistics for display in the UI
+type StreamStats struct {
+	OutputTokens int     // Output tokens generated
+	TotalCostUSD float64 // Total cost in USD
+}
 
 // ResponseChunk represents a chunk of streaming response
 type ResponseChunk struct {
-	Type      ChunkType // Type of this chunk
-	Content   string    // Text content (for text chunks and status)
-	ToolName  string    // Tool being used (for tool_use chunks)
-	ToolInput string    // Brief description of tool input
-	TodoList  *TodoList // Todo list (for ChunkTypeTodoUpdate)
+	Type      ChunkType    // Type of this chunk
+	Content   string       // Text content (for text chunks and status)
+	ToolName  string       // Tool being used (for tool_use chunks)
+	ToolInput string       // Brief description of tool input
+	TodoList  *TodoList    // Todo list (for ChunkTypeTodoUpdate)
+	Stats     *StreamStats // Streaming statistics (for ChunkTypeStreamStats)
 	Done      bool
 	Error     error
 }
@@ -466,10 +482,15 @@ type streamMessage struct {
 			Content   json.RawMessage `json:"content,omitempty"`   // tool result content (can be string or array)
 		} `json:"content"`
 	} `json:"message"`
-	Result    string   `json:"result,omitempty"`    // Final result text
-	Error     string   `json:"error,omitempty"`     // Error message (alternative to result)
-	Errors    []string `json:"errors,omitempty"`    // Error messages array (used by error_during_execution)
-	SessionID string   `json:"session_id,omitempty"`
+	Result       string       `json:"result,omitempty"`        // Final result text
+	Error        string       `json:"error,omitempty"`         // Error message (alternative to result)
+	Errors       []string     `json:"errors,omitempty"`        // Error messages array (used by error_during_execution)
+	SessionID    string       `json:"session_id,omitempty"`
+	DurationMs   int          `json:"duration_ms,omitempty"`   // Total duration in milliseconds
+	DurationAPIMs int         `json:"duration_api_ms,omitempty"` // API duration in milliseconds
+	NumTurns     int          `json:"num_turns,omitempty"`     // Number of conversation turns
+	TotalCostUSD float64      `json:"total_cost_usd,omitempty"` // Total cost in USD
+	Usage        *StreamUsage `json:"usage,omitempty"`         // Token usage breakdown
 }
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output
@@ -809,6 +830,9 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 
 // handleProcessLine processes a line of output from the Claude process.
 func (r *Runner) handleProcessLine(line string) {
+	// Log raw streaming message at debug level for troubleshooting
+	r.log.Debug("stream message received", "raw", line)
+
 	// Parse the JSON message
 	chunks := parseStreamMessage(line, r.log)
 
@@ -921,6 +945,21 @@ func (r *Runner) handleProcessLine(line string) {
 			}
 
 			r.messages = append(r.messages, Message{Role: "assistant", Content: r.fullResponse.String()})
+
+			// Emit stream stats chunk before Done if we have usage data
+			if ch != nil && !r.currentResponseChClosed && msg.Usage != nil {
+				stats := &StreamStats{
+					OutputTokens: msg.Usage.OutputTokens,
+					TotalCostUSD: msg.TotalCostUSD,
+				}
+				r.log.Debug("emitting stream stats",
+					"outputTokens", stats.OutputTokens,
+					"totalCostUSD", stats.TotalCostUSD)
+				select {
+				case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
+				default:
+				}
+			}
 
 			// Signal completion and close channel
 			if ch != nil && !r.currentResponseChClosed {

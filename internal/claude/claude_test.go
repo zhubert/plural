@@ -1704,3 +1704,95 @@ func TestChunkTypeTodoUpdate(t *testing.T) {
 		t.Errorf("ChunkTypeTodoUpdate = %q, want %q", ChunkTypeTodoUpdate, "todo_update")
 	}
 }
+
+func TestChunkTypeStreamStats(t *testing.T) {
+	// Verify the constant value
+	if ChunkTypeStreamStats != "stream_stats" {
+		t.Errorf("ChunkTypeStreamStats = %q, want %q", ChunkTypeStreamStats, "stream_stats")
+	}
+}
+
+func TestStreamMessage_UsageFields(t *testing.T) {
+	// Test that usage fields are properly parsed from the result message JSON
+	jsonMsg := `{
+		"type": "result",
+		"subtype": "success",
+		"is_error": false,
+		"duration_ms": 4391,
+		"duration_api_ms": 3652,
+		"num_turns": 1,
+		"result": "Hello!",
+		"total_cost_usd": 0.2644345,
+		"usage": {
+			"input_tokens": 3,
+			"cache_creation_input_tokens": 41012,
+			"cache_read_input_tokens": 15539,
+			"output_tokens": 13
+		}
+	}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if msg.Type != "result" {
+		t.Errorf("Expected type 'result', got %q", msg.Type)
+	}
+
+	if msg.Subtype != "success" {
+		t.Errorf("Expected subtype 'success', got %q", msg.Subtype)
+	}
+
+	if msg.DurationMs != 4391 {
+		t.Errorf("Expected duration_ms 4391, got %d", msg.DurationMs)
+	}
+
+	if msg.DurationAPIMs != 3652 {
+		t.Errorf("Expected duration_api_ms 3652, got %d", msg.DurationAPIMs)
+	}
+
+	if msg.NumTurns != 1 {
+		t.Errorf("Expected num_turns 1, got %d", msg.NumTurns)
+	}
+
+	if msg.TotalCostUSD != 0.2644345 {
+		t.Errorf("Expected total_cost_usd 0.2644345, got %f", msg.TotalCostUSD)
+	}
+
+	if msg.Usage == nil {
+		t.Fatal("Expected usage to be non-nil")
+	}
+
+	if msg.Usage.InputTokens != 3 {
+		t.Errorf("Expected input_tokens 3, got %d", msg.Usage.InputTokens)
+	}
+
+	if msg.Usage.CacheCreationInputTokens != 41012 {
+		t.Errorf("Expected cache_creation_input_tokens 41012, got %d", msg.Usage.CacheCreationInputTokens)
+	}
+
+	if msg.Usage.CacheReadInputTokens != 15539 {
+		t.Errorf("Expected cache_read_input_tokens 15539, got %d", msg.Usage.CacheReadInputTokens)
+	}
+
+	if msg.Usage.OutputTokens != 13 {
+		t.Errorf("Expected output_tokens 13, got %d", msg.Usage.OutputTokens)
+	}
+}
+
+func TestStreamStats(t *testing.T) {
+	// Test StreamStats struct
+	stats := StreamStats{
+		OutputTokens: 1500,
+		TotalCostUSD: 0.25,
+	}
+
+	if stats.OutputTokens != 1500 {
+		t.Errorf("Expected OutputTokens 1500, got %d", stats.OutputTokens)
+	}
+
+	if stats.TotalCostUSD != 0.25 {
+		t.Errorf("Expected TotalCostUSD 0.25, got %f", stats.TotalCostUSD)
+	}
+}
