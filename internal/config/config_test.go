@@ -1017,6 +1017,9 @@ func TestConfig_EnsureInitialized(t *testing.T) {
 	if cfg.RepoAllowedTools == nil {
 		t.Error("RepoAllowedTools should be initialized")
 	}
+	if cfg.RepoSquashOnMerge == nil {
+		t.Error("RepoSquashOnMerge should be initialized")
+	}
 }
 
 func TestLoad_NewConfig(t *testing.T) {
@@ -1312,5 +1315,107 @@ func TestConfig_PreviewState_Persistence(t *testing.T) {
 	}
 	if loaded.PreviewRepoPath != "/path/to/repo" {
 		t.Errorf("PreviewRepoPath = %q, want '/path/to/repo'", loaded.PreviewRepoPath)
+	}
+}
+
+func TestConfig_SquashOnMerge(t *testing.T) {
+	cfg := &Config{
+		Repos:             []string{"/path/to/repo1", "/path/to/repo2"},
+		Sessions:          []Session{},
+		RepoSquashOnMerge: make(map[string]bool),
+	}
+
+	// Initially should return false for all repos
+	if cfg.GetSquashOnMerge("/path/to/repo1") {
+		t.Error("GetSquashOnMerge should return false initially")
+	}
+
+	// Enable for repo1
+	cfg.SetSquashOnMerge("/path/to/repo1", true)
+
+	if !cfg.GetSquashOnMerge("/path/to/repo1") {
+		t.Error("GetSquashOnMerge should return true after enabling")
+	}
+
+	// repo2 should still be false
+	if cfg.GetSquashOnMerge("/path/to/repo2") {
+		t.Error("GetSquashOnMerge should return false for repo2")
+	}
+
+	// Disable for repo1
+	cfg.SetSquashOnMerge("/path/to/repo1", false)
+
+	if cfg.GetSquashOnMerge("/path/to/repo1") {
+		t.Error("GetSquashOnMerge should return false after disabling")
+	}
+
+	// Map entry should be cleaned up
+	if _, exists := cfg.RepoSquashOnMerge["/path/to/repo1"]; exists {
+		t.Error("RepoSquashOnMerge entry should be removed when disabled")
+	}
+}
+
+func TestConfig_SquashOnMerge_NilMap(t *testing.T) {
+	cfg := &Config{
+		Repos:             []string{"/path/to/repo"},
+		Sessions:          []Session{},
+		RepoSquashOnMerge: nil, // Start with nil map
+	}
+
+	// GetSquashOnMerge should handle nil map gracefully
+	if cfg.GetSquashOnMerge("/path/to/repo") {
+		t.Error("GetSquashOnMerge should return false for nil map")
+	}
+
+	// SetSquashOnMerge should initialize the map
+	cfg.SetSquashOnMerge("/path/to/repo", true)
+
+	if cfg.RepoSquashOnMerge == nil {
+		t.Error("RepoSquashOnMerge should be initialized after SetSquashOnMerge")
+	}
+
+	if !cfg.GetSquashOnMerge("/path/to/repo") {
+		t.Error("GetSquashOnMerge should return true after setting")
+	}
+}
+
+func TestConfig_SquashOnMerge_Persistence(t *testing.T) {
+	// Create a temp directory for test config
+	tmpDir, err := os.MkdirTemp("", "plural-squash-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create config with squash setting
+	cfg := &Config{
+		Repos:             []string{"/path/to/repo"},
+		Sessions:          []Session{},
+		RepoSquashOnMerge: make(map[string]bool),
+		filePath:          configPath,
+	}
+
+	cfg.SetSquashOnMerge("/path/to/repo", true)
+
+	// Save the config
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Read and verify JSON structure includes squash field
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+
+	if !loaded.RepoSquashOnMerge["/path/to/repo"] {
+		t.Error("RepoSquashOnMerge should be persisted")
 	}
 }

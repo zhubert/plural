@@ -193,6 +193,8 @@ Sessions support parent-child relationships:
 
 Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeTypeParent` (to parent), `MergeTypePush` (push to existing PR)
 
+**Squash on Merge**: Per-repo setting (`config.RepoSquashOnMerge`) that squashes all commits into one when using "Merge to main". Uses `git merge --squash` followed by explicit commit with user-provided message.
+
 ### Session Struct
 
 Session struct (`internal/config/config.go`) tracks:
@@ -215,6 +217,7 @@ Issue number stored in session. When PR created from issue session, "Fixes #N" a
 **Settings** (`,` key): Opens modal for:
 - Branch prefix (e.g., `yourname/` creates branches like `yourname/plural-abc123`)
 - Desktop notifications toggle
+- Squash commits on merge (per-repo): When enabled, all commits on a session branch are squashed into a single commit when merging to main
 
 **Session rename** (`r` key): Renames session and its git branch.
 

@@ -318,7 +318,9 @@ func NewThemeState(themes []string, themeNames []string, currentTheme string) *T
 type SettingsState struct {
 	BranchPrefixInput    textinput.Model
 	NotificationsEnabled bool
-	Focus                int // 0 = branch prefix, 1 = notifications checkbox
+	SquashOnMerge        bool   // Per-repo setting: squash commits when merging to main
+	RepoPath             string // Current repo path (for per-repo settings)
+	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash
 }
 
 func (*SettingsState) modalState() {}
@@ -326,7 +328,7 @@ func (*SettingsState) modalState() {}
 func (s *SettingsState) Title() string { return "Settings" }
 
 func (s *SettingsState) Help() string {
-	return "Tab: next field  Space: toggle checkbox  Enter: save  Esc: cancel"
+	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
 }
 
 func (s *SettingsState) Render() string {
@@ -357,9 +359,9 @@ func (s *SettingsState) Render() string {
 		MarginTop(1).
 		Render("Desktop notifications:")
 
-	checkbox := "[ ]"
+	notifCheckbox := "[ ]"
 	if s.NotificationsEnabled {
-		checkbox = "[x]"
+		notifCheckbox = "[x]"
 	}
 	notifCheckboxStyle := lipgloss.NewStyle()
 	if s.Focus == 1 {
@@ -371,18 +373,53 @@ func (s *SettingsState) Render() string {
 		Foreground(ColorTextMuted).
 		Italic(true).
 		Render("Notify when Claude finishes while app is in background")
-	notifView := notifCheckboxStyle.Render(checkbox + " " + notifDesc)
+	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
+
+	// Squash on merge checkbox (per-repo setting)
+	var squashSection string
+	if s.RepoPath != "" {
+		squashLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Squash commits on merge (this repo):")
+
+		squashCheckbox := "[ ]"
+		if s.SquashOnMerge {
+			squashCheckbox = "[x]"
+		}
+		squashCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 2 {
+			squashCheckboxStyle = squashCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			squashCheckboxStyle = squashCheckboxStyle.PaddingLeft(2)
+		}
+		squashDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render("Combine all commits into one when merging to main")
+		squashView := squashCheckboxStyle.Render(squashCheckbox + " " + squashDesc)
+		squashSection = squashLabel + "\n" + squashView
+	}
 
 	help := ModalHelpStyle.Render(s.Help())
 
+	if squashSection != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, squashSection, help)
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, help)
 }
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	// Determine number of focusable fields (3 if repo selected, 2 otherwise)
+	numFields := 2
+	if s.RepoPath != "" {
+		numFields = 3
+	}
+
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case "tab":
-			s.Focus = (s.Focus + 1) % 2
+			s.Focus = (s.Focus + 1) % numFields
 			if s.Focus == 0 {
 				s.BranchPrefixInput.Focus()
 			} else {
@@ -390,7 +427,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 			return s, nil
 		case "shift+tab":
-			s.Focus = (s.Focus + 1) % 2
+			s.Focus = (s.Focus - 1 + numFields) % numFields
 			if s.Focus == 0 {
 				s.BranchPrefixInput.Focus()
 			} else {
@@ -398,9 +435,11 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 			return s, nil
 		case "space":
-			// Toggle checkbox when focused on notifications
+			// Toggle checkbox when focused on notifications or squash
 			if s.Focus == 1 {
 				s.NotificationsEnabled = !s.NotificationsEnabled
+			} else if s.Focus == 2 && s.RepoPath != "" {
+				s.SquashOnMerge = !s.SquashOnMerge
 			}
 			return s, nil
 		}
@@ -426,8 +465,20 @@ func (s *SettingsState) GetNotificationsEnabled() bool {
 	return s.NotificationsEnabled
 }
 
-// NewSettingsState creates a new SettingsState with the current settings values
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool) *SettingsState {
+// GetSquashOnMerge returns whether squash-on-merge is enabled
+func (s *SettingsState) GetSquashOnMerge() bool {
+	return s.SquashOnMerge
+}
+
+// GetRepoPath returns the repo path for per-repo settings
+func (s *SettingsState) GetRepoPath() string {
+	return s.RepoPath
+}
+
+// NewSettingsState creates a new SettingsState with the current settings values.
+// repoPath should be set to the current session's repo path for per-repo settings,
+// or empty string if no session is selected.
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, repoPath string) *SettingsState {
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
@@ -438,6 +489,8 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool) *Se
 	return &SettingsState{
 		BranchPrefixInput:    prefixInput,
 		NotificationsEnabled: notificationsEnabled,
+		SquashOnMerge:        squashOnMerge,
+		RepoPath:             repoPath,
 		Focus:                0,
 	}
 }

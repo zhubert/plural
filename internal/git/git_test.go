@@ -2180,3 +2180,228 @@ func TestCheckoutBranchIgnoreWorktrees_Success(t *testing.T) {
 	cmd.Dir = repoPath
 	cmd.Run() // Ignore errors in cleanup
 }
+
+func TestSquashMergeToMain(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "squash-feature")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create feature branch: %v", err)
+	}
+
+	// Make multiple commits on the feature branch
+	for i := 1; i <= 3; i++ {
+		testFile := filepath.Join(repoPath, fmt.Sprintf("feature%d.txt", i))
+		if err := os.WriteFile(testFile, []byte(fmt.Sprintf("feature %d content", i)), 0644); err != nil {
+			t.Fatalf("Failed to create feature file: %v", err)
+		}
+
+		cmd = exec.Command("git", "add", ".")
+		cmd.Dir = repoPath
+		cmd.Run()
+
+		cmd = exec.Command("git", "commit", "-m", fmt.Sprintf("Feature commit %d", i))
+		cmd.Dir = repoPath
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("Failed to commit feature %d: %v", i, err)
+		}
+	}
+
+	// Squash merge to main
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	squashCommitMsg := "Squashed feature: all 3 commits combined"
+	ch := svc.SquashMergeToMain(ctx, repoPath, repoPath, "squash-feature", squashCommitMsg)
+
+	var lastResult Result
+	for result := range ch {
+		lastResult = result
+		if result.Error != nil {
+			t.Errorf("Squash merge error: %v", result.Error)
+		}
+	}
+
+	if !lastResult.Done {
+		t.Error("Squash merge should complete with Done=true")
+	}
+
+	// Verify we're on the default branch
+	cmd = exec.Command("git", "branch", "--show-current")
+	cmd.Dir = repoPath
+	output, _ := cmd.Output()
+	currentBranch := strings.TrimSpace(string(output))
+	if currentBranch != "main" && currentBranch != "master" {
+		t.Logf("Current branch: %q (expected main or master)", currentBranch)
+	}
+
+	// Verify all feature files exist on main
+	for i := 1; i <= 3; i++ {
+		testFile := filepath.Join(repoPath, fmt.Sprintf("feature%d.txt", i))
+		if _, err := os.Stat(testFile); os.IsNotExist(err) {
+			t.Errorf("feature%d.txt should exist on main after squash merge", i)
+		}
+	}
+
+	// Verify there's only ONE commit on main for the squashed changes (plus the initial commit)
+	cmd = exec.Command("git", "log", "--oneline")
+	cmd.Dir = repoPath
+	output, _ = cmd.Output()
+	commitLines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	// Should have 2 commits: initial commit + squashed commit
+	if len(commitLines) != 2 {
+		t.Errorf("Expected 2 commits on main after squash merge (initial + squashed), got %d: %v", len(commitLines), commitLines)
+	}
+
+	// Verify the commit message matches what we provided
+	cmd = exec.Command("git", "log", "-1", "--pretty=%s")
+	cmd.Dir = repoPath
+	output, _ = cmd.Output()
+	lastCommitMsg := strings.TrimSpace(string(output))
+	if lastCommitMsg != squashCommitMsg {
+		t.Errorf("Expected commit message %q, got %q", squashCommitMsg, lastCommitMsg)
+	}
+}
+
+func TestSquashMergeToMain_WithUncommittedChanges(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "squash-uncommitted")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create feature branch: %v", err)
+	}
+
+	// Make a committed change
+	testFile := filepath.Join(repoPath, "committed.txt")
+	if err := os.WriteFile(testFile, []byte("committed content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Committed change")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Make an uncommitted change
+	uncommittedFile := filepath.Join(repoPath, "uncommitted.txt")
+	if err := os.WriteFile(uncommittedFile, []byte("uncommitted content"), 0644); err != nil {
+		t.Fatalf("Failed to create uncommitted file: %v", err)
+	}
+
+	// Squash merge with custom commit message (should commit the uncommitted change first)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := svc.SquashMergeToMain(ctx, repoPath, repoPath, "squash-uncommitted", "Squashed with uncommitted")
+
+	var sawUncommittedMsg bool
+	var lastResult Result
+	for result := range ch {
+		lastResult = result
+		if contains(result.Output, "uncommitted changes") {
+			sawUncommittedMsg = true
+		}
+		if result.Error != nil {
+			t.Errorf("Squash merge error: %v", result.Error)
+		}
+	}
+
+	if !sawUncommittedMsg {
+		t.Error("Expected message about uncommitted changes")
+	}
+
+	if !lastResult.Done {
+		t.Error("Squash merge should complete with Done=true")
+	}
+
+	// Verify both files exist on main
+	for _, fileName := range []string{"committed.txt", "uncommitted.txt"} {
+		file := filepath.Join(repoPath, fileName)
+		if _, err := os.Stat(file); os.IsNotExist(err) {
+			t.Errorf("%s should exist on main after squash merge", fileName)
+		}
+	}
+}
+
+func TestSquashMergeToMain_Conflict(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "squash-conflict")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Modify test.txt on feature branch
+	testFile := filepath.Join(repoPath, "test.txt")
+	os.WriteFile(testFile, []byte("feature version"), 0644)
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Feature change")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Go back to main and make a conflicting change
+	cmd = exec.Command("git", "checkout", "-")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	os.WriteFile(testFile, []byte("main version"), 0644)
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Main change")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Try to squash merge - should fail with conflict
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ch := svc.SquashMergeToMain(ctx, repoPath, repoPath, "squash-conflict", "Squash conflicting")
+
+	var hadError bool
+	for result := range ch {
+		if result.Error != nil {
+			hadError = true
+		}
+	}
+
+	if !hadError {
+		t.Error("Expected squash merge to fail with conflict")
+	}
+}
+
+func TestSquashMergeToMain_Cancelled(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a branch
+	cmd := exec.Command("git", "checkout", "-b", "squash-cancel")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Cancel immediately
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := svc.SquashMergeToMain(ctx, repoPath, repoPath, "squash-cancel", "Cancelled")
+
+	// Drain channel - should not hang
+	for range ch {
+	}
+}

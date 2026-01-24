@@ -289,6 +289,140 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 	return ch
 }
 
+// SquashMergeToMain squashes all commits from a branch into a single commit when merging to main.
+// worktreePath is where Claude made changes - we commit any uncommitted changes first.
+// commitMsg is required and will be used as the commit message for the squashed commit.
+func (s *GitService) SquashMergeToMain(ctx context.Context, repoPath, worktreePath, branch, commitMsg string) <-chan Result {
+	ch := make(chan Result)
+
+	go func() {
+		defer close(ch)
+
+		log := logger.WithComponent("git")
+		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
+		log.Info("squash merging branch into default", "branch", branch, "defaultBranch", defaultBranch, "repoPath", repoPath, "worktree", worktreePath)
+
+		// First, check for uncommitted changes in the worktree and commit them
+		if !s.EnsureCommitted(ctx, ch, worktreePath, commitMsg) {
+			return
+		}
+
+		// Checkout the default branch
+		ch <- Result{Output: fmt.Sprintf("Checking out %s...\n", defaultBranch)}
+		output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "checkout", defaultBranch)
+		if err != nil {
+			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to checkout %s: %w", defaultBranch, err), Done: true}
+			return
+		}
+		ch <- Result{Output: string(output)}
+
+		// Check if we need to sync with remote before merging (same logic as MergeToMain)
+		if s.HasRemoteOrigin(ctx, repoPath) {
+			remoteBranch := fmt.Sprintf("origin/%s", defaultBranch)
+
+			// Fetch to update remote refs
+			ch <- Result{Output: "Fetching from origin...\n"}
+			output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
+			if err != nil {
+				// Fetch failed - check if remote branch exists
+				if !s.RemoteBranchExists(ctx, repoPath, remoteBranch) {
+					ch <- Result{Output: "Remote branch not found, continuing with local merge...\n"}
+				} else {
+					ch <- Result{Output: string(output), Error: fmt.Errorf("failed to fetch from origin: %w", err), Done: true}
+					return
+				}
+			} else {
+				ch <- Result{Output: string(output)}
+
+				// Check for divergence using programmatic git commands
+				divergence, divErr := s.GetBranchDivergence(ctx, repoPath, defaultBranch, remoteBranch)
+				if divErr != nil {
+					log.Warn("could not check divergence", "error", divErr)
+				} else if divergence.IsDiverged() {
+					// Local branch has diverged from remote - this is dangerous
+					hint := fmt.Sprintf(`
+Your local %s branch has diverged from origin/%s.
+Local is %d commit(s) ahead and %d commit(s) behind.
+This can cause commits to be lost if we merge now.
+
+To fix this, sync your local %s branch first:
+  cd %s
+  git checkout %s
+  git pull --rebase   # or: git reset --hard origin/%s
+
+Then try merging again.
+`, defaultBranch, defaultBranch, divergence.Ahead, divergence.Behind, defaultBranch, repoPath, defaultBranch, defaultBranch)
+					ch <- Result{
+						Output: hint,
+						Error:  fmt.Errorf("local %s has diverged from origin (%d ahead, %d behind) - sync required before merge", defaultBranch, divergence.Ahead, divergence.Behind),
+						Done:   true,
+					}
+					return
+				} else if divergence.Behind > 0 {
+					// Local is behind, can fast-forward - pull the changes
+					ch <- Result{Output: fmt.Sprintf("Pulling %d commit(s) from origin...\n", divergence.Behind)}
+					output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
+					if err != nil {
+						ch <- Result{Output: string(output), Error: fmt.Errorf("failed to pull: %w", err), Done: true}
+						return
+					}
+					ch <- Result{Output: string(output)}
+				} else {
+					ch <- Result{Output: "Already up to date with origin.\n"}
+				}
+			}
+		} else if !s.HasTrackingBranch(ctx, repoPath, defaultBranch) {
+			ch <- Result{Output: "No remote configured, continuing with local merge...\n"}
+		}
+
+		// Squash merge the branch (stages all changes but doesn't commit)
+		ch <- Result{Output: fmt.Sprintf("Squash merging %s...\n", branch)}
+		output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "merge", "--squash", branch)
+		if err != nil {
+			// Check if this is a merge conflict
+			conflictedFiles, conflictErr := s.GetConflictedFiles(ctx, repoPath)
+			if conflictErr == nil && len(conflictedFiles) > 0 {
+				// This is a merge conflict - include the conflicted files in the result
+				ch <- Result{
+					Output:          string(output),
+					Error:           fmt.Errorf("merge conflict"),
+					Done:            true,
+					ConflictedFiles: conflictedFiles,
+					RepoPath:        repoPath,
+				}
+				return
+			}
+
+			// Not a conflict, some other error
+			hint := fmt.Sprintf(`
+
+To resolve this merge issue:
+  1. cd %s
+  2. Check git status for details
+  3. Fix the issue and try again
+
+Or abort the merge with: git merge --abort
+`, repoPath)
+			ch <- Result{Output: string(output) + hint, Error: fmt.Errorf("squash merge failed: %w", err), Done: true}
+			return
+		}
+		ch <- Result{Output: string(output)}
+
+		// Commit the squashed changes with the provided message
+		ch <- Result{Output: "Committing squashed changes...\n"}
+		output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "commit", "-m", commitMsg)
+		if err != nil {
+			ch <- Result{Output: string(output), Error: fmt.Errorf("failed to commit squashed changes: %w", err), Done: true}
+			return
+		}
+		ch <- Result{Output: string(output)}
+
+		ch <- Result{Output: fmt.Sprintf("\nSuccessfully squash merged %s into %s\n", branch, defaultBranch), Done: true}
+	}()
+
+	return ch
+}
+
 // PushUpdates commits any uncommitted changes and pushes to the remote branch.
 // This is used after a PR has been created to push additional commits based on feedback.
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one.

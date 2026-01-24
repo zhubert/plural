@@ -110,9 +110,16 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, MergeTypeParent)
 		default:
-			log.Info("merging to main (no uncommitted changes)")
-			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+			// Check if squash-on-merge is enabled for this repo
+			if m.config.GetSquashOnMerge(sess.RepoPath) {
+				log.Info("squash merging to main (no uncommitted changes)")
+				m.chat.AppendStreaming("Squash merging " + sess.Branch + " to main...\n\n")
+				m.sessionState().StartMerge(sess.ID, m.gitService.SquashMergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+			} else {
+				log.Info("merging to main (no uncommitted changes)")
+				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
+				m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+			}
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}
@@ -202,9 +209,16 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
 			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, MergeTypeParent)
 		default:
-			log.Info("merging to main with user-edited commit message")
-			m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+			// Check if squash-on-merge is enabled for this repo
+			if m.config.GetSquashOnMerge(sess.RepoPath) {
+				log.Info("squash merging to main with user-edited commit message")
+				m.chat.AppendStreaming("Squash merging " + sess.Branch + " to main...\n\n")
+				m.sessionState().StartMerge(sess.ID, m.gitService.SquashMergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+			} else {
+				log.Info("merging to main with user-edited commit message")
+				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
+				m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+			}
 		}
 		return m, m.listenForMergeResult(sess.ID)
 	}

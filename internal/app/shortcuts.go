@@ -582,7 +582,18 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
-	m.modal.Show(ui.NewSettingsState(m.config.GetDefaultBranchPrefix(), m.config.GetNotificationsEnabled()))
+	var repoPath string
+	var squashEnabled bool
+	if m.activeSession != nil {
+		repoPath = m.activeSession.RepoPath
+		squashEnabled = m.config.GetSquashOnMerge(repoPath)
+	}
+	m.modal.Show(ui.NewSettingsState(
+		m.config.GetDefaultBranchPrefix(),
+		m.config.GetNotificationsEnabled(),
+		squashEnabled,
+		repoPath,
+	))
 	return m, nil
 }
 

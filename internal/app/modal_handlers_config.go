@@ -231,6 +231,10 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
+		// Save per-repo squash setting if a repo is selected
+		if repoPath := state.GetRepoPath(); repoPath != "" {
+			m.config.SetSquashOnMerge(repoPath, state.GetSquashOnMerge())
+		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
