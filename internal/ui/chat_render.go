@@ -703,11 +703,11 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 	var sb strings.Builder
 
 	// Title with progress summary
-	pending, inProgress, completed := list.CountByStatus()
+	_, _, completed := list.CountByStatus()
 	total := len(list.Items)
 
 	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
-	sb.WriteString(titleStyle.Render("📋 Task Progress"))
+	sb.WriteString(titleStyle.Render("Task Progress"))
 
 	// Progress indicator
 	progressStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
@@ -765,14 +765,6 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 		sb.WriteString("\n")
 	}
 
-	// Show summary hint if tasks are in progress
-	if inProgress > 0 || pending > 0 {
-		summaryStyle := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
-		if inProgress > 0 {
-			sb.WriteString(summaryStyle.Render(fmt.Sprintf("Working on %d task(s)...", inProgress)))
-		}
-	}
-
 	// Wrap in a box, capped at max width for readability
 	boxWidth := wrapWidth
 	if boxWidth > OverlayBoxMaxWidth {
@@ -791,11 +783,11 @@ func renderTodoListForSidebar(list *pclaude.TodoList, wrapWidth int) string {
 	var sb strings.Builder
 
 	// Title with progress summary
-	_, inProgress, completed := list.CountByStatus()
+	_, _, completed := list.CountByStatus()
 	total := len(list.Items)
 
 	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
-	sb.WriteString(titleStyle.Render("📋 Tasks"))
+	sb.WriteString(titleStyle.Render("Tasks"))
 
 	// Progress indicator
 	progressStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
@@ -848,13 +840,6 @@ func renderTodoListForSidebar(list *pclaude.TodoList, wrapWidth int) string {
 			}
 		}
 		sb.WriteString("\n")
-	}
-
-	// Show summary hint if tasks are in progress
-	if inProgress > 0 {
-		summaryStyle := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
-		sb.WriteString("\n")
-		sb.WriteString(summaryStyle.Render(fmt.Sprintf("Working on %d...", inProgress)))
 	}
 
 	// Apply padding but no border (sidebar panel has its own border)

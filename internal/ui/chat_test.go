@@ -257,7 +257,7 @@ func TestWrapText(t *testing.T) {
 
 func TestWrapTextWithANSI(t *testing.T) {
 	// Test that ANSI escape codes don't affect visible line length calculation
-	// The tool use line "⏺ Searching(Grep: pattern...)" was wrapping incorrectly
+	// The tool use line "○ Searching(Grep: pattern...)" was wrapping incorrectly
 	// because ANSI codes were being counted towards the line width
 
 	// ANSI escape code for cyan text
@@ -278,7 +278,7 @@ func TestWrapTextWithANSI(t *testing.T) {
 		},
 		{
 			name:          "tool use line with ANSI codes",
-			text:          "⏺ " + cyan + "Searching" + reset + "(Grep: pattern...)",
+			text:          "○ " + cyan + "Searching" + reset + "(Grep: pattern...)",
 			width:         80,
 			shouldNotWrap: true,
 		},
@@ -523,8 +523,8 @@ func TestRenderInlineMarkdown(t *testing.T) {
 		},
 		{
 			name:  "tool use in progress marker",
-			line:  "⏺ Working",
-			check: func(s string) bool { return strings.Contains(s, "⏺") },
+			line:  "○ Working",
+			check: func(s string) bool { return strings.Contains(s, "○") },
 		},
 		{
 			name:  "tool use complete marker",
@@ -1650,8 +1650,8 @@ func TestChat_SetSize(t *testing.T) {
 }
 
 func TestToolUseConstants(t *testing.T) {
-	if ToolUseInProgress != "⏺" {
-		t.Errorf("Expected ToolUseInProgress to be ⏺, got %q", ToolUseInProgress)
+	if ToolUseInProgress != "○" {
+		t.Errorf("Expected ToolUseInProgress to be ○, got %q", ToolUseInProgress)
 	}
 
 	if ToolUseComplete != "●" {

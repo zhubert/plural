@@ -606,7 +606,12 @@ func (s *Sidebar) View() string {
 		var lines []string
 
 		sessionIdx := 0
-		for _, group := range s.groups {
+		for i, group := range s.groups {
+			// Add blank line between repos (not before first one)
+			if i > 0 {
+				lines = append(lines, "")
+			}
+
 			// Repo header
 			repoStyle := lipgloss.NewStyle().
 				Foreground(ColorTextMuted).

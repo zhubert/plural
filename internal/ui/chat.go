@@ -14,8 +14,8 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
-// ToolUseInProgress is the white circle marker for tool use in progress
-const ToolUseInProgress = "⏺"
+// ToolUseInProgress is the empty circle marker for tool use in progress
+const ToolUseInProgress = "○"
 
 // ToolUseComplete is the green circle marker for completed tool use
 const ToolUseComplete = "●"
@@ -904,7 +904,7 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 
 	// Title
 	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
-	sb.WriteString(titleStyle.Render("📋 Plan Approval Required"))
+	sb.WriteString(titleStyle.Render("Plan Approval Required"))
 	sb.WriteString("\n\n")
 
 	// Render plan as markdown, accounting for box padding
