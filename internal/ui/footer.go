@@ -282,9 +282,9 @@ func (f *Footer) View() string {
 		chatBindings := []KeyBinding{
 			{Key: "enter", Desc: "send"},
 		}
-		// Show ctrl+p when options are detected
+		// Show ctrl+o when options are detected
 		if f.hasDetectedOptions {
-			chatBindings = append(chatBindings, KeyBinding{Key: "ctrl+p", Desc: "fork options"})
+			chatBindings = append(chatBindings, KeyBinding{Key: "ctrl+o", Desc: "fork options"})
 		}
 		chatBindings = append(chatBindings,
 			KeyBinding{Key: "ctrl+v", Desc: "paste image"},
