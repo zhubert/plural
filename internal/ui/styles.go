@@ -187,11 +187,26 @@ var (
 
 // Todo list styles
 var (
-	// Box style for the todo list container
+	// Box style for the todo list container (used when inline)
 	TodoListBoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorInfo).
 		Padding(0, 1)
+
+	// TodoSidebarStyle is for the todo list when shown as a sidebar panel.
+	// Uses left border only to connect visually with the chat panel.
+	TodoSidebarStyle = lipgloss.NewStyle().
+		Border(lipgloss.Border{
+			Top:         "─",
+			Bottom:      "─",
+			Left:        "│",
+			Right:       "│",
+			TopLeft:     "┬",
+			TopRight:    "╮",
+			BottomLeft:  "┴",
+			BottomRight: "╯",
+		}).
+		BorderForeground(ColorBorder)
 
 	// Marker styles for different states
 	TodoCompletedMarkerStyle = lipgloss.NewStyle().

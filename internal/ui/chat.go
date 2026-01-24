@@ -81,6 +81,7 @@ type Chat struct {
 
 	// Todo list display state
 	currentTodoList *pclaude.TodoList
+	todoWidth       int // Width of todo sidebar when visible (0 when hidden)
 
 	// Text selection state
 	selection *TextSelection
@@ -160,18 +161,33 @@ func applyTextareaStyles(ti *textarea.Model) {
 
 // SetSize sets the chat panel dimensions
 func (c *Chat) SetSize(width, height int) {
+	ctx := GetViewContext()
+
+	c.width = width
+	c.height = height
+
+	// Calculate todo sidebar width if we have a todo list
+	var mainPanelWidth int
+	if c.HasTodoList() {
+		// Todo sidebar gets 1/4 of the total chat panel width
+		c.todoWidth = width / TodoSidebarWidthRatio
+		if c.todoWidth < TodoListMinWrapWidth+BorderSize {
+			c.todoWidth = TodoListMinWrapWidth + BorderSize
+		}
+		mainPanelWidth = width - c.todoWidth
+	} else {
+		c.todoWidth = 0
+		mainPanelWidth = width
+	}
+
 	// Check if viewport width changed - if so, invalidate message cache
 	// since messages are wrapped based on viewport width
-	ctx := GetViewContext()
-	newInnerWidth := ctx.InnerWidth(width)
+	newInnerWidth := ctx.InnerWidth(mainPanelWidth)
 	wasUninitialized := c.viewport.Width() <= 0
 	widthChanged := c.viewport.Width() != newInnerWidth && c.viewport.Width() > 0
 	if widthChanged {
 		c.messageCache = nil // Clear cache to force re-render at new width
 	}
-
-	c.width = width
-	c.height = height
 
 	// Chat panel height (excluding input area which is separate)
 	chatPanelHeight := height - InputTotalHeight
@@ -187,7 +203,7 @@ func (c *Chat) SetSize(width, height int) {
 	c.viewport.SetWidth(innerWidth)
 	c.viewport.SetHeight(viewportHeight)
 
-	// Input width accounts for its own border AND padding
+	// Input width accounts for its own border AND padding (spans full width below both panels)
 	inputInnerWidth := ctx.InnerWidth(width) - InputPaddingWidth
 	c.input.SetWidth(inputInnerWidth)
 
@@ -200,6 +216,8 @@ func (c *Chat) SetSize(width, height int) {
 	ctx.Log("Chat.SetSize",
 		"outerWidth", width,
 		"outerHeight", height,
+		"mainPanelWidth", mainPanelWidth,
+		"todoWidth", c.todoWidth,
 		"chatPanelHeight", chatPanelHeight,
 		"inputTotalHeight", InputTotalHeight,
 		"viewportWidth", c.viewport.Width(),
@@ -620,6 +638,8 @@ func (c *Chat) GetPendingImageSizeKB() int {
 // If the list is complete (all items done), it gets "baked" into the message
 // history so it scrolls like normal messages instead of staying pinned at bottom
 func (c *Chat) SetTodoList(list *pclaude.TodoList) {
+	hadTodoList := c.HasTodoList()
+
 	if list != nil && list.IsComplete() {
 		// Bake the completed todo list into messages as rendered content
 		wrapWidth := c.viewport.Width()
@@ -638,12 +658,26 @@ func (c *Chat) SetTodoList(list *pclaude.TodoList) {
 	} else {
 		c.currentTodoList = nil
 	}
+
+	// If todo list visibility changed, recalculate layout
+	hasTodoList := c.HasTodoList()
+	if hadTodoList != hasTodoList && c.width > 0 && c.height > 0 {
+		c.SetSize(c.width, c.height)
+	}
+
 	c.updateContent()
 }
 
 // ClearTodoList clears the todo list display
 func (c *Chat) ClearTodoList() {
+	hadTodoList := c.HasTodoList()
 	c.currentTodoList = nil
+
+	// If we had a todo list, recalculate layout to reclaim the sidebar space
+	if hadTodoList && c.width > 0 && c.height > 0 {
+		c.SetSize(c.width, c.height)
+	}
+
 	c.updateContent()
 }
 
@@ -655,6 +689,18 @@ func (c *Chat) HasTodoList() bool {
 // GetTodoList returns the current todo list
 func (c *Chat) GetTodoList() *pclaude.TodoList {
 	return c.currentTodoList
+}
+
+// renderTodoSidebar renders the todo list content for the sidebar panel.
+// The width is the inner width available after accounting for borders.
+func (c *Chat) renderTodoSidebar(width int) string {
+	if c.currentTodoList == nil || len(c.currentTodoList.Items) == 0 {
+		return ""
+	}
+
+	// Use renderTodoListForSidebar which renders without the box border
+	// since the sidebar panel already has borders
+	return renderTodoListForSidebar(c.currentTodoList, width)
 }
 
 // GetToolIcon returns an appropriate icon for the tool type
@@ -1076,13 +1122,7 @@ func (c *Chat) updateContent() {
 			sb.WriteString(queuedStyle.Render(c.queuedMessage))
 		}
 
-		// Show todo list if present
-		if c.currentTodoList != nil && len(c.currentTodoList.Items) > 0 {
-			if len(c.messages) > 0 || c.streaming != "" || c.waiting {
-				sb.WriteString("\n\n")
-			}
-			sb.WriteString(renderTodoList(c.currentTodoList, wrapWidth))
-		}
+		// Note: Todo list is now rendered as a sidebar in View(), not inline here
 
 		// Show pending permission prompt
 		if c.permission != nil {
@@ -1334,9 +1374,6 @@ func (c *Chat) View() string {
 	// Calculate heights: chat panel gets remaining space after input
 	chatPanelHeight := c.height - InputTotalHeight
 
-	// Render chat history in its own bordered panel
-	chatPanel := panelStyle.Width(c.width).Height(chatPanelHeight).Render(viewportContent)
-
 	// Input area with its own border
 	inputStyle := ChatInputStyle
 	if c.focused {
@@ -1355,6 +1392,34 @@ func (c *Chat) View() string {
 	} else {
 		inputContent = c.input.View()
 	}
+
+	// Check if we need to show todo sidebar
+	if c.HasTodoList() && c.todoWidth > 0 {
+		// Split layout: chat viewport on left, todo sidebar on right
+		mainWidth := c.width - c.todoWidth
+
+		// Render main chat viewport (left side)
+		mainPanel := panelStyle.Width(mainWidth).Height(chatPanelHeight).Render(viewportContent)
+
+		// Render todo sidebar (right side) - use inner width for content
+		todoInnerWidth := c.todoWidth - BorderSize
+		if todoInnerWidth < TodoListMinWrapWidth {
+			todoInnerWidth = TodoListMinWrapWidth
+		}
+		todoContent := c.renderTodoSidebar(todoInnerWidth)
+		todoPanel := TodoSidebarStyle.Width(c.todoWidth).Height(chatPanelHeight).Render(todoContent)
+
+		// Join horizontally
+		chatPanel := lipgloss.JoinHorizontal(lipgloss.Top, mainPanel, todoPanel)
+
+		// Input spans full width below both panels
+		inputArea := inputStyle.Width(c.width).Render(inputContent)
+
+		return lipgloss.JoinVertical(lipgloss.Left, chatPanel, inputArea)
+	}
+
+	// No todo list: full-width chat (original behavior)
+	chatPanel := panelStyle.Width(c.width).Height(chatPanelHeight).Render(viewportContent)
 	inputArea := inputStyle.Width(c.width).Render(inputContent)
 
 	return lipgloss.JoinVertical(lipgloss.Left, chatPanel, inputArea)

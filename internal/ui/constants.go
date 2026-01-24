@@ -204,6 +204,10 @@ const (
 
 	// TodoListFallbackWrapWidth is the fallback wrap width when viewport not initialized
 	TodoListFallbackWrapWidth = 80
+
+	// TodoSidebarWidthRatio determines sidebar width as ChatWidth/TodoSidebarWidthRatio.
+	// Value of 4 means todo sidebar gets 1/4 of chat panel width.
+	TodoSidebarWidthRatio = 4
 )
 
 // Text wrapping and indentation constants.

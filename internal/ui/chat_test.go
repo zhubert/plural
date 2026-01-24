@@ -2937,6 +2937,136 @@ func TestChat_ClearTodoList(t *testing.T) {
 }
 
 // =============================================================================
+// Todo Sidebar Tests
+// =============================================================================
+
+func TestChat_TodoSidebar_WidthCalculation(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(120, 40)
+	chat.SetSession("test", nil)
+
+	// Without todo list, todoWidth should be 0
+	if chat.todoWidth != 0 {
+		t.Errorf("Expected todoWidth=0 without todo list, got %d", chat.todoWidth)
+	}
+
+	// Set a todo list
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusInProgress, ActiveForm: "Working on task 1"},
+		},
+	}
+	chat.SetTodoList(todoList)
+
+	// Now todoWidth should be approximately 1/4 of the total width
+	expectedWidth := 120 / TodoSidebarWidthRatio
+	if chat.todoWidth != expectedWidth {
+		t.Errorf("Expected todoWidth=%d (1/4 of 120), got %d", expectedWidth, chat.todoWidth)
+	}
+
+	// Clear the todo list
+	chat.ClearTodoList()
+
+	// todoWidth should go back to 0
+	if chat.todoWidth != 0 {
+		t.Errorf("Expected todoWidth=0 after clearing todo list, got %d", chat.todoWidth)
+	}
+}
+
+func TestChat_TodoSidebar_ViewportWidthAdjustment(t *testing.T) {
+	chat := NewChat()
+	totalWidth := 120
+	chat.SetSize(totalWidth, 40)
+	chat.SetSession("test", nil)
+
+	// Get viewport width without todo list
+	fullViewportWidth := chat.viewport.Width()
+
+	// Set a todo list
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusInProgress, ActiveForm: "Working on task 1"},
+		},
+	}
+	chat.SetTodoList(todoList)
+
+	// Viewport width should be reduced to make room for todo sidebar
+	splitViewportWidth := chat.viewport.Width()
+	if splitViewportWidth >= fullViewportWidth {
+		t.Errorf("Expected viewport width to decrease when todo sidebar is shown. Full: %d, Split: %d",
+			fullViewportWidth, splitViewportWidth)
+	}
+
+	// The difference should approximately equal the todo sidebar width (accounting for borders)
+	expectedReduction := chat.todoWidth
+	actualReduction := fullViewportWidth - splitViewportWidth
+	// Allow for some variance due to border calculations
+	if actualReduction < expectedReduction-BorderSize || actualReduction > expectedReduction+BorderSize {
+		t.Errorf("Viewport width reduction (%d) doesn't match todo sidebar width (%d)",
+			actualReduction, expectedReduction)
+	}
+}
+
+func TestChat_TodoSidebar_RenderTodoSidebar(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(120, 40)
+	chat.SetSession("test", nil)
+
+	// Without todo list, renderTodoSidebar should return empty string
+	content := chat.renderTodoSidebar(30)
+	if content != "" {
+		t.Errorf("Expected empty string for renderTodoSidebar without todo list, got %q", content)
+	}
+
+	// Set a todo list
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusCompleted, ActiveForm: "Done with task 1"},
+			{Content: "Task 2", Status: claude.TodoStatusInProgress, ActiveForm: "Working on task 2"},
+			{Content: "Task 3", Status: claude.TodoStatusPending, ActiveForm: "Pending task 3"},
+		},
+	}
+	chat.SetTodoList(todoList)
+
+	// Now renderTodoSidebar should return content
+	content = chat.renderTodoSidebar(30)
+	if content == "" {
+		t.Error("Expected non-empty content from renderTodoSidebar with todo list")
+	}
+
+	// Content should contain task markers
+	if !strings.Contains(content, "✓") {
+		t.Error("Expected todo sidebar to contain completed marker (✓)")
+	}
+	if !strings.Contains(content, "▸") {
+		t.Error("Expected todo sidebar to contain in-progress marker (▸)")
+	}
+	if !strings.Contains(content, "○") {
+		t.Error("Expected todo sidebar to contain pending marker (○)")
+	}
+}
+
+func TestChat_TodoSidebar_MinimumWidth(t *testing.T) {
+	chat := NewChat()
+	// Use a very small width to test minimum width enforcement
+	chat.SetSize(60, 40)
+	chat.SetSession("test", nil)
+
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Task 1", Status: claude.TodoStatusInProgress, ActiveForm: "Working"},
+		},
+	}
+	chat.SetTodoList(todoList)
+
+	// todoWidth should be at least TodoListMinWrapWidth + BorderSize
+	minWidth := TodoListMinWrapWidth + BorderSize
+	if chat.todoWidth < minWidth {
+		t.Errorf("Expected todoWidth >= %d, got %d", minWidth, chat.todoWidth)
+	}
+}
+
+// =============================================================================
 // Width Calculation Tests
 // =============================================================================
 

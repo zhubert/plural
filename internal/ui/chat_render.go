@@ -780,3 +780,83 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 	}
 	return TodoListBoxStyle.Width(boxWidth).Render(sb.String())
 }
+
+// renderTodoListForSidebar renders the todo list without a box border.
+// Used when the todo list is displayed in a sidebar panel that already has borders.
+func renderTodoListForSidebar(list *pclaude.TodoList, wrapWidth int) string {
+	if list == nil || len(list.Items) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Title with progress summary
+	_, inProgress, completed := list.CountByStatus()
+	total := len(list.Items)
+
+	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
+	sb.WriteString(titleStyle.Render("📋 Tasks"))
+
+	// Progress indicator
+	progressStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+	sb.WriteString(progressStyle.Render(fmt.Sprintf(" (%d/%d)", completed, total)))
+	sb.WriteString("\n\n")
+
+	// Render each todo item
+	for _, item := range list.Items {
+		var marker string
+		var contentStyle lipgloss.Style
+
+		switch item.Status {
+		case pclaude.TodoStatusCompleted:
+			marker = TodoCompletedMarkerStyle.Render("✓")
+			contentStyle = TodoCompletedContentStyle
+		case pclaude.TodoStatusInProgress:
+			marker = TodoInProgressMarkerStyle.Render("▸")
+			contentStyle = TodoInProgressContentStyle
+		default: // pending
+			marker = TodoPendingMarkerStyle.Render("○")
+			contentStyle = TodoPendingContentStyle
+		}
+
+		sb.WriteString(marker)
+		sb.WriteString(" ")
+
+		// For in-progress items, show the activeForm if available
+		content := item.Content
+		if item.Status == pclaude.TodoStatusInProgress && item.ActiveForm != "" {
+			content = item.ActiveForm
+		}
+
+		// Wrap long content, accounting for marker width only (no box padding in sidebar)
+		maxContentWidth := wrapWidth - TodoMarkerWidth - ContentPadding
+		if maxContentWidth < MinWrapWidth {
+			maxContentWidth = MinWrapWidth
+		}
+		wrappedContent := wrapText(content, maxContentWidth)
+
+		// Handle multi-line wrapped content - indent continuation lines
+		continuationIndent := strings.Repeat(" ", TodoMarkerWidth+1)
+		lines := strings.Split(wrappedContent, "\n")
+		for i, line := range lines {
+			if i > 0 {
+				sb.WriteString(continuationIndent)
+			}
+			sb.WriteString(contentStyle.Render(line))
+			if i < len(lines)-1 {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Show summary hint if tasks are in progress
+	if inProgress > 0 {
+		summaryStyle := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true)
+		sb.WriteString("\n")
+		sb.WriteString(summaryStyle.Render(fmt.Sprintf("Working on %d...", inProgress)))
+	}
+
+	// Apply padding but no border (sidebar panel has its own border)
+	return lipgloss.NewStyle().Padding(0, 1).Render(sb.String())
+}
