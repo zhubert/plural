@@ -330,12 +330,9 @@ func TestSidebar_View_WithIndicators(t *testing.T) {
 		t.Error("View should not be empty")
 	}
 
-	// Verify MergedToParent indicator is shown (now uses ✓ symbol and ● node)
+	// Verify MergedToParent indicator is shown (uses ✓ as node symbol)
 	if !strings.Contains(view, "✓") {
-		t.Error("View should contain '✓' indicator for merged session-4")
-	}
-	if !strings.Contains(view, "●") {
-		t.Error("View should contain '●' node symbol for merged-to-parent session-4")
+		t.Error("View should contain '✓' node symbol for merged session-4")
 	}
 }
 
@@ -475,8 +472,8 @@ func TestSidebar_RenderSessionNode_NodeSymbols(t *testing.T) {
 			session:        config.Session{ID: "s3", Name: "merged", MergedToParent: true},
 			hasChildren:    false,
 			streaming:      false,
-			expectedSymbol: "●",
-			description:    "Merged to parent session should use ●",
+			expectedSymbol: "✓",
+			description:    "Merged to parent session should use ✓",
 		},
 	}
 
@@ -561,38 +558,39 @@ func TestSidebar_RenderSessionNode_TreeConnectors(t *testing.T) {
 	}
 }
 
-func TestSidebar_RenderSessionNode_RightSideStatus(t *testing.T) {
+func TestSidebar_RenderSessionNode_NodeSymbolStatus(t *testing.T) {
+	// Tests that status is shown as the node symbol (left side), not right side
 	sidebar := NewSidebar()
 
 	tests := []struct {
 		name           string
 		session        config.Session
-		expectedStatus string
+		expectedSymbol string
 	}{
 		{
 			name:           "merged session",
 			session:        config.Session{ID: "s1", Name: "test", Merged: true},
-			expectedStatus: "✓",
+			expectedSymbol: "✓",
 		},
 		{
 			name:           "merged to parent",
 			session:        config.Session{ID: "s2", Name: "test", MergedToParent: true},
-			expectedStatus: "✓",
+			expectedSymbol: "✓",
 		},
 		{
 			name:           "PR created",
 			session:        config.Session{ID: "s3", Name: "test", PRCreated: true},
-			expectedStatus: "PR",
+			expectedSymbol: "⬡", // hexagon for PR
 		},
 		{
 			name:           "PR with issue number",
 			session:        config.Session{ID: "s4", Name: "test", PRCreated: true, IssueNumber: 123},
-			expectedStatus: "#123",
+			expectedSymbol: "⬡", // hexagon for PR (issue number no longer shown)
 		},
 		{
-			name:           "no status",
+			name:           "no status - regular session",
 			session:        config.Session{ID: "s5", Name: "test"},
-			expectedStatus: "",
+			expectedSymbol: "◇", // empty diamond for regular session
 		},
 	}
 
@@ -600,15 +598,8 @@ func TestSidebar_RenderSessionNode_RightSideStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := sidebar.renderSessionNode(tt.session, 0, false, false, true)
 
-			if tt.expectedStatus == "" {
-				// Should not contain any status indicators
-				if strings.Contains(result, "✓") || strings.Contains(result, "PR") || strings.Contains(result, "#") {
-					t.Errorf("Expected no status indicator, got %q", result)
-				}
-			} else {
-				if !strings.Contains(result, tt.expectedStatus) {
-					t.Errorf("Expected status %q in result %q", tt.expectedStatus, result)
-				}
+			if !strings.Contains(result, tt.expectedSymbol) {
+				t.Errorf("Expected symbol %q in result %q", tt.expectedSymbol, result)
 			}
 		})
 	}

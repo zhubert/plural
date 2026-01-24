@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"fmt"
 	"hash/fnv"
+	"image/color"
 	"path/filepath"
 	"strings"
 	"time"
@@ -701,20 +701,39 @@ func (s *Sidebar) renderSessionNameWithDepth(sess config.Session, depth int, isS
 // hasChildren: whether this session has child sessions (forks)
 // isLastChild: whether this is the last child of its parent (for connector style)
 func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected bool, hasChildren bool, isLastChild bool) string {
-	// Determine the node symbol based on state
+	// Determine the node symbol based on state priority:
+	// 1. Pending permission (⚠) - highest priority, needs attention
+	// 2. Streaming (spinner) - active work happening
+	// 3. Merged status (✓) - completed state
+	// 4. PR created - has PR but not merged
+	// 5. Default node type (◆/◇) - base state
 	var nodeSymbol string
-	if s.IsSessionStreaming(sess.ID) {
+	var symbolColor color.Color
+
+	if s.HasPendingPermission(sess.ID) {
+		// Pending permission - needs attention
+		nodeSymbol = "⚠"
+		symbolColor = ColorWarning
+	} else if s.IsSessionStreaming(sess.ID) {
 		// Streaming - use animated spinner
 		nodeSymbol = sidebarSpinnerFrames[s.spinnerFrame]
-	} else if sess.MergedToParent {
-		// Merged to parent (locked)
-		nodeSymbol = "●"
+		symbolColor = ColorPrimary
+	} else if sess.MergedToParent || sess.Merged {
+		// Merged to parent or main branch
+		nodeSymbol = "✓"
+		symbolColor = ColorSecondary
+	} else if sess.PRCreated {
+		// PR created but not merged
+		nodeSymbol = "⬡" // hexagon to indicate PR
+		symbolColor = ColorUser
 	} else if hasChildren {
 		// Has children - parent node
 		nodeSymbol = "◆"
+		symbolColor = ColorPrimary
 	} else {
 		// No children - regular session
 		nodeSymbol = "◇"
+		symbolColor = ColorTextMuted
 	}
 
 	// Build the prefix with tree structure
@@ -744,17 +763,7 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 		// Selected - let parent style handle colors
 		styledPrefix = prefix
 	} else {
-		// Determine symbol style based on state
-		var symbolStyle lipgloss.Style
-		if s.IsSessionStreaming(sess.ID) {
-			symbolStyle = lipgloss.NewStyle().Foreground(ColorPrimary) // Purple for streaming
-		} else if sess.MergedToParent {
-			symbolStyle = lipgloss.NewStyle().Foreground(ColorSecondary) // Cyan for merged
-		} else if hasChildren {
-			symbolStyle = lipgloss.NewStyle().Foreground(ColorPrimary) // Purple for parent
-		} else {
-			symbolStyle = lipgloss.NewStyle().Foreground(ColorTextMuted) // Muted for regular
-		}
+		symbolStyle := lipgloss.NewStyle().Foreground(symbolColor)
 
 		// Style just the node symbol, keep connectors muted
 		if depth == 0 {
@@ -779,45 +788,6 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 	}
 
 	displayName := styledPrefix + name
-
-	// Add permission indicator after name
-	if s.HasPendingPermission(sess.ID) {
-		if isSelected {
-			displayName = displayName + " ⚠"
-		} else {
-			indicatorStyle := lipgloss.NewStyle().Foreground(ColorWarning)
-			displayName = displayName + " " + indicatorStyle.Render("⚠")
-		}
-	}
-
-	// Build right-side status indicator
-	var rightStatus string
-	if sess.MergedToParent {
-		rightStatus = "✓"
-	} else if sess.Merged {
-		rightStatus = "✓"
-	} else if sess.PRCreated {
-		// Show PR number if we have an issue number, otherwise just indicate PR exists
-		if sess.IssueNumber > 0 {
-			rightStatus = fmt.Sprintf("#%d", sess.IssueNumber)
-		} else {
-			rightStatus = "PR"
-		}
-	}
-
-	if rightStatus != "" {
-		if isSelected {
-			displayName = displayName + " " + rightStatus
-		} else {
-			var statusStyle lipgloss.Style
-			if sess.MergedToParent || sess.Merged {
-				statusStyle = lipgloss.NewStyle().Foreground(ColorSecondary) // Cyan for merged
-			} else {
-				statusStyle = lipgloss.NewStyle().Foreground(ColorUser) // Light purple for PR
-			}
-			displayName = displayName + " " + statusStyle.Render(rightStatus)
-		}
-	}
 
 	return displayName
 }
