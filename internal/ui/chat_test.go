@@ -1402,7 +1402,7 @@ func TestChat_Waiting(t *testing.T) {
 	}
 
 	// Should have a random verb
-	if chat.waitingVerb == "" {
+	if chat.spinner.Verb == "" {
 		t.Error("Expected waiting verb to be set")
 	}
 
@@ -1501,12 +1501,12 @@ func TestChat_PendingPermission(t *testing.T) {
 		t.Error("Should have pending permission after SetPendingPermission")
 	}
 
-	if chat.pendingPermissionTool != "Bash" {
-		t.Errorf("Expected tool 'Bash', got %q", chat.pendingPermissionTool)
+	if chat.permission.Tool != "Bash" {
+		t.Errorf("Expected tool 'Bash', got %q", chat.permission.Tool)
 	}
 
-	if chat.pendingPermissionDesc != "Run: git status" {
-		t.Errorf("Expected description 'Run: git status', got %q", chat.pendingPermissionDesc)
+	if chat.permission.Description != "Run: git status" {
+		t.Errorf("Expected description 'Run: git status', got %q", chat.permission.Description)
 	}
 
 	// Clear pending permission
@@ -1544,30 +1544,30 @@ func TestChat_PendingQuestion(t *testing.T) {
 		t.Error("Should have pending question after SetPendingQuestion")
 	}
 
-	if len(chat.pendingQuestions) != 1 {
-		t.Errorf("Expected 1 question, got %d", len(chat.pendingQuestions))
+	if len(chat.question.Questions) != 1 {
+		t.Errorf("Expected 1 question, got %d", len(chat.question.Questions))
 	}
 
 	// Test question selection
 	chat.MoveQuestionSelection(1) // Move down
-	if chat.selectedOptionIdx != 1 {
-		t.Errorf("Expected selected index 1, got %d", chat.selectedOptionIdx)
+	if chat.question.SelectedOption != 1 {
+		t.Errorf("Expected selected index 1, got %d", chat.question.SelectedOption)
 	}
 
 	chat.MoveQuestionSelection(-1) // Move up
-	if chat.selectedOptionIdx != 0 {
-		t.Errorf("Expected selected index 0 after moving up, got %d", chat.selectedOptionIdx)
+	if chat.question.SelectedOption != 0 {
+		t.Errorf("Expected selected index 0 after moving up, got %d", chat.question.SelectedOption)
 	}
 
 	// Test wrap-around
 	chat.MoveQuestionSelection(-1) // Should wrap to last
 	expectedIdx := len(questions[0].Options) // +1 for "Other" option
-	if chat.selectedOptionIdx != expectedIdx {
-		t.Errorf("Expected wrap to %d, got %d", expectedIdx, chat.selectedOptionIdx)
+	if chat.question.SelectedOption != expectedIdx {
+		t.Errorf("Expected wrap to %d, got %d", expectedIdx, chat.question.SelectedOption)
 	}
 
 	// Select by number
-	chat.selectedOptionIdx = 0
+	chat.question.SelectedOption = 0
 	completed := chat.SelectOptionByNumber(1)
 	if !completed {
 		t.Error("Should complete with single question")
@@ -1615,8 +1615,8 @@ func TestChat_MultipleQuestions(t *testing.T) {
 		t.Error("Should not be complete after first answer")
 	}
 
-	if chat.currentQuestionIdx != 1 {
-		t.Errorf("Expected currentQuestionIdx 1, got %d", chat.currentQuestionIdx)
+	if chat.question.CurrentIdx != 1 {
+		t.Errorf("Expected currentQuestionIdx 1, got %d", chat.question.CurrentIdx)
 	}
 
 	// Answer second question
@@ -1700,19 +1700,19 @@ func TestChat_StartSelection(t *testing.T) {
 	// Start selection at position (5, 10)
 	chat.StartSelection(5, 10)
 
-	if chat.selectionStartCol != 5 {
-		t.Errorf("Expected selectionStartCol 5, got %d", chat.selectionStartCol)
+	if chat.selection.StartCol != 5 {
+		t.Errorf("Expected selectionStartCol 5, got %d", chat.selection.StartCol)
 	}
-	if chat.selectionStartLine != 10 {
-		t.Errorf("Expected selectionStartLine 10, got %d", chat.selectionStartLine)
+	if chat.selection.StartLine != 10 {
+		t.Errorf("Expected selectionStartLine 10, got %d", chat.selection.StartLine)
 	}
-	if chat.selectionEndCol != 5 {
-		t.Errorf("Expected selectionEndCol 5, got %d", chat.selectionEndCol)
+	if chat.selection.EndCol != 5 {
+		t.Errorf("Expected selectionEndCol 5, got %d", chat.selection.EndCol)
 	}
-	if chat.selectionEndLine != 10 {
-		t.Errorf("Expected selectionEndLine 10, got %d", chat.selectionEndLine)
+	if chat.selection.EndLine != 10 {
+		t.Errorf("Expected selectionEndLine 10, got %d", chat.selection.EndLine)
 	}
-	if !chat.selectionActive {
+	if !chat.selection.Active {
 		t.Error("Expected selectionActive to be true")
 	}
 }
@@ -1722,7 +1722,7 @@ func TestChat_EndSelection(t *testing.T) {
 
 	// EndSelection without active selection should do nothing
 	chat.EndSelection(10, 20)
-	if chat.selectionEndCol != 0 || chat.selectionEndLine != 0 {
+	if chat.selection.EndCol != 0 || chat.selection.EndLine != 0 {
 		t.Error("EndSelection should not modify coordinates when selection is not active")
 	}
 
@@ -1730,18 +1730,18 @@ func TestChat_EndSelection(t *testing.T) {
 	chat.StartSelection(5, 10)
 	chat.EndSelection(15, 25)
 
-	if chat.selectionEndCol != 15 {
-		t.Errorf("Expected selectionEndCol 15, got %d", chat.selectionEndCol)
+	if chat.selection.EndCol != 15 {
+		t.Errorf("Expected selectionEndCol 15, got %d", chat.selection.EndCol)
 	}
-	if chat.selectionEndLine != 25 {
-		t.Errorf("Expected selectionEndLine 25, got %d", chat.selectionEndLine)
+	if chat.selection.EndLine != 25 {
+		t.Errorf("Expected selectionEndLine 25, got %d", chat.selection.EndLine)
 	}
 	// Start position should be unchanged
-	if chat.selectionStartCol != 5 {
-		t.Errorf("Expected selectionStartCol unchanged at 5, got %d", chat.selectionStartCol)
+	if chat.selection.StartCol != 5 {
+		t.Errorf("Expected selectionStartCol unchanged at 5, got %d", chat.selection.StartCol)
 	}
-	if chat.selectionStartLine != 10 {
-		t.Errorf("Expected selectionStartLine unchanged at 10, got %d", chat.selectionStartLine)
+	if chat.selection.StartLine != 10 {
+		t.Errorf("Expected selectionStartLine unchanged at 10, got %d", chat.selection.StartLine)
 	}
 }
 
@@ -1750,20 +1750,20 @@ func TestChat_SelectionStop(t *testing.T) {
 	chat.StartSelection(5, 10)
 	chat.EndSelection(15, 20)
 
-	if !chat.selectionActive {
+	if !chat.selection.Active {
 		t.Error("Expected selectionActive to be true before stop")
 	}
 
 	chat.SelectionStop()
 
-	if chat.selectionActive {
+	if chat.selection.Active {
 		t.Error("Expected selectionActive to be false after stop")
 	}
 	// Coordinates should be preserved
-	if chat.selectionStartCol != 5 || chat.selectionStartLine != 10 {
+	if chat.selection.StartCol != 5 || chat.selection.StartLine != 10 {
 		t.Error("Selection start coordinates should be preserved after stop")
 	}
-	if chat.selectionEndCol != 15 || chat.selectionEndLine != 20 {
+	if chat.selection.EndCol != 15 || chat.selection.EndLine != 20 {
 		t.Error("Selection end coordinates should be preserved after stop")
 	}
 }
@@ -1776,19 +1776,19 @@ func TestChat_SelectionClear(t *testing.T) {
 
 	chat.SelectionClear()
 
-	if chat.selectionStartCol != -1 {
-		t.Errorf("Expected selectionStartCol -1, got %d", chat.selectionStartCol)
+	if chat.selection.StartCol != -1 {
+		t.Errorf("Expected selectionStartCol -1, got %d", chat.selection.StartCol)
 	}
-	if chat.selectionStartLine != -1 {
-		t.Errorf("Expected selectionStartLine -1, got %d", chat.selectionStartLine)
+	if chat.selection.StartLine != -1 {
+		t.Errorf("Expected selectionStartLine -1, got %d", chat.selection.StartLine)
 	}
-	if chat.selectionEndCol != -1 {
-		t.Errorf("Expected selectionEndCol -1, got %d", chat.selectionEndCol)
+	if chat.selection.EndCol != -1 {
+		t.Errorf("Expected selectionEndCol -1, got %d", chat.selection.EndCol)
 	}
-	if chat.selectionEndLine != -1 {
-		t.Errorf("Expected selectionEndLine -1, got %d", chat.selectionEndLine)
+	if chat.selection.EndLine != -1 {
+		t.Errorf("Expected selectionEndLine -1, got %d", chat.selection.EndLine)
 	}
-	if chat.selectionActive {
+	if chat.selection.Active {
 		t.Error("Expected selectionActive to be false after clear")
 	}
 }
@@ -1884,10 +1884,10 @@ func TestChat_SelectionArea(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chat.selectionStartCol = tt.startCol
-			chat.selectionStartLine = tt.startLine
-			chat.selectionEndCol = tt.endCol
-			chat.selectionEndLine = tt.endLine
+			chat.selection.StartCol = tt.startCol
+			chat.selection.StartLine = tt.startLine
+			chat.selection.EndCol = tt.endCol
+			chat.selection.EndLine = tt.endLine
 
 			gotStartCol, gotStartLine, gotEndCol, gotEndLine := chat.selectionArea()
 
@@ -1915,16 +1915,16 @@ func TestChat_HandleMouseClick_SingleClick(t *testing.T) {
 	// First click should start selection
 	_ = chat.handleMouseClick(10, 5)
 
-	if chat.clickCount != 1 {
-		t.Errorf("Expected clickCount 1, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 1 {
+		t.Errorf("Expected clickCount 1, got %d", chat.selection.ClickCount)
 	}
-	if chat.selectionStartCol != 10 {
-		t.Errorf("Expected selectionStartCol 10, got %d", chat.selectionStartCol)
+	if chat.selection.StartCol != 10 {
+		t.Errorf("Expected selectionStartCol 10, got %d", chat.selection.StartCol)
 	}
-	if chat.selectionStartLine != 5 {
-		t.Errorf("Expected selectionStartLine 5, got %d", chat.selectionStartLine)
+	if chat.selection.StartLine != 5 {
+		t.Errorf("Expected selectionStartLine 5, got %d", chat.selection.StartLine)
 	}
-	if !chat.selectionActive {
+	if !chat.selection.Active {
 		t.Error("Expected selectionActive to be true after single click")
 	}
 }
@@ -1936,14 +1936,14 @@ func TestChat_HandleMouseClick_ClickCountReset(t *testing.T) {
 
 	// First click
 	_ = chat.handleMouseClick(10, 5)
-	if chat.clickCount != 1 {
-		t.Errorf("Expected clickCount 1 after first click, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 1 {
+		t.Errorf("Expected clickCount 1 after first click, got %d", chat.selection.ClickCount)
 	}
 
 	// Click far away - should reset count to 1 (new click sequence)
 	_ = chat.handleMouseClick(50, 20)
-	if chat.clickCount != 1 {
-		t.Errorf("Expected clickCount reset to 1 when clicking far away, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 1 {
+		t.Errorf("Expected clickCount reset to 1 when clicking far away, got %d", chat.selection.ClickCount)
 	}
 }
 
@@ -1954,14 +1954,14 @@ func TestChat_HandleMouseClick_DoubleClick(t *testing.T) {
 
 	// Simulate rapid double click at same position
 	_ = chat.handleMouseClick(10, 5)
-	if chat.clickCount != 1 {
-		t.Errorf("Expected clickCount 1 after first click, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 1 {
+		t.Errorf("Expected clickCount 1 after first click, got %d", chat.selection.ClickCount)
 	}
 
 	// Second click at same position (within tolerance and time threshold)
 	_ = chat.handleMouseClick(10, 5)
-	if chat.clickCount != 2 {
-		t.Errorf("Expected clickCount 2 after second click at same position, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 2 {
+		t.Errorf("Expected clickCount 2 after second click at same position, got %d", chat.selection.ClickCount)
 	}
 }
 
@@ -1976,8 +1976,8 @@ func TestChat_HandleMouseClick_TripleClick(t *testing.T) {
 	_ = chat.handleMouseClick(10, 5)
 
 	// After triple click, count is explicitly reset to 0
-	if chat.clickCount != 0 {
-		t.Errorf("Expected clickCount 0 after triple click, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 0 {
+		t.Errorf("Expected clickCount 0 after triple click, got %d", chat.selection.ClickCount)
 	}
 }
 
@@ -1987,8 +1987,8 @@ func TestChat_HandleMouseClick_TripleClickResets(t *testing.T) {
 	chat.SetSize(80, 24)
 
 	// Simulate clicks at same position
-	chat.lastClickX = 10
-	chat.lastClickY = 5
+	chat.selection.LastClickX = 10
+	chat.selection.LastClickY = 5
 
 	// First click
 	_ = chat.handleMouseClick(10, 5)
@@ -1997,8 +1997,8 @@ func TestChat_HandleMouseClick_TripleClickResets(t *testing.T) {
 	// Third click - should reset to 0
 	_ = chat.handleMouseClick(10, 5)
 
-	if chat.clickCount != 0 {
-		t.Errorf("Expected clickCount 0 after triple click, got %d", chat.clickCount)
+	if chat.selection.ClickCount != 0 {
+		t.Errorf("Expected clickCount 0 after triple click, got %d", chat.selection.ClickCount)
 	}
 }
 
@@ -2036,7 +2036,7 @@ func TestChat_SelectWord_EdgeCases(t *testing.T) {
 	// Test with out-of-bounds line index (should not panic)
 	chat.SelectWord(0, 1000)
 	// Just verify it doesn't crash and doesn't set invalid state
-	if chat.selectionActive {
+	if chat.selection.Active {
 		t.Error("SelectWord should not activate selection for out-of-bounds line")
 	}
 }
@@ -2049,7 +2049,7 @@ func TestChat_SelectParagraph_EdgeCases(t *testing.T) {
 	// Test with out-of-bounds line index (should not panic)
 	chat.SelectParagraph(0, 1000)
 	// Verify it doesn't crash
-	if chat.selectionActive {
+	if chat.selection.Active {
 		t.Error("SelectParagraph should not activate selection for out-of-bounds line")
 	}
 
@@ -2077,10 +2077,10 @@ func TestChat_GetSelectedText_WithSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 0
 
 	// The viewport content depends on the view rendering
 	// Test that GetSelectedText doesn't crash with valid coordinates
@@ -2094,19 +2094,19 @@ func TestChat_GetSelectedText_BoundsValidation(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Test with reversed selection (end before start on same line)
-	chat.selectionStartCol = 10
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 10
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 0
 
 	// Should handle reversed selection gracefully
 	_ = chat.GetSelectedText()
 
 	// Test with negative bounds (will be normalized by selectionArea)
-	chat.selectionStartCol = -5
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = -5
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 0
 
 	// The function should handle this gracefully
 	_ = chat.GetSelectedText()
@@ -2128,10 +2128,10 @@ func TestChat_CopySelectedText_EmptyText(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a selection but ensure GetSelectedText returns empty
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 0
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 0
+	chat.selection.EndLine = 0
 
 	// Same position means HasTextSelection returns false
 	cmd := chat.CopySelectedText()
@@ -2146,10 +2146,10 @@ func TestChat_CopySelectedText_WithValidSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a valid selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 0
 
 	// Even with valid coordinates, the viewport may be empty
 	// Just ensure it doesn't crash
@@ -2174,10 +2174,10 @@ func TestChat_SelectionView_ZeroDimensions(t *testing.T) {
 	// Don't set size, so viewport has zero dimensions
 
 	// Create a selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 0
 
 	originalView := "test content"
 	result := chat.selectionView(originalView)
@@ -2194,10 +2194,10 @@ func TestChat_SelectionView_WithValidSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a valid selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 0
 
 	// Test with simple content - should not panic
 	testView := "Hello World"
@@ -2256,22 +2256,22 @@ func TestChat_SelectionIntegration(t *testing.T) {
 	t.Run("drag selection workflow", func(t *testing.T) {
 		// Start selection
 		chat.StartSelection(5, 2)
-		if !chat.selectionActive {
+		if !chat.selection.Active {
 			t.Error("Expected selection to be active after start")
 		}
 
 		// Drag to extend selection
 		chat.EndSelection(20, 5)
-		if !chat.selectionActive {
+		if !chat.selection.Active {
 			t.Error("Expected selection to still be active during drag")
 		}
-		if chat.selectionEndCol != 20 || chat.selectionEndLine != 5 {
+		if chat.selection.EndCol != 20 || chat.selection.EndLine != 5 {
 			t.Error("Selection end not updated correctly during drag")
 		}
 
 		// Stop selection (mouse release)
 		chat.SelectionStop()
-		if chat.selectionActive {
+		if chat.selection.Active {
 			t.Error("Expected selection to be inactive after stop")
 		}
 
@@ -2294,7 +2294,7 @@ func TestChat_SelectionIntegration(t *testing.T) {
 
 		// After SelectWord, selectionActive should be false (word selected immediately)
 		chat.SelectWord(5, 0)
-		if chat.selectionActive {
+		if chat.selection.Active {
 			t.Error("Expected selectionActive false after SelectWord (immediate selection)")
 		}
 	})
@@ -2304,7 +2304,7 @@ func TestChat_SelectionIntegration(t *testing.T) {
 
 		// After SelectParagraph, selectionActive should be false
 		chat.SelectParagraph(5, 0)
-		if chat.selectionActive {
+		if chat.selection.Active {
 			t.Error("Expected selectionActive false after SelectParagraph")
 		}
 	})
@@ -2335,17 +2335,17 @@ func TestChat_SelectionCoordinates(t *testing.T) {
 			chat.EndSelection(tt.endX, tt.endY)
 
 			// Verify coordinates are set correctly
-			if chat.selectionStartCol != tt.startX {
-				t.Errorf("Expected startCol %d, got %d", tt.startX, chat.selectionStartCol)
+			if chat.selection.StartCol != tt.startX {
+				t.Errorf("Expected startCol %d, got %d", tt.startX, chat.selection.StartCol)
 			}
-			if chat.selectionStartLine != tt.startY {
-				t.Errorf("Expected startLine %d, got %d", tt.startY, chat.selectionStartLine)
+			if chat.selection.StartLine != tt.startY {
+				t.Errorf("Expected startLine %d, got %d", tt.startY, chat.selection.StartLine)
 			}
-			if chat.selectionEndCol != tt.endX {
-				t.Errorf("Expected endCol %d, got %d", tt.endX, chat.selectionEndCol)
+			if chat.selection.EndCol != tt.endX {
+				t.Errorf("Expected endCol %d, got %d", tt.endX, chat.selection.EndCol)
 			}
-			if chat.selectionEndLine != tt.endY {
-				t.Errorf("Expected endLine %d, got %d", tt.endY, chat.selectionEndLine)
+			if chat.selection.EndLine != tt.endY {
+				t.Errorf("Expected endLine %d, got %d", tt.endY, chat.selection.EndLine)
 			}
 
 			// Clean up for next test
@@ -2361,10 +2361,10 @@ func TestChat_GetSelectedText_MultiLineSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Multi-line selection
-	chat.selectionStartCol = 5
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 2
+	chat.selection.StartCol = 5
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 2
 
 	// Test that it doesn't crash with multi-line coordinates
 	_ = chat.GetSelectedText()
@@ -2377,10 +2377,10 @@ func TestChat_CopySelectedText_EmptySelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create selection that would result in empty text after trim
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 1
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 1
+	chat.selection.EndLine = 0
 
 	// This may or may not return nil depending on viewport content
 	_ = chat.CopySelectedText()
@@ -2393,10 +2393,10 @@ func TestChat_SelectionView_MultiLineSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Multi-line selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 20
-	chat.selectionEndLine = 3
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 20
+	chat.selection.EndLine = 3
 
 	testView := "Line 1 content\nLine 2 content\nLine 3 content\nLine 4 content"
 	result := chat.selectionView(testView)
@@ -2415,10 +2415,10 @@ func TestChat_SelectionView_SingleLineSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Single line selection
-	chat.selectionStartCol = 2
-	chat.selectionStartLine = 1
-	chat.selectionEndCol = 8
-	chat.selectionEndLine = 1
+	chat.selection.StartCol = 2
+	chat.selection.StartLine = 1
+	chat.selection.EndCol = 8
+	chat.selection.EndLine = 1
 
 	testView := "Line 1\nLine 2 here\nLine 3"
 	result := chat.selectionView(testView)
@@ -2436,10 +2436,10 @@ func TestChat_SelectionView_FirstLineOnly(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Selection starting mid-first line through multiple lines
-	chat.selectionStartCol = 5
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 2
+	chat.selection.StartCol = 5
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 2
 
 	testView := "First line text\nSecond line\nThird line text"
 	_ = chat.selectionView(testView)
@@ -2452,10 +2452,10 @@ func TestChat_SelectionView_LastLineOnly(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Selection ending mid-last line
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 2
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 2
 
 	testView := "First line\nMiddle line\nLast line here"
 	_ = chat.selectionView(testView)
@@ -2468,10 +2468,10 @@ func TestChat_SelectionView_MiddleLinesFullWidth(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Selection spanning 4 lines (tests middle line branches)
-	chat.selectionStartCol = 5
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 3
+	chat.selection.StartCol = 5
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 3
 
 	testView := "Line 0\nLine 1\nLine 2\nLine 3"
 	_ = chat.selectionView(testView)
@@ -2500,8 +2500,8 @@ func TestChat_SelectParagraph_ValidPosition(t *testing.T) {
 	chat.SelectParagraph(5, 0)
 
 	// Selection should be set (even if empty content)
-	if chat.selectionStartLine != 0 {
-		t.Errorf("Expected selectionStartLine 0, got %d", chat.selectionStartLine)
+	if chat.selection.StartLine != 0 {
+		t.Errorf("Expected selectionStartLine 0, got %d", chat.selection.StartLine)
 	}
 }
 
@@ -2513,8 +2513,8 @@ func TestChat_SelectionFlashFrameInitialization(t *testing.T) {
 	chat := NewChat()
 
 	// New chat should have selectionFlashFrame initialized to -1
-	if chat.selectionFlashFrame != -1 {
-		t.Errorf("Expected selectionFlashFrame -1, got %d", chat.selectionFlashFrame)
+	if chat.selection.FlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame -1, got %d", chat.selection.FlashFrame)
 	}
 
 	if chat.IsSelectionFlashing() {
@@ -2531,19 +2531,19 @@ func TestChat_IsSelectionFlashing(t *testing.T) {
 	}
 
 	// When selectionFlashFrame is 0, should be flashing
-	chat.selectionFlashFrame = 0
+	chat.selection.FlashFrame = 0
 	if !chat.IsSelectionFlashing() {
 		t.Error("Expected flashing when selectionFlashFrame is 0")
 	}
 
 	// When selectionFlashFrame is 1, should still be considered flashing
-	chat.selectionFlashFrame = 1
+	chat.selection.FlashFrame = 1
 	if !chat.IsSelectionFlashing() {
 		t.Error("Expected flashing when selectionFlashFrame is 1")
 	}
 
 	// When selectionFlashFrame is -1, should not be flashing
-	chat.selectionFlashFrame = -1
+	chat.selection.FlashFrame = -1
 	if chat.IsSelectionFlashing() {
 		t.Error("Expected not flashing when selectionFlashFrame is -1")
 	}
@@ -2555,22 +2555,22 @@ func TestChat_CopySelectedText_StartsFlashAnimation(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a valid selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 0
 
 	// Initially not flashing
-	if chat.selectionFlashFrame != -1 {
-		t.Errorf("Expected selectionFlashFrame -1 initially, got %d", chat.selectionFlashFrame)
+	if chat.selection.FlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame -1 initially, got %d", chat.selection.FlashFrame)
 	}
 
 	// Copy selected text should start flash animation
 	cmd := chat.CopySelectedText()
 
 	// Flash frame should now be 0 (animation started)
-	if chat.selectionFlashFrame != 0 {
-		t.Errorf("Expected selectionFlashFrame 0 after copy, got %d", chat.selectionFlashFrame)
+	if chat.selection.FlashFrame != 0 {
+		t.Errorf("Expected selectionFlashFrame 0 after copy, got %d", chat.selection.FlashFrame)
 	}
 
 	// Should return a command (batch of clipboard + flash tick)
@@ -2585,11 +2585,11 @@ func TestChat_SelectionFlashTickMsg_ClearsSelection(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a selection and start flash
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 0
-	chat.selectionFlashFrame = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 0
+	chat.selection.FlashFrame = 0
 
 	// Verify selection exists
 	if !chat.HasTextSelection() {
@@ -2601,8 +2601,8 @@ func TestChat_SelectionFlashTickMsg_ClearsSelection(t *testing.T) {
 
 	// After tick, selectionFlashFrame should increment
 	// Since frame was 0, it becomes 1, which triggers clear and reset to -1
-	if chat.selectionFlashFrame != -1 {
-		t.Errorf("Expected selectionFlashFrame -1 after tick clears, got %d", chat.selectionFlashFrame)
+	if chat.selection.FlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame -1 after tick clears, got %d", chat.selection.FlashFrame)
 	}
 
 	// Selection should be cleared
@@ -2617,11 +2617,11 @@ func TestChat_SelectionFlashTickMsg_DoesNothingWhenNotFlashing(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a selection but don't start flash
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 10
-	chat.selectionEndLine = 0
-	chat.selectionFlashFrame = -1 // Not flashing
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 10
+	chat.selection.EndLine = 0
+	chat.selection.FlashFrame = -1 // Not flashing
 
 	// Process the flash tick message
 	_, _ = chat.Update(SelectionFlashTickMsg(time.Now()))
@@ -2632,8 +2632,8 @@ func TestChat_SelectionFlashTickMsg_DoesNothingWhenNotFlashing(t *testing.T) {
 	}
 
 	// Flash frame should still be -1
-	if chat.selectionFlashFrame != -1 {
-		t.Errorf("Expected selectionFlashFrame to remain -1, got %d", chat.selectionFlashFrame)
+	if chat.selection.FlashFrame != -1 {
+		t.Errorf("Expected selectionFlashFrame to remain -1, got %d", chat.selection.FlashFrame)
 	}
 }
 
@@ -2688,19 +2688,19 @@ func TestChat_SelectionView_UsesFlashStyle(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Create a valid selection
-	chat.selectionStartCol = 0
-	chat.selectionStartLine = 0
-	chat.selectionEndCol = 5
-	chat.selectionEndLine = 0
+	chat.selection.StartCol = 0
+	chat.selection.StartLine = 0
+	chat.selection.EndCol = 5
+	chat.selection.EndLine = 0
 
 	testView := "Hello World"
 
 	// Test with normal selection (no flash)
-	chat.selectionFlashFrame = -1
+	chat.selection.FlashFrame = -1
 	result1 := chat.selectionView(testView)
 
 	// Test with flash active
-	chat.selectionFlashFrame = 0
+	chat.selection.FlashFrame = 0
 	result2 := chat.selectionView(testView)
 
 	// Both should produce output (we can't easily verify colors in text output)

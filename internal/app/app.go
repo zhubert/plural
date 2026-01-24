@@ -80,14 +80,11 @@ type Model struct {
 	// Window focus state for notifications
 	windowFocused bool // Whether the terminal window is focused
 
-	// Pending commit message editing state (one at a time)
-	pendingCommitSession string    // Session ID waiting for commit message confirmation
-	pendingCommitType    MergeType // What operation follows after commit
-	pendingParentSession string    // Parent session ID for merge-to-parent operations
+	// Pending commit message editing state (nil when inactive)
+	pendingCommit *PendingCommit
 
-	// Pending conflict resolution state
-	pendingConflictSessionID string // Session ID with pending conflict resolution
-	pendingConflictRepoPath  string // Path to repo with conflicts
+	// Pending conflict resolution state (nil when inactive)
+	pendingConflict *PendingConflict
 }
 
 // StartupModalMsg is sent on app start to trigger welcome/changelog modals
@@ -494,13 +491,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			logger.Get().Error("commit message generation failed", "error", msg.Error)
 			m.modal.Hide()
 			m.chat.AppendStreaming(fmt.Sprintf("Failed to generate commit message: %v\n", msg.Error))
-			m.pendingCommitSession = ""
-			m.pendingCommitType = MergeTypeNone
+			m.pendingCommit = nil
 			return m, nil
 		}
 
 		// Show the edit commit modal with the generated message
-		m.modal.Show(ui.NewEditCommitState(msg.Message, m.pendingCommitType.String()))
+		commitType := MergeTypeNone
+		if m.pendingCommit != nil {
+			commitType = m.pendingCommit.Type
+		}
+		m.modal.Show(ui.NewEditCommitState(msg.Message, commitType.String()))
 		return m, nil
 
 	case SendPendingMessageMsg:
@@ -793,7 +793,11 @@ func (m *Model) showPluginsModalOnTab(tab int) {
 func (m *Model) showCommitConflictModal() (tea.Model, tea.Cmd) {
 	// Check if there are still conflicts
 	ctx := context.Background()
-	conflictedFiles, err := m.gitService.GetConflictedFiles(ctx, m.pendingConflictRepoPath)
+	repoPath := ""
+	if m.pendingConflict != nil {
+		repoPath = m.pendingConflict.RepoPath
+	}
+	conflictedFiles, err := m.gitService.GetConflictedFiles(ctx, repoPath)
 	if err != nil {
 		m.chat.AppendStreaming(fmt.Sprintf("[Error checking conflicts: %v]\n", err))
 		return m, nil

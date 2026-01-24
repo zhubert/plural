@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sync"
 	"testing"
 	"time"
 
@@ -77,18 +76,21 @@ func TestNew(t *testing.T) {
 				t.Errorf("allowedTools count = %d, want %d", len(runner.allowedTools), len(DefaultAllowedTools))
 			}
 
-			// Verify channels are created
-			if runner.permReqChan == nil {
-				t.Error("permReqChan is nil")
+			// Verify MCP channels struct is created
+			if runner.mcp == nil {
+				t.Error("mcp is nil")
 			}
-			if runner.permRespChan == nil {
-				t.Error("permRespChan is nil")
+			if runner.mcp.PermissionReq == nil {
+				t.Error("mcp.PermissionReq is nil")
 			}
-			if runner.questReqChan == nil {
-				t.Error("questReqChan is nil")
+			if runner.mcp.PermissionResp == nil {
+				t.Error("mcp.PermissionResp is nil")
 			}
-			if runner.questRespChan == nil {
-				t.Error("questRespChan is nil")
+			if runner.mcp.QuestionReq == nil {
+				t.Error("mcp.QuestionReq is nil")
+			}
+			if runner.mcp.QuestionResp == nil {
+				t.Error("mcp.QuestionResp is nil")
 			}
 		})
 	}
@@ -176,7 +178,7 @@ func TestRunner_IsStreaming(t *testing.T) {
 
 	// Manually set streaming state (normally set by Send)
 	runner.mu.Lock()
-	runner.isStreaming = true
+	runner.streaming.Active = true
 	runner.mu.Unlock()
 
 	if !runner.IsStreaming() {
@@ -195,7 +197,7 @@ func TestRunner_GetResponseChan(t *testing.T) {
 	// Set response channel
 	ch := make(chan ResponseChunk)
 	runner.mu.Lock()
-	runner.currentResponseCh = ch
+	runner.responseChan.Setup(ch)
 	runner.mu.Unlock()
 
 	if runner.GetResponseChan() == nil {
@@ -1230,8 +1232,7 @@ func TestHandleFatalError(t *testing.T) {
 	// Create a channel and set it as current response channel
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.currentResponseCh = ch
-	runner.closeResponseChOnce = &sync.Once{} // Required for closeResponseChannel to work
+	runner.responseChan.Setup(ch)
 	runner.mu.Unlock()
 
 	// Call handleFatalError
@@ -1256,15 +1257,15 @@ func TestHandleFatalError(t *testing.T) {
 
 	// Channel should be closed
 	runner.mu.RLock()
-	closed := runner.currentResponseChClosed
-	streaming := runner.isStreaming
+	closed := runner.responseChan.Closed
+	streaming := runner.streaming.Active
 	runner.mu.RUnlock()
 
 	if !closed {
-		t.Error("Expected currentResponseChClosed to be true")
+		t.Error("Expected responseChan.Closed to be true")
 	}
 	if streaming {
-		t.Error("Expected isStreaming to be false")
+		t.Error("Expected streaming.Active to be false")
 	}
 }
 
@@ -1273,12 +1274,12 @@ func TestHandleFatalError_AlreadyClosed(t *testing.T) {
 
 	// Mark as already closed
 	runner.mu.Lock()
-	runner.currentResponseChClosed = true
+	runner.responseChan.Closed = true
 	runner.mu.Unlock()
 
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.currentResponseCh = ch
+	runner.responseChan.Channel = ch
 	runner.mu.Unlock()
 
 	// Should not panic or send anything since already closed
@@ -2023,13 +2024,10 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 
 	// Set up the runner for streaming (similar to SendContent)
 	runner.mu.Lock()
-	runner.isStreaming = true
-	runner.accumulatedOutputTokens = 0
-	runner.lastMessageID = ""
-	runner.lastMessageOutputTokens = 0
+	runner.streaming.Active = true
+	runner.tokens.Reset()
 	ch := make(chan ResponseChunk, 100)
-	runner.currentResponseCh = ch
-	runner.currentResponseChClosed = false
+	runner.responseChan.Setup(ch)
 	runner.mu.Unlock()
 
 	// Process first API call's messages
@@ -2038,14 +2036,14 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 
 	// Check accumulated state after first API call
 	runner.mu.RLock()
-	if runner.lastMessageID != "msg_1" {
-		t.Errorf("Expected lastMessageID 'msg_1', got %q", runner.lastMessageID)
+	if runner.tokens.LastMessageID != "msg_1" {
+		t.Errorf("Expected LastMessageID 'msg_1', got %q", runner.tokens.LastMessageID)
 	}
-	if runner.lastMessageOutputTokens != 8 {
-		t.Errorf("Expected lastMessageOutputTokens 8, got %d", runner.lastMessageOutputTokens)
+	if runner.tokens.LastMessageTokens != 8 {
+		t.Errorf("Expected LastMessageTokens 8, got %d", runner.tokens.LastMessageTokens)
 	}
-	if runner.accumulatedOutputTokens != 0 {
-		t.Errorf("Expected accumulatedOutputTokens 0 (first API call), got %d", runner.accumulatedOutputTokens)
+	if runner.tokens.AccumulatedOutput != 0 {
+		t.Errorf("Expected AccumulatedOutput 0 (first API call), got %d", runner.tokens.AccumulatedOutput)
 	}
 	runner.mu.RUnlock()
 
@@ -2054,14 +2052,14 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 
 	// After seeing msg_2, the previous API call's tokens (8) should be accumulated
 	runner.mu.RLock()
-	if runner.lastMessageID != "msg_2" {
-		t.Errorf("Expected lastMessageID 'msg_2', got %q", runner.lastMessageID)
+	if runner.tokens.LastMessageID != "msg_2" {
+		t.Errorf("Expected LastMessageID 'msg_2', got %q", runner.tokens.LastMessageID)
 	}
-	if runner.accumulatedOutputTokens != 8 {
-		t.Errorf("Expected accumulatedOutputTokens 8 (from msg_1), got %d", runner.accumulatedOutputTokens)
+	if runner.tokens.AccumulatedOutput != 8 {
+		t.Errorf("Expected AccumulatedOutput 8 (from msg_1), got %d", runner.tokens.AccumulatedOutput)
 	}
-	if runner.lastMessageOutputTokens != 5 {
-		t.Errorf("Expected lastMessageOutputTokens 5, got %d", runner.lastMessageOutputTokens)
+	if runner.tokens.LastMessageTokens != 5 {
+		t.Errorf("Expected LastMessageTokens 5, got %d", runner.tokens.LastMessageTokens)
 	}
 	runner.mu.RUnlock()
 
@@ -2069,7 +2067,7 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 
 	// After final chunk, total should be 8 (from msg_1) + 12 (from msg_2) = 20
 	runner.mu.RLock()
-	expectedTotal := runner.accumulatedOutputTokens + runner.lastMessageOutputTokens
+	expectedTotal := runner.tokens.CurrentTotal()
 	if expectedTotal != 20 {
 		t.Errorf("Expected total tokens 20 (8 + 12), got %d", expectedTotal)
 	}

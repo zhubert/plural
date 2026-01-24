@@ -141,7 +141,7 @@ var ShortcutRegistry = []Shortcut{
 		Category:        CategoryGit,
 		RequiresSidebar: true,
 		Handler:         shortcutCommitConflicts,
-		Condition:       func(m *Model) bool { return m.pendingConflictRepoPath != "" },
+		Condition:       func(m *Model) bool { return m.pendingConflict != nil },
 	},
 	{
 		Key:             "p",
@@ -482,7 +482,7 @@ func shortcutMerge(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	// Don't show merge modal if already merging or generating commit message
 	state := m.sessionState().GetIfExists(sess.ID)
-	if (state != nil && state.IsMerging()) || m.pendingCommitSession == sess.ID {
+	if (state != nil && state.IsMerging()) || (m.pendingCommit != nil && m.pendingCommit.SessionID == sess.ID) {
 		return m, nil
 	}
 	ctx := context.Background()
