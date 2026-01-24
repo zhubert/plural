@@ -408,6 +408,50 @@ func (e *Executor) executeStep(index int, step Step) error {
 			e.sendTickMessages()
 		}
 		e.captureFrame(index, 0)
+
+	case StepQuestion:
+		session := e.model.ActiveSession()
+		if session == nil {
+			return fmt.Errorf("no active session for question")
+		}
+		e.simulateQuestion(session.ID, step.Questions)
+		e.captureFrame(index, 300*time.Millisecond)
+
+	case StepPlanApproval:
+		session := e.model.ActiveSession()
+		if session == nil {
+			return fmt.Errorf("no active session for plan approval")
+		}
+		e.simulatePlanApproval(session.ID, step.Plan, step.AllowedPrompts)
+		e.captureFrame(index, 300*time.Millisecond)
+
+	case StepTodoList:
+		session := e.model.ActiveSession()
+		if session == nil {
+			return fmt.Errorf("no active session for todo list")
+		}
+		e.simulateTodoList(session.ID, step.TodoItems)
+		e.captureFrame(index, 200*time.Millisecond)
+
+	case StepFlash:
+		e.simulateFlash(step.FlashText, step.FlashType)
+		e.captureFrame(index, 100*time.Millisecond)
+
+	case StepToolUse:
+		session := e.model.ActiveSession()
+		if session == nil {
+			return fmt.Errorf("no active session for tool use")
+		}
+		e.simulateToolUse(session.ID, step.ToolName, step.ToolInput)
+		e.captureFrame(index, 200*time.Millisecond)
+
+	case StepCommitMessage:
+		session := e.model.ActiveSession()
+		if session == nil {
+			return fmt.Errorf("no active session for commit message")
+		}
+		e.simulateCommitMessage(session.ID, step.CommitMessage)
+		e.captureFrame(index, 300*time.Millisecond)
 	}
 
 	return nil
@@ -493,6 +537,83 @@ func (e *Executor) simulatePermission(sessionID, tool, description string) {
 	e.model = result.(*app.Model)
 }
 
+// simulateQuestion injects a question request.
+func (e *Executor) simulateQuestion(sessionID string, questions []mcp.Question) {
+	msg := app.QuestionRequestMsg{
+		SessionID: sessionID,
+		Request: mcp.QuestionRequest{
+			Questions: questions,
+		},
+	}
+	result, _ := e.model.Update(msg)
+	e.model = result.(*app.Model)
+}
+
+// simulatePlanApproval injects a plan approval request.
+func (e *Executor) simulatePlanApproval(sessionID, plan string, allowedPrompts []mcp.AllowedPrompt) {
+	msg := app.PlanApprovalRequestMsg{
+		SessionID: sessionID,
+		Request: mcp.PlanApprovalRequest{
+			Plan:           plan,
+			AllowedPrompts: allowedPrompts,
+		},
+	}
+	result, _ := e.model.Update(msg)
+	e.model = result.(*app.Model)
+}
+
+// simulateTodoList injects a todo list update.
+func (e *Executor) simulateTodoList(sessionID string, items []claude.TodoItem) {
+	msg := app.ClaudeResponseMsg{
+		SessionID: sessionID,
+		Chunk: claude.ResponseChunk{
+			Type:     claude.ChunkTypeTodoUpdate,
+			TodoList: &claude.TodoList{Items: items},
+		},
+	}
+	result, _ := e.model.Update(msg)
+	e.model = result.(*app.Model)
+}
+
+// simulateFlash shows a flash message.
+func (e *Executor) simulateFlash(text string, flashType ui.FlashType) {
+	cmd := e.model.ShowFlash(text, flashType)
+	// Execute the returned command to start the flash tick
+	if cmd != nil {
+		msg := cmd()
+		if msg != nil {
+			result, _ := e.model.Update(msg)
+			e.model = result.(*app.Model)
+		}
+	}
+}
+
+// simulateToolUse injects a tool use chunk.
+func (e *Executor) simulateToolUse(sessionID, name, input string) {
+	msg := app.ClaudeResponseMsg{
+		SessionID: sessionID,
+		Chunk: claude.ResponseChunk{
+			Type:      claude.ChunkTypeToolUse,
+			ToolName:  name,
+			ToolInput: input,
+		},
+	}
+	result, _ := e.model.Update(msg)
+	e.model = result.(*app.Model)
+}
+
+// simulateCommitMessage injects a commit message generated result.
+// This transitions the LoadingCommitState modal to EditCommitState.
+func (e *Executor) simulateCommitMessage(sessionID, message string) {
+	msg := app.CommitMessageGeneratedMsg{
+		SessionID: sessionID,
+		Message:   message,
+		Error:     nil,
+	}
+	result, _ := e.model.Update(msg)
+	e.model = result.(*app.Model)
+}
+
 // keyPress converts a key string to a tea.KeyPressMsg.
 // Duplicated from testutil to avoid import cycle.
 func keyPress(key string) tea.KeyPressMsg {
@@ -529,6 +650,8 @@ func keyPress(key string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
 	case "ctrl+s":
 		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
+	case "ctrl+o":
+		return tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}
 	case "ctrl+p":
 		return tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}
 	case "shift+tab":

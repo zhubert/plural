@@ -9,8 +9,8 @@ import (
 func TestAll(t *testing.T) {
 	scenarios := All()
 
-	if len(scenarios) != 2 {
-		t.Errorf("All() should return 2 scenarios, got %d", len(scenarios))
+	if len(scenarios) != 1 {
+		t.Errorf("All() should return 1 scenario, got %d", len(scenarios))
 	}
 
 	// Verify each scenario is valid
@@ -26,8 +26,7 @@ func TestGet(t *testing.T) {
 		name      string
 		wantFound bool
 	}{
-		{"basic", true},
-		{"comprehensive", true},
+		{"overview", true},
 		{"nonexistent", false},
 	}
 
@@ -43,11 +42,11 @@ func TestGet(t *testing.T) {
 	}
 }
 
-func TestBasicScenario(t *testing.T) {
-	scenario := Basic
+func TestOverviewScenario(t *testing.T) {
+	scenario := Overview
 
-	if scenario.Name != "basic" {
-		t.Errorf("Name = %v, want 'basic'", scenario.Name)
+	if scenario.Name != "overview" {
+		t.Errorf("Name = %v, want 'overview'", scenario.Name)
 	}
 
 	if scenario.Width != 120 {
@@ -62,99 +61,59 @@ func TestBasicScenario(t *testing.T) {
 		t.Error("Setup should not be nil")
 	}
 
-	if len(scenario.Setup.Sessions) == 0 {
-		t.Error("Setup.Sessions should not be empty")
+	// Should have multiple repos (3 for webapp, api-service, mobile-app)
+	if len(scenario.Setup.Repos) < 3 {
+		t.Errorf("Overview scenario should have at least 3 repos, got %d", len(scenario.Setup.Repos))
 	}
 
-	// Should have multiple repos
-	if len(scenario.Setup.Repos) < 2 {
-		t.Errorf("Basic scenario should have multiple repos, got %d", len(scenario.Setup.Repos))
+	// Should have multiple sessions (6 across repos)
+	if len(scenario.Setup.Sessions) < 5 {
+		t.Errorf("Overview scenario should have at least 5 sessions, got %d", len(scenario.Setup.Sessions))
 	}
 
-	// Should have multiple sessions across repos
-	if len(scenario.Setup.Sessions) < 3 {
-		t.Errorf("Basic scenario should have at least 3 sessions, got %d", len(scenario.Setup.Sessions))
-	}
-
-	// Should have a streaming response step (for Claude's response)
-	hasStreamingResponse := false
+	// Check for variety of step types that demonstrate all features
+	stepTypes := make(map[demo.StepType]bool)
 	for _, step := range scenario.Steps {
-		if step.Type == demo.StepResponse && len(step.Chunks) > 0 {
-			hasStreamingResponse = true
-			break
-		}
+		stepTypes[step.Type] = true
 	}
 
-	if !hasStreamingResponse {
-		t.Error("Basic scenario should have a streaming response step")
+	// Should have PlanApproval step
+	if !stepTypes[demo.StepPlanApproval] {
+		t.Error("Overview scenario should have a PlanApproval step")
 	}
 
-	// Should have type steps (for user typing message)
-	hasTypeStep := false
-	for _, step := range scenario.Steps {
-		if step.Type == demo.StepTypeText {
-			hasTypeStep = true
-			break
-		}
+	// Should have TodoList step
+	if !stepTypes[demo.StepTodoList] {
+		t.Error("Overview scenario should have a TodoList step")
 	}
 
-	if !hasTypeStep {
-		t.Error("Basic scenario should have a Type step for user input")
-	}
-}
-
-func TestComprehensiveScenario(t *testing.T) {
-	scenario := Comprehensive
-
-	if scenario.Name != "comprehensive" {
-		t.Errorf("Name = %v, want 'comprehensive'", scenario.Name)
+	// Should have ToolUse step
+	if !stepTypes[demo.StepToolUse] {
+		t.Error("Overview scenario should have a ToolUse step")
 	}
 
-	if scenario.Width != 120 {
-		t.Errorf("Width = %v, want 120", scenario.Width)
+	// Should have Question step
+	if !stepTypes[demo.StepQuestion] {
+		t.Error("Overview scenario should have a Question step")
 	}
 
-	if len(scenario.Steps) == 0 {
-		t.Error("Steps should not be empty")
+	// Should have Permission step
+	if !stepTypes[demo.StepPermission] {
+		t.Error("Overview scenario should have a Permission step")
 	}
 
-	if scenario.Setup == nil {
-		t.Error("Setup should not be nil")
+	// Should have streaming response step
+	if !stepTypes[demo.StepResponse] {
+		t.Error("Overview scenario should have a streaming Response step")
 	}
 
-	// Should have multiple repos
-	if len(scenario.Setup.Repos) < 2 {
-		t.Errorf("Comprehensive scenario should have multiple repos, got %d", len(scenario.Setup.Repos))
+	// Should have type steps (for user typing messages)
+	if !stepTypes[demo.StepTypeText] {
+		t.Error("Overview scenario should have a Type step for user input")
 	}
 
-	// Should have multiple sessions (at least 3 for variety)
-	if len(scenario.Setup.Sessions) < 3 {
-		t.Errorf("Comprehensive scenario should have at least 3 sessions, got %d", len(scenario.Setup.Sessions))
-	}
-
-	// Should have a streaming response step (for Claude's options response)
-	hasStreamingResponse := false
-	for _, step := range scenario.Steps {
-		if step.Type == demo.StepResponse && len(step.Chunks) > 0 {
-			hasStreamingResponse = true
-			break
-		}
-	}
-
-	if !hasStreamingResponse {
-		t.Error("Comprehensive scenario should have a streaming response step")
-	}
-
-	// Should have type steps (for user typing question)
-	hasTypeStep := false
-	for _, step := range scenario.Steps {
-		if step.Type == demo.StepTypeText {
-			hasTypeStep = true
-			break
-		}
-	}
-
-	if !hasTypeStep {
-		t.Error("Comprehensive scenario should have a Type step for user input")
+	// Should have a reasonable number of steps for a comprehensive demo
+	if len(scenario.Steps) < 40 {
+		t.Errorf("Overview scenario should have at least 40 steps for comprehensive coverage, got %d", len(scenario.Steps))
 	}
 }

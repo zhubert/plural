@@ -8,6 +8,8 @@ import (
 
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/ui"
 )
 
 // StepType represents the type of action in a demo step.
@@ -28,6 +30,18 @@ const (
 	StepCapture
 	// StepAnnotate adds an annotation/caption to the current frame.
 	StepAnnotate
+	// StepQuestion simulates a question prompt (AskUserQuestion).
+	StepQuestion
+	// StepPlanApproval simulates a plan approval request (ExitPlanMode).
+	StepPlanApproval
+	// StepTodoList displays a TodoList in the sidebar.
+	StepTodoList
+	// StepFlash shows a flash message in the footer.
+	StepFlash
+	// StepToolUse shows a tool use in the rollup.
+	StepToolUse
+	// StepCommitMessage simulates commit message generation completing.
+	StepCommitMessage
 )
 
 // Step represents a single action in a demo scenario.
@@ -53,6 +67,27 @@ type Step struct {
 
 	// For StepAnnotate
 	Annotation string
+
+	// For StepQuestion
+	Questions []mcp.Question
+
+	// For StepPlanApproval
+	Plan           string
+	AllowedPrompts []mcp.AllowedPrompt
+
+	// For StepTodoList
+	TodoItems []claude.TodoItem
+
+	// For StepFlash
+	FlashText string
+	FlashType ui.FlashType
+
+	// For StepToolUse
+	ToolName  string
+	ToolInput string
+
+	// For StepCommitMessage
+	CommitMessage string
 }
 
 // Scenario defines a complete demo scenario.
@@ -187,5 +222,94 @@ func StreamingTextResponse(text string, chunkSize int) Step {
 func Capture() Step {
 	return Step{
 		Type: StepCapture,
+	}
+}
+
+// Annotate creates an annotation step that captions the next captured frame.
+func Annotate(text string) Step {
+	return Step{
+		Type:       StepAnnotate,
+		Annotation: text,
+	}
+}
+
+// Permission creates a permission request step.
+func Permission(tool, description string) Step {
+	return Step{
+		Type:                  StepPermission,
+		PermissionTool:        tool,
+		PermissionDescription: description,
+	}
+}
+
+// Question creates a question prompt step.
+func Question(questions ...mcp.Question) Step {
+	return Step{
+		Type:      StepQuestion,
+		Questions: questions,
+	}
+}
+
+// PlanApproval creates a plan approval step.
+func PlanApproval(plan string, allowedPrompts ...mcp.AllowedPrompt) Step {
+	return Step{
+		Type:           StepPlanApproval,
+		Plan:           plan,
+		AllowedPrompts: allowedPrompts,
+	}
+}
+
+// TodoList creates a step that displays a todo list in the sidebar.
+func TodoList(items ...claude.TodoItem) Step {
+	return Step{
+		Type:      StepTodoList,
+		TodoItems: items,
+	}
+}
+
+// Flash creates a flash message step.
+func Flash(text string, flashType ui.FlashType) Step {
+	return Step{
+		Type:      StepFlash,
+		FlashText: text,
+		FlashType: flashType,
+	}
+}
+
+// FlashSuccess creates a success flash message step.
+func FlashSuccess(text string) Step {
+	return Flash(text, ui.FlashSuccess)
+}
+
+// FlashError creates an error flash message step.
+func FlashError(text string) Step {
+	return Flash(text, ui.FlashError)
+}
+
+// FlashInfo creates an info flash message step.
+func FlashInfo(text string) Step {
+	return Flash(text, ui.FlashInfo)
+}
+
+// FlashWarning creates a warning flash message step.
+func FlashWarning(text string) Step {
+	return Flash(text, ui.FlashWarning)
+}
+
+// ToolUse creates a tool use step for the rollup.
+func ToolUse(name, input string) Step {
+	return Step{
+		Type:      StepToolUse,
+		ToolName:  name,
+		ToolInput: input,
+	}
+}
+
+// CommitMessage creates a step that simulates commit message generation completing.
+// This transitions the LoadingCommitState modal to EditCommitState with the given message.
+func CommitMessage(message string) Step {
+	return Step{
+		Type:          StepCommitMessage,
+		CommitMessage: message,
 	}
 }
