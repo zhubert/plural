@@ -14,8 +14,9 @@ type Config struct {
 	Sessions         []Session              `json:"sessions"`
 	MCPServers       []MCPServer            `json:"mcp_servers,omitempty"`        // Global MCP servers
 	RepoMCP          map[string][]MCPServer `json:"repo_mcp,omitempty"`           // Per-repo MCP servers
-	AllowedTools     []string               `json:"allowed_tools,omitempty"`      // Global allowed tools
-	RepoAllowedTools map[string][]string    `json:"repo_allowed_tools,omitempty"` // Per-repo allowed tools
+	AllowedTools      []string               `json:"allowed_tools,omitempty"`       // Global allowed tools
+	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`  // Per-repo allowed tools
+	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
 	LastSeenVersion      string `json:"last_seen_version,omitempty"`     // Last version user has seen changelog for
@@ -117,6 +118,9 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoAllowedTools == nil {
 		c.RepoAllowedTools = make(map[string][]string)
+	}
+	if c.RepoSquashOnMerge == nil {
+		c.RepoSquashOnMerge = make(map[string]bool)
 	}
 }
 
@@ -336,4 +340,28 @@ func (c *Config) EndPreview() {
 	c.PreviewSessionID = ""
 	c.PreviewPreviousBranch = ""
 	c.PreviewRepoPath = ""
+}
+
+// GetSquashOnMerge returns whether squash-on-merge is enabled for a repo
+func (c *Config) GetSquashOnMerge(repoPath string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoSquashOnMerge == nil {
+		return false
+	}
+	return c.RepoSquashOnMerge[repoPath]
+}
+
+// SetSquashOnMerge sets whether squash-on-merge is enabled for a repo
+func (c *Config) SetSquashOnMerge(repoPath string, enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoSquashOnMerge == nil {
+		c.RepoSquashOnMerge = make(map[string]bool)
+	}
+	if enabled {
+		c.RepoSquashOnMerge[repoPath] = true
+	} else {
+		delete(c.RepoSquashOnMerge, repoPath)
+	}
 }
