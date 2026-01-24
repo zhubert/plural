@@ -9,7 +9,7 @@
 //	├──────────────────────┬───────────────────────────────────────────┤
 //	│                      │                                           │
 //	│    Sidebar           │           Chat Panel                      │
-//	│    (1/3 width)       │           (2/3 width)                     │
+//	│    (1/5 width)       │           (4/5 width)                     │
 //	│                      │                                           │
 //	│    - Session list    │    ┌─────────────────────────────────┐    │
 //	│    - Repo grouping   │    │  Message viewport               │    │
@@ -25,8 +25,8 @@
 //
 // Key layout calculations:
 //   - ContentHeight = TerminalHeight - HeaderHeight - FooterHeight
-//   - SidebarWidth = TerminalWidth / SidebarWidthRatio (1/3)
-//   - ChatWidth = TerminalWidth - SidebarWidth (2/3)
+//   - SidebarWidth = TerminalWidth / SidebarWidthRatio (1/5)
+//   - ChatWidth = TerminalWidth - SidebarWidth (4/5)
 //   - ChatViewportHeight = ContentHeight - InputTotalHeight - BorderSize
 //
 // The ViewContext singleton (context.go) centralizes these calculations and provides
@@ -52,9 +52,9 @@ const (
 	BorderSize = 2
 
 	// SidebarWidthRatio determines sidebar width as TerminalWidth/SidebarWidthRatio.
-	// Value of 3 means sidebar gets 1/3 of width, chat gets 2/3. This ratio provides
-	// enough space for session names while leaving most space for conversation content.
-	SidebarWidthRatio = 3
+	// Value of 5 means sidebar gets 1/5 of width, chat gets 4/5. This ratio provides
+	// enough space for session names while maximizing space for conversation content.
+	SidebarWidthRatio = 5
 
 	// MinTerminalWidth is the minimum width required for the UI to function.
 	// Below this, layout calculations could produce negative widths.

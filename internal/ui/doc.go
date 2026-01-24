@@ -15,7 +15,7 @@
 //	├─────────────────┬───────────────────────────────────┤
 //	│                 │                                   │
 //	│   Sidebar       │         Chat Panel                │
-//	│   (1/3 width)   │         (2/3 width)               │
+//	│   (1/5 width)   │         (4/5 width)               │
 //	│                 │                                   │
 //	├─────────────────┴───────────────────────────────────┤
 //	│ Footer (1 line)                                     │
@@ -58,7 +58,7 @@
 // Layout constants are defined in constants.go:
 //   - HeaderHeight, FooterHeight: Fixed at 1 line each
 //   - BorderSize: 2 (1 on each side)
-//   - SidebarWidthRatio: 3 (sidebar gets 1/3 of width)
+//   - SidebarWidthRatio: 5 (sidebar gets 1/5 of width)
 //   - TextareaHeight: 3 lines for input
 //   - MaxSessionMessageLines: 10,000 lines kept in history
 //
