@@ -60,15 +60,18 @@ internal/
 ├── app/                   Main Bubble Tea model
 │   ├── app.go             Model, Update/View, key handling
 │   ├── shortcuts.go       Keyboard shortcut registry (single source of truth)
-│   ├── slash_commands.go  Local slash command handling (/cost, /help)
+│   ├── slash_commands.go  Local slash command handling (/cost, /help, /mcp, /plugins)
 │   ├── session_manager.go Session lifecycle, runner caching, message persistence
 │   ├── session_state.go   Thread-safe per-session state
-│   ├── modal_handlers.go  Modal key handlers
+│   ├── modal_handlers.go  Modal key handlers (split into _config, _git, _github, _navigation, _session)
+│   ├── msg_handlers.go    Bubble Tea message handlers
+│   ├── options.go         Options detection and parsing
 │   └── types.go           Shared types
 ├── claude/                Claude CLI wrapper (stream-json I/O)
 │   ├── claude.go          Runner: message handling, MCP server
 │   ├── process_manager.go ProcessManager: process lifecycle, auto-recovery
 │   ├── runner_interface.go Interfaces for testing
+│   ├── mock_runner.go     Mock runner for testing and demos
 │   ├── plugins.go         Plugin/marketplace management via Claude CLI
 │   └── todo.go            TodoWrite tool parsing and completion detection
 ├── changelog/             Fetches release notes from GitHub API
@@ -95,7 +98,11 @@ internal/
     ├── header.go          Header bar with gradient, session name, diff stats
     ├── footer.go          Footer with keybindings, flash messages
     ├── sidebar.go         Session list with hierarchy
-    ├── chat.go            Chat panel with text selection
+    ├── chat.go            Chat panel main component
+    ├── chat_render.go     Chat message rendering and markdown
+    ├── chat_animation.go  Streaming animation effects
+    ├── text_selection.go  Mouse-based text selection with clipboard
+    ├── view_changes.go    Git diff viewing overlay
     ├── modal.go           Modal container
     └── modals/            Modal implementations (plugins, settings, etc.)
 ```
@@ -220,7 +227,7 @@ Plural implements its own slash commands because Claude CLI built-in commands (l
 Available commands:
 - `/cost` - Show token usage and estimated cost for the current session (reads from Claude's JSONL session files)
 - `/help` - Show available Plural slash commands
-- `/mcp` - Open MCP servers configuration modal (same as `s` shortcut)
+- `/mcp` - Open MCP servers configuration modal
 - `/plugins` - Open plugins modal for managing marketplaces and plugins
 
 ### Plugin Management
@@ -234,9 +241,12 @@ Plural provides a UI for managing Claude Code plugins (`/plugins` command or thr
 - `EnablePlugin()` / `DisablePlugin()`: Toggle plugin activation
 
 **Modal** (`internal/ui/modals/plugins.go`):
-- Three tabs: Marketplaces, Installed, Available
-- Search filtering across all tabs
-- Keybindings: `a` (add marketplace), `d` (delete), `e` (enable/disable), `i` (install), `u` (update)
+- Three tabs: Marketplaces, Installed, Discover
+- Search filtering in Discover tab
+- Keybindings vary by tab:
+  - Marketplaces: `a` (add), `d` (delete), `u` (update)
+  - Installed: `e` (enable/disable), `u` (uninstall)
+  - Discover: `/` (search), `Enter` (install)
 
 Implementation in `internal/app/slash_commands.go`:
 - Commands are intercepted in `sendMessage()` before being sent to Claude
@@ -284,7 +294,7 @@ Chat panel supports mouse-based text selection with visual highlighting:
 - **Esc**: Clear selection
 - **Visual highlighting**: Uses `ultraviolet` screen buffer to apply selection background color
 
-Implementation in `internal/ui/chat.go`:
+Implementation in `internal/ui/text_selection.go`:
 - Selection state: `selectionStartCol/Line`, `selectionEndCol/Line`, `selectionActive`
 - Multi-click detection: Tracks `lastClickTime`, `clickCount` with 500ms threshold
 - Rendering: `selectionView()` applies highlight style to cells in selection range
@@ -575,8 +585,10 @@ type CommandExecutor interface {
 Charm's Bubble Tea v2 stack:
 - `charm.land/bubbletea/v2` (v2.0.0-rc.2)
 - `charm.land/bubbles/v2` (v2.0.0-rc.1)
-- `charm.land/lipgloss/v2` (v2.0.0-beta.3)
+- `charm.land/lipgloss/v2` (v2.0.0-beta.3+)
 - `github.com/charmbracelet/ultraviolet` - Screen buffer for text selection rendering
+- `github.com/charmbracelet/x/ansi` - ANSI escape code handling
+- `github.com/alecthomas/chroma/v2` - Syntax highlighting for code blocks
 - `github.com/google/uuid`
 - `github.com/gen2brain/beeep` - Desktop notifications
 - `github.com/rivo/uniseg` - Unicode grapheme segmentation for word selection
