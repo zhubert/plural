@@ -94,6 +94,8 @@ func TestExecutorRunInvalidScenario(t *testing.T) {
 }
 
 func TestExecutorNoCaptureEveryStep(t *testing.T) {
+	// Note: CaptureEveryStep only affects Key steps, not Type steps.
+	// Type steps always capture frames for character-by-character animation.
 	scenario := &Scenario{
 		Name:   "minimal",
 		Width:  80,
@@ -113,7 +115,9 @@ func TestExecutorNoCaptureEveryStep(t *testing.T) {
 			},
 		},
 		Steps: []Step{
-			Type("hello"),   // 5 characters typed
+			Key("enter"),
+			Key("down"),
+			Key("up"),
 			Wait(100 * time.Millisecond),
 		},
 	}
@@ -129,7 +133,7 @@ func TestExecutorNoCaptureEveryStep(t *testing.T) {
 	executor2 := NewExecutor(cfg)
 	framesWithoutCapture, _ := executor2.Run(scenario)
 
-	// Should have fewer frames when not capturing every step
+	// Should have fewer frames when not capturing every step (3 fewer for the 3 key presses)
 	if len(framesWithoutCapture) >= len(framesWithCapture) {
 		t.Errorf("Expected fewer frames without capture every step: with=%d, without=%d",
 			len(framesWithCapture), len(framesWithoutCapture))

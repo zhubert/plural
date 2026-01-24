@@ -347,9 +347,8 @@ func (e *Executor) executeStep(index int, step Step) error {
 	case StepTypeText:
 		for _, ch := range step.Text {
 			e.sendKey(string(ch))
-			if e.config.CaptureEveryStep {
-				e.captureFrame(index, e.config.TypeDelay)
-			}
+			// Always capture frames during typing to show character-by-character animation
+			e.captureFrame(index, e.config.TypeDelay)
 		}
 
 	case StepResponse:

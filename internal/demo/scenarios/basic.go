@@ -125,12 +125,12 @@ var Overview = &demo.Scenario{
 
 		// Type a message to Claude
 		demo.Type("Add JWT-based user authentication with login and signup flows"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(800 * time.Millisecond),
 		demo.Capture(),
 
 		// Send the message
 		demo.Key("enter"),
-		demo.Wait(500 * time.Millisecond),
+		demo.Wait(1 * time.Second),
 
 		// Claude presents a plan for approval
 		demo.PlanApproval(`## Authentication Implementation Plan
@@ -157,7 +157,7 @@ I'll implement JWT-based authentication with the following approach:
 
 		// User approves plan
 		demo.Key("y"),
-		demo.Wait(500 * time.Millisecond),
+		demo.Wait(1 * time.Second),
 
 		// Claude creates a todo list
 		demo.TodoList(
@@ -210,9 +210,9 @@ I'll implement JWT-based authentication with the following approach:
 
 		// User selects strong password option
 		demo.Key("down"),
-		demo.Wait(300 * time.Millisecond),
-		demo.Key("enter"),
 		demo.Wait(500 * time.Millisecond),
+		demo.Key("enter"),
+		demo.Wait(1 * time.Second),
 
 		// More tool operations
 		demo.ToolUse("Write", "src/routes/auth.ts"),
@@ -240,7 +240,7 @@ I'll implement JWT-based authentication with the following approach:
 
 		// User approves
 		demo.Key("y"),
-		demo.Wait(500 * time.Millisecond),
+		demo.Wait(1 * time.Second),
 
 		// Final todo state - all complete
 		demo.TodoList(
@@ -278,20 +278,20 @@ Which approach would you prefer?`, 40),
 
 		// Select all three options
 		demo.Key("space"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(500 * time.Millisecond),
 		demo.Key("down"),
-		demo.Wait(300 * time.Millisecond),
-		demo.Key("space"),
-		demo.Wait(300 * time.Millisecond),
-		demo.Key("down"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(400 * time.Millisecond),
 		demo.Key("space"),
 		demo.Wait(500 * time.Millisecond),
+		demo.Key("down"),
+		demo.Wait(400 * time.Millisecond),
+		demo.Key("space"),
+		demo.Wait(800 * time.Millisecond),
 		demo.Capture(),
 
 		// Fork all selected options
 		demo.Key("enter"),
-		demo.Wait(1500 * time.Millisecond),
+		demo.Wait(2 * time.Second),
 		demo.Capture(),
 
 		// ============================================================
@@ -330,19 +330,19 @@ The implementation supports:
 
 		// View changed files
 		demo.KeyWithDesc("v", "View changed files"),
-		demo.Wait(800 * time.Millisecond),
+		demo.Wait(1 * time.Second),
 		demo.Capture(),
 
 		// Navigate through files
 		demo.Key("down"),
-		demo.Wait(400 * time.Millisecond),
+		demo.Wait(600 * time.Millisecond),
 		demo.Key("down"),
-		demo.Wait(400 * time.Millisecond),
+		demo.Wait(600 * time.Millisecond),
 		demo.Capture(),
 
 		// Exit view changes
 		demo.Key("escape"),
-		demo.Wait(400 * time.Millisecond),
+		demo.Wait(600 * time.Millisecond),
 
 		// Ensure sidebar focus for merge shortcut
 		demo.Key("tab"),
@@ -350,19 +350,19 @@ The implementation supports:
 
 		// Open merge modal
 		demo.KeyWithDesc("m", "Open merge options"),
-		demo.Wait(800 * time.Millisecond),
+		demo.Wait(1 * time.Second),
 		demo.Capture(),
 
 		// Navigate to Create PR option
 		demo.Key("down"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(500 * time.Millisecond),
 		demo.Key("down"),
-		demo.Wait(300 * time.Millisecond),
+		demo.Wait(500 * time.Millisecond),
 		demo.Capture(),
 
 		// Select Create PR - shows loading modal while generating commit message
 		demo.Key("enter"),
-		demo.Wait(500 * time.Millisecond),
+		demo.Wait(800 * time.Millisecond),
 		demo.Capture(), // Capture "waiting for claude" state
 
 		// Wait a bit to show the loading state
@@ -384,7 +384,7 @@ Changes:
 
 		// User confirms with Ctrl+S
 		demo.Key("ctrl+s"),
-		demo.Wait(1 * time.Second),
+		demo.Wait(1500 * time.Millisecond),
 		demo.Capture(),
 
 		// ============================================================
