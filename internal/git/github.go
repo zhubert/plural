@@ -1,0 +1,138 @@
+package git
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/zhubert/plural/internal/logger"
+)
+
+// GitHubIssue represents a GitHub issue fetched via the gh CLI
+type GitHubIssue struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
+	URL    string `json:"url"`
+}
+
+// FetchGitHubIssues fetches open issues from a GitHub repository using the gh CLI.
+// The repoPath is used as the working directory to determine which repo to query.
+func (s *GitService) FetchGitHubIssues(ctx context.Context, repoPath string) ([]GitHubIssue, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "issue", "list",
+		"--json", "number,title,body,url",
+		"--state", "open",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gh issue list failed: %w", err)
+	}
+
+	var issues []GitHubIssue
+	if err := json.Unmarshal(output, &issues); err != nil {
+		return nil, fmt.Errorf("failed to parse issues: %w", err)
+	}
+
+	return issues, nil
+}
+
+// GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
+// If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
+func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
+	log := logger.WithComponent("git")
+	log.Info("generating PR title and body with Claude", "branch", branch, "issueNumber", issueNumber)
+
+	defaultBranch := s.GetDefaultBranch(ctx, repoPath)
+
+	// Get the commit log for this branch
+	commitLog, err := s.executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
+	if err != nil {
+		log.Error("failed to get commit log", "error", err, "branch", branch)
+		return "", "", fmt.Errorf("failed to get commit log: %w", err)
+	}
+
+	// Get the diff from base branch (use --no-ext-diff to ensure output goes to stdout)
+	diffOutput, err := s.executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
+	if err != nil {
+		log.Error("failed to get diff", "error", err, "branch", branch)
+		return "", "", fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	fullDiff := string(diffOutput)
+
+	// Truncate diff if too large
+	maxDiffSize := MaxDiffSize
+	if len(fullDiff) > maxDiffSize {
+		fullDiff = fullDiff[:maxDiffSize] + "\n... (diff truncated)"
+	}
+
+	// Build the prompt for Claude
+	prompt := fmt.Sprintf(`Generate a GitHub pull request title and body for the following changes.
+
+Output format (use exactly this format with the markers):
+---TITLE---
+Your PR title here (max 72 chars, imperative mood)
+---BODY---
+## Summary
+Brief description of what this PR does
+
+## Changes
+- Bullet points of key changes
+
+## Test plan
+- How to test these changes
+
+Rules:
+1. Title should be concise and descriptive (max 72 chars)
+2. Body should explain the purpose and changes clearly
+3. Include a test plan section
+4. Do NOT include any preamble - start directly with ---TITLE---
+
+Commits in this branch:
+%s
+
+Diff:
+%s`, string(commitLog), fullDiff)
+
+	// Call Claude CLI
+	output, err := s.executor.Output(ctx, repoPath, "claude", "--print", "-p", prompt)
+	if err != nil {
+		log.Error("Claude PR generation failed", "error", err)
+		return "", "", fmt.Errorf("failed to generate PR with Claude: %w", err)
+	}
+
+	result := strings.TrimSpace(string(output))
+
+	// Parse the output
+	titleMarker := "---TITLE---"
+	bodyMarker := "---BODY---"
+
+	titleStart := strings.Index(result, titleMarker)
+	bodyStart := strings.Index(result, bodyMarker)
+
+	if titleStart == -1 || bodyStart == -1 {
+		// Fallback: use first line as title, rest as body
+		lines := strings.SplitN(result, "\n", 2)
+		title = strings.TrimSpace(lines[0])
+		if len(lines) > 1 {
+			body = strings.TrimSpace(lines[1])
+		}
+	} else {
+		title = strings.TrimSpace(result[titleStart+len(titleMarker) : bodyStart])
+		body = strings.TrimSpace(result[bodyStart+len(bodyMarker):])
+	}
+
+	if title == "" {
+		return "", "", fmt.Errorf("Claude returned empty PR title")
+	}
+
+	// Add "Fixes #N" to the body if this PR is for a GitHub issue
+	if issueNumber > 0 {
+		fixesLine := fmt.Sprintf("\n\nFixes #%d", issueNumber)
+		body = body + fixesLine
+		log.Info("added issue reference", "issueNumber", issueNumber)
+	}
+
+	log.Info("generated PR title", "title", title)
+	return title, body, nil
+}

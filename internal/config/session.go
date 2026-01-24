@@ -1,0 +1,146 @@
+package config
+
+import (
+	"time"
+)
+
+// Session represents a Claude Code conversation session with its own worktree
+type Session struct {
+	ID         string    `json:"id"`
+	RepoPath   string    `json:"repo_path"`
+	WorkTree   string    `json:"worktree"`
+	Branch     string    `json:"branch"`
+	BaseBranch string    `json:"base_branch,omitempty"` // Branch this session was created from (e.g., "main", parent branch)
+	Name       string    `json:"name"`
+	CreatedAt  time.Time `json:"created_at"`
+	Started    bool      `json:"started,omitempty"` // Whether session has been started with Claude CLI
+
+	Merged         bool   `json:"merged,omitempty"`           // Whether session has been merged to main
+	PRCreated      bool   `json:"pr_created,omitempty"`       // Whether a PR has been created for this session
+	ParentID       string `json:"parent_id,omitempty"`        // ID of parent session if this is a fork
+	MergedToParent bool   `json:"merged_to_parent,omitempty"` // Whether session has been merged back to its parent (locks the session)
+	IssueNumber    int    `json:"issue_number,omitempty"`     // GitHub issue number if session was created from an issue
+}
+
+// AddSession adds a new session
+func (c *Config) AddSession(session Session) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.Sessions = append(c.Sessions, session)
+}
+
+// RemoveSession removes a session by ID
+func (c *Config) RemoveSession(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i, s := range c.Sessions {
+		if s.ID == id {
+			c.Sessions = append(c.Sessions[:i], c.Sessions[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
+// ClearSessions removes all sessions
+func (c *Config) ClearSessions() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Sessions = []Session{}
+}
+
+// GetSession returns a session by ID
+func (c *Config) GetSession(id string) *Session {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == id {
+			return &c.Sessions[i]
+		}
+	}
+	return nil
+}
+
+// GetSessions returns a copy of the sessions slice
+func (c *Config) GetSessions() []Session {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	sessions := make([]Session, len(c.Sessions))
+	copy(sessions, c.Sessions)
+	return sessions
+}
+
+// MarkSessionStarted marks a session as started with Claude CLI
+func (c *Config) MarkSessionStarted(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].Started = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionMerged marks a session as merged to main
+func (c *Config) MarkSessionMerged(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].Merged = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionPRCreated marks a session as having a PR created
+func (c *Config) MarkSessionPRCreated(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].PRCreated = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionMergedToParent marks a session as merged to its parent (locks the session)
+func (c *Config) MarkSessionMergedToParent(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].MergedToParent = true
+			return true
+		}
+	}
+	return false
+}
+
+// RenameSession updates the name and branch of a session
+func (c *Config) RenameSession(sessionID, newName, newBranch string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].Name = newName
+			c.Sessions[i].Branch = newBranch
+			return true
+		}
+	}
+	return false
+}
