@@ -10,19 +10,20 @@ import (
 
 // EnterViewChangesMode enters the temporary diff view overlay with file navigation
 func (c *Chat) EnterViewChangesMode(files []git.FileDiff) {
-	c.viewChangesMode = true
-	c.viewChangesFiles = files
-	c.viewChangesFileIndex = 0
+	c.viewChanges = &ViewChangesState{
+		Files:     files,
+		FileIndex: 0,
+		Viewport:  viewport.New(),
+	}
 
-	// Create a fresh viewport for the diff content
-	c.viewChangesViewport = viewport.New()
-	c.viewChangesViewport.MouseWheelEnabled = true
-	c.viewChangesViewport.MouseWheelDelta = 3
-	c.viewChangesViewport.SoftWrap = true
+	// Configure viewport
+	c.viewChanges.Viewport.MouseWheelEnabled = true
+	c.viewChanges.Viewport.MouseWheelDelta = 3
+	c.viewChanges.Viewport.SoftWrap = true
 
 	// Size it - will be adjusted in render, but set initial size
-	c.viewChangesViewport.SetWidth(c.viewport.Width() * 2 / 3)
-	c.viewChangesViewport.SetHeight(c.viewport.Height())
+	c.viewChanges.Viewport.SetWidth(c.viewport.Width() * 2 / 3)
+	c.viewChanges.Viewport.SetHeight(c.viewport.Height())
 
 	// Load the first file's diff
 	c.updateViewChangesDiff()
@@ -30,39 +31,46 @@ func (c *Chat) EnterViewChangesMode(files []git.FileDiff) {
 
 // updateViewChangesDiff updates the diff viewport with the currently selected file's diff
 func (c *Chat) updateViewChangesDiff() {
-	if len(c.viewChangesFiles) == 0 {
-		c.viewChangesViewport.SetContent("No files to display")
+	if c.viewChanges == nil || len(c.viewChanges.Files) == 0 {
+		if c.viewChanges != nil {
+			c.viewChanges.Viewport.SetContent("No files to display")
+		}
 		return
 	}
-	if c.viewChangesFileIndex >= len(c.viewChangesFiles) {
-		c.viewChangesFileIndex = len(c.viewChangesFiles) - 1
+	if c.viewChanges.FileIndex >= len(c.viewChanges.Files) {
+		c.viewChanges.FileIndex = len(c.viewChanges.Files) - 1
 	}
-	file := c.viewChangesFiles[c.viewChangesFileIndex]
+	file := c.viewChanges.Files[c.viewChanges.FileIndex]
 	content := HighlightDiff(file.Diff)
-	c.viewChangesViewport.SetContent(content)
-	c.viewChangesViewport.GotoTop()
+	c.viewChanges.Viewport.SetContent(content)
+	c.viewChanges.Viewport.GotoTop()
 }
 
 // ExitViewChangesMode exits the diff view overlay and returns to chat
 func (c *Chat) ExitViewChangesMode() {
-	c.viewChangesMode = false
-	c.viewChangesFiles = nil
-	c.viewChangesFileIndex = 0
+	c.viewChanges = nil
 }
 
 // IsInViewChangesMode returns whether we're currently showing the diff overlay
 func (c *Chat) IsInViewChangesMode() bool {
-	return c.viewChangesMode
+	return c.viewChanges != nil
 }
 
 // GetSelectedFileIndex returns the currently selected file index in view changes mode.
 // Used for testing navigation.
 func (c *Chat) GetSelectedFileIndex() int {
-	return c.viewChangesFileIndex
+	if c.viewChanges == nil {
+		return 0
+	}
+	return c.viewChanges.FileIndex
 }
 
 // renderViewChangesMode renders the diff overlay view with a compact file navigation bar
 func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
+	if c.viewChanges == nil {
+		return ""
+	}
+
 	// Calculate dimensions
 	innerWidth := c.width - 2 // Account for panel border
 	innerHeight := c.height - 2
@@ -75,13 +83,13 @@ func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
 	diffHeight := innerHeight - navBarHeight
 
 	// Update diff viewport size to use full width
-	c.viewChangesViewport.SetWidth(innerWidth)
-	c.viewChangesViewport.SetHeight(diffHeight)
+	c.viewChanges.Viewport.SetWidth(innerWidth)
+	c.viewChanges.Viewport.SetHeight(diffHeight)
 
 	// Get viewport content and constrain to max height to prevent layout overflow
 	diffContent := lipgloss.NewStyle().
 		MaxHeight(diffHeight).
-		Render(c.viewChangesViewport.View())
+		Render(c.viewChanges.Viewport.View())
 
 	// Join navigation bar and diff vertically
 	content := lipgloss.JoinVertical(
@@ -95,25 +103,25 @@ func (c *Chat) renderViewChangesMode(panelStyle lipgloss.Style) string {
 
 // renderFileNavBar renders the compact horizontal file navigation bar
 func (c *Chat) renderFileNavBar(width int) string {
-	if len(c.viewChangesFiles) == 0 {
+	if c.viewChanges == nil || len(c.viewChanges.Files) == 0 {
 		return lipgloss.NewStyle().
 			Width(width).
 			Foreground(ColorTextMuted).
 			Render("No files to display")
 	}
 
-	currentFile := c.viewChangesFiles[c.viewChangesFileIndex]
+	currentFile := c.viewChanges.Files[c.viewChanges.FileIndex]
 
 	// Build: "← [M] src/file.go (3 of 7) →"
 	// Left arrow (show if not first file)
 	leftArrow := "  "
-	if c.viewChangesFileIndex > 0 {
+	if c.viewChanges.FileIndex > 0 {
 		leftArrow = "← "
 	}
 
 	// Right arrow (show if not last file)
 	rightArrow := "  "
-	if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
+	if c.viewChanges.FileIndex < len(c.viewChanges.Files)-1 {
 		rightArrow = " →"
 	}
 
@@ -123,7 +131,7 @@ func (c *Chat) renderFileNavBar(width int) string {
 
 	// File counter
 	counterStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-	counter := counterStyle.Render(fmt.Sprintf("(%d of %d)", c.viewChangesFileIndex+1, len(c.viewChangesFiles)))
+	counter := counterStyle.Render(fmt.Sprintf("(%d of %d)", c.viewChanges.FileIndex+1, len(c.viewChanges.Files)))
 
 	// Arrow styles
 	arrowStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)

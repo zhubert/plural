@@ -70,40 +70,40 @@ const (
 
 // StartSelection begins a text selection at the given coordinates
 func (c *Chat) StartSelection(col, line int) {
-	c.selectionStartCol = col
-	c.selectionStartLine = line
-	c.selectionEndCol = col
-	c.selectionEndLine = line
-	c.selectionActive = true
+	c.selection.StartCol = col
+	c.selection.StartLine = line
+	c.selection.EndCol = col
+	c.selection.EndLine = line
+	c.selection.Active = true
 }
 
 // EndSelection updates the end position of the selection during drag
 func (c *Chat) EndSelection(col, line int) {
-	if !c.selectionActive {
+	if !c.selection.Active {
 		return
 	}
-	c.selectionEndCol = col
-	c.selectionEndLine = line
+	c.selection.EndCol = col
+	c.selection.EndLine = line
 }
 
 // SelectionStop ends the drag but keeps the selection visible
 func (c *Chat) SelectionStop() {
-	c.selectionActive = false
+	c.selection.Active = false
 }
 
 // SelectionClear clears the selection entirely
 func (c *Chat) SelectionClear() {
-	c.selectionStartCol = -1
-	c.selectionStartLine = -1
-	c.selectionEndCol = -1
-	c.selectionEndLine = -1
-	c.selectionActive = false
+	c.selection.StartCol = -1
+	c.selection.StartLine = -1
+	c.selection.EndCol = -1
+	c.selection.EndLine = -1
+	c.selection.Active = false
 }
 
 // HasTextSelection returns true if there is an active or completed selection
 func (c *Chat) HasTextSelection() bool {
-	return c.selectionStartCol >= 0 && c.selectionStartLine >= 0 &&
-		(c.selectionEndCol != c.selectionStartCol || c.selectionEndLine != c.selectionStartLine)
+	return c.selection.StartCol >= 0 && c.selection.StartLine >= 0 &&
+		(c.selection.EndCol != c.selection.StartCol || c.selection.EndLine != c.selection.StartLine)
 }
 
 // handleMouseClick handles mouse click events and detects double/triple clicks
@@ -111,19 +111,19 @@ func (c *Chat) handleMouseClick(x, y int) tea.Cmd {
 	now := time.Now()
 
 	// Check if this is a potential multi-click
-	if now.Sub(c.lastClickTime) <= doubleClickThreshold &&
-		abs(x-c.lastClickX) <= clickTolerance &&
-		abs(y-c.lastClickY) <= clickTolerance {
-		c.clickCount++
+	if now.Sub(c.selection.LastClickTime) <= doubleClickThreshold &&
+		abs(x-c.selection.LastClickX) <= clickTolerance &&
+		abs(y-c.selection.LastClickY) <= clickTolerance {
+		c.selection.ClickCount++
 	} else {
-		c.clickCount = 1
+		c.selection.ClickCount = 1
 	}
 
-	c.lastClickTime = now
-	c.lastClickX = x
-	c.lastClickY = y
+	c.selection.LastClickTime = now
+	c.selection.LastClickX = x
+	c.selection.LastClickY = y
 
-	switch c.clickCount {
+	switch c.selection.ClickCount {
 	case 1:
 		// Single click - start selection
 		c.StartSelection(x, y)
@@ -134,7 +134,7 @@ func (c *Chat) handleMouseClick(x, y int) tea.Cmd {
 	case 3:
 		// Triple click - select line/paragraph and copy immediately
 		c.SelectParagraph(x, y)
-		c.clickCount = 0 // Reset after triple click
+		c.selection.ClickCount = 0 // Reset after triple click
 		return c.CopySelectedText()
 	}
 
@@ -194,11 +194,11 @@ func (c *Chat) SelectWord(col, line int) {
 		endCol = len(currentLine)
 	}
 
-	c.selectionStartCol = startCol
-	c.selectionStartLine = line
-	c.selectionEndCol = endCol
-	c.selectionEndLine = line
-	c.selectionActive = false
+	c.selection.StartCol = startCol
+	c.selection.StartLine = line
+	c.selection.EndCol = endCol
+	c.selection.EndLine = line
+	c.selection.Active = false
 }
 
 // SelectParagraph selects the paragraph/line at the given position
@@ -236,11 +236,11 @@ func (c *Chat) SelectParagraph(col, line int) {
 	// Get the width of the last line in the paragraph
 	lastLineWidth := len(ansi.Strip(lines[endLine]))
 
-	c.selectionStartCol = 0
-	c.selectionStartLine = startLine
-	c.selectionEndCol = lastLineWidth
-	c.selectionEndLine = endLine
-	c.selectionActive = false
+	c.selection.StartCol = 0
+	c.selection.StartLine = startLine
+	c.selection.EndCol = lastLineWidth
+	c.selection.EndLine = endLine
+	c.selection.Active = false
 }
 
 // selectionArea returns the normalized selection area (start < end).
@@ -255,10 +255,10 @@ func (c *Chat) SelectParagraph(col, line int) {
 //
 // This ensures text extraction and rendering always process from start to end.
 func (c *Chat) selectionArea() (startCol, startLine, endCol, endLine int) {
-	startCol = c.selectionStartCol
-	startLine = c.selectionStartLine
-	endCol = c.selectionEndCol
-	endLine = c.selectionEndLine
+	startCol = c.selection.StartCol
+	startLine = c.selection.StartLine
+	endCol = c.selection.EndCol
+	endLine = c.selection.EndLine
 
 	// Normalize so start is before end in reading order (top-to-bottom, left-to-right)
 	if startLine > endLine || (startLine == endLine && startCol > endCol) {
@@ -342,7 +342,7 @@ func (c *Chat) CopySelectedText() tea.Cmd {
 	}
 
 	// Start the selection flash animation
-	c.selectionFlashFrame = 0
+	c.selection.FlashFrame = 0
 
 	return tea.Batch(
 		// OSC 52 escape sequence (works in modern terminals)
@@ -382,7 +382,7 @@ func (c *Chat) selectionView(view string) string {
 
 	// Get selection style colors - use flash style during copy animation
 	var selBg, selFg color.Color
-	if c.selectionFlashFrame == 0 {
+	if c.selection.FlashFrame == 0 {
 		// Flash frame - use bright green to indicate successful copy
 		selBg = TextSelectionFlashStyle.GetBackground()
 		selFg = TextSelectionFlashStyle.GetForeground()

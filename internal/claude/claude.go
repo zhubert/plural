@@ -180,17 +180,8 @@ type Runner struct {
 	// Stream log file for raw Claude messages (separate from main debug log)
 	streamLogFile *os.File
 
-	// MCP interactive prompt channels. Each pair handles one type of interaction:
-	// - Permission: Tool use authorization (y/n/always)
-	// - Question: Multiple-choice questions from Claude
-	// - PlanApproval: Plan mode approval requests
-	// See PermissionChannelBuffer constant for buffer size rationale.
-	permReqChan  chan mcp.PermissionRequest
-	permRespChan chan mcp.PermissionResponse
-	questReqChan chan mcp.QuestionRequest
-	questRespChan  chan mcp.QuestionResponse
-	planReqChan    chan mcp.PlanApprovalRequest
-	planRespChan   chan mcp.PlanApprovalResponse
+	// MCP interactive prompt channels (grouped in sub-struct)
+	mcp *MCPChannels
 
 	stopOnce sync.Once // Ensures Stop() is idempotent
 	stopped  bool      // Set to true when Stop() is called, prevents reading from closed channels
@@ -200,29 +191,16 @@ type Runner struct {
 	forkFromSessionID string
 
 	// Process management via ProcessManager
-	processManager          *ProcessManager    // Manages Claude CLI process lifecycle
-	currentResponseCh       chan ResponseChunk // Current response channel for routing (protected by mu)
-	currentResponseChClosed bool               // Whether currentResponseCh has been closed (protected by mu)
-	closeResponseChOnce     *sync.Once         // Ensures response channel is closed exactly once per Send
+	processManager *ProcessManager // Manages Claude CLI process lifecycle
 
-	// Per-session streaming state (all protected by mu)
-	isStreaming  bool               // Whether this runner is currently streaming
-	streamCtx    context.Context    // Context for current streaming operation
-	streamCancel context.CancelFunc // Cancel function for current streaming
+	// Response channel management (grouped in sub-struct)
+	responseChan *ResponseChannelState
 
-	// Response building state (protected by mu)
-	fullResponse          strings.Builder // Accumulates response content
-	lastWasToolUse        bool            // Track if last chunk was tool use
-	endsWithNewline       bool            // Track if response ends with \n
-	endsWithDoubleNewline bool            // Track if response ends with \n\n
-	firstChunk            bool            // Track if this is first chunk
-	responseStartTime     time.Time       // When response started
-	responseComplete      bool            // Track if result message was received (response is done)
+	// Per-session streaming state (grouped in sub-struct)
+	streaming *StreamingState
 
-	// Token tracking state (protected by mu)
-	accumulatedOutputTokens int    // Accumulated output tokens from completed API calls
-	lastMessageID           string // Track the message ID to detect new API calls
-	lastMessageOutputTokens int    // Last seen output tokens for the current message ID
+	// Token tracking state (grouped in sub-struct)
+	tokens *TokenTracking
 
 	// External MCP servers to include in config
 	mcpServers []MCPServer
@@ -264,17 +242,11 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 		allowedTools:   allowedTools,
 		log:            log,
 		streamLogFile:  streamLogFile,
-		permReqChan:    make(chan mcp.PermissionRequest, PermissionChannelBuffer),
-		permRespChan:   make(chan mcp.PermissionResponse, PermissionChannelBuffer),
-		questReqChan:   make(chan mcp.QuestionRequest, PermissionChannelBuffer),
-		questRespChan:  make(chan mcp.QuestionResponse, PermissionChannelBuffer),
-		planReqChan:    make(chan mcp.PlanApprovalRequest, PermissionChannelBuffer),
-		planRespChan:   make(chan mcp.PlanApprovalResponse, PermissionChannelBuffer),
-		firstChunk:     true,
+		mcp:            NewMCPChannels(),
+		streaming:      NewStreamingState(),
+		tokens:         &TokenTracking{},
+		responseChan:   NewResponseChannelState(),
 	}
-
-	// Initialize response builder
-	r.fullResponse.Grow(8192)
 
 	// ProcessManager will be created lazily when first needed (after MCP config is ready)
 	return r
@@ -341,10 +313,10 @@ func (r *Runner) SetForkFromSession(parentSessionID string) {
 func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped {
+	if r.stopped || r.mcp == nil {
 		return nil
 	}
-	return r.permReqChan
+	return r.mcp.PermissionReq
 }
 
 // SendPermissionResponse sends a response to a permission request.
@@ -352,7 +324,10 @@ func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
-	ch := r.permRespChan
+	var ch chan mcp.PermissionResponse
+	if r.mcp != nil {
+		ch = r.mcp.PermissionResp
+	}
 	r.mu.RUnlock()
 
 	if stopped || ch == nil {
@@ -373,10 +348,10 @@ func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped {
+	if r.stopped || r.mcp == nil {
 		return nil
 	}
-	return r.questReqChan
+	return r.mcp.QuestionReq
 }
 
 // SendQuestionResponse sends a response to a question request.
@@ -384,7 +359,10 @@ func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
 func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
-	ch := r.questRespChan
+	var ch chan mcp.QuestionResponse
+	if r.mcp != nil {
+		ch = r.mcp.QuestionResp
+	}
 	r.mu.RUnlock()
 
 	if stopped || ch == nil {
@@ -405,10 +383,10 @@ func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 func (r *Runner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped {
+	if r.stopped || r.mcp == nil {
 		return nil
 	}
-	return r.planReqChan
+	return r.mcp.PlanReq
 }
 
 // SendPlanApprovalResponse sends a response to a plan approval request.
@@ -416,7 +394,10 @@ func (r *Runner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
 func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
-	ch := r.planRespChan
+	var ch chan mcp.PlanApprovalResponse
+	if r.mcp != nil {
+		ch = r.mcp.PlanResp
+	}
 	r.mu.RUnlock()
 
 	if stopped || ch == nil {
@@ -436,14 +417,14 @@ func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 func (r *Runner) IsStreaming() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.isStreaming
+	return r.streaming.Active
 }
 
 // GetResponseChan returns the current response channel (nil if not streaming)
 func (r *Runner) GetResponseChan() <-chan ResponseChunk {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.currentResponseCh
+	return r.responseChan.Channel
 }
 
 // ChunkType represents the type of streaming chunk
@@ -741,7 +722,10 @@ func (r *Runner) ensureServerRunning() error {
 	startTime := time.Now()
 
 	// Create socket server
-	socketServer, err := mcp.NewSocketServer(r.sessionID, r.permReqChan, r.permRespChan, r.questReqChan, r.questRespChan, r.planReqChan, r.planRespChan)
+	socketServer, err := mcp.NewSocketServer(r.sessionID,
+		r.mcp.PermissionReq, r.mcp.PermissionResp,
+		r.mcp.QuestionReq, r.mcp.QuestionResp,
+		r.mcp.PlanReq, r.mcp.PlanResp)
 	if err != nil {
 		r.log.Error("failed to create socket server", "error", err)
 		return fmt.Errorf("failed to start permission server: %v", err)
@@ -883,8 +867,8 @@ func (r *Runner) handleProcessLine(line string) {
 
 	// Get the current response channel (nil if already closed)
 	r.mu.RLock()
-	ch := r.currentResponseCh
-	if r.currentResponseChClosed {
+	ch := r.responseChan.Channel
+	if r.responseChan.Closed {
 		ch = nil
 	}
 	r.mu.RUnlock()
@@ -894,39 +878,39 @@ func (r *Runner) handleProcessLine(line string) {
 		switch chunk.Type {
 		case ChunkTypeText:
 			// Add extra newline after tool use for visual separation
-			if r.lastWasToolUse && r.endsWithNewline && !r.endsWithDoubleNewline {
-				r.fullResponse.WriteString("\n")
-				r.endsWithDoubleNewline = true
+			if r.streaming.LastWasToolUse && r.streaming.EndsWithNewline && !r.streaming.EndsWithDoubleNL {
+				r.streaming.Response.WriteString("\n")
+				r.streaming.EndsWithDoubleNL = true
 			}
-			r.fullResponse.WriteString(chunk.Content)
+			r.streaming.Response.WriteString(chunk.Content)
 			// Update newline tracking based on content
 			if len(chunk.Content) > 0 {
-				r.endsWithNewline = chunk.Content[len(chunk.Content)-1] == '\n'
-				r.endsWithDoubleNewline = len(chunk.Content) >= 2 && chunk.Content[len(chunk.Content)-2:] == "\n\n"
+				r.streaming.EndsWithNewline = chunk.Content[len(chunk.Content)-1] == '\n'
+				r.streaming.EndsWithDoubleNL = len(chunk.Content) >= 2 && chunk.Content[len(chunk.Content)-2:] == "\n\n"
 			}
-			r.lastWasToolUse = false
+			r.streaming.LastWasToolUse = false
 		case ChunkTypeToolUse:
 			// Format tool use line - add newline if needed
-			if r.fullResponse.Len() > 0 && !r.endsWithNewline {
-				r.fullResponse.WriteString("\n")
+			if r.streaming.Response.Len() > 0 && !r.streaming.EndsWithNewline {
+				r.streaming.Response.WriteString("\n")
 			}
-			r.fullResponse.WriteString("● ")
-			r.fullResponse.WriteString(formatToolIcon(chunk.ToolName))
-			r.fullResponse.WriteString("(")
-			r.fullResponse.WriteString(chunk.ToolName)
+			r.streaming.Response.WriteString("● ")
+			r.streaming.Response.WriteString(formatToolIcon(chunk.ToolName))
+			r.streaming.Response.WriteString("(")
+			r.streaming.Response.WriteString(chunk.ToolName)
 			if chunk.ToolInput != "" {
-				r.fullResponse.WriteString(": ")
-				r.fullResponse.WriteString(chunk.ToolInput)
+				r.streaming.Response.WriteString(": ")
+				r.streaming.Response.WriteString(chunk.ToolInput)
 			}
-			r.fullResponse.WriteString(")\n")
-			r.endsWithNewline = true
-			r.endsWithDoubleNewline = false
-			r.lastWasToolUse = true
+			r.streaming.Response.WriteString(")\n")
+			r.streaming.EndsWithNewline = true
+			r.streaming.EndsWithDoubleNL = false
+			r.streaming.LastWasToolUse = true
 		}
 
-		if r.firstChunk {
-			r.log.Debug("first response chunk received", "elapsed", time.Since(r.responseStartTime))
-			r.firstChunk = false
+		if r.streaming.FirstChunk {
+			r.log.Debug("first response chunk received", "elapsed", time.Since(r.streaming.StartTime))
+			r.streaming.FirstChunk = false
 		}
 		r.mu.Unlock()
 
@@ -958,21 +942,21 @@ func (r *Runner) handleProcessLine(line string) {
 
 			// If this is a new message ID, we're starting a new API call
 			// Add the final token count from the previous API call to the accumulator
-			if messageID != "" && messageID != r.lastMessageID {
-				if r.lastMessageID != "" {
+			if messageID != "" && messageID != r.tokens.LastMessageID {
+				if r.tokens.LastMessageID != "" {
 					// Add the previous message's final token count to the accumulator
-					r.accumulatedOutputTokens += r.lastMessageOutputTokens
+					r.tokens.AccumulatedOutput += r.tokens.LastMessageTokens
 				}
-				r.lastMessageID = messageID
-				r.lastMessageOutputTokens = 0
+				r.tokens.LastMessageID = messageID
+				r.tokens.LastMessageTokens = 0
 			}
 
 			// Update the current message's token count (this is cumulative within the API call)
-			r.lastMessageOutputTokens = msg.Message.Usage.OutputTokens
+			r.tokens.LastMessageTokens = msg.Message.Usage.OutputTokens
 
 			// The displayed total is accumulated tokens from completed API calls
 			// plus the current API call's running token count
-			currentTotal := r.accumulatedOutputTokens + r.lastMessageOutputTokens
+			currentTotal := r.tokens.CurrentTotal()
 
 			r.mu.Unlock()
 
@@ -997,7 +981,7 @@ func (r *Runner) handleProcessLine(line string) {
 
 			r.mu.Lock()
 			r.sessionStarted = true
-			r.responseComplete = true // Mark that response finished - process exit after this is expected
+			r.streaming.Complete = true // Mark that response finished - process exit after this is expected
 			if r.processManager != nil {
 				r.processManager.MarkSessionStarted()
 				r.processManager.ResetRestartAttempts()
@@ -1018,9 +1002,9 @@ func (r *Runner) handleProcessLine(line string) {
 				msg.Subtype == "error" ||
 				strings.Contains(msg.Subtype, "error")
 			if isError && errorText != "" {
-				if ch != nil && !r.currentResponseChClosed {
+				if ch != nil && !r.responseChan.Closed {
 					errorMsg := fmt.Sprintf("\n[Error: %s]\n", errorText)
-					r.fullResponse.WriteString(errorMsg)
+					r.streaming.Response.WriteString(errorMsg)
 					select {
 					case ch <- ResponseChunk{Type: ChunkTypeText, Content: errorMsg}:
 					default:
@@ -1028,11 +1012,11 @@ func (r *Runner) handleProcessLine(line string) {
 				}
 			}
 
-			r.messages = append(r.messages, Message{Role: "assistant", Content: r.fullResponse.String()})
+			r.messages = append(r.messages, Message{Role: "assistant", Content: r.streaming.Response.String()})
 
 			// Emit stream stats chunk before Done if we have usage data
 			// Prefer modelUsage (which includes sub-agent tokens) over the streaming accumulator
-			if ch != nil && !r.currentResponseChClosed {
+			if ch != nil && !r.responseChan.Closed {
 				var totalOutputTokens int
 				var byModel []ModelTokenCount
 
@@ -1051,13 +1035,13 @@ func (r *Runner) handleProcessLine(line string) {
 						"totalOutputTokens", totalOutputTokens)
 				} else if msg.Usage != nil {
 					// Fall back to streaming accumulator if no modelUsage
-					totalOutputTokens = r.accumulatedOutputTokens + r.lastMessageOutputTokens
-					if msg.Usage.OutputTokens > r.lastMessageOutputTokens {
-						totalOutputTokens = r.accumulatedOutputTokens + msg.Usage.OutputTokens
+					totalOutputTokens = r.tokens.AccumulatedOutput + r.tokens.LastMessageTokens
+					if msg.Usage.OutputTokens > r.tokens.LastMessageTokens {
+						totalOutputTokens = r.tokens.AccumulatedOutput + msg.Usage.OutputTokens
 					}
 					r.log.Debug("using streaming accumulator for token count",
-						"accumulated", r.accumulatedOutputTokens,
-						"lastMessage", r.lastMessageOutputTokens,
+						"accumulated", r.tokens.AccumulatedOutput,
+						"lastMessage", r.tokens.LastMessageTokens,
 						"totalOutputTokens", totalOutputTokens)
 				}
 
@@ -1079,23 +1063,18 @@ func (r *Runner) handleProcessLine(line string) {
 			}
 
 			// Signal completion and close channel
-			if ch != nil && !r.currentResponseChClosed {
+			if ch != nil && !r.responseChan.Closed {
 				select {
 				case ch <- ResponseChunk{Done: true}:
 				default:
 				}
 				r.closeResponseChannel()
 			}
-			r.isStreaming = false
+			r.streaming.Active = false
 
 			// Reset for next message
-			r.fullResponse.Reset()
-			r.fullResponse.Grow(8192)
-			r.lastWasToolUse = false
-			r.endsWithNewline = false
-			r.endsWithDoubleNewline = false
-			r.firstChunk = true
-			r.responseStartTime = time.Now()
+			r.streaming.Reset()
+			r.streaming.StartTime = time.Now()
 			r.mu.Unlock()
 		}
 	}
@@ -1105,10 +1084,10 @@ func (r *Runner) handleProcessLine(line string) {
 // Returns true if the process should be restarted.
 func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 	r.mu.Lock()
-	ch := r.currentResponseCh
-	chClosed := r.currentResponseChClosed
+	ch := r.responseChan.Channel
+	chClosed := r.responseChan.Closed
 	stopped := r.stopped
-	responseComplete := r.responseComplete
+	responseComplete := r.streaming.Complete
 
 	// If stopped, don't do anything
 	if stopped {
@@ -1132,7 +1111,7 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 		}
 		r.closeResponseChannel()
 	}
-	r.isStreaming = false
+	r.streaming.Active = false
 	r.mu.Unlock()
 
 	// Return true to allow ProcessManager to handle restart logic
@@ -1142,8 +1121,8 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 // handleRestartAttempt is called when a restart is being attempted.
 func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Lock()
-	ch := r.currentResponseCh
-	chClosed := r.currentResponseChClosed
+	ch := r.responseChan.Channel
+	chClosed := r.responseChan.Closed
 	r.mu.Unlock()
 
 	if ch != nil && !chClosed {
@@ -1165,8 +1144,8 @@ func (r *Runner) handleRestartFailed(err error) {
 // handleFatalError is called when max restarts exceeded or unrecoverable error.
 func (r *Runner) handleFatalError(err error) {
 	r.mu.Lock()
-	ch := r.currentResponseCh
-	chClosed := r.currentResponseChClosed
+	ch := r.responseChan.Channel
+	chClosed := r.responseChan.Closed
 
 	if ch != nil && !chClosed {
 		select {
@@ -1175,7 +1154,7 @@ func (r *Runner) handleFatalError(err error) {
 		}
 		r.closeResponseChannel()
 	}
-	r.isStreaming = false
+	r.streaming.Active = false
 	r.mu.Unlock()
 }
 
@@ -1195,13 +1174,7 @@ func (r *Runner) sendChunkWithTimeout(ch chan ResponseChunk, chunk ResponseChunk
 // (processResponse, handleProcessExit, handleFatalError) race to close the channel.
 // The caller must hold r.mu when calling this method.
 func (r *Runner) closeResponseChannel() {
-	if r.closeResponseChOnce == nil || r.currentResponseCh == nil {
-		return
-	}
-	r.closeResponseChOnce.Do(func() {
-		close(r.currentResponseCh)
-		r.currentResponseChClosed = true
-	})
+	r.responseChan.Close()
 }
 
 // Interrupt sends SIGINT to the Claude process to interrupt its current operation.
@@ -1259,16 +1232,12 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		// This is critical because the process might crash immediately after starting,
 		// and handleFatalError needs the channel to report the error to the user.
 		r.mu.Lock()
-		r.isStreaming = true
-		r.currentResponseCh = ch
-		r.currentResponseChClosed = false    // Reset closed flag for new channel
-		r.closeResponseChOnce = &sync.Once{} // Fresh sync.Once for this channel
-		r.streamCtx = cmdCtx
-		r.responseStartTime = time.Now()
-		r.responseComplete = false // Reset for new message - we haven't received result yet
-		r.accumulatedOutputTokens = 0   // Reset token accumulator for new request
-		r.lastMessageID = ""            // Reset message ID tracker
-		r.lastMessageOutputTokens = 0   // Reset last message token count
+		r.streaming.Active = true
+		r.streaming.Ctx = cmdCtx
+		r.streaming.StartTime = time.Now()
+		r.streaming.Complete = false // Reset for new message - we haven't received result yet
+		r.responseChan.Setup(ch)
+		r.tokens.Reset() // Reset token accumulator for new request
 		if r.processManager != nil {
 			r.processManager.SetInterrupted(false) // Reset interrupt flag for new message
 		}
@@ -1278,9 +1247,9 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		if err := r.ensureProcessRunning(); err != nil {
 			// Clean up state since we're aborting
 			r.mu.Lock()
-			r.isStreaming = false
-			r.currentResponseCh = nil
-			r.currentResponseChClosed = true
+			r.streaming.Active = false
+			r.responseChan.Channel = nil
+			r.responseChan.Closed = true
 			r.mu.Unlock()
 
 			ch <- ResponseChunk{Error: err, Done: true}
@@ -1406,34 +1375,9 @@ func (r *Runner) Stop() {
 
 		r.serverRunning = false
 
-		// Close permission channels to unblock any waiting goroutines
-		if r.permReqChan != nil {
-			close(r.permReqChan)
-			r.permReqChan = nil
-		}
-		if r.permRespChan != nil {
-			close(r.permRespChan)
-			r.permRespChan = nil
-		}
-
-		// Close question channels to unblock any waiting goroutines
-		if r.questReqChan != nil {
-			close(r.questReqChan)
-			r.questReqChan = nil
-		}
-		if r.questRespChan != nil {
-			close(r.questRespChan)
-			r.questRespChan = nil
-		}
-
-		// Close plan approval channels to unblock any waiting goroutines
-		if r.planReqChan != nil {
-			close(r.planReqChan)
-			r.planReqChan = nil
-		}
-		if r.planRespChan != nil {
-			close(r.planRespChan)
-			r.planRespChan = nil
+		// Close MCP channels to unblock any waiting goroutines
+		if r.mcp != nil {
+			r.mcp.Close()
 		}
 
 		// Close stream log file

@@ -31,7 +31,7 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			return m, nil
 		}
 		// Check if there's already a pending commit message generation
-		if m.pendingCommitSession == sess.ID {
+		if m.pendingCommit != nil && m.pendingCommit.SessionID == sess.ID {
 			log.Debug("commit message generation already pending")
 			return m, nil
 		}
@@ -74,7 +74,6 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 				m.chat.AppendStreaming("Error: Parent session not found\n")
 				return m, nil
 			}
-			m.pendingParentSession = parentSess.ID
 		}
 
 		if status.HasChanges {
@@ -82,8 +81,14 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			m.chat.FinishStreaming()
 			// Show loading modal with spinner while generating commit message
 			m.modal.Show(ui.NewLoadingCommitState(mergeType.String()))
-			m.pendingCommitSession = sess.ID
-			m.pendingCommitType = mergeType
+			m.pendingCommit = &PendingCommit{
+				SessionID:       sess.ID,
+				Type:            mergeType,
+				ParentSessionID: "",
+			}
+			if parentSess != nil {
+				m.pendingCommit.ParentSessionID = parentSess.ID
+			}
 			return m, tea.Batch(m.generateCommitMessage(sess.ID, sess.WorkTree), ui.StopwatchTick())
 		}
 
@@ -123,8 +128,7 @@ func (m *Model) handleLoadingCommitModal(key string, _ tea.KeyPressMsg, _ *ui.Lo
 	case "esc":
 		// Cancel commit message generation
 		m.modal.Hide()
-		m.pendingCommitSession = ""
-		m.pendingCommitType = MergeTypeNone
+		m.pendingCommit = nil
 		m.chat.AppendStreaming("Cancelled.\n")
 		return m, nil
 	}
@@ -142,8 +146,7 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 			// Don't clear conflict state on cancel - user might want to try again
 			m.chat.AppendStreaming("Commit cancelled. Press 'c' to try again.\n")
 		} else {
-			m.pendingCommitSession = ""
-			m.pendingCommitType = MergeTypeNone
+			m.pendingCommit = nil
 			m.chat.AppendStreaming("Cancelled.\n")
 		}
 		return m, nil
@@ -161,18 +164,18 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		}
 
 		// Handle normal merge/PR commit
-		sess := m.config.GetSession(m.pendingCommitSession)
+		if m.pendingCommit == nil {
+			return m, nil
+		}
+		sess := m.config.GetSession(m.pendingCommit.SessionID)
 		if sess == nil {
-			m.pendingCommitSession = ""
-			m.pendingCommitType = MergeTypeNone
+			m.pendingCommit = nil
 			return m, nil
 		}
 
-		mergeType := m.pendingCommitType
-		parentSessionID := m.pendingParentSession
-		m.pendingCommitSession = ""
-		m.pendingCommitType = MergeTypeNone
-		m.pendingParentSession = ""
+		mergeType := m.pendingCommit.Type
+		parentSessionID := m.pendingCommit.ParentSessionID
+		m.pendingCommit = nil
 
 		// Proceed with merge/PR/push using the edited commit message
 		// Finish any existing streaming before starting merge operation
@@ -213,14 +216,14 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 
 // commitConflictResolution commits the resolved merge conflicts.
 func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) {
-	if m.pendingConflictRepoPath == "" {
+	if m.pendingConflict == nil {
 		m.chat.AppendStreaming("[Error: No pending conflict resolution]\n")
 		return m, nil
 	}
 
-	logger.Get().Debug("committing conflict resolution", "repoPath", m.pendingConflictRepoPath)
+	logger.Get().Debug("committing conflict resolution", "repoPath", m.pendingConflict.RepoPath)
 	ctx := context.Background()
-	err := m.gitService.CommitConflictResolution(ctx, m.pendingConflictRepoPath, commitMsg)
+	err := m.gitService.CommitConflictResolution(ctx, m.pendingConflict.RepoPath, commitMsg)
 	if err != nil {
 		m.chat.AppendStreaming(fmt.Sprintf("[Error committing: %v]\n", err))
 		return m, nil
@@ -229,16 +232,15 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 	m.chat.AppendStreaming("Merge conflicts resolved and committed successfully!\n")
 
 	// Mark the session as merged
-	if m.pendingConflictSessionID != "" {
-		m.config.MarkSessionMerged(m.pendingConflictSessionID)
+	if m.pendingConflict.SessionID != "" {
+		m.config.MarkSessionMerged(m.pendingConflict.SessionID)
 		m.config.Save()
 		m.sidebar.SetSessions(m.config.GetSessions())
-		logger.WithSession(m.pendingConflictSessionID).Info("marked session as merged after conflict resolution")
+		logger.WithSession(m.pendingConflict.SessionID).Info("marked session as merged after conflict resolution")
 	}
 
 	// Clear pending conflict state
-	m.pendingConflictRepoPath = ""
-	m.pendingConflictSessionID = ""
+	m.pendingConflict = nil
 
 	return m, nil
 }
@@ -304,8 +306,10 @@ Please resolve these merge conflicts by:
 	m.chat.AddUserMessage(prompt)
 
 	// Store conflict info for later commit
-	m.pendingConflictRepoPath = state.RepoPath
-	m.pendingConflictSessionID = state.SessionID
+	m.pendingConflict = &PendingConflict{
+		SessionID: state.SessionID,
+		RepoPath:  state.RepoPath,
+	}
 
 	// Get runner
 	runner := m.sessionMgr.GetRunner(sess.ID)

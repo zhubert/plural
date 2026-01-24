@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	pclaude "github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 )
@@ -52,13 +51,10 @@ type Chat struct {
 	streaming   string // Current streaming response
 	sessionName string
 	hasSession  bool
-	waiting     bool   // Waiting for Claude's response
-	waitingVerb string // Random verb to display while waiting
-	spinnerIdx  int    // Current spinner frame index
-	spinnerTick int    // Tick counter for frame hold timing
+	waiting     bool // Waiting for Claude's response
 
-	// Completion flash animation
-	completionFlashFrame int // -1 = inactive, 0-2 = animation frames
+	// Spinner and completion animation state
+	spinner *SpinnerState
 
 	// Message rendering cache - avoids re-rendering unchanged messages
 	messageCache []messageCache // Cache of rendered messages, indexed by message position
@@ -69,57 +65,25 @@ type Chat struct {
 	// Tool use rollup - tracks consecutive tool uses for collapsible display
 	toolUseRollup *ToolUseRollup // Current rollup group (nil when no tool uses yet)
 
-	// Pending permission prompt
-	hasPendingPermission  bool
-	pendingPermissionTool string
-	pendingPermissionDesc string
+	// Pending prompts (nil when not active)
+	permission   *PendingPermission   // Permission prompt state
+	question     *PendingQuestion     // Question prompt state
+	planApproval *PendingPlanApproval // Plan approval state
 
-	// Pending question prompt
-	hasPendingQuestion bool
-	pendingQuestions   []mcp.Question
-	currentQuestionIdx int               // Index of current question being answered
-	selectedOptionIdx  int               // Currently highlighted option
-	questionAnswers    map[string]string // Collected answers (question text -> selected label)
+	// View changes mode - temporary overlay showing git diff (nil when not active)
+	viewChanges *ViewChangesState
 
-	// Pending plan approval prompt
-	hasPendingPlanApproval bool
-	pendingPlan            string             // The plan content (markdown)
-	pendingAllowedPrompts  []mcp.AllowedPrompt // Requested Bash permissions
-	planScrollOffset       int                 // Scroll offset for viewing the plan
-
-	// View changes mode - temporary overlay showing git diff with file navigation
-	viewChangesMode      bool           // Whether we're showing the diff overlay
-	viewChangesViewport  viewport.Model // Viewport for diff scrolling
-	viewChangesFiles     []git.FileDiff // List of files with diffs
-	viewChangesFileIndex int            // Currently selected file index
-
-	// Pending image attachment
-	pendingImageData []byte  // PNG encoded image data
-	pendingImageType string  // MIME type
-	pendingImageSize int     // Size in bytes
+	// Pending image attachment (nil when no image attached)
+	pendingImage *PendingImage
 
 	// Queued message waiting to be sent after streaming completes
 	queuedMessage string
 
 	// Todo list display state
-	hasTodoList     bool
 	currentTodoList *pclaude.TodoList
 
 	// Text selection state
-	selectionStartCol  int
-	selectionStartLine int
-	selectionEndCol    int
-	selectionEndLine   int
-	selectionActive    bool // true during drag
-
-	// Click tracking for double/triple click detection
-	lastClickTime time.Time
-	lastClickX    int
-	lastClickY    int
-	clickCount    int
-
-	// Selection flash animation (brief highlight after copy, then clear)
-	selectionFlashFrame int // -1 = inactive, 0 = flash visible, 1+ = done
+	selection *TextSelection
 
 	// Streaming statistics display
 	streamStartTime time.Time            // When waiting/streaming started
@@ -149,12 +113,12 @@ func NewChat() *Chat {
 	vp.SoftWrap = false
 
 	c := &Chat{
-		viewport:             vp,
-		input:                ti,
-		messages:             []pclaude.Message{},
-		lastToolUsePos:       -1,
-		completionFlashFrame: -1,
-		selectionFlashFrame:  -1,
+		viewport:       vp,
+		input:          ti,
+		messages:       []pclaude.Message{},
+		lastToolUsePos: -1,
+		spinner:        NewSpinnerState(),
+		selection:      NewTextSelection(),
 	}
 	c.updateContent()
 	return c
@@ -282,18 +246,11 @@ func (c *Chat) ClearSession() {
 	c.lastToolUsePos = -1
 	c.toolUseRollup = nil // Clear tool use rollup
 	c.messageCache = nil  // Clear cache on session clear
-	c.hasPendingPermission = false
-	c.pendingPermissionTool = ""
-	c.pendingPermissionDesc = ""
-	c.hasPendingQuestion = false
-	c.pendingQuestions = nil
-	c.currentQuestionIdx = 0
-	c.selectedOptionIdx = 0
-	c.questionAnswers = nil
+	c.permission = nil
+	c.question = nil
 	c.waiting = false
-	c.completionFlashFrame = -1
+	c.spinner.FlashFrame = -1
 	c.queuedMessage = ""
-	c.hasTodoList = false
 	c.currentTodoList = nil
 	c.updateContent()
 }
@@ -481,126 +438,118 @@ func (c *Chat) SetStreaming(content string) {
 
 // SetPendingPermission sets the pending permission prompt to display
 func (c *Chat) SetPendingPermission(tool, description string) {
-	c.hasPendingPermission = true
-	c.pendingPermissionTool = tool
-	c.pendingPermissionDesc = description
+	c.permission = &PendingPermission{
+		Tool:        tool,
+		Description: description,
+	}
 	c.updateContent()
 }
 
 // ClearPendingPermission clears the pending permission prompt
 func (c *Chat) ClearPendingPermission() {
-	c.hasPendingPermission = false
-	c.pendingPermissionTool = ""
-	c.pendingPermissionDesc = ""
+	c.permission = nil
 	c.updateContent()
 }
 
 // HasPendingPermission returns whether there's a pending permission prompt
 func (c *Chat) HasPendingPermission() bool {
-	return c.hasPendingPermission
+	return c.permission != nil
 }
 
 // SetPendingQuestion sets the pending question prompt to display
 func (c *Chat) SetPendingQuestion(questions []mcp.Question) {
-	c.hasPendingQuestion = true
-	c.pendingQuestions = questions
-	c.currentQuestionIdx = 0
-	c.selectedOptionIdx = 0
-	c.questionAnswers = make(map[string]string)
+	c.question = NewPendingQuestion(questions)
 	c.updateContent()
 }
 
 // ClearPendingQuestion clears the pending question prompt
 func (c *Chat) ClearPendingQuestion() {
-	c.hasPendingQuestion = false
-	c.pendingQuestions = nil
-	c.currentQuestionIdx = 0
-	c.selectedOptionIdx = 0
-	c.questionAnswers = nil
+	c.question = nil
 	c.updateContent()
 }
 
 // HasPendingQuestion returns whether there's a pending question prompt
 func (c *Chat) HasPendingQuestion() bool {
-	return c.hasPendingQuestion
+	return c.question != nil
 }
 
 // GetQuestionAnswers returns the collected question answers
 func (c *Chat) GetQuestionAnswers() map[string]string {
-	return c.questionAnswers
+	if c.question == nil {
+		return nil
+	}
+	return c.question.Answers
 }
 
 // SetPendingPlanApproval sets the pending plan approval to display
 func (c *Chat) SetPendingPlanApproval(plan string, allowedPrompts []mcp.AllowedPrompt) {
-	c.hasPendingPlanApproval = true
-	c.pendingPlan = plan
-	c.pendingAllowedPrompts = allowedPrompts
-	c.planScrollOffset = 0
+	c.planApproval = &PendingPlanApproval{
+		Plan:           plan,
+		AllowedPrompts: allowedPrompts,
+		ScrollOffset:   0,
+	}
 	c.updateContent()
 }
 
 // ClearPendingPlanApproval clears the pending plan approval prompt
 func (c *Chat) ClearPendingPlanApproval() {
-	c.hasPendingPlanApproval = false
-	c.pendingPlan = ""
-	c.pendingAllowedPrompts = nil
-	c.planScrollOffset = 0
+	c.planApproval = nil
 	c.updateContent()
 }
 
 // HasPendingPlanApproval returns whether there's a pending plan approval prompt
 func (c *Chat) HasPendingPlanApproval() bool {
-	return c.hasPendingPlanApproval
+	return c.planApproval != nil
 }
 
 // ScrollPlan scrolls the plan view by the given delta
 func (c *Chat) ScrollPlan(delta int) {
-	if !c.hasPendingPlanApproval {
+	if c.planApproval == nil {
 		return
 	}
-	c.planScrollOffset += delta
-	if c.planScrollOffset < 0 {
-		c.planScrollOffset = 0
+	c.planApproval.ScrollOffset += delta
+	if c.planApproval.ScrollOffset < 0 {
+		c.planApproval.ScrollOffset = 0
 	}
 	c.updateContent()
 }
 
 // MoveQuestionSelection moves the selection up or down
 func (c *Chat) MoveQuestionSelection(delta int) {
-	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+	if c.question == nil || c.question.CurrentIdx >= len(c.question.Questions) {
 		return
 	}
-	q := c.pendingQuestions[c.currentQuestionIdx]
+	q := c.question.Questions[c.question.CurrentIdx]
 	numOptions := len(q.Options) + 1 // +1 for "Other" option
-	c.selectedOptionIdx = (c.selectedOptionIdx + delta + numOptions) % numOptions
+	c.question.SelectedOption = (c.question.SelectedOption + delta + numOptions) % numOptions
 	c.updateContent()
 }
 
 // SelectCurrentOption selects the current option and moves to next question or completes
 // Returns true if all questions are answered
 func (c *Chat) SelectCurrentOption() bool {
-	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+	if c.question == nil || c.question.CurrentIdx >= len(c.question.Questions) {
 		return true
 	}
-	q := c.pendingQuestions[c.currentQuestionIdx]
+	q := c.question.Questions[c.question.CurrentIdx]
 
 	// Determine the selected answer
 	var answer string
-	if c.selectedOptionIdx < len(q.Options) {
-		answer = q.Options[c.selectedOptionIdx].Label
+	if c.question.SelectedOption < len(q.Options) {
+		answer = q.Options[c.question.SelectedOption].Label
 	} else {
 		// "Other" selected - for now, just use empty string
 		// A full implementation would allow text input
 		answer = ""
 	}
 
-	c.questionAnswers[q.Question] = answer
+	c.question.Answers[q.Question] = answer
 
 	// Move to next question or complete
-	c.currentQuestionIdx++
-	c.selectedOptionIdx = 0
+	c.question.CurrentIdx++
+	c.question.SelectedOption = 0
 
-	if c.currentQuestionIdx >= len(c.pendingQuestions) {
+	if c.question.CurrentIdx >= len(c.question.Questions) {
 		// All questions answered
 		return true
 	}
@@ -612,10 +561,10 @@ func (c *Chat) SelectCurrentOption() bool {
 // SelectOptionByNumber selects an option by its number (1-based)
 // Returns true if all questions are answered after this selection
 func (c *Chat) SelectOptionByNumber(num int) bool {
-	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+	if c.question == nil || c.question.CurrentIdx >= len(c.question.Questions) {
 		return true
 	}
-	q := c.pendingQuestions[c.currentQuestionIdx]
+	q := c.question.Questions[c.question.CurrentIdx]
 	numOptions := len(q.Options) + 1 // +1 for "Other"
 
 	// Convert 1-based to 0-based index
@@ -624,44 +573,47 @@ func (c *Chat) SelectOptionByNumber(num int) bool {
 		return false
 	}
 
-	c.selectedOptionIdx = idx
+	c.question.SelectedOption = idx
 	return c.SelectCurrentOption()
 }
 
 // AttachImage attaches an image to the pending message
 func (c *Chat) AttachImage(data []byte, mediaType string) {
-	c.pendingImageData = data
-	c.pendingImageType = mediaType
-	c.pendingImageSize = len(data)
+	c.pendingImage = &PendingImage{
+		Data:      data,
+		MediaType: mediaType,
+	}
 	c.updateContent()
 }
 
 // ClearImage removes the pending image attachment
 func (c *Chat) ClearImage() {
-	c.pendingImageData = nil
-	c.pendingImageType = ""
-	c.pendingImageSize = 0
+	c.pendingImage = nil
 	c.updateContent()
 }
 
 // HasPendingImage returns whether there's a pending image attachment
 func (c *Chat) HasPendingImage() bool {
-	return len(c.pendingImageData) > 0
+	return c.pendingImage != nil && len(c.pendingImage.Data) > 0
 }
 
 // GetPendingImage returns the pending image data and clears it
 func (c *Chat) GetPendingImage() (data []byte, mediaType string) {
-	data = c.pendingImageData
-	mediaType = c.pendingImageType
-	c.pendingImageData = nil
-	c.pendingImageType = ""
-	c.pendingImageSize = 0
+	if c.pendingImage == nil {
+		return nil, ""
+	}
+	data = c.pendingImage.Data
+	mediaType = c.pendingImage.MediaType
+	c.pendingImage = nil
 	return data, mediaType
 }
 
 // GetPendingImageSizeKB returns the pending image size in KB
 func (c *Chat) GetPendingImageSizeKB() int {
-	return c.pendingImageSize / 1024
+	if c.pendingImage == nil {
+		return 0
+	}
+	return c.pendingImage.SizeKB()
 }
 
 // SetTodoList sets the current todo list to display
@@ -680,25 +632,24 @@ func (c *Chat) SetTodoList(list *pclaude.TodoList) {
 			Content: renderedTodo,
 		})
 		// Clear the live todo list since it's now in history
-		c.hasTodoList = false
 		c.currentTodoList = nil
-	} else {
-		c.hasTodoList = list != nil && len(list.Items) > 0
+	} else if list != nil && len(list.Items) > 0 {
 		c.currentTodoList = list
+	} else {
+		c.currentTodoList = nil
 	}
 	c.updateContent()
 }
 
 // ClearTodoList clears the todo list display
 func (c *Chat) ClearTodoList() {
-	c.hasTodoList = false
 	c.currentTodoList = nil
 	c.updateContent()
 }
 
 // HasTodoList returns whether there's a todo list to display
 func (c *Chat) HasTodoList() bool {
-	return c.hasTodoList
+	return c.currentTodoList != nil && len(c.currentTodoList.Items) > 0
 }
 
 // GetTodoList returns the current todo list
@@ -809,17 +760,17 @@ func (c *Chat) renderToolUseRollup() string {
 
 // renderQuestionPrompt renders the inline question prompt
 func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
-	if !c.hasPendingQuestion || c.currentQuestionIdx >= len(c.pendingQuestions) {
+	if c.question == nil || c.question.CurrentIdx >= len(c.question.Questions) {
 		return ""
 	}
 
-	q := c.pendingQuestions[c.currentQuestionIdx]
+	q := c.question.Questions[c.question.CurrentIdx]
 	var sb strings.Builder
 
 	// Question progress indicator (if multiple questions)
-	if len(c.pendingQuestions) > 1 {
+	if len(c.question.Questions) > 1 {
 		progressStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-		sb.WriteString(progressStyle.Render(fmt.Sprintf("Question %d of %d", c.currentQuestionIdx+1, len(c.pendingQuestions))))
+		sb.WriteString(progressStyle.Render(fmt.Sprintf("Question %d of %d", c.question.CurrentIdx+1, len(c.question.Questions))))
 		sb.WriteString("\n\n")
 	}
 
@@ -835,7 +786,7 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 
 	// Render options
 	for i, opt := range q.Options {
-		isSelected := i == c.selectedOptionIdx
+		isSelected := i == c.question.SelectedOption
 
 		// Number indicator
 		numStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
@@ -864,7 +815,7 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 
 	// "Other" option (always last)
 	otherIdx := len(q.Options)
-	isOtherSelected := c.selectedOptionIdx == otherIdx
+	isOtherSelected := c.question.SelectedOption == otherIdx
 	numStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
 	if isOtherSelected {
 		sb.WriteString(numStyle.Render(fmt.Sprintf("[%d]", otherIdx+1)))
@@ -899,7 +850,7 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 
 // renderPlanApprovalPrompt renders the inline plan approval prompt
 func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
-	if !c.hasPendingPlanApproval {
+	if c.planApproval == nil {
 		return ""
 	}
 
@@ -911,12 +862,12 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	sb.WriteString("\n\n")
 
 	// Render plan as markdown, accounting for box padding
-	renderedPlan := renderMarkdown(c.pendingPlan, wrapWidth-OverlayBoxPadding)
+	renderedPlan := renderMarkdown(c.planApproval.Plan, wrapWidth-OverlayBoxPadding)
 	planLines := strings.Split(renderedPlan, "\n")
 	maxVisibleLines := PlanApprovalMaxVisible
 
 	// Calculate visible range
-	startLine := c.planScrollOffset
+	startLine := c.planApproval.ScrollOffset
 	if startLine >= len(planLines) {
 		startLine = len(planLines) - 1
 		if startLine < 0 {
@@ -948,14 +899,14 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	}
 
 	// Show allowed prompts if any
-	if len(c.pendingAllowedPrompts) > 0 {
+	if len(c.planApproval.AllowedPrompts) > 0 {
 		sb.WriteString("\n")
 		promptsHeader := lipgloss.NewStyle().Foreground(ColorWarning).Bold(true)
 		sb.WriteString(promptsHeader.Render("Requested permissions:"))
 		sb.WriteString("\n")
 
 		promptStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-		for _, prompt := range c.pendingAllowedPrompts {
+		for _, prompt := range c.planApproval.AllowedPrompts {
 			sb.WriteString(promptStyle.Render(fmt.Sprintf("  • %s: %s", prompt.Tool, prompt.Prompt)))
 			sb.WriteString("\n")
 		}
@@ -1092,7 +1043,7 @@ func (c *Chat) updateContent() {
 			if !c.streamStartTime.IsZero() {
 				elapsed = time.Since(c.streamStartTime)
 			}
-			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
+			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
@@ -1103,15 +1054,15 @@ func (c *Chat) updateContent() {
 			if !c.streamStartTime.IsZero() {
 				elapsed = time.Since(c.streamStartTime)
 			}
-			sb.WriteString(renderStreamingStatus(c.waitingVerb, c.spinnerIdx, elapsed, c.streamStats))
-		} else if c.completionFlashFrame >= 0 {
+			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats))
+		} else if c.spinner.FlashFrame >= 0 {
 			// Show completion flash animation with final stats
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
-			sb.WriteString(renderCompletionFlash(c.completionFlashFrame, c.finalStats))
+			sb.WriteString(renderCompletionFlash(c.spinner.FlashFrame, c.finalStats))
 		}
 
 		// Show queued message waiting to be sent
@@ -1126,7 +1077,7 @@ func (c *Chat) updateContent() {
 		}
 
 		// Show todo list if present
-		if c.hasTodoList && c.currentTodoList != nil {
+		if c.currentTodoList != nil && len(c.currentTodoList.Items) > 0 {
 			if len(c.messages) > 0 || c.streaming != "" || c.waiting {
 				sb.WriteString("\n\n")
 			}
@@ -1134,24 +1085,24 @@ func (c *Chat) updateContent() {
 		}
 
 		// Show pending permission prompt
-		if c.hasPendingPermission {
+		if c.permission != nil {
 			if len(c.messages) > 0 || c.streaming != "" || c.waiting {
 				sb.WriteString("\n\n")
 			}
-			sb.WriteString(renderPermissionPrompt(c.pendingPermissionTool, c.pendingPermissionDesc, wrapWidth))
+			sb.WriteString(renderPermissionPrompt(c.permission.Tool, c.permission.Description, wrapWidth))
 		}
 
 		// Show pending question prompt
-		if c.hasPendingQuestion {
-			if len(c.messages) > 0 || c.streaming != "" || c.waiting || c.hasPendingPermission {
+		if c.question != nil {
+			if len(c.messages) > 0 || c.streaming != "" || c.waiting || c.permission != nil {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(c.renderQuestionPrompt(wrapWidth))
 		}
 
 		// Show pending plan approval prompt
-		if c.hasPendingPlanApproval {
-			if len(c.messages) > 0 || c.streaming != "" || c.waiting || c.hasPendingPermission || c.hasPendingQuestion {
+		if c.planApproval != nil {
+			if len(c.messages) > 0 || c.streaming != "" || c.waiting || c.permission != nil || c.question != nil {
 				sb.WriteString("\n\n")
 			}
 			sb.WriteString(c.renderPlanApprovalPrompt(wrapWidth))
@@ -1169,7 +1120,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// Handle view changes mode first - it intercepts all input
-	if c.viewChangesMode {
+	if c.viewChanges != nil {
 		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 			key := keyMsg.String()
 			switch key {
@@ -1179,15 +1130,15 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				return c, nil
 			case "left", "h":
 				// Navigate to previous file
-				if c.viewChangesFileIndex > 0 {
-					c.viewChangesFileIndex--
+				if c.viewChanges.FileIndex > 0 {
+					c.viewChanges.FileIndex--
 					c.updateViewChangesDiff()
 				}
 				return c, nil
 			case "right", "l":
 				// Navigate to next file
-				if c.viewChangesFileIndex < len(c.viewChangesFiles)-1 {
-					c.viewChangesFileIndex++
+				if c.viewChanges.FileIndex < len(c.viewChanges.Files)-1 {
+					c.viewChanges.FileIndex++
 					c.updateViewChangesDiff()
 				}
 				return c, nil
@@ -1195,7 +1146,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				"home", "end", "page up", "page down", "ctrl+u", "ctrl+d":
 				// Scroll diff viewport
 				var cmd tea.Cmd
-				c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
+				c.viewChanges.Viewport, cmd = c.viewChanges.Viewport.Update(msg)
 				cmds = append(cmds, cmd)
 				return c, tea.Batch(cmds...)
 			}
@@ -1204,7 +1155,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		}
 		// Pass non-key events (like mouse wheel) to viewport
 		var cmd tea.Cmd
-		c.viewChangesViewport, cmd = c.viewChangesViewport.Update(msg)
+		c.viewChanges.Viewport, cmd = c.viewChanges.Viewport.Update(msg)
 		cmds = append(cmds, cmd)
 		return c, tea.Batch(cmds...)
 	}
@@ -1226,7 +1177,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, nil
 
 	case tea.MouseMotionMsg:
-		if c.hasSession && c.selectionActive && msg.Button == tea.MouseLeft {
+		if c.hasSession && c.selection.Active && msg.Button == tea.MouseLeft {
 			// Adjust coordinates for panel border
 			x := msg.X - 1
 			y := msg.Y - 1
@@ -1236,20 +1187,20 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 
 	case tea.MouseReleaseMsg:
 		// Note: Don't check msg.Button here - release events may not preserve the button that was released
-		// We rely on selectionActive which was set when we started selection with left click
-		if c.hasSession && c.selectionActive {
+		// We rely on selection.Active which was set when we started selection with left click
+		if c.hasSession && c.selection.Active {
 			// Adjust coordinates for panel border
 			x := msg.X - 1
 			y := msg.Y - 1
 
 			// For drag selections, update the end position
-			if c.selectionActive {
+			if c.selection.Active {
 				c.EndSelection(x, y)
 			}
 
 			// Copy if we have a selection (either from drag or double/triple click)
 			if c.HasTextSelection() {
-				clickCount := c.clickCount
+				clickCount := c.selection.ClickCount
 
 				// Schedule delayed copy to allow for multi-click detection
 				tick := tea.Tick(doubleClickThreshold, func(time.Time) tea.Msg {
@@ -1266,7 +1217,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, nil
 
 	case SelectionCopyMsg:
-		if msg.clickCount == c.clickCount && time.Since(c.lastClickTime) >= doubleClickThreshold {
+		if msg.clickCount == c.selection.ClickCount && time.Since(c.selection.LastClickTime) >= doubleClickThreshold {
 			// If the click count matches and threshold has passed, copy selected text
 			c.SelectionStop()
 			cmds = append(cmds, c.CopySelectedText())
@@ -1289,12 +1240,12 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, tea.Batch(cmds...)
 
 	case SelectionFlashTickMsg:
-		if c.selectionFlashFrame >= 0 {
-			c.selectionFlashFrame++
-			if c.selectionFlashFrame >= 1 {
+		if c.selection.FlashFrame >= 0 {
+			c.selection.FlashFrame++
+			if c.selection.FlashFrame >= 1 {
 				// Flash complete - clear the selection
 				c.SelectionClear()
-				c.selectionFlashFrame = -1
+				c.selection.FlashFrame = -1
 			}
 		}
 		return c, tea.Batch(cmds...)
@@ -1358,7 +1309,7 @@ func (c *Chat) View() string {
 	}
 
 	// View changes mode: show diff overlay instead of chat
-	if c.viewChangesMode {
+	if c.viewChanges != nil {
 		return c.renderViewChangesMode(panelStyle)
 	}
 

@@ -80,19 +80,19 @@ func SelectionFlashTick() tea.Cmd {
 
 // StartCompletionFlash starts the completion checkmark flash animation
 func (c *Chat) StartCompletionFlash() tea.Cmd {
-	c.completionFlashFrame = 0
+	c.spinner.FlashFrame = 0
 	c.updateContent()
 	return CompletionFlashTick()
 }
 
 // IsCompletionFlashing returns whether the completion flash animation is active
 func (c *Chat) IsCompletionFlashing() bool {
-	return c.completionFlashFrame >= 0
+	return c.spinner.FlashFrame >= 0
 }
 
 // IsSelectionFlashing returns whether the selection flash animation is active
 func (c *Chat) IsSelectionFlashing() bool {
-	return c.selectionFlashFrame >= 0
+	return c.selection.FlashFrame >= 0
 }
 
 // renderSpinner renders the shimmering spinner with the thinking verb.
@@ -253,9 +253,9 @@ func shortModelName(model string) string {
 func (c *Chat) SetWaiting(waiting bool) {
 	c.waiting = waiting
 	if waiting {
-		c.waitingVerb = randomThinkingVerb()
-		c.spinnerIdx = 0
-		c.spinnerTick = 0
+		c.spinner.Verb = randomThinkingVerb()
+		c.spinner.Idx = 0
+		c.spinner.Tick = 0
 		c.streamStartTime = time.Now()
 		c.streamStats = nil  // Reset stats for new request
 		c.finalStats = nil   // Clear previous final stats
@@ -267,9 +267,9 @@ func (c *Chat) SetWaiting(waiting bool) {
 func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 	c.waiting = waiting
 	if waiting {
-		c.waitingVerb = randomThinkingVerb()
-		c.spinnerIdx = 0
-		c.spinnerTick = 0
+		c.spinner.Verb = randomThinkingVerb()
+		c.spinner.Idx = 0
+		c.spinner.Tick = 0
 		c.streamStartTime = startTime
 		c.streamStats = nil  // Reset stats for new request
 		c.finalStats = nil   // Clear previous final stats
@@ -289,13 +289,13 @@ func (c *Chat) handleStopwatchTick() tea.Cmd {
 	}
 
 	// Advance the spinner with easing (some frames hold longer)
-	c.spinnerTick++
-	holdTime := spinnerFrameHoldTimes[c.spinnerIdx%len(spinnerFrameHoldTimes)]
-	if c.spinnerTick >= holdTime {
-		c.spinnerTick = 0
-		c.spinnerIdx++
-		if c.spinnerIdx >= len(spinnerFrames) {
-			c.spinnerIdx = 0
+	c.spinner.Tick++
+	holdTime := spinnerFrameHoldTimes[c.spinner.Idx%len(spinnerFrameHoldTimes)]
+	if c.spinner.Tick >= holdTime {
+		c.spinner.Tick = 0
+		c.spinner.Idx++
+		if c.spinner.Idx >= len(spinnerFrames) {
+			c.spinner.Idx = 0
 		}
 	}
 	c.updateContent()
@@ -304,17 +304,17 @@ func (c *Chat) handleStopwatchTick() tea.Cmd {
 
 // handleCompletionFlashTick handles the completion flash animation tick
 func (c *Chat) handleCompletionFlashTick() tea.Cmd {
-	if c.completionFlashFrame < 0 {
+	if c.spinner.FlashFrame < 0 {
 		return nil
 	}
 
-	c.completionFlashFrame++
-	if c.completionFlashFrame >= 3 {
+	c.spinner.FlashFrame++
+	if c.spinner.FlashFrame >= 3 {
 		// Animation complete
-		c.completionFlashFrame = -1
+		c.spinner.FlashFrame = -1
 	}
 	c.updateContent()
-	if c.completionFlashFrame >= 0 {
+	if c.spinner.FlashFrame >= 0 {
 		return CompletionFlashTick()
 	}
 	return nil
