@@ -1464,6 +1464,39 @@ func TestChat_ZeroStreamStartTimeGivesZeroElapsed(t *testing.T) {
 	}
 }
 
+// TestChat_StopwatchContinuesDuringStreaming verifies that the stopwatch tick
+// continues while streaming content is being received, not just while waiting.
+func TestChat_StopwatchContinuesDuringStreaming(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Start waiting (this starts the stopwatch tick)
+	chat.SetWaiting(true)
+	cmd := chat.handleStopwatchTick()
+	if cmd == nil {
+		t.Error("Expected stopwatch to tick while waiting")
+	}
+
+	// Simulate receiving streaming content (waiting becomes false, but streaming is active)
+	chat.waiting = false
+	chat.streaming = "Hello, I'm Claude..."
+	chat.streamStartTime = time.Now()
+
+	// The stopwatch should STILL tick while streaming, even though waiting is false
+	cmd = chat.handleStopwatchTick()
+	if cmd == nil {
+		t.Error("Expected stopwatch to continue ticking while streaming (timer was stopping when waiting became false)")
+	}
+
+	// After streaming finishes, ticks should stop
+	chat.streaming = ""
+	cmd = chat.handleStopwatchTick()
+	if cmd != nil {
+		t.Error("Expected stopwatch to stop after streaming finishes")
+	}
+}
+
 func TestChat_FocusState(t *testing.T) {
 	chat := NewChat()
 
