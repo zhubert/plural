@@ -349,13 +349,17 @@ Plural integrates with Claude's TodoWrite tool to display task progress:
 - `CountByStatus()` returns counts of pending, in-progress, and completed items
 
 **Todo Sidebar Display** (`internal/ui/chat.go`):
-- When a todo list is active, it displays as a sidebar on the right side of the chat panel
+- When a todo list is active, it displays as a scrollable sidebar on the right side of the chat panel
 - The sidebar takes 1/4 of the chat panel width (`TodoSidebarWidthRatio = 4`)
-- Chat history scrolls on the left while the todo list remains fixed on the right
+- Chat history scrolls on the left while the todo list is independently scrollable on the right
 - Sidebar appears automatically when Claude creates a todo list, disappears when cleared
 - `SetTodoList()` and `ClearTodoList()` trigger layout recalculation via `SetSize()`
 - `TodoSidebarStyle` uses a connected border style (shares left edge with chat panel)
 - `renderTodoListForSidebar()` renders without box border since panel has its own borders
+- `todoViewport` is a separate viewport for scrollable todo list content
+- Mouse wheel events are routed to the appropriate viewport based on X coordinate:
+  - Events over the main chat area go to the main viewport
+  - Events over the todo sidebar (X >= mainWidth) go to the todo viewport
 
 ### Git Diff Stats Display
 

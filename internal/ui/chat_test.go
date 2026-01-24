@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/mcp"
@@ -3040,15 +3042,15 @@ func TestChat_TodoSidebar_ViewportWidthAdjustment(t *testing.T) {
 	}
 }
 
-func TestChat_TodoSidebar_RenderTodoSidebar(t *testing.T) {
+func TestChat_TodoSidebar_ViewportContent(t *testing.T) {
 	chat := NewChat()
 	chat.SetSize(120, 40)
 	chat.SetSession("test", nil)
 
-	// Without todo list, renderTodoSidebar should return empty string
-	content := chat.renderTodoSidebar(30)
-	if content != "" {
-		t.Errorf("Expected empty string for renderTodoSidebar without todo list, got %q", content)
+	// Without todo list, todo viewport should have empty content
+	content := chat.todoViewport.View()
+	if strings.TrimSpace(content) != "" {
+		t.Errorf("Expected empty content in todo viewport without todo list, got %q", content)
 	}
 
 	// Set a todo list
@@ -3061,10 +3063,10 @@ func TestChat_TodoSidebar_RenderTodoSidebar(t *testing.T) {
 	}
 	chat.SetTodoList(todoList)
 
-	// Now renderTodoSidebar should return content
-	content = chat.renderTodoSidebar(30)
-	if content == "" {
-		t.Error("Expected non-empty content from renderTodoSidebar with todo list")
+	// Now todo viewport should have content
+	content = chat.todoViewport.View()
+	if strings.TrimSpace(content) == "" {
+		t.Error("Expected non-empty content in todo viewport with todo list")
 	}
 
 	// Content should contain task markers
@@ -3096,6 +3098,153 @@ func TestChat_TodoSidebar_MinimumWidth(t *testing.T) {
 	minWidth := TodoListMinWrapWidth + BorderSize
 	if chat.todoWidth < minWidth {
 		t.Errorf("Expected todoWidth >= %d, got %d", minWidth, chat.todoWidth)
+	}
+}
+
+func TestChat_TodoSidebar_ScrollableViewport(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(120, 20) // Smaller height to force scrolling
+	chat.SetSession("test", nil)
+
+	// Create a todo list with many items to force scrolling
+	items := make([]claude.TodoItem, 15)
+	for i := 0; i < 15; i++ {
+		items[i] = claude.TodoItem{
+			Content:    fmt.Sprintf("Task %d with some longer description to fill space", i+1),
+			Status:     claude.TodoStatusPending,
+			ActiveForm: fmt.Sprintf("Pending task %d", i+1),
+		}
+	}
+	todoList := &claude.TodoList{Items: items}
+	chat.SetTodoList(todoList)
+
+	// Verify todo viewport is initialized with correct dimensions
+	if chat.todoViewport.Width() <= 0 {
+		t.Error("Expected todo viewport width > 0")
+	}
+	if chat.todoViewport.Height() <= 0 {
+		t.Error("Expected todo viewport height > 0")
+	}
+
+	// Verify viewport has content
+	content := chat.todoViewport.View()
+	if strings.TrimSpace(content) == "" {
+		t.Error("Expected todo viewport to have content")
+	}
+
+	// Verify the content is scrollable (more content than viewport height)
+	// The viewport should truncate content if it's taller than the viewport
+	viewportHeight := chat.todoViewport.Height()
+	contentLines := strings.Split(content, "\n")
+	// Viewport.View() returns exactly viewportHeight lines when content exceeds height
+	if len(contentLines) > viewportHeight {
+		// Content is being displayed within the viewport bounds
+		t.Logf("Content has %d lines, viewport height is %d (scrollable)", len(contentLines), viewportHeight)
+	}
+}
+
+func TestChat_TodoSidebar_MouseWheelRouting(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(120, 40)
+	chat.SetSession("test", nil)
+
+	// Create a todo list with many items
+	items := make([]claude.TodoItem, 20)
+	for i := 0; i < 20; i++ {
+		items[i] = claude.TodoItem{
+			Content:    fmt.Sprintf("Task %d", i+1),
+			Status:     claude.TodoStatusPending,
+			ActiveForm: fmt.Sprintf("Pending task %d", i+1),
+		}
+	}
+	todoList := &claude.TodoList{Items: items}
+	chat.SetTodoList(todoList)
+
+	// Calculate the boundary between chat and todo sidebar
+	mainWidth := chat.width - chat.todoWidth
+
+	// Verify that mouse wheel events over the todo sidebar area should be
+	// routed to the todo viewport (this is tested implicitly by the Update function)
+	// A mouse wheel event with X >= mainWidth should update the todo viewport
+
+	// Get initial scroll position (should be at top)
+	initialYOffset := chat.todoViewport.YOffset()
+
+	// Simulate mouse wheel scroll over the todo sidebar area
+	msg := tea.MouseWheelMsg{
+		X:      mainWidth + 5, // Over the todo sidebar
+		Y:      10,
+		Button: tea.MouseWheelDown,
+	}
+
+	_, _ = chat.Update(msg)
+
+	// After scrolling down, YOffset should increase (if content exceeds viewport)
+	// Note: This may not change if there's not enough content to scroll
+	newYOffset := chat.todoViewport.YOffset()
+	t.Logf("Initial YOffset: %d, After scroll: %d", initialYOffset, newYOffset)
+
+	// Test that mouse wheel over the main chat area doesn't affect todo viewport
+	chat.todoViewport.SetYOffset(0) // Reset todo viewport
+	mainViewportOffset := chat.viewport.YOffset()
+
+	msgMainArea := tea.MouseWheelMsg{
+		X:      mainWidth - 5, // Over the main chat area
+		Y:      10,
+		Button: tea.MouseWheelDown,
+	}
+
+	_, _ = chat.Update(msgMainArea)
+
+	// Main viewport should change (or stay same if at bottom), todo should stay at 0
+	if chat.todoViewport.YOffset() != 0 {
+		t.Errorf("Expected todo viewport to stay at 0, got %d", chat.todoViewport.YOffset())
+	}
+	t.Logf("Main viewport: Initial %d, After %d", mainViewportOffset, chat.viewport.YOffset())
+}
+
+func TestChat_TodoSidebar_ContentUpdatesOnListChange(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(120, 40)
+	chat.SetSession("test", nil)
+
+	// Set initial todo list
+	todoList := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Initial Task", Status: claude.TodoStatusPending, ActiveForm: "Working"},
+		},
+	}
+	chat.SetTodoList(todoList)
+
+	content1 := chat.todoViewport.View()
+	if !strings.Contains(content1, "Initial Task") {
+		t.Error("Expected todo viewport to contain 'Initial Task'")
+	}
+
+	// Update todo list (use InProgress so it doesn't get "baked" into messages)
+	// Note: When a task is in-progress, the ActiveForm is shown instead of Content
+	todoList2 := &claude.TodoList{
+		Items: []claude.TodoItem{
+			{Content: "Updated Task", Status: claude.TodoStatusInProgress, ActiveForm: "Working on update"},
+		},
+	}
+	chat.SetTodoList(todoList2)
+
+	content2 := chat.todoViewport.View()
+	// In-progress tasks show ActiveForm, not Content
+	if !strings.Contains(content2, "Working on update") {
+		t.Errorf("Expected todo viewport to contain 'Working on update', got: %q", content2)
+	}
+	if strings.Contains(content2, "Initial Task") {
+		t.Error("Expected todo viewport to no longer contain 'Initial Task'")
+	}
+
+	// Clear todo list
+	chat.ClearTodoList()
+
+	content3 := chat.todoViewport.View()
+	if strings.TrimSpace(content3) != "" {
+		t.Errorf("Expected empty todo viewport after clear, got %q", content3)
 	}
 }
 

@@ -81,7 +81,8 @@ type Chat struct {
 
 	// Todo list display state
 	currentTodoList *pclaude.TodoList
-	todoWidth       int // Width of todo sidebar when visible (0 when hidden)
+	todoWidth       int            // Width of todo sidebar when visible (0 when hidden)
+	todoViewport    viewport.Model // Viewport for scrollable todo list
 
 	// Text selection state
 	selection *TextSelection
@@ -113,8 +114,15 @@ func NewChat() *Chat {
 	// Having both causes issues with line spacing
 	vp.SoftWrap = false
 
+	// Create viewport for todo sidebar (scrollable task list)
+	todoVp := viewport.New()
+	todoVp.MouseWheelEnabled = true
+	todoVp.MouseWheelDelta = 3
+	todoVp.SoftWrap = false
+
 	c := &Chat{
 		viewport:       vp,
+		todoViewport:   todoVp,
 		input:          ti,
 		messages:       []pclaude.Message{},
 		lastToolUsePos: -1,
@@ -175,6 +183,22 @@ func (c *Chat) SetSize(width, height int) {
 			c.todoWidth = TodoListMinWrapWidth + BorderSize
 		}
 		mainPanelWidth = width - c.todoWidth
+
+		// Chat panel height (excluding input area which is separate)
+		chatPanelHeight := height - InputTotalHeight
+		// Set todo viewport dimensions (accounting for border)
+		todoInnerWidth := c.todoWidth - BorderSize
+		todoInnerHeight := ctx.InnerHeight(chatPanelHeight)
+		if todoInnerWidth < TodoListMinWrapWidth {
+			todoInnerWidth = TodoListMinWrapWidth
+		}
+		if todoInnerHeight < 1 {
+			todoInnerHeight = 1
+		}
+		c.todoViewport.SetWidth(todoInnerWidth)
+		c.todoViewport.SetHeight(todoInnerHeight)
+		// Update todo viewport content with new dimensions
+		c.updateTodoViewportContent()
 	} else {
 		c.todoWidth = 0
 		mainPanelWidth = width
@@ -665,6 +689,9 @@ func (c *Chat) SetTodoList(list *pclaude.TodoList) {
 		c.SetSize(c.width, c.height)
 	}
 
+	// Update todo viewport content
+	c.updateTodoViewportContent()
+
 	c.updateContent()
 }
 
@@ -677,6 +704,9 @@ func (c *Chat) ClearTodoList() {
 	if hadTodoList && c.width > 0 && c.height > 0 {
 		c.SetSize(c.width, c.height)
 	}
+
+	// Clear todo viewport content
+	c.updateTodoViewportContent()
 
 	c.updateContent()
 }
@@ -691,16 +721,24 @@ func (c *Chat) GetTodoList() *pclaude.TodoList {
 	return c.currentTodoList
 }
 
-// renderTodoSidebar renders the todo list content for the sidebar panel.
-// The width is the inner width available after accounting for borders.
-func (c *Chat) renderTodoSidebar(width int) string {
+// updateTodoViewportContent updates the todo viewport's content.
+// Call this when the todo list changes or when the viewport is resized.
+func (c *Chat) updateTodoViewportContent() {
 	if c.currentTodoList == nil || len(c.currentTodoList.Items) == 0 {
-		return ""
+		c.todoViewport.SetContent("")
+		return
+	}
+
+	// Get inner width for content wrapping
+	width := c.todoViewport.Width()
+	if width < TodoListMinWrapWidth {
+		width = TodoListMinWrapWidth
 	}
 
 	// Use renderTodoListForSidebar which renders without the box border
 	// since the sidebar panel already has borders
-	return renderTodoListForSidebar(c.currentTodoList, width)
+	content := renderTodoListForSidebar(c.currentTodoList, width)
+	c.todoViewport.SetContent(content)
 }
 
 // GetToolIcon returns an appropriate icon for the tool type
@@ -1334,6 +1372,19 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 	}
 
 	// Update viewport for scrolling (non-key events, or when not focused)
+	// Route mouse wheel events to the appropriate viewport based on X coordinate
+	if mouseMsg, isMouse := msg.(tea.MouseWheelMsg); isMouse && c.HasTodoList() && c.todoWidth > 0 {
+		// Calculate the boundary between chat and todo sidebar
+		mainWidth := c.width - c.todoWidth
+		if mouseMsg.X >= mainWidth {
+			// Mouse is over the todo sidebar - route to todo viewport
+			var cmd tea.Cmd
+			c.todoViewport, cmd = c.todoViewport.Update(msg)
+			cmds = append(cmds, cmd)
+			return c, tea.Batch(cmds...)
+		}
+	}
+
 	var cmd tea.Cmd
 	c.viewport, cmd = c.viewport.Update(msg)
 	cmds = append(cmds, cmd)
@@ -1401,12 +1452,8 @@ func (c *Chat) View() string {
 		// Render main chat viewport (left side)
 		mainPanel := panelStyle.Width(mainWidth).Height(chatPanelHeight).Render(viewportContent)
 
-		// Render todo sidebar (right side) - use inner width for content
-		todoInnerWidth := c.todoWidth - BorderSize
-		if todoInnerWidth < TodoListMinWrapWidth {
-			todoInnerWidth = TodoListMinWrapWidth
-		}
-		todoContent := c.renderTodoSidebar(todoInnerWidth)
+		// Render todo sidebar (right side) - use scrollable viewport
+		todoContent := c.todoViewport.View()
 		todoPanel := TodoSidebarStyle.Width(c.todoWidth).Height(chatPanelHeight).Render(todoContent)
 
 		// Join horizontally
