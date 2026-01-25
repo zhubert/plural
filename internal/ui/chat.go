@@ -365,9 +365,11 @@ func (c *Chat) flushToolUseRollup() {
 		return
 	}
 
-	// Add newline before if there's existing content that doesn't end with newline
-	if c.streaming != "" && !strings.HasSuffix(c.streaming, "\n") {
-		c.streaming += "\n"
+	// Add blank line before tool uses for visual separation from preceding text
+	// This creates a paragraph break between text content and tool use indicators
+	if c.streaming != "" {
+		// Ensure we end with exactly two newlines (one blank line) before tool uses
+		c.streaming = strings.TrimRight(c.streaming, "\n") + "\n\n"
 	}
 
 	// Render all tool uses in the rollup to streaming content

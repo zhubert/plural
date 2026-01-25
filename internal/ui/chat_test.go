@@ -1361,6 +1361,107 @@ func TestChat_ToolUseFlushedNewlineSeparation(t *testing.T) {
 	}
 }
 
+// TestChat_ToolUseFlushBlankLineBeforeToolUses verifies that when text precedes
+// tool uses and the tool uses are flushed, there's a blank line (two newlines)
+// between the text and the tool uses for visual separation.
+func TestChat_ToolUseFlushBlankLineBeforeToolUses(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 40)
+
+	// Simulate Claude sending text first
+	chat.AppendStreaming("Let me search for the implementation.")
+
+	// Then Claude does tool uses (these go into the rollup)
+	chat.AppendToolUse("Grep", "somePattern", "tool-1")
+	chat.MarkToolUseComplete("tool-1")
+
+	// Now more text arrives - this triggers flushToolUseRollup
+	chat.AppendStreaming("Found it!")
+
+	streaming := chat.GetStreaming()
+
+	// The streaming content should have:
+	// 1. First text ending with period
+	// 2. A blank line (\n\n) before tool uses
+	// 3. The tool use line
+	// 4. A blank line (\n\n) after tool uses
+	// 5. The second text
+
+	// Check for blank line BEFORE tool uses (text ends, then double newline)
+	if !strings.Contains(streaming, ".\n\n"+ToolUseComplete) {
+		t.Errorf("Expected blank line (double newline) before tool use, got streaming: %q", streaming)
+	}
+
+	// Also verify the blank line AFTER tool uses is still there
+	if !strings.Contains(streaming, ")\n\nFound") {
+		t.Errorf("Expected blank line (double newline) after tool use, got streaming: %q", streaming)
+	}
+}
+
+// TestChat_ToolUseFlushNormalizesTrailingNewlines verifies that the flush
+// normalizes various trailing newline patterns to exactly one blank line.
+func TestChat_ToolUseFlushNormalizesTrailingNewlines(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialStreaming string
+		wantBlankLine   bool
+	}{
+		{
+			name:            "no trailing newline",
+			initialStreaming: "Some text",
+			wantBlankLine:   true,
+		},
+		{
+			name:            "single trailing newline",
+			initialStreaming: "Some text\n",
+			wantBlankLine:   true,
+		},
+		{
+			name:            "already has blank line",
+			initialStreaming: "Some text\n\n",
+			wantBlankLine:   true,
+		},
+		{
+			name:            "multiple trailing newlines",
+			initialStreaming: "Some text\n\n\n",
+			wantBlankLine:   true,
+		},
+		{
+			name:            "empty streaming",
+			initialStreaming: "",
+			wantBlankLine:   false, // no blank line needed when empty
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chat := NewChat()
+			chat.SetSession("test", nil)
+			chat.SetSize(80, 40)
+
+			// Set initial streaming content
+			chat.streaming = tt.initialStreaming
+
+			// Add tool use and flush it by sending more text
+			chat.AppendToolUse("Read", "file.go", "tool-1")
+			chat.AppendStreaming("Next text")
+
+			streaming := chat.GetStreaming()
+
+			if tt.wantBlankLine {
+				// Should have exactly one blank line before tool use
+				// Note: we use ToolUseInProgress because the tool is not marked complete before flush
+				expectedPrefix := strings.TrimRight(tt.initialStreaming, "\n") + "\n\n" + ToolUseInProgress
+				if !strings.Contains(streaming, expectedPrefix) {
+					t.Errorf("Expected normalized blank line before tool use.\nInitial: %q\nGot streaming: %q\nWanted prefix: %q",
+						tt.initialStreaming, streaming, expectedPrefix)
+				}
+			}
+		})
+	}
+}
+
 // TestChat_ToolUseCompleteByID verifies that tool uses are marked complete
 // by their ID, not by position. This is critical for parallel tool uses
 // where results may arrive out of order.
