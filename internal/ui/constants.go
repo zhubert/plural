@@ -78,7 +78,12 @@ const (
 
 	// InputTotalHeight is the total vertical space consumed by the input area.
 	// This is subtracted from content height to determine viewport height.
+	// Note: When an image is attached, add ImageIndicatorHeight to this value.
 	InputTotalHeight = TextareaHeight + TextareaBorderHeight
+
+	// ImageIndicatorHeight is the extra line used when an image is attached.
+	// The indicator shows "[Image attached: NKB] (backspace to remove)".
+	ImageIndicatorHeight = 1
 
 	// TitleHeight is the height of panel title bars (currently unused but reserved).
 	TitleHeight = 1

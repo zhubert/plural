@@ -178,6 +178,9 @@ func (c *Chat) SetSize(width, height int) {
 	c.width = width
 	c.height = height
 
+	// Get dynamic input height (accounts for image indicator when attached)
+	inputTotalHeight := c.getInputTotalHeight()
+
 	// Calculate todo sidebar width if we have a todo list
 	var mainPanelWidth int
 	if c.HasTodoList() {
@@ -189,7 +192,7 @@ func (c *Chat) SetSize(width, height int) {
 		mainPanelWidth = width - c.todoWidth
 
 		// Chat panel height (excluding input area which is separate)
-		chatPanelHeight := height - InputTotalHeight
+		chatPanelHeight := height - inputTotalHeight
 		// Set todo viewport dimensions (accounting for border)
 		todoInnerWidth := c.todoWidth - BorderSize
 		todoInnerHeight := ctx.InnerHeight(chatPanelHeight)
@@ -218,7 +221,7 @@ func (c *Chat) SetSize(width, height int) {
 	}
 
 	// Chat panel height (excluding input area which is separate)
-	chatPanelHeight := height - InputTotalHeight
+	chatPanelHeight := height - inputTotalHeight
 
 	// Calculate inner dimensions for the chat panel (accounting for borders)
 	innerWidth := newInnerWidth
@@ -247,7 +250,7 @@ func (c *Chat) SetSize(width, height int) {
 		"mainPanelWidth", mainPanelWidth,
 		"todoWidth", c.todoWidth,
 		"chatPanelHeight", chatPanelHeight,
-		"inputTotalHeight", InputTotalHeight,
+		"inputTotalHeight", inputTotalHeight,
 		"viewportWidth", c.viewport.Width(),
 		"viewportHeight", c.viewport.Height(),
 	)
@@ -647,16 +650,26 @@ func (c *Chat) SelectOptionByNumber(num int) bool {
 
 // AttachImage attaches an image to the pending message
 func (c *Chat) AttachImage(data []byte, mediaType string) {
+	hadImage := c.HasPendingImage()
 	c.pendingImage = &PendingImage{
 		Data:      data,
 		MediaType: mediaType,
+	}
+	// Recalculate layout if image state changed (adds extra line for indicator)
+	if !hadImage && c.width > 0 && c.height > 0 {
+		c.SetSize(c.width, c.height)
 	}
 	c.updateContent()
 }
 
 // ClearImage removes the pending image attachment
 func (c *Chat) ClearImage() {
+	hadImage := c.HasPendingImage()
 	c.pendingImage = nil
+	// Recalculate layout if image state changed (removes extra line for indicator)
+	if hadImage && c.width > 0 && c.height > 0 {
+		c.SetSize(c.width, c.height)
+	}
 	c.updateContent()
 }
 
@@ -682,6 +695,15 @@ func (c *Chat) GetPendingImageSizeKB() int {
 		return 0
 	}
 	return c.pendingImage.SizeKB()
+}
+
+// getInputTotalHeight returns the total height of the input area,
+// accounting for the image indicator line when an image is attached.
+func (c *Chat) getInputTotalHeight() int {
+	if c.HasPendingImage() {
+		return InputTotalHeight + ImageIndicatorHeight
+	}
+	return InputTotalHeight
 }
 
 // SetTodoList sets the current todo list to display
@@ -1506,7 +1528,8 @@ func (c *Chat) View() string {
 
 	// With session: chat history panel + input area below it
 	// Calculate heights: chat panel gets remaining space after input
-	chatPanelHeight := c.height - InputTotalHeight
+	// Use dynamic height to account for image indicator when attached
+	chatPanelHeight := c.height - c.getInputTotalHeight()
 
 	// Input area with its own border
 	inputStyle := ChatInputStyle

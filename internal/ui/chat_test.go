@@ -4190,3 +4190,120 @@ func TestRenderCompletionFlash_WithStats(t *testing.T) {
 		t.Errorf("Completion flash frame 2+ should be empty, got %q", result)
 	}
 }
+
+// =============================================================================
+// Image Attachment Layout Tests
+// =============================================================================
+
+func TestChat_ImageAttachment_DynamicInputHeight(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(100, 30)
+
+	// Initially, no image attached
+	if chat.HasPendingImage() {
+		t.Error("New chat should not have pending image")
+	}
+	if chat.getInputTotalHeight() != InputTotalHeight {
+		t.Errorf("Without image, input height should be %d, got %d", InputTotalHeight, chat.getInputTotalHeight())
+	}
+
+	// Attach an image
+	chat.AttachImage([]byte("test image data"), "image/png")
+
+	if !chat.HasPendingImage() {
+		t.Error("Chat should have pending image after AttachImage")
+	}
+	expectedHeight := InputTotalHeight + ImageIndicatorHeight
+	if chat.getInputTotalHeight() != expectedHeight {
+		t.Errorf("With image, input height should be %d, got %d", expectedHeight, chat.getInputTotalHeight())
+	}
+
+	// Clear the image
+	chat.ClearImage()
+
+	if chat.HasPendingImage() {
+		t.Error("Chat should not have pending image after ClearImage")
+	}
+	if chat.getInputTotalHeight() != InputTotalHeight {
+		t.Errorf("After clearing image, input height should be %d, got %d", InputTotalHeight, chat.getInputTotalHeight())
+	}
+}
+
+func TestChat_ImageAttachment_ViewportResize(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(100, 30)
+
+	// Record viewport height without image
+	heightWithoutImage := chat.viewport.Height()
+
+	// Attach image and check viewport was resized
+	chat.AttachImage([]byte("test image data"), "image/png")
+	heightWithImage := chat.viewport.Height()
+
+	// Viewport should be smaller when image is attached (makes room for indicator)
+	if heightWithImage >= heightWithoutImage {
+		t.Errorf("Viewport height with image (%d) should be less than without (%d)", heightWithImage, heightWithoutImage)
+	}
+
+	// Clear image and verify viewport returns to original size
+	chat.ClearImage()
+	heightAfterClear := chat.viewport.Height()
+
+	if heightAfterClear != heightWithoutImage {
+		t.Errorf("Viewport height after clearing image (%d) should equal original (%d)", heightAfterClear, heightWithoutImage)
+	}
+}
+
+func TestChat_ImageAttachment_ViewContainsIndicator(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(100, 30)
+
+	// Attach a 2KB image
+	imageData := make([]byte, 2048)
+	chat.AttachImage(imageData, "image/png")
+
+	view := chat.View()
+
+	// View should contain the image indicator
+	if !strings.Contains(view, "Image attached") {
+		t.Error("View should contain 'Image attached' when image is pending")
+	}
+	if !strings.Contains(view, "2KB") {
+		t.Error("View should show image size '2KB'")
+	}
+	if !strings.Contains(view, "backspace to remove") {
+		t.Error("View should contain removal instructions")
+	}
+
+	// Clear and verify indicator is gone
+	chat.ClearImage()
+	view = chat.View()
+
+	if strings.Contains(view, "Image attached") {
+		t.Error("View should not contain 'Image attached' after clearing")
+	}
+}
+
+func TestChat_GetPendingImageSizeKB(t *testing.T) {
+	chat := NewChat()
+
+	// No image
+	if chat.GetPendingImageSizeKB() != 0 {
+		t.Errorf("Size should be 0 with no image, got %d", chat.GetPendingImageSizeKB())
+	}
+
+	// 1.5KB image
+	chat.AttachImage(make([]byte, 1536), "image/png")
+	if chat.GetPendingImageSizeKB() != 1 {
+		t.Errorf("Size should be 1 for 1536 bytes, got %d", chat.GetPendingImageSizeKB())
+	}
+
+	// 10KB image
+	chat.AttachImage(make([]byte, 10240), "image/png")
+	if chat.GetPendingImageSizeKB() != 10 {
+		t.Errorf("Size should be 10 for 10240 bytes, got %d", chat.GetPendingImageSizeKB())
+	}
+}
