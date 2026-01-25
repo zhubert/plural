@@ -276,7 +276,8 @@ func (c *Chat) SetSession(name string, messages []pclaude.Message) {
 	c.messages = messages
 	c.hasSession = true
 	c.streaming = ""
-	c.messageCache = nil // Clear cache on session change
+	c.toolUseRollup = nil // Clear rollup from any previous session
+	c.messageCache = nil  // Clear cache on session change
 	c.updateContent()
 }
 

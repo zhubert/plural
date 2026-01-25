@@ -166,8 +166,8 @@ func NewNewSessionState(repos []string) *NewSessionState {
 		RepoOptions: repos,
 		RepoIndex:   0,
 		BaseOptions: []string{
-			"From remote default branch (latest)",
 			"From current local branch",
+			"From remote default branch (latest)",
 		},
 		BaseIndex:   0,
 		BranchInput: branchInput,
