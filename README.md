@@ -6,6 +6,17 @@ Run multiple Claude sessions on the same codebase—each in its own git branch. 
 
 ![Plural demo](demo.gif)
 
+## Why Plural?
+
+Plural isn't a terminal multiplexer with Claude instances. It's a purpose-built TUI that integrates deeply with the Claude Code API—streaming responses, parsing tool calls, handling permissions, and understanding Claude's structured output.
+
+This integration enables features that wouldn't be possible with a tmux wrapper:
+- **Live todo sidebar** that updates as Claude works through tasks
+- **Option detection** that parses Claude's proposed approaches and lets you fork into parallel sessions
+- **Automatic permission handling** with inline prompts and "always allow" memory
+- **Git-aware merge workflow** that understands session branches and creates PRs
+- **Token cost tracking** parsed from Claude's session data
+
 ## Requirements
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
@@ -47,203 +58,57 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
 plural
 ```
 
-1. Press `a` to add a git repository
-2. Press `n` to create a new session
-3. Press `Tab` or `Enter` to focus the chat
-4. Type your message and press `Enter`
-5. When Claude requests permission: `y` (allow), `n` (deny), or `a` (always allow)
+Add a repository, create a session, and start chatting with Claude. **Press `?` at any time to see all available keyboard shortcuts for your current context**—the help adapts based on what you're doing.
 
-Press `?` at any time to see all available keyboard shortcuts for your current context.
+When Claude requests permission for tool use: `y` (allow), `n` (deny), or `a` (always allow).
 
 ---
 
-## Core Concepts
+## What You Can Do
 
-### How Sessions Work
+### Isolated Sessions
 
-When you create a session, Plural:
-1. Creates a new git branch (`plural-<uuid>` or your custom name)
-2. Sets up a worktree in `.plural-worktrees/<uuid>` (sibling to your repo)
-3. Starts a persistent Claude Code process in that worktree
+Each session runs in its own git worktree with a dedicated branch. Claude can edit files freely without touching your main branch—multiple sessions can work on the same repo simultaneously. You decide when and what to merge.
 
-This isolation means:
-- Claude can edit files freely without affecting your main branch
-- Multiple sessions can work on the same repo simultaneously
-- You control when changes get merged
+### Parallel Exploration
 
-### Applying Changes
+When Claude offers multiple approaches ("Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), fork the session and explore them all at once. Child sessions appear indented in the sidebar. Try different solutions in parallel and merge the winner.
 
-When you're ready to use your session's changes:
+### GitHub Integration
 
-1. Select the session
-2. Press `m` to open the merge modal
-3. Choose:
-   - **Merge to main**: Directly merges into your default branch
-   - **Create PR**: Pushes and creates a GitHub PR (requires `gh`)
+Import GitHub issues directly—Plural creates a session for each with full context, and Claude starts working immediately. When you create a PR from an issue session, "Fixes #N" is automatically added to close the issue on merge.
 
-Uncommitted changes are auto-committed before merge/PR. If there are merge conflicts, Claude can help resolve them.
+### Merge & PR Workflow
 
-### Branching Options
+When a session's work is ready, merge directly to your main branch or create a GitHub PR. Uncommitted changes are auto-committed. If there are merge conflicts, Claude can help resolve them.
 
-When Claude presents multiple approaches (e.g., "Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), you can explore them all in parallel:
+### Preview Changes
 
-1. Select a session where Claude has offered options
-2. Press `Ctrl+P` to open the options explorer
-3. Select which options to explore (use `Space` to toggle, `a` to select all)
-4. Press `Enter` to fork the session
+Preview a session's branch in your main repository so dev servers pick up the changes without merging. The header shows a `[PREVIEW]` indicator while active.
 
-Plural creates child sessions for each selected option, automatically continuing the conversation with that choice. Child sessions appear indented under their parent in the sidebar.
+### Rich Chat Features
 
-Options are detected from:
-- Markdown headings like `## Option 1:` or `## Option A:`
-- Numbered lists with option patterns
+- **Image pasting**: Share screenshots and diagrams directly with Claude
+- **Message search**: Find anything in your conversation history
+- **Text selection**: Select and copy text from the chat
+- **Tool use rollup**: Collapsed view of Claude's tool operations, expandable on demand
 
----
+### Customization
 
-## GitHub Integration
-
-### Issue Import
-
-Import issues directly from your GitHub repository and let Claude work on them automatically:
-
-1. Press `i` from the sidebar
-2. If no session is selected, choose a repository from the picker
-3. Browse open issues with `↑/↓` and toggle selection with `Space`
-4. Press `Enter` to create sessions for selected issues
-
-Each issue becomes a new session with:
-- Branch named `issue-{number}` (e.g., `issue-42`)
-- Full issue context (title, body, labels) sent to Claude
-- Claude automatically begins working on the fix
-
-When you create a PR from an issue session, "Fixes #{number}" is automatically added to the PR description, which closes the issue when merged.
-
----
-
-## Session Management
-
-### Search
-
-With many sessions, use `/` to search:
-
-1. Press `/` in the sidebar
-2. Type to filter by branch name, session name, or repo
-3. Use `↑/↓` to navigate results
-4. Press `Enter` to select, `Esc` to cancel
-
-### Rename
-
-Give sessions meaningful names:
-
-1. Select a session in the sidebar
-2. Press `r` to open the rename modal
-3. Enter the new name and press `Enter`
-
-The git branch is also renamed to match (with the configured branch prefix applied).
-
-### View Changes
-
-Review uncommitted changes before merging:
-
-1. Select a session in the sidebar
-2. Press `v` to view changes
-3. Navigate between files with `←/→` or `h/l`
-4. Scroll the diff with `↑/↓`, `j/k`, or `PgUp/PgDn`
-5. Press `Esc` or `q` to close
-
-The navigation bar shows the current file's status (M=modified, A=added, D=deleted), filename, and position in the file list.
-
-### Open Terminal
-
-Work directly in a session's worktree:
-
-1. Select a session in the sidebar
-2. Press `Ctrl+E` to open a new terminal window
-3. The terminal opens at the session's worktree directory
-
-Useful for running tests, checking git status, or manual edits alongside Claude's work.
-
-### Image Pasting
-
-Share screenshots and diagrams with Claude:
-
-1. Copy an image to your clipboard (e.g., `Cmd+Shift+4` on macOS)
-2. Focus the chat input
-3. Press `Ctrl+V` to attach
-4. You'll see `[Image attached: XXkb]`
-5. Add a message and press `Enter`
-
-Supports PNG, JPEG, GIF, and WebP (max 3.75MB).
-
-### Message Search
-
-Search within conversation history:
-
-1. Press `Ctrl+/` when the chat panel is focused
-2. Type to search messages
-3. Use `↑/↓` to navigate matches
-4. Press `Enter` to close
-
----
-
-## Customization
-
-### Themes
-
-Press `t` to choose from:
-- Dark Purple (default)
-- Nord
-- Dracula
-- Gruvbox Dark
-- Tokyo Night
-- Catppuccin Mocha
-- Science Fiction
-- Light
-
-### Settings
-
-Press `,` to open the Settings modal:
-
-- **Branch prefix**: Set a default prefix for auto-generated branch names (e.g., `yourname/` creates branches like `yourname/plural-abc123`)
-- **Desktop notifications**: Toggle notifications when Claude finishes while Plural is in the background
-
-**Notification platform notes:**
-- **macOS**: Works out of the box. For better notifications, install `terminal-notifier` (`brew install terminal-notifier`)
-- **Linux**: Requires a notification daemon (most desktop environments have one) or `notify-send`
-- **Windows 10+**: Works out of the box
-
-### MCP Servers
-
-Extend Claude's capabilities with MCP servers:
-
-1. Press `s` from the sidebar
-2. Add servers globally or per-repository
-3. Configure name, command, and arguments
-
-Example: Add a GitHub MCP server globally, or a database server for a specific project.
+Choose from 8 built-in themes, configure branch naming prefixes, set up desktop notifications, and extend Claude's capabilities with MCP servers and plugins.
 
 ### Slash Commands
 
-Plural provides its own slash commands (Claude CLI's built-in commands don't work in stream-json mode):
-
-- `/cost` - Show token usage and estimated cost for the current session
-- `/help` - Show available Plural slash commands
-- `/mcp` - Open MCP servers configuration modal
-- `/plugins` - Manage plugin marketplaces and installed plugins
-
-Other slash commands are passed through to Claude CLI.
+- `/cost` - Token usage and estimated cost for the current session
+- `/help` - Available Plural commands
+- `/mcp` - MCP servers configuration
+- `/plugins` - Manage marketplaces and plugins
 
 ---
 
 ## Reference
 
-### Configuration
-
-Data stored in `~/.plural/`:
-- `config.json` - Repos, sessions, allowed tools, MCP servers, theme, branch prefix
-- `sessions/<id>.json` - Conversation history
-
-### Commands
+### CLI Options
 
 ```bash
 plural                  # Start the application
@@ -253,17 +118,13 @@ plural --prune          # Clean up orphaned worktrees and processes
 plural --debug          # Enable debug logging
 ```
 
+### Data Storage
+
+Configuration and session history are stored in `~/.plural/`.
+
 ### Troubleshooting
 
-#### Devbox/Nix upgrade fails
-
-```bash
-# Workaround for nix profile upgrade limitation
-devbox global rm github:zhubert/plural
-devbox global add github:zhubert/plural
-```
-
-Or use Homebrew which handles upgrades correctly.
+**Devbox/Nix upgrade fails**: Use `devbox global rm` then `devbox global add` as a workaround, or use Homebrew which handles upgrades correctly.
 
 ---
 
