@@ -198,6 +198,13 @@ var ShortcutRegistry = []Shortcut{
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
 	{
+		Key:         "ctrl+l",
+		DisplayKey:  "ctrl-l",
+		Description: "Toggle log viewer",
+		Category:    CategoryGeneral,
+		Handler:     shortcutToggleLogViewer,
+	},
+	{
 		Key:             "w",
 		Description:     "What's new (changelog)",
 		Category:        CategoryGeneral,
@@ -599,6 +606,36 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutWhatsNew(m *Model) (tea.Model, tea.Cmd) {
 	return m, m.fetchChangelogAll()
+}
+
+func shortcutToggleLogViewer(m *Model) (tea.Model, tea.Cmd) {
+	// If already in log viewer mode, exit it
+	if m.chat.IsInLogViewerMode() {
+		m.chat.ExitLogViewerMode()
+		return m, nil
+	}
+
+	// Get current session ID if available
+	var sessionID string
+	if m.activeSession != nil {
+		sessionID = m.activeSession.ID
+	}
+
+	// Get available log files
+	logFiles := ui.GetLogFiles(sessionID)
+	if len(logFiles) == 0 {
+		return m, m.ShowFlashInfo("No log files found. Enable debug mode with --debug.")
+	}
+
+	// Enter log viewer mode
+	m.chat.EnterLogViewerMode(logFiles)
+
+	// Switch focus to chat so keys work immediately
+	m.focus = FocusChat
+	m.sidebar.SetFocused(false)
+	m.chat.SetFocused(true)
+
+	return m, nil
 }
 
 func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {

@@ -103,6 +103,22 @@ type ViewChangesState struct {
 	FileIndex int            // Currently selected file index
 }
 
+// LogFile represents a log file for display in the log viewer.
+type LogFile struct {
+	Name    string // Display name (e.g., "Debug Log", "MCP (session-id)")
+	Path    string // Full file path
+	Content string // File content (loaded on demand)
+}
+
+// LogViewerState tracks the log viewer overlay state.
+// Non-nil when the log viewer is displayed.
+type LogViewerState struct {
+	Viewport  viewport.Model // Viewport for log scrolling
+	Files     []LogFile      // List of available log files
+	FileIndex int            // Currently selected file index
+	FollowTail bool          // Whether to auto-scroll to bottom on updates
+}
+
 // PendingImage tracks an attached image waiting to be sent.
 // Non-nil when an image is attached.
 type PendingImage struct {

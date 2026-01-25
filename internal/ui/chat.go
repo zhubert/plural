@@ -74,6 +74,9 @@ type Chat struct {
 	// View changes mode - temporary overlay showing git diff (nil when not active)
 	viewChanges *ViewChangesState
 
+	// Log viewer mode - temporary overlay showing log files (nil when not active)
+	logViewer *LogViewerState
+
 	// Pending image attachment (nil when no image attached)
 	pendingImage *PendingImage
 
@@ -1261,6 +1264,58 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		return c, tea.Batch(cmds...)
 	}
 
+	// Handle log viewer mode - it intercepts all input
+	if c.logViewer != nil {
+		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
+			key := keyMsg.String()
+			switch key {
+			case "esc", "q", "ctrl+l":
+				// Exit log viewer mode
+				c.ExitLogViewerMode()
+				return c, nil
+			case "left", "h":
+				// Navigate to previous file
+				if c.logViewer.FileIndex > 0 {
+					c.logViewer.FileIndex--
+					c.updateLogViewerContent()
+				}
+				return c, nil
+			case "right", "l":
+				// Navigate to next file
+				if c.logViewer.FileIndex < len(c.logViewer.Files)-1 {
+					c.logViewer.FileIndex++
+					c.updateLogViewerContent()
+				}
+				return c, nil
+			case "f":
+				// Toggle follow tail mode
+				c.ToggleLogViewerFollowTail()
+				return c, nil
+			case "r":
+				// Refresh log content
+				c.RefreshLogViewer()
+				return c, nil
+			case "up", "k", "down", "j", "pgup", "pgdown", "ctrl+up", "ctrl+down",
+				"home", "end", "page up", "page down", "ctrl+u", "ctrl+d":
+				// Scroll log viewport - disable follow mode when manually scrolling
+				if c.logViewer.FollowTail {
+					c.logViewer.FollowTail = false
+				}
+				var cmd tea.Cmd
+				c.logViewer.Viewport, cmd = c.logViewer.Viewport.Update(msg)
+				cmds = append(cmds, cmd)
+				return c, tea.Batch(cmds...)
+			}
+			// Ignore other keys in log viewer mode
+			return c, nil
+		}
+		// Pass non-key events (like mouse wheel) to viewport
+		var cmd tea.Cmd
+		c.logViewer.Viewport, cmd = c.logViewer.Viewport.Update(msg)
+		cmds = append(cmds, cmd)
+		return c, tea.Batch(cmds...)
+	}
+
 	// Handle mouse events for text selection
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
@@ -1425,6 +1480,11 @@ func (c *Chat) View() string {
 	// View changes mode: show diff overlay instead of chat
 	if c.viewChanges != nil {
 		return c.renderViewChangesMode(panelStyle)
+	}
+
+	// Log viewer mode: show log files instead of chat
+	if c.logViewer != nil {
+		return c.renderLogViewerMode(panelStyle)
 	}
 
 	// Viewport content - render placeholder directly if no session

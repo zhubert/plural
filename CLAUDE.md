@@ -361,6 +361,32 @@ Plural integrates with Claude's TodoWrite tool to display task progress:
   - Events over the main chat area go to the main viewport
   - Events over the todo sidebar (X >= mainWidth) go to the todo viewport
 
+### Log Viewer
+
+The log viewer (`ctrl-l`) provides an in-chat overlay for viewing Plural's log files:
+
+**Implementation** (`internal/ui/view_logs.go`):
+- `LogFile` struct: `Name`, `Path`, `Content`
+- `LogViewerState`: Tracks files, current index, viewport, follow mode
+- `GetLogFiles(sessionID)`: Discovers available log files
+
+**Log files displayed**:
+- Main debug log (`/tmp/plural-debug.log`)
+- MCP logs (`/tmp/plural-mcp-*.log`) - per-session permission server logs
+- Stream logs (`/tmp/plural-stream-*.log`) - raw Claude stream messages
+
+**Keybindings in log viewer**:
+- `←/→` or `h/l`: Navigate between log files
+- `↑/↓` or `j/k`: Scroll within log
+- `f`: Toggle follow tail mode (auto-scroll to bottom)
+- `r`: Refresh current log file
+- `q` or `Esc` or `ctrl-l`: Exit log viewer
+
+**Features**:
+- Syntax highlighting for log levels (ERROR=red, WARN=amber, INFO=blue, DEBUG=muted)
+- Follow tail mode (enabled by default) auto-scrolls to latest logs
+- Current session's logs are prioritized in the file list
+
 ### Git Diff Stats Display
 
 The header displays uncommitted changes for the current session:
