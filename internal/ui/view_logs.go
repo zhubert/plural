@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -24,7 +23,7 @@ func GetLogFiles(currentSessionID string) []LogFile {
 		})
 	}
 
-	// Session-specific logs for current session (if any)
+	// Session-specific logs for current session only
 	if currentSessionID != "" {
 		mcpPath := logger.MCPLogPath(currentSessionID)
 		if _, err := os.Stat(mcpPath); err == nil {
@@ -43,33 +42,6 @@ func GetLogFiles(currentSessionID string) []LogFile {
 		}
 	}
 
-	// Find all other MCP and stream logs
-	mcpLogs, _ := filepath.Glob("/tmp/plural-mcp-*.log")
-	for _, path := range mcpLogs {
-		// Skip current session's log (already added above)
-		if currentSessionID != "" && path == logger.MCPLogPath(currentSessionID) {
-			continue
-		}
-		sessionID := extractSessionID(path, "plural-mcp-")
-		files = append(files, LogFile{
-			Name: fmt.Sprintf("MCP (%s)", truncateSessionID(sessionID)),
-			Path: path,
-		})
-	}
-
-	streamLogs, _ := filepath.Glob("/tmp/plural-stream-*.log")
-	for _, path := range streamLogs {
-		// Skip current session's log (already added above)
-		if currentSessionID != "" && path == logger.StreamLogPath(currentSessionID) {
-			continue
-		}
-		sessionID := extractSessionID(path, "plural-stream-")
-		files = append(files, LogFile{
-			Name: fmt.Sprintf("Stream (%s)", truncateSessionID(sessionID)),
-			Path: path,
-		})
-	}
-
 	return files
 }
 
@@ -78,15 +50,6 @@ func truncateSessionID(id string) string {
 	if len(id) > 8 {
 		return id[:8]
 	}
-	return id
-}
-
-// extractSessionID extracts the session ID from a log file path.
-func extractSessionID(path, prefix string) string {
-	base := filepath.Base(path)
-	// Remove prefix and .log suffix
-	id := strings.TrimPrefix(base, prefix)
-	id = strings.TrimSuffix(id, ".log")
 	return id
 }
 

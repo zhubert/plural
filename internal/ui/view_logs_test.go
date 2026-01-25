@@ -58,27 +58,6 @@ func TestTruncateSessionID(t *testing.T) {
 	}
 }
 
-func TestExtractSessionID(t *testing.T) {
-	tests := []struct {
-		path     string
-		prefix   string
-		expected string
-	}{
-		{"/tmp/plural-mcp-abc123.log", "plural-mcp-", "abc123"},
-		{"/tmp/plural-stream-xyz789.log", "plural-stream-", "xyz789"},
-		{"plural-mcp-test.log", "plural-mcp-", "test"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			result := extractSessionID(tt.path, tt.prefix)
-			if result != tt.expected {
-				t.Errorf("extractSessionID(%q, %q) = %q, want %q", tt.path, tt.prefix, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestChat_LogViewerMode_EnterExit(t *testing.T) {
 	chat := NewChat()
 	chat.SetSize(80, 40)
