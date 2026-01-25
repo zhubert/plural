@@ -182,6 +182,7 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--print",
 			"--output-format", "stream-json",
 			"--input-format", "stream-json",
+			"--include-partial-messages",
 			"--verbose",
 			"--resume", config.SessionID,
 		}
@@ -193,6 +194,7 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--print",
 			"--output-format", "stream-json",
 			"--input-format", "stream-json",
+			"--include-partial-messages",
 			"--verbose",
 			"--resume", config.ForkFromSessionID,
 			"--fork-session",
@@ -204,6 +206,7 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--print",
 			"--output-format", "stream-json",
 			"--input-format", "stream-json",
+			"--include-partial-messages",
 			"--verbose",
 			"--session-id", config.SessionID,
 		}
