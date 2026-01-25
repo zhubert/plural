@@ -31,6 +31,7 @@ type Theme struct {
 	Warning   string // Permission prompts, warnings
 	Error     string // Error messages
 	Info      string // Information, questions
+	Success   string // Success messages, confirmations
 
 	// Border colors
 	Border      string // Default borders
@@ -116,6 +117,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#F59E0B",
 		Error:            "#EF4444",
 		Info:             "#06B6D4",
+		Success:          "#10B981",
 		Border:           "#374151",
 		DiffAdded:        "#4ADE80",
 		DiffRemoved:      "#F87171",
@@ -145,6 +147,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#EBCB8B",
 		Error:            "#BF616A",
 		Info:             "#81A1C1",
+		Success:          "#A3BE8C",
 		Border:           "#4C566A",
 		DiffAdded:        "#A3BE8C",
 		DiffRemoved:      "#BF616A",
@@ -174,6 +177,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#FFB86C",
 		Error:            "#FF5555",
 		Info:             "#8BE9FD",
+		Success:          "#50FA7B",
 		Border:           "#44475A",
 		DiffAdded:        "#50FA7B",
 		DiffRemoved:      "#FF5555",
@@ -203,6 +207,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#FE8019",
 		Error:            "#FB4934",
 		Info:             "#83A598",
+		Success:          "#B8BB26",
 		Border:           "#504945",
 		DiffAdded:        "#B8BB26",
 		DiffRemoved:      "#FB4934",
@@ -232,6 +237,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#E0AF68",
 		Error:            "#F7768E",
 		Info:             "#7DCFFF",
+		Success:          "#9ECE6A",
 		Border:           "#3B4261",
 		DiffAdded:        "#9ECE6A",
 		DiffRemoved:      "#F7768E",
@@ -261,6 +267,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#FAB387",
 		Error:            "#F38BA8",
 		Info:             "#89DCEB",
+		Success:          "#A6E3A1",
 		Border:           "#313244",
 		DiffAdded:        "#A6E3A1",
 		DiffRemoved:      "#F38BA8",
@@ -291,6 +298,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#FF6600",
 		Error:            "#FF0000",
 		Info:             "#AA0000",
+		Success:          "#00AA00",
 		Border:           "#330000",
 		BorderFocus:      "#E50914",
 		DiffAdded:        "#00AA00",
@@ -322,6 +330,7 @@ var BuiltinThemes = map[ThemeName]Theme{
 		Warning:          "#D97706",
 		Error:            "#DC2626",
 		Info:             "#0891B2",
+		Success:          "#059669",
 		Border:           "#D1D5DB",
 		BorderFocus:      "#6366F1",
 		DiffAdded:        "#16A34A",
@@ -412,6 +421,7 @@ func regenerateStyles() {
 	ColorWarning = lipgloss.Color(t.Warning)
 	ColorInfo = lipgloss.Color(t.Info)
 	ColorError = lipgloss.Color(t.Error)
+	ColorSuccess = lipgloss.Color(t.Success)
 
 	// Update header styles
 	HeaderStyle = lipgloss.NewStyle().
@@ -631,4 +641,13 @@ func regenerateStyles() {
 	TextSelectionStyle = lipgloss.NewStyle().
 		Background(lipgloss.Color(t.TextSelectionBg)).
 		Foreground(lipgloss.Color(t.TextSelectionFg))
+
+	// TextSelectionFlashStyle is used briefly when text is copied to indicate success
+	TextSelectionFlashStyle = lipgloss.NewStyle().
+		Background(ColorSuccess).
+		Foreground(lipgloss.Color(t.TextInverse))
+
+	// Update todo marker styles
+	TodoCompletedMarkerStyle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.DiffAdded)) // Use DiffAdded (green) for completed checkmarks
 }
