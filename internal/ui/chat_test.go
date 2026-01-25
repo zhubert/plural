@@ -1026,7 +1026,7 @@ func TestChat_ToolUseMarkers(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Append tool use - now goes to rollup, not directly to streaming
-	chat.AppendToolUse("Read", "file.go")
+	chat.AppendToolUse("Read", "file.go", "tool-123")
 
 	// Tool uses are now stored in rollup until text arrives
 	rollup := chat.GetToolUseRollup()
@@ -1039,16 +1039,19 @@ func TestChat_ToolUseMarkers(t *testing.T) {
 	if rollup.Items[0].ToolInput != "file.go" {
 		t.Errorf("Expected tool input 'file.go', got %q", rollup.Items[0].ToolInput)
 	}
+	if rollup.Items[0].ToolUseID != "tool-123" {
+		t.Errorf("Expected tool use ID 'tool-123', got %q", rollup.Items[0].ToolUseID)
+	}
 	if rollup.Items[0].Complete {
 		t.Error("Expected tool use to be incomplete")
 	}
 
-	// Mark complete
-	chat.MarkLastToolUseComplete()
+	// Mark complete by ID
+	chat.MarkToolUseComplete("tool-123")
 
 	rollup = chat.GetToolUseRollup()
 	if !rollup.Items[0].Complete {
-		t.Error("Expected tool use to be complete after MarkLastToolUseComplete")
+		t.Error("Expected tool use to be complete after MarkToolUseComplete")
 	}
 
 	// When text arrives, tool uses are flushed to streaming
@@ -1072,7 +1075,7 @@ func TestChat_ToolUseRollupResetOnFinishStreaming(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Simulate a tool use during Claude response
-	chat.AppendToolUse("Read", "file.go")
+	chat.AppendToolUse("Read", "file.go", "tool-123")
 
 	// Tool use should be in rollup
 	rollup := chat.GetToolUseRollup()
@@ -1108,23 +1111,29 @@ func TestChat_ToolUseRollupMultipleToolUses(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)
 
-	// Add multiple tool uses
-	chat.AppendToolUse("Read", "file1.go")
-	chat.AppendToolUse("Read", "file2.go")
-	chat.AppendToolUse("Edit", "file3.go")
+	// Add multiple tool uses with IDs
+	chat.AppendToolUse("Read", "file1.go", "tool-1")
+	chat.AppendToolUse("Read", "file2.go", "tool-2")
+	chat.AppendToolUse("Edit", "file3.go", "tool-3")
 
 	rollup := chat.GetToolUseRollup()
 	if rollup == nil || len(rollup.Items) != 3 {
 		t.Fatalf("Expected 3 items in rollup, got %v", rollup)
 	}
 
-	// Mark first two as complete
-	chat.MarkLastToolUseComplete() // marks file3.go
-	if !rollup.Items[2].Complete {
-		t.Error("Expected last item (file3.go) to be complete")
+	// Mark tool-2 as complete (out of order to test ID matching)
+	chat.MarkToolUseComplete("tool-2")
+	if !rollup.Items[1].Complete {
+		t.Error("Expected tool-2 (file2.go) to be complete")
 	}
-	if rollup.Items[0].Complete || rollup.Items[1].Complete {
-		t.Error("Expected first two items to still be incomplete")
+	if rollup.Items[0].Complete || rollup.Items[2].Complete {
+		t.Error("Expected tool-1 and tool-3 to still be incomplete")
+	}
+
+	// Mark tool-1 as complete
+	chat.MarkToolUseComplete("tool-1")
+	if !rollup.Items[0].Complete {
+		t.Error("Expected tool-1 (file1.go) to be complete")
 	}
 
 	// Verify HasActiveToolUseRollup returns true for multiple items
@@ -1138,8 +1147,8 @@ func TestChat_ToolUseRollupToggle(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Add multiple tool uses
-	chat.AppendToolUse("Read", "file1.go")
-	chat.AppendToolUse("Read", "file2.go")
+	chat.AppendToolUse("Read", "file1.go", "tool-1")
+	chat.AppendToolUse("Read", "file2.go", "tool-2")
 
 	rollup := chat.GetToolUseRollup()
 	if rollup.Expanded {
@@ -1166,9 +1175,9 @@ func TestChat_ToolUseRollupRenderCollapsed(t *testing.T) {
 	chat.SetSize(80, 40)
 
 	// Add multiple tool uses
-	chat.AppendToolUse("Read", "file1.go")
-	chat.AppendToolUse("Read", "file2.go")
-	chat.AppendToolUse("Edit", "main.go")
+	chat.AppendToolUse("Read", "file1.go", "tool-1")
+	chat.AppendToolUse("Read", "file2.go", "tool-2")
+	chat.AppendToolUse("Edit", "main.go", "tool-3")
 
 	// Render the rollup
 	rendered := chat.renderToolUseRollup()
@@ -1196,9 +1205,9 @@ func TestChat_ToolUseRollupRenderExpanded(t *testing.T) {
 	chat.SetSize(80, 40)
 
 	// Add multiple tool uses
-	chat.AppendToolUse("Read", "file1.go")
-	chat.AppendToolUse("Read", "file2.go")
-	chat.AppendToolUse("Edit", "main.go")
+	chat.AppendToolUse("Read", "file1.go", "tool-1")
+	chat.AppendToolUse("Read", "file2.go", "tool-2")
+	chat.AppendToolUse("Edit", "main.go", "tool-3")
 
 	// Expand the rollup
 	chat.ToggleToolUseRollup()
@@ -1224,7 +1233,7 @@ func TestChat_ToolUseRollupSingleItem(t *testing.T) {
 	chat.SetSize(80, 40)
 
 	// Add single tool use
-	chat.AppendToolUse("Read", "file.go")
+	chat.AppendToolUse("Read", "file.go", "tool-1")
 
 	// Should NOT have active rollup (need > 1 item)
 	if chat.HasActiveToolUseRollup() {
@@ -1246,8 +1255,8 @@ func TestChat_ToolUseRollupFlushOnText(t *testing.T) {
 	chat.SetSession("test", nil)
 
 	// Add tool uses
-	chat.AppendToolUse("Read", "file1.go")
-	chat.AppendToolUse("Read", "file2.go")
+	chat.AppendToolUse("Read", "file1.go", "tool-1")
+	chat.AppendToolUse("Read", "file2.go", "tool-2")
 
 	// Verify rollup exists
 	if chat.GetToolUseRollup() == nil {
@@ -1283,7 +1292,7 @@ func TestChat_ToolUseRollupWhitespaceSeparation(t *testing.T) {
 	chat.streaming = "Looking at the codebase, I need to search for any syntax highlighting implementation."
 
 	// Add tool use - this should appear on a new line, not concatenated with the text
-	chat.AppendToolUse("Grep", "code.*block|```")
+	chat.AppendToolUse("Grep", "code.*block|```", "tool-1")
 
 	// The key behavior: when we have both streaming content and a tool use rollup,
 	// the tool use rollup should be rendered on its own line, not concatenated
@@ -1327,8 +1336,8 @@ func TestChat_ToolUseFlushedNewlineSeparation(t *testing.T) {
 
 	// Simulate a sequence: tool use runs, then text follows
 	// This is what happens when Claude does a search, then comments on results
-	chat.AppendToolUse("Grep", "HighlightDiff")
-	chat.MarkLastToolUseComplete()
+	chat.AppendToolUse("Grep", "HighlightDiff", "tool-1")
+	chat.MarkToolUseComplete("tool-1")
 
 	// Now text arrives - this triggers flushToolUseRollup
 	chat.AppendStreaming("Yes, there is syntax highlighting for diffs")
@@ -1349,6 +1358,84 @@ func TestChat_ToolUseFlushedNewlineSeparation(t *testing.T) {
 	// Check that the text is NOT directly concatenated with the closing paren
 	if strings.Contains(streaming, ")Yes") {
 		t.Error("Text should not be concatenated directly with tool use closing paren")
+	}
+}
+
+// TestChat_ToolUseCompleteByID verifies that tool uses are marked complete
+// by their ID, not by position. This is critical for parallel tool uses
+// where results may arrive out of order.
+func TestChat_ToolUseCompleteByID(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Simulate parallel tool uses (3 reads kicked off simultaneously)
+	chat.AppendToolUse("Read", "file1.go", "tool-aaa")
+	chat.AppendToolUse("Read", "file2.go", "tool-bbb")
+	chat.AppendToolUse("Read", "file3.go", "tool-ccc")
+
+	rollup := chat.GetToolUseRollup()
+	if rollup == nil || len(rollup.Items) != 3 {
+		t.Fatalf("Expected 3 items in rollup, got %v", rollup)
+	}
+
+	// Results arrive out of order: file2 completes first
+	chat.MarkToolUseComplete("tool-bbb")
+	if !rollup.Items[1].Complete {
+		t.Error("Expected tool-bbb (file2.go) to be marked complete")
+	}
+	if rollup.Items[0].Complete || rollup.Items[2].Complete {
+		t.Error("Expected tool-aaa and tool-ccc to still be incomplete")
+	}
+
+	// file3 completes second
+	chat.MarkToolUseComplete("tool-ccc")
+	if !rollup.Items[2].Complete {
+		t.Error("Expected tool-ccc (file3.go) to be marked complete")
+	}
+	if rollup.Items[0].Complete {
+		t.Error("Expected tool-aaa to still be incomplete")
+	}
+
+	// file1 completes last
+	chat.MarkToolUseComplete("tool-aaa")
+	if !rollup.Items[0].Complete {
+		t.Error("Expected tool-aaa (file1.go) to be marked complete")
+	}
+
+	// All should be complete now
+	for i, item := range rollup.Items {
+		if !item.Complete {
+			t.Errorf("Expected item %d to be complete", i)
+		}
+	}
+}
+
+// TestChat_ToolUseCompleteUnknownIDFallback verifies that when a tool_result
+// arrives with an unknown ID (or empty ID), we fall back to marking the first
+// incomplete tool use as complete.
+func TestChat_ToolUseCompleteUnknownIDFallback(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Add tool uses
+	chat.AppendToolUse("Read", "file1.go", "tool-1")
+	chat.AppendToolUse("Read", "file2.go", "tool-2")
+
+	rollup := chat.GetToolUseRollup()
+
+	// Complete with empty ID - should mark first incomplete
+	chat.MarkToolUseComplete("")
+	if !rollup.Items[0].Complete {
+		t.Error("Expected first item to be complete (fallback behavior)")
+	}
+	if rollup.Items[1].Complete {
+		t.Error("Expected second item to still be incomplete")
+	}
+
+	// Complete with unknown ID - should mark first incomplete (which is now item 1)
+	chat.MarkToolUseComplete("unknown-id")
+	if !rollup.Items[1].Complete {
+		t.Error("Expected second item to be complete (fallback behavior)")
 	}
 }
 

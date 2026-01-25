@@ -24,6 +24,7 @@ const ToolUseComplete = "●"
 type ToolUseItem struct {
 	ToolName  string // e.g., "Read", "Edit", "Bash"
 	ToolInput string // Brief description of tool parameters
+	ToolUseID string // Unique ID for matching tool_use to tool_result
 	Complete  bool   // Whether the tool has completed
 }
 
@@ -308,7 +309,7 @@ func (c *Chat) AppendStreaming(content string) {
 }
 
 // AppendToolUse adds a tool use to the current rollup group
-func (c *Chat) AppendToolUse(toolName, toolInput string) {
+func (c *Chat) AppendToolUse(toolName, toolInput, toolUseID string) {
 	// Initialize rollup if needed
 	if c.toolUseRollup == nil {
 		c.toolUseRollup = &ToolUseRollup{
@@ -321,18 +322,39 @@ func (c *Chat) AppendToolUse(toolName, toolInput string) {
 	c.toolUseRollup.Items = append(c.toolUseRollup.Items, ToolUseItem{
 		ToolName:  toolName,
 		ToolInput: toolInput,
+		ToolUseID: toolUseID,
 		Complete:  false,
 	})
 
 	c.updateContent()
 }
 
-// MarkLastToolUseComplete marks the most recent tool use as complete
-func (c *Chat) MarkLastToolUseComplete() {
-	if c.toolUseRollup != nil && len(c.toolUseRollup.Items) > 0 {
-		// Mark the last item as complete
-		c.toolUseRollup.Items[len(c.toolUseRollup.Items)-1].Complete = true
-		c.updateContent()
+// MarkToolUseComplete marks the tool use with the given ID as complete.
+// If the ID is empty or not found, falls back to marking the last incomplete tool use.
+func (c *Chat) MarkToolUseComplete(toolUseID string) {
+	if c.toolUseRollup == nil || len(c.toolUseRollup.Items) == 0 {
+		return
+	}
+
+	// If we have a tool use ID, find and mark the matching item
+	if toolUseID != "" {
+		for i := range c.toolUseRollup.Items {
+			if c.toolUseRollup.Items[i].ToolUseID == toolUseID {
+				c.toolUseRollup.Items[i].Complete = true
+				c.updateContent()
+				return
+			}
+		}
+	}
+
+	// Fallback: mark the first incomplete tool use as complete
+	// This handles cases where we don't have a matching ID
+	for i := range c.toolUseRollup.Items {
+		if !c.toolUseRollup.Items[i].Complete {
+			c.toolUseRollup.Items[i].Complete = true
+			c.updateContent()
+			return
+		}
 	}
 }
 

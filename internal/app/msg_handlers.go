@@ -140,10 +140,10 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 		switch chunk.Type {
 		case claude.ChunkTypeToolUse:
 			// Append tool use to streaming content so it persists in history
-			m.chat.AppendToolUse(chunk.ToolName, chunk.ToolInput)
+			m.chat.AppendToolUse(chunk.ToolName, chunk.ToolInput, chunk.ToolUseID)
 		case claude.ChunkTypeToolResult:
-			// Tool completed, mark the tool use line as complete
-			m.chat.MarkLastToolUseComplete()
+			// Tool completed, mark the tool use as complete by ID
+			m.chat.MarkToolUseComplete(chunk.ToolUseID)
 		case claude.ChunkTypeText:
 			m.chat.AppendStreaming(chunk.Content)
 		case claude.ChunkTypeTodoUpdate:
@@ -179,11 +179,11 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 	switch chunk.Type {
 	case claude.ChunkTypeToolUse:
 		// Add tool use to rollup for non-active session
-		state.AddToolUse(chunk.ToolName, chunk.ToolInput)
+		state.AddToolUse(chunk.ToolName, chunk.ToolInput, chunk.ToolUseID)
 
 	case claude.ChunkTypeToolResult:
-		// Mark the last tool use as complete for non-active session
-		state.MarkLastToolUseComplete()
+		// Mark the tool use as complete by ID for non-active session
+		state.MarkToolUseComplete(chunk.ToolUseID)
 
 	case claude.ChunkTypeText:
 		// Flush any pending tool uses to streaming content before adding text

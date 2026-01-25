@@ -531,9 +531,9 @@ func TestSessionState_ToolUseRollup(t *testing.T) {
 		t.Error("expected nil rollup initially")
 	}
 
-	// Add tool uses
-	state.AddToolUse("Read", "file1.go")
-	state.AddToolUse("Edit", "file2.go")
+	// Add tool uses with IDs
+	state.AddToolUse("Read", "file1.go", "tool-1")
+	state.AddToolUse("Edit", "file2.go", "tool-2")
 
 	rollup := state.GetToolUseRollup()
 	if rollup == nil {
@@ -542,30 +542,36 @@ func TestSessionState_ToolUseRollup(t *testing.T) {
 	if len(rollup.Items) != 2 {
 		t.Errorf("expected 2 items, got %d", len(rollup.Items))
 	}
-	if rollup.Items[0].ToolName != "Read" || rollup.Items[0].ToolInput != "file1.go" {
+	if rollup.Items[0].ToolName != "Read" || rollup.Items[0].ToolInput != "file1.go" || rollup.Items[0].ToolUseID != "tool-1" {
 		t.Errorf("first item mismatch: %+v", rollup.Items[0])
 	}
-	if rollup.Items[1].ToolName != "Edit" || rollup.Items[1].ToolInput != "file2.go" {
+	if rollup.Items[1].ToolName != "Edit" || rollup.Items[1].ToolInput != "file2.go" || rollup.Items[1].ToolUseID != "tool-2" {
 		t.Errorf("second item mismatch: %+v", rollup.Items[1])
 	}
 
-	// Mark last complete
-	state.MarkLastToolUseComplete()
+	// Mark tool-2 complete by ID
+	state.MarkToolUseComplete("tool-2")
 	if !rollup.Items[1].Complete {
 		t.Error("expected second item to be complete")
 	}
 	if rollup.Items[0].Complete {
 		t.Error("expected first item to still be incomplete")
 	}
+
+	// Mark tool-1 complete by ID
+	state.MarkToolUseComplete("tool-1")
+	if !rollup.Items[0].Complete {
+		t.Error("expected first item to be complete")
+	}
 }
 
 func TestSessionState_FlushToolUseRollup(t *testing.T) {
 	state := &SessionState{ToolUsePos: -1}
 
-	// Add tool uses
-	state.AddToolUse("Read", "file1.go")
-	state.AddToolUse("Edit", "file2.go")
-	state.MarkLastToolUseComplete()
+	// Add tool uses with IDs
+	state.AddToolUse("Read", "file1.go", "tool-1")
+	state.AddToolUse("Edit", "file2.go", "tool-2")
+	state.MarkToolUseComplete("tool-2")
 
 	// Mock GetToolIcon function
 	mockGetIcon := func(tool string) string {

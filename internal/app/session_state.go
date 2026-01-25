@@ -72,6 +72,7 @@ type ToolUseRollupState struct {
 type ToolUseItemState struct {
 	ToolName  string
 	ToolInput string
+	ToolUseID string
 	Complete  bool
 }
 
@@ -179,7 +180,7 @@ func (s *SessionState) SetToolUseRollup(rollup *ToolUseRollupState) {
 
 // AddToolUse adds a tool use to the rollup.
 // Thread-safe.
-func (s *SessionState) AddToolUse(toolName, toolInput string) {
+func (s *SessionState) AddToolUse(toolName, toolInput, toolUseID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ToolUseRollup == nil {
@@ -191,17 +192,37 @@ func (s *SessionState) AddToolUse(toolName, toolInput string) {
 	s.ToolUseRollup.Items = append(s.ToolUseRollup.Items, ToolUseItemState{
 		ToolName:  toolName,
 		ToolInput: toolInput,
+		ToolUseID: toolUseID,
 		Complete:  false,
 	})
 }
 
-// MarkLastToolUseComplete marks the last tool use as complete.
+// MarkToolUseComplete marks the tool use with the given ID as complete.
+// If the ID is empty or not found, falls back to marking the first incomplete tool use.
 // Thread-safe.
-func (s *SessionState) MarkLastToolUseComplete() {
+func (s *SessionState) MarkToolUseComplete(toolUseID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.ToolUseRollup != nil && len(s.ToolUseRollup.Items) > 0 {
-		s.ToolUseRollup.Items[len(s.ToolUseRollup.Items)-1].Complete = true
+	if s.ToolUseRollup == nil || len(s.ToolUseRollup.Items) == 0 {
+		return
+	}
+
+	// If we have a tool use ID, find and mark the matching item
+	if toolUseID != "" {
+		for i := range s.ToolUseRollup.Items {
+			if s.ToolUseRollup.Items[i].ToolUseID == toolUseID {
+				s.ToolUseRollup.Items[i].Complete = true
+				return
+			}
+		}
+	}
+
+	// Fallback: mark the first incomplete tool use as complete
+	for i := range s.ToolUseRollup.Items {
+		if !s.ToolUseRollup.Items[i].Complete {
+			s.ToolUseRollup.Items[i].Complete = true
+			return
+		}
 	}
 }
 

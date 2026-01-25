@@ -460,6 +460,7 @@ type ResponseChunk struct {
 	Content   string       // Text content (for text chunks and status)
 	ToolName  string       // Tool being used (for tool_use chunks)
 	ToolInput string       // Brief description of tool input
+	ToolUseID string       // Unique ID for tool use (for matching tool_use to tool_result)
 	TodoList  *TodoList    // Todo list (for ChunkTypeTodoUpdate)
 	Stats     *StreamStats // Streaming statistics (for ChunkTypeStreamStats)
 	Done      bool

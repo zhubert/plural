@@ -14,12 +14,13 @@ type streamMessage struct {
 		ID      string `json:"id,omitempty"` // Message ID for tracking API calls
 		Content []struct {
 			Type      string          `json:"type"` // "text", "tool_use", "tool_result"
+			ID        string          `json:"id,omitempty"`         // tool use ID (for tool_use)
 			Text      string          `json:"text,omitempty"`
 			Name      string          `json:"name,omitempty"`       // tool name
 			Input     json.RawMessage `json:"input,omitempty"`      // tool input
-			ToolUseID string          `json:"tool_use_id,omitempty"`
-			ToolUseId string          `json:"toolUseId,omitempty"` // camelCase variant from Claude CLI
-			Content   json.RawMessage `json:"content,omitempty"`   // tool result content (can be string or array)
+			ToolUseID string          `json:"tool_use_id,omitempty"` // tool use ID reference (for tool_result)
+			ToolUseId string          `json:"toolUseId,omitempty"`  // camelCase variant from Claude CLI
+			Content   json.RawMessage `json:"content,omitempty"`    // tool result content (can be string or array)
 		} `json:"content"`
 		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
@@ -105,8 +106,9 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 					Type:      ChunkTypeToolUse,
 					ToolName:  content.Name,
 					ToolInput: inputDesc,
+					ToolUseID: content.ID,
 				})
-				log.Debug("tool use", "tool", content.Name, "input", inputDesc)
+				log.Debug("tool use", "tool", content.Name, "id", content.ID, "input", inputDesc)
 			}
 		}
 		// Note: Stream stats are emitted by handleProcessLine with accumulated token counts,
@@ -119,14 +121,18 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 		// "tool_result" type and the presence of toolUseId field (camelCase variant).
 		for _, content := range msg.Message.Content {
 			// Check for tool_result type or presence of tool use ID (indicates tool result)
-			isToolResult := content.Type == "tool_result" ||
-				content.ToolUseID != "" ||
-				content.ToolUseId != ""
+			// Get the tool use ID from either snake_case or camelCase field
+			toolUseID := content.ToolUseID
+			if toolUseID == "" {
+				toolUseID = content.ToolUseId
+			}
+			isToolResult := content.Type == "tool_result" || toolUseID != ""
 			if isToolResult {
 				// Emit a tool result chunk so UI can mark tool as complete
-				log.Debug("tool result received")
+				log.Debug("tool result received", "toolUseID", toolUseID)
 				chunks = append(chunks, ResponseChunk{
-					Type: ChunkTypeToolResult,
+					Type:      ChunkTypeToolResult,
+					ToolUseID: toolUseID,
 				})
 			}
 		}
