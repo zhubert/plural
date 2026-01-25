@@ -17,7 +17,8 @@ var (
 	ColorAssistant   = lipgloss.Color("#22D3EE") // Bright cyan for assistant messages
 	ColorWarning     = lipgloss.Color("#F59E0B") // Amber for permission prompts
 	ColorInfo        = lipgloss.Color("#06B6D4") // Cyan for info/questions
-  ColorError       = lipgloss.Color("#EF4444") // Red for errors
+	ColorError       = lipgloss.Color("#EF4444") // Red for errors
+	ColorSuccess     = lipgloss.Color("#10B981") // Green for success
 )
 // Header styles
 var (
@@ -129,7 +130,7 @@ var (
 		Italic(true)
 
 	StatusErrorStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#EF4444")).
+		Foreground(ColorError).
 		Bold(true)
 )
 
@@ -208,9 +209,9 @@ var (
 		}).
 		BorderForeground(ColorBorder)
 
-	// Marker styles for different states
+	// Marker styles for different states (updated by regenerateStyles)
 	TodoCompletedMarkerStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#4ADE80")) // Green checkmark
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffAdded))
 
 	TodoInProgressMarkerStyle = lipgloss.NewStyle().
 		Foreground(ColorSecondary) // Cyan hourglass
@@ -231,22 +232,22 @@ var (
 		Foreground(ColorTextMuted)
 )
 
-// Markdown rendering styles
+// Markdown rendering styles (updated by regenerateStyles)
 var (
 	// Headers
 	MarkdownH1Style = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#A78BFA")). // Light purple
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH1)).
 		MarginTop(1)
 
 	MarkdownH2Style = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#C4B5FD")). // Lighter purple
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH2)).
 		MarginTop(1)
 
 	MarkdownH3Style = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#22D3EE")) // Cyan
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH3))
 
 	MarkdownH4Style = lipgloss.NewStyle().
 		Bold(true).
@@ -262,12 +263,12 @@ var (
 		Foreground(ColorText)
 
 	MarkdownInlineCodeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#67E8F9")). // Light cyan
-		Background(lipgloss.Color("#1E1E2E"))  // Dark background
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCode)).
+		Background(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCodeBg))
 
 	// Code block
 	MarkdownCodeBlockStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color("#1E1E2E")) // Dark background
+		Background(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCodeBg))
 
 	// List
 	MarkdownListBulletStyle = lipgloss.NewStyle().
@@ -288,7 +289,7 @@ var (
 
 	// Link
 	MarkdownLinkStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#67E8F9")). // Light cyan
+		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownLink)).
 		Underline(true)
 
 	// Table
@@ -303,35 +304,36 @@ var (
 				Foreground(ColorText)
 )
 
-// Diff coloring styles
+// Diff coloring styles (updated by regenerateStyles)
 var (
 	DiffAddedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#4ADE80")) // Green for additions
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffAdded))
 
 	DiffRemovedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F87171")) // Red for deletions
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffRemoved))
 
 	DiffHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#60A5FA")). // Blue for diff headers
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffHeader)).
 			Bold(true)
 
 	DiffHunkStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#C084FC")) // Purple for @@ hunk markers
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffHunk))
 
-	// View changes file list selection style
+	// View changes file list selection style (updated by regenerateStyles)
 	ViewChangesSelectedStyle = lipgloss.NewStyle().
-					Background(lipgloss.Color("#3B82F6")). // Blue background
-					Foreground(lipgloss.Color("#FFFFFF"))  // White text
+					Background(lipgloss.Color(BuiltinThemes[DefaultTheme].GetBgSelected())).
+					Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].Text))
 )
 
-// Text selection style
+// Text selection style (updated by regenerateStyles)
 var (
 	TextSelectionStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#4C1D95")). // Purple background
-				Foreground(lipgloss.Color("#F9FAFB"))  // Light text
+				Background(lipgloss.Color(BuiltinThemes[DefaultTheme].TextSelectionBg)).
+				Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].TextSelectionFg))
 
 	// TextSelectionFlashStyle is used briefly when text is copied to indicate success
+	// (updated by regenerateStyles)
 	TextSelectionFlashStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#10B981")). // Green background (success)
-				Foreground(lipgloss.Color("#FFFFFF"))  // White text
+				Background(lipgloss.Color(BuiltinThemes[DefaultTheme].Success)).
+				Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].TextInverse))
 )

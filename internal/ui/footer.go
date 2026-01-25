@@ -155,22 +155,22 @@ func (f *Footer) flashStyle() lipgloss.Style {
 	switch f.flashMessage.Type {
 	case FlashError:
 		return baseStyle.
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#DC2626")) // Red background
+			Foreground(ColorTextInverse).
+			Background(ColorError)
 	case FlashWarning:
 		return baseStyle.
-			Foreground(lipgloss.Color("#1F2937")).
-			Background(lipgloss.Color("#F59E0B")) // Amber background
+			Foreground(ColorTextInverse).
+			Background(ColorWarning)
 	case FlashSuccess:
 		return baseStyle.
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#059669")) // Green background
+			Foreground(ColorTextInverse).
+			Background(ColorSuccess)
 	case FlashInfo:
 		fallthrough
 	default:
 		return baseStyle.
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#0284C7")) // Blue background
+			Foreground(ColorTextInverse).
+			Background(ColorInfo)
 	}
 }
 
