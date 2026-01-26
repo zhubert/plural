@@ -12,8 +12,9 @@ import (
 
 // GetLogFiles returns a list of available log files for viewing.
 // It finds the main debug log and any session-specific MCP/stream logs.
+// Always returns a non-nil slice (may be empty if no log files found).
 func GetLogFiles(currentSessionID string) []LogFile {
-	var files []LogFile
+	files := []LogFile{}
 
 	// Main debug log
 	if _, err := os.Stat(logger.DefaultLogPath); err == nil {
