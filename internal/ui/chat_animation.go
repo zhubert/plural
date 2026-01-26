@@ -174,6 +174,9 @@ func (c *Chat) SetStreamStats(stats *pclaude.StreamStats) {
 func renderCompletionFlash(frame int, stats *pclaude.StreamStats) string {
 	checkmark := "✓"
 
+	// Check if we have any stats to display (tokens or timing)
+	hasStats := stats != nil && (stats.OutputTokens > 0 || stats.DurationMs > 0)
+
 	// Frame 0: bright checkmark (using theme's diff added color which is green)
 	// Frame 1: normal checkmark
 	// Frame 2+: fade out (empty)
@@ -184,8 +187,8 @@ func renderCompletionFlash(frame int, stats *pclaude.StreamStats) string {
 			Foreground(DiffAddedStyle.GetForeground()).
 			Bold(true)
 		result := style.Render(checkmark) + " " + lipgloss.NewStyle().Foreground(ColorSecondary).Italic(true).Render("Done")
-		// Add token stats if available
-		if stats != nil && stats.OutputTokens > 0 {
+		// Add stats if available (tokens and/or timing)
+		if hasStats {
 			result += " " + renderFinalStats(stats)
 		}
 		return result
@@ -194,7 +197,7 @@ func renderCompletionFlash(frame int, stats *pclaude.StreamStats) string {
 		style := lipgloss.NewStyle().
 			Foreground(ColorSecondary)
 		result := style.Render(checkmark)
-		if stats != nil && stats.OutputTokens > 0 {
+		if hasStats {
 			result += " " + renderFinalStats(stats)
 		}
 		return result
@@ -203,29 +206,54 @@ func renderCompletionFlash(frame int, stats *pclaude.StreamStats) string {
 	}
 }
 
-// renderFinalStats renders the final token statistics with model breakdown
+// renderFinalStats renders the final token statistics with model breakdown and timing
 func renderFinalStats(stats *pclaude.StreamStats) string {
-	if stats == nil || stats.OutputTokens == 0 {
+	if stats == nil || (stats.OutputTokens == 0 && stats.DurationMs == 0) {
 		return ""
 	}
 
 	metaStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
 
-	// If we have a breakdown by model and more than one model was used, show it
-	if len(stats.ByModel) > 1 {
-		var parts []string
-		for _, m := range stats.ByModel {
-			// Extract short model name (e.g., "opus" from "claude-opus-4-5-20251101")
-			shortName := shortModelName(m.Model)
-			parts = append(parts, fmt.Sprintf("%s: %s", shortName, formatTokenCount(m.OutputTokens)))
+	var parts []string
+
+	// Add token stats if available
+	if stats.OutputTokens > 0 {
+		// If we have a breakdown by model and more than one model was used, show it
+		if len(stats.ByModel) > 1 {
+			var modelParts []string
+			for _, m := range stats.ByModel {
+				// Extract short model name (e.g., "opus" from "claude-opus-4-5-20251101")
+				shortName := shortModelName(m.Model)
+				modelParts = append(modelParts, fmt.Sprintf("%s: %s", shortName, formatTokenCount(m.OutputTokens)))
+			}
+			parts = append(parts, fmt.Sprintf("↓ %s tokens: %s",
+				formatTokenCount(stats.OutputTokens),
+				strings.Join(modelParts, ", ")))
+		} else {
+			// Single model or no breakdown - just show total
+			parts = append(parts, fmt.Sprintf("↓ %s tokens", formatTokenCount(stats.OutputTokens)))
 		}
-		return metaStyle.Render(fmt.Sprintf("(↓ %s tokens: %s)",
-			formatTokenCount(stats.OutputTokens),
-			strings.Join(parts, ", ")))
 	}
 
-	// Single model or no breakdown - just show total
-	return metaStyle.Render(fmt.Sprintf("(↓ %s tokens)", formatTokenCount(stats.OutputTokens)))
+	// Add timing if available
+	if stats.DurationMs > 0 {
+		parts = append(parts, formatDuration(stats.DurationMs))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
+}
+
+// formatDuration formats milliseconds into a human-readable duration (e.g., "12s", "1m30s")
+func formatDuration(ms int) string {
+	secs := ms / 1000
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	return fmt.Sprintf("%dm%ds", secs/60, secs%60)
 }
 
 // shortModelName extracts a readable short name from a full model ID

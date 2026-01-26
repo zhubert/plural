@@ -1910,6 +1910,65 @@ func TestStreamStats(t *testing.T) {
 	}
 }
 
+func TestStreamStats_WithDuration(t *testing.T) {
+	// Test StreamStats struct with duration fields
+	stats := StreamStats{
+		OutputTokens:  1500,
+		TotalCostUSD:  0.25,
+		DurationMs:    45000,
+		DurationAPIMs: 44500,
+	}
+
+	if stats.OutputTokens != 1500 {
+		t.Errorf("Expected OutputTokens 1500, got %d", stats.OutputTokens)
+	}
+
+	if stats.TotalCostUSD != 0.25 {
+		t.Errorf("Expected TotalCostUSD 0.25, got %f", stats.TotalCostUSD)
+	}
+
+	if stats.DurationMs != 45000 {
+		t.Errorf("Expected DurationMs 45000, got %d", stats.DurationMs)
+	}
+
+	if stats.DurationAPIMs != 44500 {
+		t.Errorf("Expected DurationAPIMs 44500, got %d", stats.DurationAPIMs)
+	}
+}
+
+func TestParseResultMessage_WithDuration(t *testing.T) {
+	// Test that duration fields are correctly parsed from result message
+	msg := `{
+		"type": "result",
+		"subtype": "success",
+		"result": "Done",
+		"duration_ms": 45000,
+		"duration_api_ms": 44500,
+		"total_cost_usd": 0.30
+	}`
+
+	var parsed streamMessage
+	if err := json.Unmarshal([]byte(msg), &parsed); err != nil {
+		t.Fatalf("Failed to parse message: %v", err)
+	}
+
+	if parsed.Type != "result" {
+		t.Errorf("Expected Type 'result', got %q", parsed.Type)
+	}
+
+	if parsed.DurationMs != 45000 {
+		t.Errorf("Expected DurationMs 45000, got %d", parsed.DurationMs)
+	}
+
+	if parsed.DurationAPIMs != 44500 {
+		t.Errorf("Expected DurationAPIMs 44500, got %d", parsed.DurationAPIMs)
+	}
+
+	if parsed.TotalCostUSD != 0.30 {
+		t.Errorf("Expected TotalCostUSD 0.30, got %f", parsed.TotalCostUSD)
+	}
+}
+
 func TestParseStreamMessage_AssistantWithUsage(t *testing.T) {
 	log := testLogger()
 	// Assistant message with usage data should NOT emit stream stats from parseStreamMessage.

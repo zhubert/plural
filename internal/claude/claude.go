@@ -449,9 +449,11 @@ type ModelTokenCount struct {
 
 // StreamStats represents streaming statistics for display in the UI
 type StreamStats struct {
-	OutputTokens int               // Total output tokens generated (sum of all models)
-	TotalCostUSD float64           // Total cost in USD
-	ByModel      []ModelTokenCount // Per-model breakdown (only populated from result message)
+	OutputTokens  int               // Total output tokens generated (sum of all models)
+	TotalCostUSD  float64           // Total cost in USD
+	ByModel       []ModelTokenCount // Per-model breakdown (only populated from result message)
+	DurationMs    int               // Total request duration in milliseconds (from result message)
+	DurationAPIMs int               // API-only duration in milliseconds (from result message)
 }
 
 // ResponseChunk represents a chunk of streaming response
@@ -723,16 +725,20 @@ func (r *Runner) handleProcessLine(line string) {
 						"totalOutputTokens", totalOutputTokens)
 				}
 
-				if totalOutputTokens > 0 || msg.TotalCostUSD > 0 {
+				if totalOutputTokens > 0 || msg.TotalCostUSD > 0 || msg.DurationMs > 0 {
 					stats := &StreamStats{
-						OutputTokens: totalOutputTokens,
-						TotalCostUSD: msg.TotalCostUSD,
-						ByModel:      byModel,
+						OutputTokens:  totalOutputTokens,
+						TotalCostUSD:  msg.TotalCostUSD,
+						ByModel:       byModel,
+						DurationMs:    msg.DurationMs,
+						DurationAPIMs: msg.DurationAPIMs,
 					}
 					r.log.Debug("emitting final stream stats",
 						"outputTokens", stats.OutputTokens,
 						"totalCostUSD", stats.TotalCostUSD,
-						"modelCount", len(byModel))
+						"modelCount", len(byModel),
+						"durationMs", stats.DurationMs,
+						"durationAPIMs", stats.DurationAPIMs)
 					select {
 					case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
 					default:

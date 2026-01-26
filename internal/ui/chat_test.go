@@ -4292,6 +4292,111 @@ func TestRenderCompletionFlash_WithStats(t *testing.T) {
 	}
 }
 
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		ms       int
+		expected string
+	}{
+		{0, "0s"},
+		{500, "0s"},
+		{1000, "1s"},
+		{5000, "5s"},
+		{30000, "30s"},
+		{59000, "59s"},
+		{60000, "1m0s"},
+		{90000, "1m30s"},
+		{120000, "2m0s"},
+		{125000, "2m5s"},
+		{3600000, "60m0s"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := formatDuration(tt.ms)
+			if result != tt.expected {
+				t.Errorf("formatDuration(%d) = %q, want %q", tt.ms, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestRenderFinalStats_WithTiming(t *testing.T) {
+	// Test timing only (no tokens)
+	stats := &claude.StreamStats{
+		OutputTokens: 0,
+		DurationMs:   45000,
+	}
+	result := renderFinalStats(stats)
+	if !strings.Contains(result, "45s") {
+		t.Errorf("renderFinalStats with timing should contain '45s', got %q", result)
+	}
+
+	// Test tokens and timing together
+	stats = &claude.StreamStats{
+		OutputTokens: 500,
+		DurationMs:   90000,
+	}
+	result = renderFinalStats(stats)
+	if !strings.Contains(result, "500 tokens") {
+		t.Errorf("renderFinalStats should contain '500 tokens', got %q", result)
+	}
+	if !strings.Contains(result, "1m30s") {
+		t.Errorf("renderFinalStats should contain '1m30s', got %q", result)
+	}
+	// Should use bullet separator
+	if !strings.Contains(result, "•") {
+		t.Errorf("renderFinalStats should use bullet separator between tokens and timing, got %q", result)
+	}
+
+	// Test multi-model with timing
+	stats = &claude.StreamStats{
+		OutputTokens: 231,
+		DurationMs:   46000,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5-20251101", OutputTokens: 207},
+			{Model: "claude-haiku-4-5-20251001", OutputTokens: 24},
+		},
+	}
+	result = renderFinalStats(stats)
+	if !strings.Contains(result, "231 tokens") {
+		t.Errorf("renderFinalStats should contain '231 tokens', got %q", result)
+	}
+	if !strings.Contains(result, "opus:") {
+		t.Errorf("renderFinalStats should contain model breakdown, got %q", result)
+	}
+	if !strings.Contains(result, "46s") {
+		t.Errorf("renderFinalStats should contain '46s', got %q", result)
+	}
+}
+
+func TestRenderCompletionFlash_WithTiming(t *testing.T) {
+	// Test with timing only
+	stats := &claude.StreamStats{
+		OutputTokens: 0,
+		DurationMs:   30000,
+	}
+	result := renderCompletionFlash(0, stats)
+	if !strings.Contains(result, "Done") {
+		t.Errorf("Completion flash should contain 'Done', got %q", result)
+	}
+	if !strings.Contains(result, "30s") {
+		t.Errorf("Completion flash should contain timing '30s', got %q", result)
+	}
+
+	// Test with both tokens and timing
+	stats = &claude.StreamStats{
+		OutputTokens: 100,
+		DurationMs:   45000,
+	}
+	result = renderCompletionFlash(0, stats)
+	if !strings.Contains(result, "100 tokens") {
+		t.Errorf("Completion flash should contain '100 tokens', got %q", result)
+	}
+	if !strings.Contains(result, "45s") {
+		t.Errorf("Completion flash should contain '45s', got %q", result)
+	}
+}
+
 // =============================================================================
 // Image Attachment Layout Tests
 // =============================================================================
