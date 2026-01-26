@@ -382,3 +382,40 @@ func (m *Model) handleManualResolve(state *ui.MergeConflictState) (tea.Model, te
 	m.chat.AppendStreaming(msg.String())
 	return m, nil
 }
+
+// checkConflictResolution checks if Claude resolved a pending merge conflict.
+// If there was a pending conflict for this session and the merge is no longer in progress,
+// mark the session as merged and clear the pending conflict state.
+func (m *Model) checkConflictResolution(sessionID string) {
+	// Check if there's a pending conflict for this session
+	if m.pendingConflict == nil || m.pendingConflict.SessionID != sessionID {
+		return
+	}
+
+	log := logger.WithSession(sessionID)
+	ctx := context.Background()
+
+	// Check if a merge is still in progress
+	mergeInProgress, err := m.gitService.IsMergeInProgress(ctx, m.pendingConflict.RepoPath)
+	if err != nil {
+		log.Warn("failed to check merge status", "error", err)
+		return
+	}
+
+	if mergeInProgress {
+		// Still in merge state - Claude hasn't finished resolving
+		log.Debug("merge still in progress, waiting for resolution")
+		return
+	}
+
+	// Merge is no longer in progress - Claude resolved it
+	log.Info("Claude resolved merge conflict, marking session as merged")
+	m.config.MarkSessionMerged(sessionID)
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after marking session merged", "error", err)
+	}
+	m.sidebar.SetSessions(m.config.GetSessions())
+
+	// Clear pending conflict state
+	m.pendingConflict = nil
+}

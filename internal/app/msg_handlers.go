@@ -92,6 +92,9 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 		m.sessionMgr.SaveRunnerMessages(sessionID, runner)
 	}
 
+	// Check if Claude resolved a pending merge conflict for this session
+	m.checkConflictResolution(sessionID)
+
 	// Detect options in the last assistant message for parallel exploration
 	m.detectOptionsInSession(sessionID, runner)
 

@@ -340,3 +340,14 @@ func (s *GitService) GetConflictedFiles(ctx context.Context, repoPath string) ([
 	files := strings.Split(outputStr, "\n")
 	return files, nil
 }
+
+// IsMergeInProgress checks if a merge is currently in progress in the repo.
+// It returns true if MERGE_HEAD exists (meaning there's an ongoing merge).
+func (s *GitService) IsMergeInProgress(ctx context.Context, repoPath string) (bool, error) {
+	_, _, err := s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", "MERGE_HEAD")
+	if err != nil {
+		// MERGE_HEAD doesn't exist - no merge in progress
+		return false, nil
+	}
+	return true, nil
+}

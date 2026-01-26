@@ -2405,3 +2405,96 @@ func TestSquashMergeToMain_Cancelled(t *testing.T) {
 	for range ch {
 	}
 }
+
+func TestIsMergeInProgress_NoMerge(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	inProgress, err := svc.IsMergeInProgress(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("IsMergeInProgress failed: %v", err)
+	}
+
+	if inProgress {
+		t.Error("Expected no merge in progress for clean repo")
+	}
+}
+
+func TestIsMergeInProgress_DuringMerge(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a feature branch
+	cmd := exec.Command("git", "checkout", "-b", "merge-conflict-test")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Modify test.txt on feature branch
+	testFile := filepath.Join(repoPath, "test.txt")
+	os.WriteFile(testFile, []byte("feature version"), 0644)
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Feature change")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Go back to main and make a conflicting change
+	cmd = exec.Command("git", "checkout", "-")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	os.WriteFile(testFile, []byte("main version"), 0644)
+
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	cmd = exec.Command("git", "commit", "-m", "Main change")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// Start merge - this will fail with conflict
+	cmd = exec.Command("git", "merge", "merge-conflict-test")
+	cmd.Dir = repoPath
+	cmd.Run() // Ignore error - we expect conflict
+
+	// Now we should be in a merge state
+	inProgress, err := svc.IsMergeInProgress(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("IsMergeInProgress failed: %v", err)
+	}
+
+	if !inProgress {
+		t.Error("Expected merge in progress after conflicting merge")
+	}
+
+	// Abort the merge
+	cmd = exec.Command("git", "merge", "--abort")
+	cmd.Dir = repoPath
+	cmd.Run()
+
+	// After abort, no merge in progress
+	inProgress, err = svc.IsMergeInProgress(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("IsMergeInProgress failed after abort: %v", err)
+	}
+
+	if inProgress {
+		t.Error("Expected no merge in progress after abort")
+	}
+}
+
+func TestIsMergeInProgress_InvalidPath(t *testing.T) {
+	// Should not error, just return false
+	inProgress, err := svc.IsMergeInProgress(ctx, "/nonexistent/path")
+	if err != nil {
+		t.Errorf("Expected no error for invalid path, got: %v", err)
+	}
+
+	if inProgress {
+		t.Error("Expected no merge in progress for invalid path")
+	}
+}
