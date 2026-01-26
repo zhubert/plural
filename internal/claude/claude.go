@@ -426,11 +426,12 @@ func (r *Runner) GetResponseChan() <-chan ResponseChunk {
 type ChunkType string
 
 const (
-	ChunkTypeText        ChunkType = "text"         // Regular text content
-	ChunkTypeToolUse     ChunkType = "tool_use"     // Claude is calling a tool
-	ChunkTypeToolResult  ChunkType = "tool_result"  // Tool execution result
-	ChunkTypeTodoUpdate  ChunkType = "todo_update"  // TodoWrite tool call with todo list
-	ChunkTypeStreamStats ChunkType = "stream_stats" // Streaming statistics from result message
+	ChunkTypeText              ChunkType = "text"               // Regular text content
+	ChunkTypeToolUse           ChunkType = "tool_use"           // Claude is calling a tool
+	ChunkTypeToolResult        ChunkType = "tool_result"        // Tool execution result
+	ChunkTypeTodoUpdate        ChunkType = "todo_update"        // TodoWrite tool call with todo list
+	ChunkTypeStreamStats       ChunkType = "stream_stats"       // Streaming statistics from result message
+	ChunkTypePermissionDenials ChunkType = "permission_denials" // Permission denials from result message
 )
 
 // StreamUsage represents token usage data from Claude's result message
@@ -456,15 +457,16 @@ type StreamStats struct {
 
 // ResponseChunk represents a chunk of streaming response
 type ResponseChunk struct {
-	Type      ChunkType    // Type of this chunk
-	Content   string       // Text content (for text chunks and status)
-	ToolName  string       // Tool being used (for tool_use chunks)
-	ToolInput string       // Brief description of tool input
-	ToolUseID string       // Unique ID for tool use (for matching tool_use to tool_result)
-	TodoList  *TodoList    // Todo list (for ChunkTypeTodoUpdate)
-	Stats     *StreamStats // Streaming statistics (for ChunkTypeStreamStats)
-	Done      bool
-	Error     error
+	Type              ChunkType           // Type of this chunk
+	Content           string              // Text content (for text chunks and status)
+	ToolName          string              // Tool being used (for tool_use chunks)
+	ToolInput         string              // Brief description of tool input
+	ToolUseID         string              // Unique ID for tool use (for matching tool_use to tool_result)
+	TodoList          *TodoList           // Todo list (for ChunkTypeTodoUpdate)
+	Stats             *StreamStats        // Streaming statistics (for ChunkTypeStreamStats)
+	PermissionDenials []PermissionDenial  // Permission denials (for ChunkTypePermissionDenials)
+	Done              bool
+	Error             error
 }
 
 // ModelUsageEntry represents usage statistics for a specific model in the result message.
@@ -685,6 +687,21 @@ func (r *Runner) handleProcessLine(line string) {
 					r.streaming.Response.WriteString(errorMsg)
 					select {
 					case ch <- ResponseChunk{Type: ChunkTypeText, Content: errorMsg}:
+					default:
+					}
+				}
+			}
+
+			// Emit permission denials if any were recorded during the session
+			if len(msg.PermissionDenials) > 0 {
+				r.log.Debug("permission denials in result",
+					"count", len(msg.PermissionDenials))
+				if ch != nil && !r.responseChan.Closed {
+					select {
+					case ch <- ResponseChunk{
+						Type:              ChunkTypePermissionDenials,
+						PermissionDenials: msg.PermissionDenials,
+					}:
 					default:
 					}
 				}

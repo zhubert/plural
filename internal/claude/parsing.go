@@ -6,6 +6,14 @@ import (
 	"strings"
 )
 
+// PermissionDenial represents a permission that was denied during the session.
+// This is reported in the result message's permission_denials array.
+type PermissionDenial struct {
+	Tool        string `json:"tool"`        // Tool name that was denied (e.g., "Bash", "Edit")
+	Description string `json:"description"` // Human-readable description of what was requested
+	Reason      string `json:"reason"`      // Why it was denied (optional)
+}
+
 // streamMessage represents a JSON message from Claude's stream-json output
 type streamMessage struct {
 	Type    string `json:"type"`    // "system", "assistant", "user", "result"
@@ -24,16 +32,17 @@ type streamMessage struct {
 		} `json:"content"`
 		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
-	Result        string                      `json:"result,omitempty"`         // Final result text
-	Error         string                      `json:"error,omitempty"`          // Error message (alternative to result)
-	Errors        []string                    `json:"errors,omitempty"`         // Error messages array (used by error_during_execution)
-	SessionID     string                      `json:"session_id,omitempty"`
-	DurationMs    int                         `json:"duration_ms,omitempty"`    // Total duration in milliseconds
-	DurationAPIMs int                         `json:"duration_api_ms,omitempty"` // API duration in milliseconds
-	NumTurns      int                         `json:"num_turns,omitempty"`      // Number of conversation turns
-	TotalCostUSD  float64                     `json:"total_cost_usd,omitempty"` // Total cost in USD
-	Usage         *StreamUsage                `json:"usage,omitempty"`          // Token usage breakdown
-	ModelUsage    map[string]*ModelUsageEntry `json:"modelUsage,omitempty"`     // Per-model usage breakdown (includes sub-agents)
+	Result            string                      `json:"result,omitempty"`             // Final result text
+	Error             string                      `json:"error,omitempty"`              // Error message (alternative to result)
+	Errors            []string                    `json:"errors,omitempty"`             // Error messages array (used by error_during_execution)
+	PermissionDenials []PermissionDenial          `json:"permission_denials,omitempty"` // Permissions denied during session
+	SessionID         string                      `json:"session_id,omitempty"`
+	DurationMs        int                         `json:"duration_ms,omitempty"`        // Total duration in milliseconds
+	DurationAPIMs     int                         `json:"duration_api_ms,omitempty"`    // API duration in milliseconds
+	NumTurns          int                         `json:"num_turns,omitempty"`          // Number of conversation turns
+	TotalCostUSD      float64                     `json:"total_cost_usd,omitempty"`     // Total cost in USD
+	Usage             *StreamUsage                `json:"usage,omitempty"`              // Token usage breakdown
+	ModelUsage        map[string]*ModelUsageEntry `json:"modelUsage,omitempty"`         // Per-model usage breakdown (includes sub-agents)
 }
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output

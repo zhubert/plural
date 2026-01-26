@@ -452,6 +452,78 @@ func TestStreamMessage_ErrorsArray_Multiple(t *testing.T) {
 	}
 }
 
+func TestStreamMessage_PermissionDenials(t *testing.T) {
+	// Test that permission_denials array is properly parsed from the result message
+	jsonMsg := `{
+		"type": "result",
+		"subtype": "success",
+		"permission_denials": [
+			{"tool": "Bash", "description": "rm -rf /", "reason": "destructive command"},
+			{"tool": "Edit", "description": "/etc/passwd"}
+		]
+	}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(msg.PermissionDenials) != 2 {
+		t.Fatalf("Expected 2 permission denials, got %d", len(msg.PermissionDenials))
+	}
+
+	// Verify first denial
+	if msg.PermissionDenials[0].Tool != "Bash" {
+		t.Errorf("First denial tool = %q, want %q", msg.PermissionDenials[0].Tool, "Bash")
+	}
+	if msg.PermissionDenials[0].Description != "rm -rf /" {
+		t.Errorf("First denial description = %q, want %q", msg.PermissionDenials[0].Description, "rm -rf /")
+	}
+	if msg.PermissionDenials[0].Reason != "destructive command" {
+		t.Errorf("First denial reason = %q, want %q", msg.PermissionDenials[0].Reason, "destructive command")
+	}
+
+	// Verify second denial (without reason)
+	if msg.PermissionDenials[1].Tool != "Edit" {
+		t.Errorf("Second denial tool = %q, want %q", msg.PermissionDenials[1].Tool, "Edit")
+	}
+	if msg.PermissionDenials[1].Reason != "" {
+		t.Errorf("Second denial reason should be empty, got %q", msg.PermissionDenials[1].Reason)
+	}
+}
+
+func TestStreamMessage_PermissionDenials_Empty(t *testing.T) {
+	// Test that empty permission_denials array is handled
+	jsonMsg := `{
+		"type": "result",
+		"subtype": "success",
+		"permission_denials": []
+	}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(msg.PermissionDenials) != 0 {
+		t.Errorf("Expected 0 permission denials, got %d", len(msg.PermissionDenials))
+	}
+}
+
+func TestStreamMessage_PermissionDenials_Missing(t *testing.T) {
+	// Test that missing permission_denials field results in nil/empty slice
+	jsonMsg := `{"type": "result", "subtype": "success"}`
+
+	var msg streamMessage
+	if err := json.Unmarshal([]byte(jsonMsg), &msg); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+
+	if len(msg.PermissionDenials) != 0 {
+		t.Errorf("Expected 0 permission denials for missing field, got %d", len(msg.PermissionDenials))
+	}
+}
+
 func TestStreamMessage_ModelUsage(t *testing.T) {
 	// Test that modelUsage is properly parsed from result messages
 	// This is important for getting accurate token counts when sub-agents are used
