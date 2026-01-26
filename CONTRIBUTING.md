@@ -90,14 +90,13 @@ Use `--debug` flag for verbose output.
 
 ## Releasing (Maintainers)
 
-The project uses [GoReleaser](https://goreleaser.com/) for automated releases. See the release script:
+The project uses [GoReleaser](https://goreleaser.com/) for automated releases. The release script automatically determines the next version based on the latest git tag:
 
 ```bash
-# Run release script (updates flake.nix, vendorHash, tags, pushes)
-./scripts/release.sh v0.0.X
-
-# Dry run
-./scripts/release.sh v0.0.X --dry-run
+./scripts/release.sh patch            # v0.0.3 -> v0.0.4
+./scripts/release.sh minor            # v0.0.3 -> v0.1.0
+./scripts/release.sh major            # v0.0.3 -> v1.0.0
+./scripts/release.sh patch --dry-run  # Dry run
 ```
 
 ### Distribution Channels

@@ -23,7 +23,7 @@ This integration enables features that wouldn't be possible with a tmux wrapper:
 - Git
 - GitHub CLI (`gh`) for PR creation (optional)
 
-Run `plural --check-prereqs` to verify all required tools are installed and configured correctly.
+Run `plural help` to see all available commands and options.
 
 ## Installation
 
@@ -112,10 +112,13 @@ Choose from 8 built-in themes, configure branch naming prefixes, set up desktop 
 
 ```bash
 plural                  # Start the application
-plural --check-prereqs  # Verify required tools
-plural --clear          # Remove all sessions
-plural --prune          # Clean up orphaned worktrees and processes
 plural --debug          # Enable debug logging
+plural --version        # Show version
+plural help             # Show help
+plural clean            # Remove all sessions, logs, and orphaned worktrees (prompts for confirmation)
+plural clean -y         # Clear without confirmation prompt
+plural demo list        # List available demo scenarios
+plural demo run <name>  # Run demo scenario
 ```
 
 ### Data Storage
