@@ -2589,3 +2589,57 @@ func TestStreamingState_SubagentModelReset(t *testing.T) {
 		t.Errorf("Expected empty subagent model after reset, got %q", state.CurrentSubagentModel)
 	}
 }
+
+func TestEnsureProcessRunning_ResumeFallback(t *testing.T) {
+	// Test that ensureProcessRunning creates a fresh ProcessManager with
+	// SessionStarted=false when the initial Start() fails for a resumed session.
+	runner := New("test-session", "/nonexistent/path", true, nil)
+	runner.mcpConfigPath = "/tmp/fake-mcp.json"
+
+	// Manually create a ProcessManager that is in "stopped" state to simulate
+	// a failed Start (the stopped flag prevents Start from working)
+	stoppedPM := NewProcessManager(ProcessConfig{
+		SessionID:      "test-session",
+		WorkingDir:     "/nonexistent/path",
+		SessionStarted: true,
+		MCPConfigPath:  "/tmp/fake-mcp.json",
+	}, runner.createProcessCallbacks(), runner.log)
+	stoppedPM.Stop() // Sets stopped=true, so Start() will fail
+
+	runner.mu.Lock()
+	runner.processManager = stoppedPM
+	runner.mu.Unlock()
+
+	// ensureProcessRunning should fail on the stopped PM, detect SessionStarted=true,
+	// then create a new PM with SessionStarted=false
+	err := runner.ensureProcessRunning()
+
+	// The second attempt will also fail (no claude binary), but the important thing
+	// is that a NEW ProcessManager was created (not the stopped one)
+	runner.mu.Lock()
+	pm := runner.processManager
+	runner.mu.Unlock()
+
+	// Verify the ProcessManager was replaced (not the stopped one)
+	if pm == stoppedPM {
+		t.Error("ensureProcessRunning should have created a new ProcessManager after resume failure")
+	}
+
+	// The new PM's config should have SessionStarted=false
+	if pm != nil {
+		pm.mu.Lock()
+		sessionStarted := pm.config.SessionStarted
+		forkFrom := pm.config.ForkFromSessionID
+		pm.mu.Unlock()
+
+		if sessionStarted {
+			t.Error("New ProcessManager should have SessionStarted=false after resume fallback")
+		}
+		if forkFrom != "" {
+			t.Error("New ProcessManager should have empty ForkFromSessionID after resume fallback")
+		}
+	}
+
+	// err will be non-nil because there's no claude binary, but the fallback logic ran
+	_ = err
+}

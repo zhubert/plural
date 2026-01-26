@@ -574,7 +574,18 @@ func (r *Runner) ensureProcessRunning() error {
 		copy(config.AllowedTools, r.allowedTools)
 		r.processManager.UpdateConfig(config)
 
-		return r.processManager.Start()
+		err := r.processManager.Start()
+		if err != nil && config.SessionStarted {
+			// Resume failed (e.g., session was interrupted and can't be resumed).
+			// Fall back to starting as a new session.
+			r.log.Warn("resume failed, falling back to new session", "error", err)
+			config.SessionStarted = false
+			config.ForkFromSessionID = ""
+			// Create a fresh ProcessManager since the old one may be in a bad state
+			r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
+			return r.processManager.Start()
+		}
+		return err
 	}
 
 	return nil
