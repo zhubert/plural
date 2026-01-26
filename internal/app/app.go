@@ -307,7 +307,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleModalKey(msg)
 		}
 
-		// Handle Escape to exit search mode, view changes mode, or interrupt streaming
+		// Handle Escape to exit search mode, view changes mode, log viewer, or interrupt streaming
 		if msg.String() == "esc" {
 			// First check if sidebar is in search mode
 			if m.sidebar.IsSearchMode() {
@@ -317,6 +317,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Check if view changes mode is active (regardless of focus)
 			if m.chat.IsInViewChangesMode() {
 				m.chat.ExitViewChangesMode()
+				return m, nil
+			}
+			// Check if log viewer is active (regardless of focus)
+			if m.chat.IsInLogViewerMode() {
+				m.chat.ExitLogViewerMode()
 				return m, nil
 			}
 			// Then check for streaming interruption

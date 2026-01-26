@@ -819,6 +819,98 @@ func TestViewChanges_EscapeFromSidebarFocus(t *testing.T) {
 }
 
 // =============================================================================
+// Log Viewer Tests
+// =============================================================================
+
+func TestLogViewer_EscapeClosesLogViewerNotClaude(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select session and start streaming
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+	sessionID := m.activeSession.ID
+
+	mock := factory.GetMock(sessionID)
+	if mock == nil {
+		t.Fatal("No mock runner")
+	}
+
+	// Simulate active streaming
+	m = simulateClaudeResponse(m, sessionID, textChunk("Working on it..."))
+
+	// Set up a stream cancel to detect if interrupt is triggered
+	interrupted := false
+	m.sessionState().GetOrCreate(sessionID).StreamCancel = func() {
+		interrupted = true
+	}
+
+	// Enter log viewer mode
+	logFiles := []ui.LogFile{
+		{Name: "Test Log", Path: "/tmp/test.log"},
+	}
+	m.chat.EnterLogViewerMode(logFiles)
+
+	if !m.chat.IsInLogViewerMode() {
+		t.Fatal("Expected to be in log viewer mode")
+	}
+
+	// Press Escape - should close log viewer, NOT interrupt Claude
+	m = sendKey(m, "esc")
+
+	if m.chat.IsInLogViewerMode() {
+		t.Error("Expected log viewer to be closed after Escape")
+	}
+
+	if interrupted {
+		t.Error("Escape should close log viewer, not interrupt Claude streaming")
+	}
+}
+
+func TestLogViewer_EscapeFromSidebarFocus(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session (switches focus to chat)
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+
+	// Enter log viewer mode
+	logFiles := []ui.LogFile{
+		{Name: "Test Log", Path: "/tmp/test.log"},
+	}
+	m.chat.EnterLogViewerMode(logFiles)
+
+	if !m.chat.IsInLogViewerMode() {
+		t.Fatal("Expected to be in log viewer mode")
+	}
+
+	// Switch focus to sidebar
+	m = sendKey(m, "tab")
+	if m.focus != FocusSidebar {
+		t.Fatalf("Expected sidebar focus after tab, got %v", m.focus)
+	}
+
+	// Log viewer should still be active
+	if !m.chat.IsInLogViewerMode() {
+		t.Fatal("Should still be in log viewer mode after switching to sidebar")
+	}
+
+	// Press Escape from sidebar - should close log viewer
+	m = sendKey(m, "esc")
+
+	if m.chat.IsInLogViewerMode() {
+		t.Error("Expected to exit log viewer mode after Escape from sidebar")
+	}
+}
+
+// =============================================================================
 // Fork Modal Tests
 // =============================================================================
 
