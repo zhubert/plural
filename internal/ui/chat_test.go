@@ -4357,8 +4357,8 @@ func TestRenderFinalStats(t *testing.T) {
 		},
 	}
 	result = renderFinalStats(stats)
-	if !strings.Contains(result, "100 tokens") {
-		t.Errorf("renderFinalStats should contain '100 tokens', got %q", result)
+	if !strings.Contains(result, "↓ 100") {
+		t.Errorf("renderFinalStats should contain '↓ 100', got %q", result)
 	}
 	// Single model should NOT show breakdown
 	if strings.Contains(result, "opus:") {
@@ -4374,8 +4374,8 @@ func TestRenderFinalStats(t *testing.T) {
 		},
 	}
 	result = renderFinalStats(stats)
-	if !strings.Contains(result, "231 tokens") {
-		t.Errorf("renderFinalStats should contain '231 tokens', got %q", result)
+	if !strings.Contains(result, "↓ 231") {
+		t.Errorf("renderFinalStats should contain '↓ 231', got %q", result)
 	}
 	if !strings.Contains(result, "opus:") {
 		t.Errorf("Multi-model should show opus breakdown, got %q", result)
@@ -4466,8 +4466,8 @@ func TestRenderFinalStats_WithTiming(t *testing.T) {
 		DurationMs:   90000,
 	}
 	result = renderFinalStats(stats)
-	if !strings.Contains(result, "500 tokens") {
-		t.Errorf("renderFinalStats should contain '500 tokens', got %q", result)
+	if !strings.Contains(result, "500") {
+		t.Errorf("renderFinalStats should contain '500', got %q", result)
 	}
 	if !strings.Contains(result, "1m30s") {
 		t.Errorf("renderFinalStats should contain '1m30s', got %q", result)
@@ -4487,8 +4487,8 @@ func TestRenderFinalStats_WithTiming(t *testing.T) {
 		},
 	}
 	result = renderFinalStats(stats)
-	if !strings.Contains(result, "231 tokens") {
-		t.Errorf("renderFinalStats should contain '231 tokens', got %q", result)
+	if !strings.Contains(result, "231") {
+		t.Errorf("renderFinalStats should contain '231', got %q", result)
 	}
 	if !strings.Contains(result, "opus:") {
 		t.Errorf("renderFinalStats should contain model breakdown, got %q", result)
@@ -4518,11 +4518,96 @@ func TestRenderCompletionFlash_WithTiming(t *testing.T) {
 		DurationMs:   45000,
 	}
 	result = renderCompletionFlash(0, stats)
-	if !strings.Contains(result, "100 tokens") {
-		t.Errorf("Completion flash should contain '100 tokens', got %q", result)
+	if !strings.Contains(result, "100") {
+		t.Errorf("Completion flash should contain '100', got %q", result)
 	}
 	if !strings.Contains(result, "45s") {
 		t.Errorf("Completion flash should contain '45s', got %q", result)
+	}
+}
+
+func TestRenderFinalStats_WithCacheEfficiency(t *testing.T) {
+	// Test with cache read (high cache hit rate)
+	stats := &claude.StreamStats{
+		OutputTokens:        100,
+		CacheReadTokens:     80000,  // 80k tokens read from cache
+		CacheCreationTokens: 10000,  // 10k tokens created
+		InputTokens:         10000,  // 10k direct input
+	}
+	result := renderFinalStats(stats)
+	// Total input = 80000 + 10000 + 10000 = 100000
+	// Cache hit rate = 80000 / 100000 = 80%
+	if !strings.Contains(result, "cache: 80%") {
+		t.Errorf("renderFinalStats should show 80%% cache rate, got %q", result)
+	}
+
+	// Test with no cache usage (should not show cache)
+	stats = &claude.StreamStats{
+		OutputTokens: 100,
+		InputTokens:  10000,
+	}
+	result = renderFinalStats(stats)
+	if strings.Contains(result, "cache:") {
+		t.Errorf("renderFinalStats should not show cache when no cache used, got %q", result)
+	}
+
+	// Test with only cache creation (0% hit rate)
+	stats = &claude.StreamStats{
+		OutputTokens:        100,
+		CacheCreationTokens: 20000,
+		InputTokens:         10000,
+	}
+	result = renderFinalStats(stats)
+	// Total input = 0 + 20000 + 10000 = 30000
+	// Cache hit rate = 0 / 30000 = 0%
+	if !strings.Contains(result, "cache: 0%") {
+		t.Errorf("renderFinalStats should show 0%% cache rate when no cache hits, got %q", result)
+	}
+
+	// Test with cache and multiple models
+	stats = &claude.StreamStats{
+		OutputTokens:        231,
+		CacheReadTokens:     100000,
+		CacheCreationTokens: 20000,
+		InputTokens:         5000,
+		ByModel: []claude.ModelTokenCount{
+			{Model: "claude-opus-4-5-20251101", OutputTokens: 207},
+			{Model: "claude-haiku-4-5-20251001", OutputTokens: 24},
+		},
+	}
+	result = renderFinalStats(stats)
+	// Total input = 100000 + 20000 + 5000 = 125000
+	// Cache hit rate = 100000 / 125000 = 80%
+	if !strings.Contains(result, "cache: 80%") {
+		t.Errorf("renderFinalStats should show 80%% cache rate, got %q", result)
+	}
+	if !strings.Contains(result, "opus:") {
+		t.Errorf("renderFinalStats should show model breakdown, got %q", result)
+	}
+}
+
+func TestRenderStreamingStatus_WithCacheEfficiency(t *testing.T) {
+	// Test with cache read tokens during streaming
+	stats := &claude.StreamStats{
+		OutputTokens:    100,
+		CacheReadTokens: 50000,
+	}
+	result := renderStreamingStatus("Thinking", 0, 5*time.Second, stats, "")
+	// formatTokenCount formats 50000 as "50.0k"
+	if !strings.Contains(result, "cache: 50.0k") {
+		t.Errorf("renderStreamingStatus should show cache tokens, got %q", result)
+	}
+	if !strings.Contains(result, "100 tokens") {
+		t.Errorf("renderStreamingStatus should show output tokens, got %q", result)
+	}
+
+	// Test without cache (should not show cache)
+	stats = &claude.StreamStats{
+		OutputTokens: 100,
+	}
+	result = renderStreamingStatus("Thinking", 0, 5*time.Second, stats, "")
+	if strings.Contains(result, "cache:") {
+		t.Errorf("renderStreamingStatus should not show cache when no cache tokens, got %q", result)
 	}
 }
 

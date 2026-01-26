@@ -113,6 +113,11 @@ type TokenTracking struct {
 	AccumulatedOutput int    // Accumulated output tokens from completed API calls
 	LastMessageID     string // Track the message ID to detect new API calls
 	LastMessageTokens int    // Last seen output tokens for the current message ID
+
+	// Cache efficiency tracking (updated from streaming messages)
+	CacheCreation int // Tokens written to cache
+	CacheRead     int // Tokens read from cache (cache hits)
+	Input         int // Non-cached input tokens
 }
 
 // Reset resets the token tracking for a new request.
@@ -120,6 +125,9 @@ func (t *TokenTracking) Reset() {
 	t.AccumulatedOutput = 0
 	t.LastMessageID = ""
 	t.LastMessageTokens = 0
+	t.CacheCreation = 0
+	t.CacheRead = 0
+	t.Input = 0
 }
 
 // CurrentTotal returns the total output tokens (accumulated + current message).

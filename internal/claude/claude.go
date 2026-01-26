@@ -451,11 +451,14 @@ type ModelTokenCount struct {
 
 // StreamStats represents streaming statistics for display in the UI
 type StreamStats struct {
-	OutputTokens  int               // Total output tokens generated (sum of all models)
-	TotalCostUSD  float64           // Total cost in USD
-	ByModel       []ModelTokenCount // Per-model breakdown (only populated from result message)
-	DurationMs    int               // Total request duration in milliseconds (from result message)
-	DurationAPIMs int               // API-only duration in milliseconds (from result message)
+	OutputTokens        int               // Total output tokens generated (sum of all models)
+	TotalCostUSD        float64           // Total cost in USD
+	ByModel             []ModelTokenCount // Per-model breakdown (only populated from result message)
+	DurationMs          int               // Total request duration in milliseconds (from result message)
+	DurationAPIMs       int               // API-only duration in milliseconds (from result message)
+	CacheCreationTokens int               // Tokens written to cache
+	CacheReadTokens     int               // Tokens read from cache (cache hits)
+	InputTokens         int               // Non-cached input tokens
 }
 
 // ToolResultInfo contains details about the result of a tool execution.
@@ -727,19 +730,27 @@ func (r *Runner) handleProcessLine(line string) {
 			// Update the current message's token count (this is cumulative within the API call)
 			r.tokens.LastMessageTokens = msg.Message.Usage.OutputTokens
 
+			// Update cache efficiency stats (these are cumulative values)
+			r.tokens.CacheCreation = msg.Message.Usage.CacheCreationInputTokens
+			r.tokens.CacheRead = msg.Message.Usage.CacheReadInputTokens
+			r.tokens.Input = msg.Message.Usage.InputTokens
+
 			// The displayed total is accumulated tokens from completed API calls
 			// plus the current API call's running token count
 			currentTotal := r.tokens.CurrentTotal()
 
 			r.mu.Unlock()
 
-			// Emit stream stats with the accumulated token count
+			// Emit stream stats with the accumulated token count and cache stats
 			if ch != nil {
 				r.sendChunkWithTimeout(ch, ResponseChunk{
 					Type: ChunkTypeStreamStats,
 					Stats: &StreamStats{
-						OutputTokens: currentTotal,
-						TotalCostUSD: 0, // Not available during streaming, only on result
+						OutputTokens:        currentTotal,
+						TotalCostUSD:        0, // Not available during streaming, only on result
+						CacheCreationTokens: r.tokens.CacheCreation,
+						CacheReadTokens:     r.tokens.CacheRead,
+						InputTokens:         r.tokens.Input,
 					},
 				})
 			}
@@ -834,19 +845,32 @@ func (r *Runner) handleProcessLine(line string) {
 				}
 
 				if totalOutputTokens > 0 || msg.TotalCostUSD > 0 || msg.DurationMs > 0 {
+					// Get cache stats from result message (prefer result over streaming accumulator)
+					var cacheCreation, cacheRead, inputTokens int
+					if msg.Usage != nil {
+						cacheCreation = msg.Usage.CacheCreationInputTokens
+						cacheRead = msg.Usage.CacheReadInputTokens
+						inputTokens = msg.Usage.InputTokens
+					}
+
 					stats := &StreamStats{
-						OutputTokens:  totalOutputTokens,
-						TotalCostUSD:  msg.TotalCostUSD,
-						ByModel:       byModel,
-						DurationMs:    msg.DurationMs,
-						DurationAPIMs: msg.DurationAPIMs,
+						OutputTokens:        totalOutputTokens,
+						TotalCostUSD:        msg.TotalCostUSD,
+						ByModel:             byModel,
+						DurationMs:          msg.DurationMs,
+						DurationAPIMs:       msg.DurationAPIMs,
+						CacheCreationTokens: cacheCreation,
+						CacheReadTokens:     cacheRead,
+						InputTokens:         inputTokens,
 					}
 					r.log.Debug("emitting final stream stats",
 						"outputTokens", stats.OutputTokens,
 						"totalCostUSD", stats.TotalCostUSD,
 						"modelCount", len(byModel),
 						"durationMs", stats.DurationMs,
-						"durationAPIMs", stats.DurationAPIMs)
+						"durationAPIMs", stats.DurationAPIMs,
+						"cacheRead", cacheRead,
+						"cacheCreation", cacheCreation)
 					select {
 					case ch <- ResponseChunk{Type: ChunkTypeStreamStats, Stats: stats}:
 					default:

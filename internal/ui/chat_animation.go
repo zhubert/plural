@@ -115,8 +115,8 @@ func renderSpinner(verb string, frameIdx int) string {
 }
 
 // renderStreamingStatus renders the full status line during streaming.
-// Format: ✺ Thinking... (esc to interrupt • 12s • ↓ 342 tokens)
-// Or with subagent: ✺ Thinking... [haiku working] (esc to interrupt • 12s • ↓ 342 tokens)
+// Format: ✺ Thinking... (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
+// Or with subagent: ✺ Thinking... [haiku working] (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
 func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, stats *pclaude.StreamStats, subagentModel string) string {
 	// Get the current spinner frame
 	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
@@ -145,13 +145,18 @@ func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, sta
 		verbPart += " " + subagentStyle.Render("["+shortName+" working]")
 	}
 
-	// Build metadata parts: (esc to interrupt • 12s • ↓ 342 tokens)
+	// Build metadata parts: (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
 	var parts []string
 	parts = append(parts, "esc to interrupt")
 	parts = append(parts, formatElapsed(elapsed))
 
 	if stats != nil && stats.OutputTokens > 0 {
 		parts = append(parts, fmt.Sprintf("↓ %s tokens", formatTokenCount(stats.OutputTokens)))
+	}
+
+	// Show cache read tokens if significant cache usage (indicates cache hits)
+	if stats != nil && stats.CacheReadTokens > 0 {
+		parts = append(parts, fmt.Sprintf("cache: %s", formatTokenCount(stats.CacheReadTokens)))
 	}
 
 	meta := metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
@@ -234,7 +239,7 @@ func renderCompletionFlash(frame int, stats *pclaude.StreamStats) string {
 	}
 }
 
-// renderFinalStats renders the final token statistics with model breakdown and timing
+// renderFinalStats renders the final token statistics with model breakdown, cache efficiency, and timing
 func renderFinalStats(stats *pclaude.StreamStats) string {
 	if stats == nil || (stats.OutputTokens == 0 && stats.DurationMs == 0) {
 		return ""
@@ -246,21 +251,27 @@ func renderFinalStats(stats *pclaude.StreamStats) string {
 
 	// Add token stats if available
 	if stats.OutputTokens > 0 {
-		// If we have a breakdown by model and more than one model was used, show it
-		if len(stats.ByModel) > 1 {
-			var modelParts []string
-			for _, m := range stats.ByModel {
-				// Extract short model name (e.g., "opus" from "claude-opus-4-5-20251101")
-				shortName := shortModelName(m.Model)
-				modelParts = append(modelParts, fmt.Sprintf("%s: %s", shortName, formatTokenCount(m.OutputTokens)))
-			}
-			parts = append(parts, fmt.Sprintf("↓ %s tokens: %s",
-				formatTokenCount(stats.OutputTokens),
-				strings.Join(modelParts, ", ")))
-		} else {
-			// Single model or no breakdown - just show total
-			parts = append(parts, fmt.Sprintf("↓ %s tokens", formatTokenCount(stats.OutputTokens)))
+		parts = append(parts, fmt.Sprintf("↓ %s", formatTokenCount(stats.OutputTokens)))
+	}
+
+	// Cache efficiency percentage if cache was used
+	if stats.CacheReadTokens > 0 || stats.CacheCreationTokens > 0 {
+		totalInput := stats.InputTokens + stats.CacheReadTokens + stats.CacheCreationTokens
+		if totalInput > 0 {
+			hitRate := float64(stats.CacheReadTokens) / float64(totalInput) * 100
+			parts = append(parts, fmt.Sprintf("cache: %.0f%%", hitRate))
 		}
+	}
+
+	// If we have a breakdown by model and more than one model was used, show it
+	if len(stats.ByModel) > 1 {
+		var modelParts []string
+		for _, m := range stats.ByModel {
+			// Extract short model name (e.g., "opus" from "claude-opus-4-5-20251101")
+			shortName := shortModelName(m.Model)
+			modelParts = append(modelParts, fmt.Sprintf("%s: %s", shortName, formatTokenCount(m.OutputTokens)))
+		}
+		parts = append(parts, strings.Join(modelParts, ", "))
 	}
 
 	// Add timing if available
