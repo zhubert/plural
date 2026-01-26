@@ -21,14 +21,16 @@ Plural is a TUI application for managing multiple concurrent Claude Code session
 
 ```bash
 go build -o plural .     # Build
-./plural                 # Run
+./plural                 # Run TUI (default)
 go test ./...            # Test
 
-# CLI flags
-./plural --check-prereqs # Validate required tools
-./plural --clear         # Clear all sessions and log files
-./plural --prune         # Remove orphaned worktrees
+# CLI commands and flags
+./plural help            # Show help
+./plural clean           # Clear sessions, logs, and orphaned worktrees (prompts for confirmation)
+./plural clean -y        # Clear without confirmation prompt
+./plural demo list       # List available demo scenarios
 ./plural --debug         # Enable debug logging
+./plural --version       # Show version
 ```
 
 ## Debug Logs
@@ -54,7 +56,12 @@ Log levels: Debug, Info, Warn, Error. Default shows Info+. Use `--debug` for ver
 ### Package Structure
 
 ```
-main.go                    Entry point, Bubble Tea setup, mcp-server/demo subcommands
+main.go                    Entry point, calls cmd.Execute()
+cmd/                       CLI commands (Cobra)
+├── root.go                Root command, TUI startup, global flags
+├── clean.go               "plural clean" - session/worktree cleanup
+├── mcp_server.go          "plural mcp-server" - internal MCP server
+└── demo.go                "plural demo" - demo generation subcommands
 
 internal/
 ├── app/                   Main Bubble Tea model
