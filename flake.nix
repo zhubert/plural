@@ -10,7 +10,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        version = "0.2.4";
+        version = "0.3.0";
       in
       {
         packages = {
@@ -19,7 +19,7 @@
             inherit version;
             src = ./.;
 
-            vendorHash = "sha256-6OQZVy3MHBITk0GWVx2t0XKz39BV3NscGmMVwhcK4oQ=";
+            vendorHash = "sha256-C4jWHluFoG9IFGhSDWAQ5Q3v2woZ2Xk7vsEM49IYb7s=";
 
             # Tests require filesystem access (home directory) which isn't available in Nix sandbox
             doCheck = false;
