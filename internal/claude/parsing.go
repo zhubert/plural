@@ -112,29 +112,33 @@ type streamEvent struct {
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output
 // and returns zero or more ResponseChunks representing the message content.
-func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
+// When hasStreamEvents is true, text content from "assistant" messages is skipped
+// because it duplicates content already delivered via stream_event deltas.
+func parseStreamMessage(line string, hasStreamEvents bool, log *slog.Logger) []ResponseChunk {
 	line = strings.TrimSpace(line)
 	if line == "" {
+		return nil
+	}
+
+	// Skip lines that aren't JSON objects. Claude CLI with --verbose may output
+	// non-JSON informational lines to stdout that we should silently ignore.
+	if !strings.HasPrefix(line, "{") {
+		log.Debug("skipping non-JSON line from Claude CLI", "line", truncateForLog(line))
 		return nil
 	}
 
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
 		log.Warn("failed to parse stream message", "error", err, "line", truncateForLog(line))
-		// Show user-friendly error requesting they report the issue
-		return []ResponseChunk{{
-			Type:    ChunkTypeText,
-			Content: "\n[Plural bug: failed to parse Claude response. Please open an issue at https://github.com/zhubert/plural/issues with your /tmp/plural-debug.log]\n",
-		}}
+		// Log the error but don't show it to the user - this can happen with
+		// unexpected output from Claude CLI (e.g., verbose messages, warnings)
+		return nil
 	}
 
-	// If this looks like a stream-json message but we don't handle it, request a bug report
-	if msg.Type == "" && strings.HasPrefix(line, "{") {
+	// If this looks like a stream-json message but we don't handle it, log and skip
+	if msg.Type == "" {
 		log.Warn("unrecognized JSON message type", "line", truncateForLog(line))
-		return []ResponseChunk{{
-			Type:    ChunkTypeText,
-			Content: "\n[Plural bug: unrecognized message format. Please open an issue at https://github.com/zhubert/plural/issues with your /tmp/plural-debug.log]\n",
-		}}
+		return nil
 	}
 
 	var chunks []ResponseChunk
@@ -158,6 +162,13 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 		for _, content := range msg.Message.Content {
 			switch content.Type {
 			case "text":
+				// When stream events are active (--include-partial-messages), text content
+				// was already delivered incrementally via content_block_delta events.
+				// Skip it here to avoid duplication.
+				if hasStreamEvents {
+					log.Debug("skipping assistant text (already streamed via deltas)", "len", len(content.Text))
+					continue
+				}
 				if content.Text != "" {
 					chunks = append(chunks, ResponseChunk{
 						Type:    ChunkTypeText,

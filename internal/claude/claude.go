@@ -608,7 +608,10 @@ func (r *Runner) handleProcessLine(line string) {
 	}
 
 	// Parse the JSON message
-	chunks := parseStreamMessage(line, r.log)
+	// hasStreamEvents is true because we always use --include-partial-messages,
+	// which means text content arrives via stream_event deltas. The full assistant
+	// message text should be skipped to avoid duplication.
+	chunks := parseStreamMessage(line, true, r.log)
 
 	// Get the current response channel (nil if already closed)
 	r.mu.RLock()

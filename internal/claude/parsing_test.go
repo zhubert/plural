@@ -12,7 +12,7 @@ func TestParseStreamEvent_TextDelta(t *testing.T) {
 	// Test parsing a content_block_delta with text
 	line := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	if len(chunks) != 1 {
 		t.Fatalf("expected 1 chunk, got %d", len(chunks))
@@ -33,7 +33,7 @@ func TestParseStreamEvent_MessageStart(t *testing.T) {
 	// Test parsing a message_start event (should not produce chunks, just logs)
 	line := `{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_123","usage":{"output_tokens":5}}}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// message_start doesn't produce content chunks
 	if len(chunks) != 0 {
@@ -47,7 +47,7 @@ func TestParseStreamEvent_MessageDelta(t *testing.T) {
 	// Test parsing a message_delta event with usage data
 	line := `{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":25}}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// message_delta doesn't produce content chunks (token handling is in claude.go)
 	if len(chunks) != 0 {
@@ -61,7 +61,7 @@ func TestParseStreamEvent_ContentBlockStart(t *testing.T) {
 	// Test parsing a content_block_start for text
 	line := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// content_block_start doesn't produce content chunks
 	if len(chunks) != 0 {
@@ -75,7 +75,7 @@ func TestParseStreamEvent_ContentBlockStop(t *testing.T) {
 	// Test parsing a content_block_stop event
 	line := `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// content_block_stop doesn't produce content chunks
 	if len(chunks) != 0 {
@@ -89,7 +89,7 @@ func TestParseStreamEvent_MessageStop(t *testing.T) {
 	// Test parsing a message_stop event
 	line := `{"type":"stream_event","event":{"type":"message_stop"}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// message_stop doesn't produce content chunks
 	if len(chunks) != 0 {
@@ -103,7 +103,7 @@ func TestParseStreamEvent_InputJSONDelta(t *testing.T) {
 	// Test parsing an input_json_delta (for tool use streaming)
 	line := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"file_path\":"}}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// input_json_delta doesn't produce content chunks (we wait for complete tool info)
 	if len(chunks) != 0 {
@@ -117,7 +117,7 @@ func TestParseStreamEvent_ToolUseStart(t *testing.T) {
 	// Test parsing a content_block_start for tool_use
 	line := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_123","name":"Read"}}}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	// content_block_start for tool_use doesn't produce chunks (we wait for complete assistant message)
 	if len(chunks) != 0 {
@@ -137,7 +137,7 @@ func TestParseStreamEvent_MultipleTextDeltas(t *testing.T) {
 
 	var allChunks []ResponseChunk
 	for _, line := range lines {
-		chunks := parseStreamMessage(line, log)
+		chunks := parseStreamMessage(line, false, log)
 		allChunks = append(allChunks, chunks...)
 	}
 
@@ -159,7 +159,7 @@ func TestParseStreamEvent_NilEvent(t *testing.T) {
 	// Test with stream_event type but null event field
 	line := `{"type":"stream_event","event":null}`
 
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	if len(chunks) != 0 {
 		t.Errorf("expected 0 chunks for null event, got %d", len(chunks))
@@ -173,9 +173,127 @@ func TestParseStreamEvent_MessageDeltaNilDelta(t *testing.T) {
 	line := `{"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":25}}}`
 
 	// Should not panic
-	chunks := parseStreamMessage(line, log)
+	chunks := parseStreamMessage(line, false, log)
 
 	if len(chunks) != 0 {
 		t.Errorf("expected 0 chunks, got %d", len(chunks))
+	}
+}
+
+func TestParseStreamMessage_NonJSONLineSkipped(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Non-JSON lines (e.g., verbose output from Claude CLI) should be silently skipped
+	lines := []string{
+		"Loading configuration...",
+		"Warning: some deprecation notice",
+		"  indented non-JSON line",
+	}
+
+	for _, line := range lines {
+		chunks := parseStreamMessage(line, false, log)
+		if len(chunks) != 0 {
+			t.Errorf("expected 0 chunks for non-JSON line %q, got %d", line, len(chunks))
+		}
+	}
+}
+
+func TestParseStreamMessage_InvalidJSONSkipped(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Malformed JSON that starts with '{' should be silently skipped
+	chunks := parseStreamMessage("{malformed json}", false, log)
+	if len(chunks) != 0 {
+		t.Errorf("expected 0 chunks for malformed JSON, got %d", len(chunks))
+	}
+}
+
+func TestParseStreamMessage_EmptyTypeSkipped(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Valid JSON but with empty type should be silently skipped
+	chunks := parseStreamMessage(`{"data":"something"}`, false, log)
+	if len(chunks) != 0 {
+		t.Errorf("expected 0 chunks for empty type JSON, got %d", len(chunks))
+	}
+}
+
+func TestParseStreamMessage_AssistantTextSkippedWithStreamEvents(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// When hasStreamEvents is true, assistant text should be skipped
+	// (it was already delivered via stream_event deltas)
+	msg := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello, world!"}]}}`
+	chunks := parseStreamMessage(msg, true, log)
+
+	// No text chunks should be produced
+	if len(chunks) != 0 {
+		t.Errorf("expected 0 chunks when hasStreamEvents=true, got %d", len(chunks))
+	}
+}
+
+func TestParseStreamMessage_AssistantTextEmittedWithoutStreamEvents(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// When hasStreamEvents is false, assistant text should be emitted
+	msg := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello, world!"}]}}`
+	chunks := parseStreamMessage(msg, false, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk when hasStreamEvents=false, got %d", len(chunks))
+	}
+
+	if chunks[0].Type != ChunkTypeText {
+		t.Errorf("expected ChunkTypeText, got %v", chunks[0].Type)
+	}
+
+	if chunks[0].Content != "Hello, world!" {
+		t.Errorf("expected 'Hello, world!', got %q", chunks[0].Content)
+	}
+}
+
+func TestParseStreamMessage_AssistantToolUseNotSkippedWithStreamEvents(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Tool uses should still be emitted even when hasStreamEvents=true
+	msg := `{"type":"assistant","message":{"content":[{"type":"text","text":"Let me read that file."},{"type":"tool_use","id":"toolu_123","name":"Read","input":{"file_path":"/path/to/file.go"}}]}}`
+	chunks := parseStreamMessage(msg, true, log)
+
+	// Only tool use chunk should be produced, text is skipped
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk (tool_use only), got %d", len(chunks))
+	}
+
+	if chunks[0].Type != ChunkTypeToolUse {
+		t.Errorf("expected ChunkTypeToolUse, got %v", chunks[0].Type)
+	}
+
+	if chunks[0].ToolName != "Read" {
+		t.Errorf("expected tool name 'Read', got %q", chunks[0].ToolName)
+	}
+}
+
+func TestParseStreamMessage_StreamEventTextDeltaUnaffected(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	// Stream events should produce text chunks regardless of hasStreamEvents flag
+	line := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}`
+
+	// With hasStreamEvents=true
+	chunks := parseStreamMessage(line, true, log)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk with hasStreamEvents=true, got %d", len(chunks))
+	}
+	if chunks[0].Content != "Hello" {
+		t.Errorf("expected 'Hello', got %q", chunks[0].Content)
+	}
+
+	// With hasStreamEvents=false
+	chunks = parseStreamMessage(line, false, log)
+	if len(chunks) != 1 {
+		t.Fatalf("expected 1 chunk with hasStreamEvents=false, got %d", len(chunks))
+	}
+	if chunks[0].Content != "Hello" {
+		t.Errorf("expected 'Hello', got %q", chunks[0].Content)
 	}
 }
