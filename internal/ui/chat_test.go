@@ -1047,7 +1047,7 @@ func TestChat_ToolUseMarkers(t *testing.T) {
 	}
 
 	// Mark complete by ID
-	chat.MarkToolUseComplete("tool-123")
+	chat.MarkToolUseComplete("tool-123", nil)
 
 	rollup = chat.GetToolUseRollup()
 	if !rollup.Items[0].Complete {
@@ -1122,7 +1122,7 @@ func TestChat_ToolUseRollupMultipleToolUses(t *testing.T) {
 	}
 
 	// Mark tool-2 as complete (out of order to test ID matching)
-	chat.MarkToolUseComplete("tool-2")
+	chat.MarkToolUseComplete("tool-2", nil)
 	if !rollup.Items[1].Complete {
 		t.Error("Expected tool-2 (file2.go) to be complete")
 	}
@@ -1131,7 +1131,7 @@ func TestChat_ToolUseRollupMultipleToolUses(t *testing.T) {
 	}
 
 	// Mark tool-1 as complete
-	chat.MarkToolUseComplete("tool-1")
+	chat.MarkToolUseComplete("tool-1", nil)
 	if !rollup.Items[0].Complete {
 		t.Error("Expected tool-1 (file1.go) to be complete")
 	}
@@ -1337,7 +1337,7 @@ func TestChat_ToolUseFlushedNewlineSeparation(t *testing.T) {
 	// Simulate a sequence: tool use runs, then text follows
 	// This is what happens when Claude does a search, then comments on results
 	chat.AppendToolUse("Grep", "HighlightDiff", "tool-1")
-	chat.MarkToolUseComplete("tool-1")
+	chat.MarkToolUseComplete("tool-1", nil)
 
 	// Now text arrives - this triggers flushToolUseRollup
 	chat.AppendStreaming("Yes, there is syntax highlighting for diffs")
@@ -1374,7 +1374,7 @@ func TestChat_ToolUseFlushBlankLineBeforeToolUses(t *testing.T) {
 
 	// Then Claude does tool uses (these go into the rollup)
 	chat.AppendToolUse("Grep", "somePattern", "tool-1")
-	chat.MarkToolUseComplete("tool-1")
+	chat.MarkToolUseComplete("tool-1", nil)
 
 	// Now more text arrives - this triggers flushToolUseRollup
 	chat.AppendStreaming("Found it!")
@@ -1480,7 +1480,7 @@ func TestChat_ToolUseCompleteByID(t *testing.T) {
 	}
 
 	// Results arrive out of order: file2 completes first
-	chat.MarkToolUseComplete("tool-bbb")
+	chat.MarkToolUseComplete("tool-bbb", nil)
 	if !rollup.Items[1].Complete {
 		t.Error("Expected tool-bbb (file2.go) to be marked complete")
 	}
@@ -1489,7 +1489,7 @@ func TestChat_ToolUseCompleteByID(t *testing.T) {
 	}
 
 	// file3 completes second
-	chat.MarkToolUseComplete("tool-ccc")
+	chat.MarkToolUseComplete("tool-ccc", nil)
 	if !rollup.Items[2].Complete {
 		t.Error("Expected tool-ccc (file3.go) to be marked complete")
 	}
@@ -1498,7 +1498,7 @@ func TestChat_ToolUseCompleteByID(t *testing.T) {
 	}
 
 	// file1 completes last
-	chat.MarkToolUseComplete("tool-aaa")
+	chat.MarkToolUseComplete("tool-aaa", nil)
 	if !rollup.Items[0].Complete {
 		t.Error("Expected tool-aaa (file1.go) to be marked complete")
 	}
@@ -1525,7 +1525,7 @@ func TestChat_ToolUseCompleteUnknownIDFallback(t *testing.T) {
 	rollup := chat.GetToolUseRollup()
 
 	// Complete with empty ID - should mark first incomplete
-	chat.MarkToolUseComplete("")
+	chat.MarkToolUseComplete("", nil)
 	if !rollup.Items[0].Complete {
 		t.Error("Expected first item to be complete (fallback behavior)")
 	}
@@ -1534,9 +1534,72 @@ func TestChat_ToolUseCompleteUnknownIDFallback(t *testing.T) {
 	}
 
 	// Complete with unknown ID - should mark first incomplete (which is now item 1)
-	chat.MarkToolUseComplete("unknown-id")
+	chat.MarkToolUseComplete("unknown-id", nil)
 	if !rollup.Items[1].Complete {
 		t.Error("Expected second item to be complete (fallback behavior)")
+	}
+}
+
+func TestChat_ToolUseWithResultInfo(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 40)
+	chat.SetSession("test", nil)
+
+	// Add a tool use
+	chat.AppendToolUse("Read", "file.go", "tool-123")
+
+	// Mark it complete with result info
+	resultInfo := &claude.ToolResultInfo{
+		FilePath:   "/path/to/file.go",
+		NumLines:   45,
+		StartLine:  1,
+		TotalLines: 138,
+	}
+	chat.MarkToolUseComplete("tool-123", resultInfo)
+
+	// Check that the rollup has the result info
+	rollup := chat.GetToolUseRollup()
+	if rollup == nil {
+		t.Fatal("Expected rollup to exist")
+	}
+	if len(rollup.Items) != 1 {
+		t.Fatalf("Expected 1 item, got %d", len(rollup.Items))
+	}
+	if rollup.Items[0].ResultInfo == nil {
+		t.Fatal("Expected ResultInfo to be set")
+	}
+	if rollup.Items[0].ResultInfo.NumLines != 45 {
+		t.Errorf("Expected NumLines 45, got %d", rollup.Items[0].ResultInfo.NumLines)
+	}
+
+	// Render and check for the result info in output
+	rendered := chat.renderToolUseRollup()
+	if !strings.Contains(rendered, "→ lines 1-45 of 138") {
+		t.Errorf("Expected rendered output to contain '→ lines 1-45 of 138', got: %s", rendered)
+	}
+}
+
+func TestChat_ToolUseFlushWithResultInfo(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 40)
+	chat.SetSession("test", nil)
+
+	// Add a tool use
+	chat.AppendToolUse("Bash", "ls -la", "tool-456")
+
+	// Mark it complete with result info (exit code 0)
+	exitCode := 0
+	resultInfo := &claude.ToolResultInfo{
+		ExitCode: &exitCode,
+	}
+	chat.MarkToolUseComplete("tool-456", resultInfo)
+
+	// Now append text to trigger flush
+	chat.AppendStreaming("Here's the output:")
+
+	// The streaming content should include the result info
+	if !strings.Contains(chat.streaming, "→ success") {
+		t.Errorf("Expected streaming to contain '→ success', got: %s", chat.streaming)
 	}
 }
 

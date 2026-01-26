@@ -22,10 +22,11 @@ const ToolUseComplete = "●"
 
 // ToolUseItem represents a single tool use for rollup tracking
 type ToolUseItem struct {
-	ToolName  string // e.g., "Read", "Edit", "Bash"
-	ToolInput string // Brief description of tool parameters
-	ToolUseID string // Unique ID for matching tool_use to tool_result
-	Complete  bool   // Whether the tool has completed
+	ToolName   string                  // e.g., "Read", "Edit", "Bash"
+	ToolInput  string                  // Brief description of tool parameters
+	ToolUseID  string                  // Unique ID for matching tool_use to tool_result
+	Complete   bool                    // Whether the tool has completed
+	ResultInfo *pclaude.ToolResultInfo // Rich details about the result (populated on completion)
 }
 
 // ToolUseRollup tracks consecutive tool uses for collapsible display
@@ -338,7 +339,8 @@ func (c *Chat) AppendToolUse(toolName, toolInput, toolUseID string) {
 
 // MarkToolUseComplete marks the tool use with the given ID as complete.
 // If the ID is empty or not found, falls back to marking the last incomplete tool use.
-func (c *Chat) MarkToolUseComplete(toolUseID string) {
+// The optional resultInfo provides rich details about the tool execution result.
+func (c *Chat) MarkToolUseComplete(toolUseID string, resultInfo *pclaude.ToolResultInfo) {
 	if c.toolUseRollup == nil || len(c.toolUseRollup.Items) == 0 {
 		return
 	}
@@ -348,6 +350,7 @@ func (c *Chat) MarkToolUseComplete(toolUseID string) {
 		for i := range c.toolUseRollup.Items {
 			if c.toolUseRollup.Items[i].ToolUseID == toolUseID {
 				c.toolUseRollup.Items[i].Complete = true
+				c.toolUseRollup.Items[i].ResultInfo = resultInfo
 				c.updateContent()
 				return
 			}
@@ -359,6 +362,7 @@ func (c *Chat) MarkToolUseComplete(toolUseID string) {
 	for i := range c.toolUseRollup.Items {
 		if !c.toolUseRollup.Items[i].Complete {
 			c.toolUseRollup.Items[i].Complete = true
+			c.toolUseRollup.Items[i].ResultInfo = resultInfo
 			c.updateContent()
 			return
 		}
@@ -380,17 +384,8 @@ func (c *Chat) flushToolUseRollup() {
 
 	// Render all tool uses in the rollup to streaming content
 	for _, item := range c.toolUseRollup.Items {
-		marker := ToolUseInProgress
-		if item.Complete {
-			marker = ToolUseComplete
-		}
-		icon := GetToolIcon(item.ToolName)
-		line := marker + " " + icon + "(" + item.ToolName
-		if item.ToolInput != "" {
-			line += ": " + item.ToolInput
-		}
-		line += ")\n"
-		c.streaming += line
+		line := formatToolUseLine(item)
+		c.streaming += line + "\n"
 	}
 
 	// Add extra newline after tool uses for visual separation from following text
@@ -400,6 +395,31 @@ func (c *Chat) flushToolUseRollup() {
 	// Clear the rollup - tool uses are now in streaming content
 	c.toolUseRollup = nil
 	c.lastToolUsePos = -1
+}
+
+// formatToolUseLine formats a single tool use line with marker, icon, name, input, and result info.
+// Returns the line without a trailing newline.
+func formatToolUseLine(item ToolUseItem) string {
+	marker := ToolUseInProgress
+	if item.Complete {
+		marker = ToolUseComplete
+	}
+	icon := GetToolIcon(item.ToolName)
+	line := marker + " " + icon + "(" + item.ToolName
+	if item.ToolInput != "" {
+		line += ": " + item.ToolInput
+	}
+	line += ")"
+
+	// Add result info for completed tool uses
+	if item.Complete && item.ResultInfo != nil {
+		summary := item.ResultInfo.Summary()
+		if summary != "" {
+			line += " → " + summary
+		}
+	}
+
+	return line
 }
 
 // FinishStreaming completes the streaming and adds to messages
@@ -829,16 +849,7 @@ func (c *Chat) renderToolUseRollup() string {
 
 	// Always show the most recent (last) tool use
 	lastItem := c.toolUseRollup.Items[len(c.toolUseRollup.Items)-1]
-	marker := ToolUseInProgress
-	if lastItem.Complete {
-		marker = ToolUseComplete
-	}
-	icon := GetToolIcon(lastItem.ToolName)
-	line := marker + " " + icon + "(" + lastItem.ToolName
-	if lastItem.ToolInput != "" {
-		line += ": " + lastItem.ToolInput
-	}
-	line += ")"
+	line := formatToolUseLine(lastItem)
 
 	// Apply styling to tool use markers in the line
 	line = strings.ReplaceAll(line, ToolUseInProgress, ToolUseInProgressStyle.Render(ToolUseInProgress))
@@ -853,16 +864,7 @@ func (c *Chat) renderToolUseRollup() string {
 			// Show all previous tool uses (oldest first, excluding the last one already shown)
 			for i := 0; i < len(c.toolUseRollup.Items)-1; i++ {
 				item := c.toolUseRollup.Items[i]
-				itemMarker := ToolUseInProgress
-				if item.Complete {
-					itemMarker = ToolUseComplete
-				}
-				itemIcon := GetToolIcon(item.ToolName)
-				itemLine := "  " + itemMarker + " " + itemIcon + "(" + item.ToolName
-				if item.ToolInput != "" {
-					itemLine += ": " + item.ToolInput
-				}
-				itemLine += ")"
+				itemLine := "  " + formatToolUseLine(item)
 				// Apply styling
 				itemLine = strings.ReplaceAll(itemLine, ToolUseInProgress, ToolUseInProgressStyle.Render(ToolUseInProgress))
 				itemLine = strings.ReplaceAll(itemLine, ToolUseComplete, ToolUseCompleteStyle.Render(ToolUseComplete))

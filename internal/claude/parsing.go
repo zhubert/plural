@@ -24,16 +24,52 @@ type streamMessage struct {
 		} `json:"content"`
 		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
-	Result        string                      `json:"result,omitempty"`         // Final result text
-	Error         string                      `json:"error,omitempty"`          // Error message (alternative to result)
-	Errors        []string                    `json:"errors,omitempty"`         // Error messages array (used by error_during_execution)
-	SessionID     string                      `json:"session_id,omitempty"`
-	DurationMs    int                         `json:"duration_ms,omitempty"`    // Total duration in milliseconds
-	DurationAPIMs int                         `json:"duration_api_ms,omitempty"` // API duration in milliseconds
-	NumTurns      int                         `json:"num_turns,omitempty"`      // Number of conversation turns
-	TotalCostUSD  float64                     `json:"total_cost_usd,omitempty"` // Total cost in USD
-	Usage         *StreamUsage                `json:"usage,omitempty"`          // Token usage breakdown
-	ModelUsage    map[string]*ModelUsageEntry `json:"modelUsage,omitempty"`     // Per-model usage breakdown (includes sub-agents)
+	// ToolUseResult contains rich details about the tool execution result.
+	// This is a top-level field in user messages, separate from message.content.
+	ToolUseResult *toolUseResultData `json:"tool_use_result,omitempty"`
+	Result        string             `json:"result,omitempty"`          // Final result text
+	Error         string             `json:"error,omitempty"`           // Error message (alternative to result)
+	Errors        []string           `json:"errors,omitempty"`          // Error messages array (used by error_during_execution)
+	SessionID     string             `json:"session_id,omitempty"`
+	DurationMs    int                `json:"duration_ms,omitempty"`     // Total duration in milliseconds
+	DurationAPIMs int                `json:"duration_api_ms,omitempty"` // API duration in milliseconds
+	NumTurns      int                `json:"num_turns,omitempty"`       // Number of conversation turns
+	TotalCostUSD  float64            `json:"total_cost_usd,omitempty"`  // Total cost in USD
+	Usage         *StreamUsage       `json:"usage,omitempty"`           // Token usage breakdown
+	ModelUsage    map[string]*ModelUsageEntry `json:"modelUsage,omitempty"` // Per-model usage breakdown (includes sub-agents)
+}
+
+// toolUseResultData represents the tool_use_result field in user messages.
+// Different tool types populate different fields.
+type toolUseResultData struct {
+	// Common fields
+	Type string `json:"type,omitempty"` // e.g., "text"
+
+	// Read tool results
+	File *toolUseResultFile `json:"file,omitempty"`
+
+	// Edit tool results
+	FilePath        string `json:"filePath,omitempty"`
+	NewString       string `json:"newString,omitempty"`
+	OldString       string `json:"oldString,omitempty"`
+	StructuredPatch any    `json:"structuredPatch,omitempty"` // Indicates edit was applied
+
+	// Glob tool results
+	NumFiles  int      `json:"numFiles,omitempty"`
+	Filenames []string `json:"filenames,omitempty"`
+
+	// Bash tool results
+	ExitCode *int   `json:"exitCode,omitempty"`
+	Stdout   string `json:"stdout,omitempty"`
+	Stderr   string `json:"stderr,omitempty"`
+}
+
+// toolUseResultFile represents file info in Read tool results
+type toolUseResultFile struct {
+	FilePath   string `json:"filePath,omitempty"`
+	NumLines   int    `json:"numLines,omitempty"`
+	StartLine  int    `json:"startLine,omitempty"`
+	TotalLines int    `json:"totalLines,omitempty"`
 }
 
 // parseStreamMessage parses a JSON line from Claude's stream-json output
@@ -116,9 +152,8 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 
 	case "user":
 		// User messages in stream-json are tool results
-		// We don't display the content but we need to emit a ChunkTypeToolResult
-		// so the UI can mark the tool use as complete. We check for both
-		// "tool_result" type and the presence of toolUseId field (camelCase variant).
+		// We need to emit a ChunkTypeToolResult so the UI can mark the tool use as complete.
+		// We also extract rich result info from the top-level tool_use_result field.
 		for _, content := range msg.Message.Content {
 			// Check for tool_result type or presence of tool use ID (indicates tool result)
 			// Get the tool use ID from either snake_case or camelCase field
@@ -128,11 +163,15 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 			}
 			isToolResult := content.Type == "tool_result" || toolUseID != ""
 			if isToolResult {
+				// Extract rich result info from the top-level tool_use_result field
+				resultInfo := extractToolResultInfo(msg.ToolUseResult)
+
 				// Emit a tool result chunk so UI can mark tool as complete
-				log.Debug("tool result received", "toolUseID", toolUseID)
+				log.Debug("tool result received", "toolUseID", toolUseID, "resultInfo", resultInfo != nil)
 				chunks = append(chunks, ResponseChunk{
-					Type:      ChunkTypeToolResult,
-					ToolUseID: toolUseID,
+					Type:       ChunkTypeToolResult,
+					ToolUseID:  toolUseID,
+					ResultInfo: resultInfo,
 				})
 			}
 		}
@@ -269,4 +308,52 @@ func formatToolIcon(toolName string) string {
 	default:
 		return "Using"
 	}
+}
+
+// extractToolResultInfo extracts rich result information from the tool_use_result field.
+// Returns nil if no meaningful info can be extracted.
+func extractToolResultInfo(data *toolUseResultData) *ToolResultInfo {
+	if data == nil {
+		return nil
+	}
+
+	info := &ToolResultInfo{}
+	hasData := false
+
+	// Read tool results - file info
+	if data.File != nil {
+		info.FilePath = data.File.FilePath
+		info.NumLines = data.File.NumLines
+		info.StartLine = data.File.StartLine
+		info.TotalLines = data.File.TotalLines
+		hasData = true
+	}
+
+	// Edit tool results - check if structuredPatch exists (indicates edit was applied)
+	if data.StructuredPatch != nil {
+		info.Edited = true
+		info.FilePath = data.FilePath
+		hasData = true
+	}
+
+	// Glob tool results - file count
+	if data.NumFiles > 0 {
+		info.NumFiles = data.NumFiles
+		hasData = true
+	} else if len(data.Filenames) > 0 {
+		info.NumFiles = len(data.Filenames)
+		hasData = true
+	}
+
+	// Bash tool results - exit code
+	if data.ExitCode != nil {
+		info.ExitCode = data.ExitCode
+		hasData = true
+	}
+
+	if !hasData {
+		return nil
+	}
+
+	return info
 }
