@@ -678,6 +678,12 @@ func (r *Runner) handleProcessLine(line string) {
 	// Parse the message to handle token accumulation, subagent tracking, and result messages
 	var msg streamMessage
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &msg); err == nil {
+		// Handle token accumulation from stream_event messages (with --include-partial-messages)
+		// These provide real-time token count updates during streaming
+		if msg.Type == "stream_event" && msg.Event != nil {
+			r.handleStreamEventTokens(msg.Event, ch)
+		}
+
 		// Handle subagent status tracking
 		// When parent_tool_use_id is non-empty and we have a model, we're in a subagent (e.g., Haiku via Task)
 		if msg.Type == "assistant" || msg.Type == "user" {
@@ -893,6 +899,69 @@ func (r *Runner) handleProcessLine(line string) {
 			r.streaming.StartTime = time.Now()
 			r.mu.Unlock()
 		}
+	}
+}
+
+// handleStreamEventTokens extracts and emits token counts from stream_event messages.
+// These are sent when --include-partial-messages is enabled and provide real-time token updates.
+func (r *Runner) handleStreamEventTokens(event *streamEvent, ch chan ResponseChunk) {
+	if event == nil {
+		return
+	}
+
+	var outputTokens int
+	var messageID string
+
+	switch event.Type {
+	case "message_start":
+		// Initial message with starting token count
+		if event.Message != nil {
+			messageID = event.Message.ID
+			if event.Message.Usage != nil {
+				outputTokens = event.Message.Usage.OutputTokens
+			}
+		}
+	case "message_delta":
+		// Updated token count during/after streaming
+		if event.Usage != nil {
+			outputTokens = event.Usage.OutputTokens
+		}
+	default:
+		// Other event types don't have token updates
+		return
+	}
+
+	if outputTokens == 0 {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// If this is a message_start with a new message ID, handle API call transitions
+	if messageID != "" && messageID != r.tokens.LastMessageID {
+		if r.tokens.LastMessageID != "" {
+			// Add the previous message's final token count to the accumulator
+			r.tokens.AccumulatedOutput += r.tokens.LastMessageTokens
+		}
+		r.tokens.LastMessageID = messageID
+		r.tokens.LastMessageTokens = 0
+	}
+
+	// Update the current message's token count
+	r.tokens.LastMessageTokens = outputTokens
+
+	// Calculate total and emit stats
+	currentTotal := r.tokens.CurrentTotal()
+
+	if ch != nil && !r.responseChan.Closed {
+		r.sendChunkWithTimeout(ch, ResponseChunk{
+			Type: ChunkTypeStreamStats,
+			Stats: &StreamStats{
+				OutputTokens: currentTotal,
+				TotalCostUSD: 0, // Not available during streaming
+			},
+		})
 	}
 }
 

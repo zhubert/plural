@@ -16,10 +16,10 @@ type PermissionDenial struct {
 
 // streamMessage represents a JSON message from Claude's stream-json output
 type streamMessage struct {
-	Type              string `json:"type"`                 // "system", "assistant", "user", "result"
-	Subtype           string `json:"subtype"`              // "init", "success", etc.
-	ParentToolUseID   string `json:"parent_tool_use_id"`   // Non-empty when message is from a subagent (e.g., Haiku via Task)
-	Message struct {
+	Type            string `json:"type"`               // "system", "assistant", "user", "result", "stream_event"
+	Subtype         string `json:"subtype"`            // "init", "success", etc.
+	ParentToolUseID string `json:"parent_tool_use_id"` // Non-empty when message is from a subagent (e.g., Haiku via Task)
+	Message         struct {
 		ID      string `json:"id,omitempty"` // Message ID for tracking API calls
 		Model   string `json:"model,omitempty"` // Model that generated this message (e.g., "claude-haiku-4-5-20251001")
 		Content []struct {
@@ -34,6 +34,8 @@ type streamMessage struct {
 		} `json:"content"`
 		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
+	// Stream event fields (for type="stream_event" with --include-partial-messages)
+	Event *streamEvent `json:"event,omitempty"`
 	// ToolUseResult contains rich details about the tool execution result.
 	// This is a top-level field in user messages, separate from message.content.
 	ToolUseResult     *toolUseResultData          `json:"tool_use_result,omitempty"`
@@ -83,6 +85,31 @@ type toolUseResultFile struct {
 	TotalLines int    `json:"totalLines,omitempty"`
 }
 
+// streamEvent represents the event payload in stream_event messages
+// These are sent when --include-partial-messages is enabled
+type streamEvent struct {
+	Type    string `json:"type"` // "message_start", "content_block_start", "content_block_delta", "content_block_stop", "message_delta", "message_stop"
+	Index   int    `json:"index,omitempty"`
+	Message *struct {
+		ID    string       `json:"id,omitempty"`
+		Usage *StreamUsage `json:"usage,omitempty"`
+	} `json:"message,omitempty"`
+	ContentBlock *struct {
+		Type string `json:"type,omitempty"` // "text", "tool_use"
+		Text string `json:"text,omitempty"`
+		ID   string `json:"id,omitempty"`   // tool use ID
+		Name string `json:"name,omitempty"` // tool name
+	} `json:"content_block,omitempty"`
+	Delta *struct {
+		Type        string          `json:"type,omitempty"` // "text_delta", "input_json_delta"
+		Text        string          `json:"text,omitempty"`
+		PartialJSON string          `json:"partial_json,omitempty"`
+		StopReason  string          `json:"stop_reason,omitempty"`
+		Input       json.RawMessage `json:"input,omitempty"` // Complete tool input (for tool_use blocks)
+	} `json:"delta,omitempty"`
+	Usage *StreamUsage `json:"usage,omitempty"` // Token usage in message_delta
+}
+
 // parseStreamMessage parses a JSON line from Claude's stream-json output
 // and returns zero or more ResponseChunks representing the message content.
 func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
@@ -117,6 +144,13 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 		// Init message - we could show "Session started" but skip for now
 		if msg.Subtype == "init" {
 			log.Debug("session initialized")
+		}
+
+	case "stream_event":
+		// Stream events are sent when --include-partial-messages is enabled
+		// They contain incremental updates (text deltas, token counts, etc.)
+		if msg.Event != nil {
+			chunks = append(chunks, parseStreamEvent(msg.Event, log)...)
 		}
 
 	case "assistant":
@@ -191,6 +225,68 @@ func parseStreamMessage(line string, log *slog.Logger) []ResponseChunk {
 		// Final result - the actual result text is in msg.Result
 		// For error results, the error message is in msg.Result
 		log.Debug("result received", "subtype", msg.Subtype, "result", msg.Result)
+	}
+
+	return chunks
+}
+
+// parseStreamEvent extracts content from stream_event messages
+// These provide real-time streaming updates when --include-partial-messages is enabled
+func parseStreamEvent(event *streamEvent, log *slog.Logger) []ResponseChunk {
+	var chunks []ResponseChunk
+
+	switch event.Type {
+	case "message_start":
+		// Initial message with usage data - we handle token updates in claude.go
+		log.Debug("stream: message_start")
+
+	case "content_block_start":
+		// Start of a content block (text or tool_use)
+		if event.ContentBlock != nil {
+			switch event.ContentBlock.Type {
+			case "text":
+				log.Debug("stream: content_block_start (text)")
+			case "tool_use":
+				// Tool use is starting - we'll get the full tool info when it completes
+				log.Debug("stream: content_block_start (tool_use)", "id", event.ContentBlock.ID, "name", event.ContentBlock.Name)
+			}
+		}
+
+	case "content_block_delta":
+		// Incremental content update
+		if event.Delta != nil {
+			switch event.Delta.Type {
+			case "text_delta":
+				// Text chunk - emit as regular text
+				if event.Delta.Text != "" {
+					chunks = append(chunks, ResponseChunk{
+						Type:    ChunkTypeText,
+						Content: event.Delta.Text,
+					})
+				}
+			case "input_json_delta":
+				// Tool input being streamed - we wait for the complete input
+				// in the assistant message, so we don't emit anything here
+				log.Debug("stream: input_json_delta")
+			}
+		}
+
+	case "content_block_stop":
+		// End of a content block
+		log.Debug("stream: content_block_stop", "index", event.Index)
+
+	case "message_delta":
+		// Message-level update with final usage stats
+		// Token updates are handled in claude.go via the event's Usage field
+		if event.Delta != nil {
+			log.Debug("stream: message_delta", "stop_reason", event.Delta.StopReason)
+		} else {
+			log.Debug("stream: message_delta")
+		}
+
+	case "message_stop":
+		// End of message
+		log.Debug("stream: message_stop")
 	}
 
 	return chunks
