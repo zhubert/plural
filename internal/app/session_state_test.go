@@ -624,6 +624,27 @@ func TestSessionState_FlushToolUseRollupEmpty(t *testing.T) {
 	}
 }
 
+func TestSessionState_SubagentModel(t *testing.T) {
+	state := &SessionState{ToolUsePos: -1}
+
+	// Initially empty
+	if state.GetSubagentModel() != "" {
+		t.Errorf("Expected empty subagent model initially, got %q", state.GetSubagentModel())
+	}
+
+	// Set subagent model
+	state.SetSubagentModel("claude-haiku-4-5-20251001")
+	if state.GetSubagentModel() != "claude-haiku-4-5-20251001" {
+		t.Errorf("Expected haiku model, got %q", state.GetSubagentModel())
+	}
+
+	// Clear subagent model
+	state.SetSubagentModel("")
+	if state.GetSubagentModel() != "" {
+		t.Errorf("Expected empty subagent model after clear, got %q", state.GetSubagentModel())
+	}
+}
+
 // Helper function for string contains check
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))

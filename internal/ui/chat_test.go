@@ -4408,3 +4408,54 @@ func TestChat_GetPendingImageSizeKB(t *testing.T) {
 		t.Errorf("Size should be 10 for 10240 bytes, got %d", chat.GetPendingImageSizeKB())
 	}
 }
+
+// =============================================================================
+// Subagent Indicator Tests
+// =============================================================================
+
+func TestChat_SubagentModel_SetAndGet(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(100, 40)
+	chat.SetSession("test-session", nil)
+
+	// Initially should be empty
+	if chat.GetSubagentModel() != "" {
+		t.Errorf("Expected empty subagent model initially, got %q", chat.GetSubagentModel())
+	}
+
+	// Set a subagent model
+	chat.SetSubagentModel("claude-haiku-4-5-20251001")
+	if chat.GetSubagentModel() != "claude-haiku-4-5-20251001" {
+		t.Errorf("Expected haiku model, got %q", chat.GetSubagentModel())
+	}
+
+	// Clear the subagent model
+	chat.ClearSubagentModel()
+	if chat.GetSubagentModel() != "" {
+		t.Errorf("Expected empty subagent model after clear, got %q", chat.GetSubagentModel())
+	}
+}
+
+func TestChat_RenderStreamingStatus_WithSubagent(t *testing.T) {
+	// Test that the streaming status includes subagent indicator
+	elapsed := 5 * time.Second
+	stats := &claude.StreamStats{OutputTokens: 100}
+
+	// Without subagent
+	statusNoSubagent := renderStreamingStatus("Thinking", 0, elapsed, stats, "")
+	if strings.Contains(statusNoSubagent, "haiku") {
+		t.Error("Status without subagent should not contain haiku")
+	}
+	if strings.Contains(statusNoSubagent, "working") {
+		t.Error("Status without subagent should not contain 'working'")
+	}
+
+	// With subagent (Haiku)
+	statusWithSubagent := renderStreamingStatus("Thinking", 0, elapsed, stats, "claude-haiku-4-5-20251001")
+	if !strings.Contains(statusWithSubagent, "haiku") {
+		t.Error("Status with haiku subagent should contain 'haiku'")
+	}
+	if !strings.Contains(statusWithSubagent, "working") {
+		t.Error("Status with subagent should contain 'working'")
+	}
+}

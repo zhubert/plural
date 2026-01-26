@@ -33,14 +33,15 @@ type SelectResult struct {
 	DiffStats  *DiffStats // Git diff statistics for the worktree
 
 	// State to restore
-	WaitStart    time.Time
-	IsWaiting    bool
-	Permission   *mcp.PermissionRequest
-	Question     *mcp.QuestionRequest
-	PlanApproval *mcp.PlanApprovalRequest
-	TodoList     *claude.TodoList
-	Streaming    string
-	SavedInput   string
+	WaitStart     time.Time
+	IsWaiting     bool
+	Permission    *mcp.PermissionRequest
+	Question      *mcp.QuestionRequest
+	PlanApproval  *mcp.PlanApprovalRequest
+	TodoList      *claude.TodoList
+	Streaming     string
+	SavedInput    string
+	SubagentModel string // Active subagent model (empty if none)
 }
 
 // RunnerFactory creates a runner for a session.
@@ -216,9 +217,10 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		result.TodoList = state.GetCurrentTodoList()
 
 		// Get streaming state atomically - this ensures IsWaiting, WaitStart,
-		// StreamingContent, and StreamingStartTime are all read consistently
+		// StreamingContent, SubagentModel, and StreamingStartTime are all read consistently
 		state.WithLock(func(s *SessionState) {
 			result.IsWaiting = s.IsWaiting
+			result.SubagentModel = s.SubagentModel
 			// Always use StreamingStartTime for elapsed time display - it's set when
 			// streaming starts and preserved throughout (WaitStart gets cleared when
 			// first chunk arrives, but we still need elapsed time for the UI)
