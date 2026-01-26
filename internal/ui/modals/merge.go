@@ -369,11 +369,15 @@ func (s *MergeConflictState) Help() string {
 func (s *MergeConflictState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
+	// Content width for text wrapping (modal width minus padding)
+	contentWidth := ModalWidth - 4
+
 	// Show session name
 	sessionLabel := lipgloss.NewStyle().
 		Foreground(ColorSecondary).
 		Bold(true).
 		MarginBottom(1).
+		Width(contentWidth).
 		Render(s.SessionName)
 
 	// Show conflicted files
@@ -381,28 +385,35 @@ func (s *MergeConflictState) Render() string {
 		Foreground(ColorTextMuted).
 		Render("Conflicted files:")
 
-	var filesList string
+	// Build files list without trailing newlines - JoinVertical handles spacing
+	var files []string
 	maxFilesToShow := 5
 	for i, file := range s.ConflictedFiles {
 		if i >= maxFilesToShow {
 			remaining := len(s.ConflictedFiles) - maxFilesToShow
-			filesList += lipgloss.NewStyle().
+			files = append(files, lipgloss.NewStyle().
 				Foreground(ColorTextMuted).
 				Italic(true).
-				Render(fmt.Sprintf("  ... and %d more\n", remaining))
+				Render(fmt.Sprintf("  ... and %d more", remaining)))
 			break
 		}
-		filesList += lipgloss.NewStyle().
+		files = append(files, lipgloss.NewStyle().
 			Foreground(ColorText).
-			Render("  " + file + "\n")
+			Render("  "+file))
 	}
+	filesList := strings.Join(files, "\n")
+
+	// Add margin after files list
+	filesSection := lipgloss.NewStyle().
+		MarginBottom(1).
+		Render(lipgloss.JoinVertical(lipgloss.Left, filesLabel, filesList))
 
 	// Options
 	optionList := RenderSelectableList(s.Options, s.SelectedIndex)
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, sessionLabel, filesLabel, filesList, optionList, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, sessionLabel, filesSection, optionList, help)
 }
 
 func (s *MergeConflictState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
