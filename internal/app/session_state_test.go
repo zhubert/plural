@@ -550,7 +550,7 @@ func TestSessionState_ToolUseRollup(t *testing.T) {
 	}
 
 	// Mark tool-2 complete by ID
-	state.MarkToolUseComplete("tool-2")
+	state.MarkToolUseComplete("tool-2", nil)
 	if !rollup.Items[1].Complete {
 		t.Error("expected second item to be complete")
 	}
@@ -559,7 +559,7 @@ func TestSessionState_ToolUseRollup(t *testing.T) {
 	}
 
 	// Mark tool-1 complete by ID
-	state.MarkToolUseComplete("tool-1")
+	state.MarkToolUseComplete("tool-1", nil)
 	if !rollup.Items[0].Complete {
 		t.Error("expected first item to be complete")
 	}
@@ -571,7 +571,7 @@ func TestSessionState_FlushToolUseRollup(t *testing.T) {
 	// Add tool uses with IDs
 	state.AddToolUse("Read", "file1.go", "tool-1")
 	state.AddToolUse("Edit", "file2.go", "tool-2")
-	state.MarkToolUseComplete("tool-2")
+	state.MarkToolUseComplete("tool-2", nil)
 
 	// Mock GetToolIcon function
 	mockGetIcon := func(tool string) string {

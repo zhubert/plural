@@ -70,10 +70,11 @@ type ToolUseRollupState struct {
 
 // ToolUseItemState represents a single tool use
 type ToolUseItemState struct {
-	ToolName  string
-	ToolInput string
-	ToolUseID string
-	Complete  bool
+	ToolName   string
+	ToolInput  string
+	ToolUseID  string
+	Complete   bool
+	ResultInfo *claude.ToolResultInfo // Rich details about the result (populated on completion)
 }
 
 // HasDetectedOptions returns true if there are at least 2 detected options.
@@ -199,8 +200,9 @@ func (s *SessionState) AddToolUse(toolName, toolInput, toolUseID string) {
 
 // MarkToolUseComplete marks the tool use with the given ID as complete.
 // If the ID is empty or not found, falls back to marking the first incomplete tool use.
+// The optional resultInfo provides rich details about the tool execution result.
 // Thread-safe.
-func (s *SessionState) MarkToolUseComplete(toolUseID string) {
+func (s *SessionState) MarkToolUseComplete(toolUseID string, resultInfo *claude.ToolResultInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ToolUseRollup == nil || len(s.ToolUseRollup.Items) == 0 {
@@ -212,6 +214,7 @@ func (s *SessionState) MarkToolUseComplete(toolUseID string) {
 		for i := range s.ToolUseRollup.Items {
 			if s.ToolUseRollup.Items[i].ToolUseID == toolUseID {
 				s.ToolUseRollup.Items[i].Complete = true
+				s.ToolUseRollup.Items[i].ResultInfo = resultInfo
 				return
 			}
 		}
@@ -221,6 +224,7 @@ func (s *SessionState) MarkToolUseComplete(toolUseID string) {
 	for i := range s.ToolUseRollup.Items {
 		if !s.ToolUseRollup.Items[i].Complete {
 			s.ToolUseRollup.Items[i].Complete = true
+			s.ToolUseRollup.Items[i].ResultInfo = resultInfo
 			return
 		}
 	}
@@ -251,7 +255,17 @@ func (s *SessionState) FlushToolUseRollup(getToolIcon func(string) string, inPro
 		if item.ToolInput != "" {
 			line += ": " + item.ToolInput
 		}
-		line += ")\n"
+		line += ")"
+
+		// Add result info for completed tool uses
+		if item.Complete && item.ResultInfo != nil {
+			summary := item.ResultInfo.Summary()
+			if summary != "" {
+				line += " → " + summary
+			}
+		}
+
+		line += "\n"
 		s.StreamingContent += line
 	}
 

@@ -381,6 +381,223 @@ func TestParseStreamMessage_UserToolResultCamelCase(t *testing.T) {
 	}
 }
 
+func TestParseStreamMessage_UserToolResultWithResultInfo_Read(t *testing.T) {
+	log := testLogger()
+	// Test Read tool result with file info
+	msg := `{
+		"type": "user",
+		"tool_use_result": {
+			"type": "text",
+			"file": {
+				"filePath": "/path/to/file.go",
+				"numLines": 45,
+				"startLine": 1,
+				"totalLines": 138
+			}
+		},
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "123", "content": "..."}]}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].ResultInfo == nil {
+		t.Fatal("Expected ResultInfo to be populated")
+	}
+	if chunks[0].ResultInfo.FilePath != "/path/to/file.go" {
+		t.Errorf("Expected FilePath '/path/to/file.go', got %q", chunks[0].ResultInfo.FilePath)
+	}
+	if chunks[0].ResultInfo.NumLines != 45 {
+		t.Errorf("Expected NumLines 45, got %d", chunks[0].ResultInfo.NumLines)
+	}
+	if chunks[0].ResultInfo.StartLine != 1 {
+		t.Errorf("Expected StartLine 1, got %d", chunks[0].ResultInfo.StartLine)
+	}
+	if chunks[0].ResultInfo.TotalLines != 138 {
+		t.Errorf("Expected TotalLines 138, got %d", chunks[0].ResultInfo.TotalLines)
+	}
+
+	// Test Summary()
+	summary := chunks[0].ResultInfo.Summary()
+	if summary != "lines 1-45 of 138" {
+		t.Errorf("Expected summary 'lines 1-45 of 138', got %q", summary)
+	}
+}
+
+func TestParseStreamMessage_UserToolResultWithResultInfo_Edit(t *testing.T) {
+	log := testLogger()
+	// Test Edit tool result
+	msg := `{
+		"type": "user",
+		"tool_use_result": {
+			"filePath": "/path/to/file.go",
+			"oldString": "foo",
+			"newString": "bar",
+			"structuredPatch": {"some": "data"}
+		},
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "123", "content": "..."}]}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].ResultInfo == nil {
+		t.Fatal("Expected ResultInfo to be populated")
+	}
+	if !chunks[0].ResultInfo.Edited {
+		t.Error("Expected Edited to be true")
+	}
+	if chunks[0].ResultInfo.FilePath != "/path/to/file.go" {
+		t.Errorf("Expected FilePath '/path/to/file.go', got %q", chunks[0].ResultInfo.FilePath)
+	}
+
+	// Test Summary()
+	summary := chunks[0].ResultInfo.Summary()
+	if summary != "applied" {
+		t.Errorf("Expected summary 'applied', got %q", summary)
+	}
+}
+
+func TestParseStreamMessage_UserToolResultWithResultInfo_Glob(t *testing.T) {
+	log := testLogger()
+	// Test Glob tool result with numFiles
+	msg := `{
+		"type": "user",
+		"tool_use_result": {
+			"numFiles": 15,
+			"filenames": ["a.go", "b.go"]
+		},
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "123", "content": "..."}]}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].ResultInfo == nil {
+		t.Fatal("Expected ResultInfo to be populated")
+	}
+	if chunks[0].ResultInfo.NumFiles != 15 {
+		t.Errorf("Expected NumFiles 15, got %d", chunks[0].ResultInfo.NumFiles)
+	}
+
+	// Test Summary()
+	summary := chunks[0].ResultInfo.Summary()
+	if summary != "15 files" {
+		t.Errorf("Expected summary '15 files', got %q", summary)
+	}
+}
+
+func TestParseStreamMessage_UserToolResultWithResultInfo_Bash(t *testing.T) {
+	log := testLogger()
+	// Test Bash tool result with exit code
+	exitCode := 0
+	msg := `{
+		"type": "user",
+		"tool_use_result": {
+			"exitCode": 0,
+			"stdout": "output"
+		},
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "123", "content": "..."}]}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].ResultInfo == nil {
+		t.Fatal("Expected ResultInfo to be populated")
+	}
+	if chunks[0].ResultInfo.ExitCode == nil {
+		t.Fatal("Expected ExitCode to be populated")
+	}
+	if *chunks[0].ResultInfo.ExitCode != exitCode {
+		t.Errorf("Expected ExitCode %d, got %d", exitCode, *chunks[0].ResultInfo.ExitCode)
+	}
+
+	// Test Summary()
+	summary := chunks[0].ResultInfo.Summary()
+	if summary != "success" {
+		t.Errorf("Expected summary 'success', got %q", summary)
+	}
+}
+
+func TestParseStreamMessage_UserToolResultWithResultInfo_BashError(t *testing.T) {
+	log := testLogger()
+	// Test Bash tool result with non-zero exit code
+	msg := `{
+		"type": "user",
+		"tool_use_result": {
+			"exitCode": 1,
+			"stderr": "error output"
+		},
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "123", "content": "..."}]}
+	}`
+	chunks := parseStreamMessage(msg, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].ResultInfo == nil {
+		t.Fatal("Expected ResultInfo to be populated")
+	}
+	if chunks[0].ResultInfo.ExitCode == nil {
+		t.Fatal("Expected ExitCode to be populated")
+	}
+	if *chunks[0].ResultInfo.ExitCode != 1 {
+		t.Errorf("Expected ExitCode 1, got %d", *chunks[0].ResultInfo.ExitCode)
+	}
+
+	// Test Summary()
+	summary := chunks[0].ResultInfo.Summary()
+	if summary != "exit 1" {
+		t.Errorf("Expected summary 'exit 1', got %q", summary)
+	}
+}
+
+func TestToolResultInfo_Summary_FullFile(t *testing.T) {
+	// Test when all lines are shown
+	info := &ToolResultInfo{
+		FilePath:   "/path/to/file.go",
+		NumLines:   50,
+		StartLine:  1,
+		TotalLines: 50,
+	}
+	summary := info.Summary()
+	if summary != "50 lines" {
+		t.Errorf("Expected summary '50 lines', got %q", summary)
+	}
+}
+
+func TestToolResultInfo_Summary_SingleFile(t *testing.T) {
+	// Test when only 1 file matched
+	info := &ToolResultInfo{
+		NumFiles: 1,
+	}
+	summary := info.Summary()
+	if summary != "1 file" {
+		t.Errorf("Expected summary '1 file', got %q", summary)
+	}
+}
+
+func TestToolResultInfo_Summary_Nil(t *testing.T) {
+	var info *ToolResultInfo = nil
+	summary := info.Summary()
+	if summary != "" {
+		t.Errorf("Expected empty summary for nil, got %q", summary)
+	}
+}
+
+func TestToolResultInfo_Summary_Empty(t *testing.T) {
+	info := &ToolResultInfo{}
+	summary := info.Summary()
+	if summary != "" {
+		t.Errorf("Expected empty summary for empty struct, got %q", summary)
+	}
+}
+
 func TestParseStreamMessage_Result(t *testing.T) {
 	log := testLogger()
 	msg := `{"type":"result","subtype":"success","result":"Operation completed"}`

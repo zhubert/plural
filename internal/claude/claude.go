@@ -456,17 +456,75 @@ type StreamStats struct {
 	DurationAPIMs int               // API-only duration in milliseconds (from result message)
 }
 
+// ToolResultInfo contains details about the result of a tool execution.
+// This is extracted from the tool_use_result field in user messages.
+type ToolResultInfo struct {
+	// For Read tool results
+	FilePath   string // Path to the file that was read
+	NumLines   int    // Number of lines returned
+	StartLine  int    // Starting line number (1-indexed)
+	TotalLines int    // Total lines in the file
+
+	// For Edit tool results
+	Edited bool // Whether an edit was applied
+
+	// For Glob tool results
+	NumFiles int // Number of files matched
+
+	// For Bash tool results
+	ExitCode *int // Exit code (nil if not available)
+}
+
+// Summary returns a brief human-readable summary of the tool result.
+func (t *ToolResultInfo) Summary() string {
+	if t == nil {
+		return ""
+	}
+
+	// Read tool: show line info
+	if t.FilePath != "" && t.TotalLines > 0 {
+		if t.NumLines < t.TotalLines {
+			return fmt.Sprintf("lines %d-%d of %d", t.StartLine, t.StartLine+t.NumLines-1, t.TotalLines)
+		}
+		return fmt.Sprintf("%d lines", t.TotalLines)
+	}
+
+	// Edit tool: show edited status
+	if t.Edited {
+		return "applied"
+	}
+
+	// Glob tool: show file count
+	if t.NumFiles > 0 {
+		if t.NumFiles == 1 {
+			return "1 file"
+		}
+		return fmt.Sprintf("%d files", t.NumFiles)
+	}
+
+	// Bash tool: show exit code
+	if t.ExitCode != nil {
+		if *t.ExitCode == 0 {
+			return "success"
+		}
+		return fmt.Sprintf("exit %d", *t.ExitCode)
+	}
+
+	return ""
+}
+
 // ResponseChunk represents a chunk of streaming response
 type ResponseChunk struct {
-	Type      ChunkType    // Type of this chunk
-	Content   string       // Text content (for text chunks and status)
-	ToolName  string       // Tool being used (for tool_use chunks)
-	ToolInput string       // Brief description of tool input
-	ToolUseID string       // Unique ID for tool use (for matching tool_use to tool_result)
-	TodoList  *TodoList    // Todo list (for ChunkTypeTodoUpdate)
-	Stats     *StreamStats // Streaming statistics (for ChunkTypeStreamStats)
-	Done      bool
-	Error     error
+	Type       ChunkType       // Type of this chunk
+	Content    string          // Text content (for text chunks and status)
+	ToolName   string          // Tool being used (for tool_use chunks)
+	ToolInput  string          // Brief description of tool input
+	ToolUseID  string          // Unique ID for tool use (for matching tool_use to tool_result)
+	ResultInfo *ToolResultInfo // Details about tool result (for tool_result chunks)
+	TodoList   *TodoList       // Todo list (for ChunkTypeTodoUpdate)
+	Stats      *StreamStats    // Streaming statistics (for ChunkTypeStreamStats)
+	Done       bool
+	Error      error
 }
 
 // ModelUsageEntry represents usage statistics for a specific model in the result message.
