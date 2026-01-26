@@ -319,6 +319,37 @@ func (c *Chat) AppendStreaming(content string) {
 	c.updateContent()
 }
 
+// AppendPermissionDenials appends a formatted permission denials summary to the streaming content
+func (c *Chat) AppendPermissionDenials(denials []pclaude.PermissionDenial) {
+	if len(denials) == 0 {
+		return
+	}
+
+	// Flush any pending tool uses first
+	c.flushToolUseRollup()
+
+	// Format denials as a summary block
+	var sb strings.Builder
+	sb.WriteString("\n[Permission Denials]\n")
+	for _, d := range denials {
+		sb.WriteString("  - ")
+		sb.WriteString(d.Tool)
+		if d.Description != "" {
+			sb.WriteString(": ")
+			sb.WriteString(d.Description)
+		}
+		if d.Reason != "" {
+			sb.WriteString(" (")
+			sb.WriteString(d.Reason)
+			sb.WriteString(")")
+		}
+		sb.WriteString("\n")
+	}
+
+	c.streaming += sb.String()
+	c.updateContent()
+}
+
 // AppendToolUse adds a tool use to the current rollup group
 func (c *Chat) AppendToolUse(toolName, toolInput, toolUseID string) {
 	// Initialize rollup if needed

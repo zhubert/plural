@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -164,6 +165,11 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 			// Update subagent indicator (empty model means subagent ended)
 			m.chat.SetSubagentModel(chunk.SubagentModel)
 			m.sessionState().GetOrCreate(sessionID).SetSubagentModel(chunk.SubagentModel)
+		case claude.ChunkTypePermissionDenials:
+			// Append permission denials summary to chat
+			if len(chunk.PermissionDenials) > 0 {
+				m.chat.AppendPermissionDenials(chunk.PermissionDenials)
+			}
 		default:
 			// For backwards compatibility, treat unknown types as text
 			if chunk.Content != "" {
@@ -206,6 +212,13 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 	case claude.ChunkTypeSubagentStatus:
 		// Store subagent status for non-active session
 		state.SetSubagentModel(chunk.SubagentModel)
+
+	case claude.ChunkTypePermissionDenials:
+		// Append permission denials to streaming content for non-active session
+		if len(chunk.PermissionDenials) > 0 {
+			denialText := formatPermissionDenialsText(chunk.PermissionDenials)
+			state.AppendStreamingContent(denialText)
+		}
 
 	default:
 		if chunk.Content != "" {
@@ -487,4 +500,29 @@ func (m *Model) handleGitHubIssuesFetchedMsg(msg GitHubIssuesFetchedMsg) (tea.Mo
 		}
 	}
 	return m, nil
+}
+
+// formatPermissionDenialsText formats permission denials as a text block for display.
+func formatPermissionDenialsText(denials []claude.PermissionDenial) string {
+	if len(denials) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n[Permission Denials]\n")
+	for _, d := range denials {
+		sb.WriteString("  - ")
+		sb.WriteString(d.Tool)
+		if d.Description != "" {
+			sb.WriteString(": ")
+			sb.WriteString(d.Description)
+		}
+		if d.Reason != "" {
+			sb.WriteString(" (")
+			sb.WriteString(d.Reason)
+			sb.WriteString(")")
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }

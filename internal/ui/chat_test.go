@@ -1021,6 +1021,72 @@ func TestChat_Streaming(t *testing.T) {
 	}
 }
 
+func TestChat_AppendPermissionDenials(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Test with empty denials - should not change streaming content
+	chat.AppendPermissionDenials(nil)
+	if chat.GetStreaming() != "" {
+		t.Errorf("Expected empty streaming after nil denials, got %q", chat.GetStreaming())
+	}
+
+	chat.AppendPermissionDenials([]claude.PermissionDenial{})
+	if chat.GetStreaming() != "" {
+		t.Errorf("Expected empty streaming after empty denials, got %q", chat.GetStreaming())
+	}
+
+	// Test with actual denials
+	denials := []claude.PermissionDenial{
+		{Tool: "Bash", Description: "rm -rf /", Reason: "destructive command"},
+		{Tool: "Edit", Description: "/etc/passwd"},
+	}
+	chat.AppendPermissionDenials(denials)
+
+	streaming := chat.GetStreaming()
+	if !strings.Contains(streaming, "[Permission Denials]") {
+		t.Error("Streaming should contain '[Permission Denials]' header")
+	}
+	if !strings.Contains(streaming, "Bash: rm -rf /") {
+		t.Error("Streaming should contain first denial")
+	}
+	if !strings.Contains(streaming, "destructive command") {
+		t.Error("Streaming should contain denial reason")
+	}
+	if !strings.Contains(streaming, "Edit: /etc/passwd") {
+		t.Error("Streaming should contain second denial")
+	}
+}
+
+func TestChat_AppendPermissionDenials_FlushesToolUse(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Add a tool use first
+	chat.AppendToolUse("Read", "file.go", "tool-123")
+
+	// Append permission denials - should flush tool use rollup first
+	denials := []claude.PermissionDenial{
+		{Tool: "Bash", Description: "dangerous command"},
+	}
+	chat.AppendPermissionDenials(denials)
+
+	streaming := chat.GetStreaming()
+	// Tool use should appear before denials (flushed first)
+	toolUsePos := strings.Index(streaming, "Read")
+	denialsPos := strings.Index(streaming, "[Permission Denials]")
+
+	if toolUsePos == -1 {
+		t.Error("Streaming should contain tool use")
+	}
+	if denialsPos == -1 {
+		t.Error("Streaming should contain permission denials")
+	}
+	if toolUsePos > denialsPos {
+		t.Error("Tool use should appear before permission denials (flushed first)")
+	}
+}
+
 func TestChat_ToolUseMarkers(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)
