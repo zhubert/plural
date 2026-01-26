@@ -8,10 +8,12 @@ import (
 
 // streamMessage represents a JSON message from Claude's stream-json output
 type streamMessage struct {
-	Type    string `json:"type"`    // "system", "assistant", "user", "result"
-	Subtype string `json:"subtype"` // "init", "success", etc.
+	Type              string `json:"type"`                 // "system", "assistant", "user", "result"
+	Subtype           string `json:"subtype"`              // "init", "success", etc.
+	ParentToolUseID   string `json:"parent_tool_use_id"`   // Non-empty when message is from a subagent (e.g., Haiku via Task)
 	Message struct {
 		ID      string `json:"id,omitempty"` // Message ID for tracking API calls
+		Model   string `json:"model,omitempty"` // Model that generated this message (e.g., "claude-haiku-4-5-20251001")
 		Content []struct {
 			Type      string          `json:"type"` // "text", "tool_use", "tool_result"
 			ID        string          `json:"id,omitempty"`         // tool use ID (for tool_use)

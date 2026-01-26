@@ -96,6 +96,9 @@ type Chat struct {
 	streamStartTime time.Time            // When waiting/streaming started
 	streamStats     *pclaude.StreamStats // Latest stats from Claude (nil until result received)
 	finalStats      *pclaude.StreamStats // Final stats from last completed response (persists for display)
+
+	// Subagent indicator
+	subagentModel string // Active subagent model (empty when no subagent active)
 }
 
 // NewChat creates a new chat panel
@@ -1179,7 +1182,7 @@ func (c *Chat) updateContent() {
 			if !c.streamStartTime.IsZero() {
 				elapsed = time.Since(c.streamStartTime)
 			}
-			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats))
+			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats, c.subagentModel))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
@@ -1190,7 +1193,7 @@ func (c *Chat) updateContent() {
 			if !c.streamStartTime.IsZero() {
 				elapsed = time.Since(c.streamStartTime)
 			}
-			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats))
+			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats, c.subagentModel))
 		} else if c.spinner.FlashFrame >= 0 {
 			// Show completion flash animation with final stats
 			if len(c.messages) > 0 {

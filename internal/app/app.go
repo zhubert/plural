@@ -893,6 +893,9 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.ClearTodoList()
 	}
 
+	// Restore subagent indicator
+	m.chat.SetSubagentModel(result.SubagentModel)
+
 	// Restore streaming content
 	if result.Streaming != "" {
 		m.chat.SetStreaming(result.Streaming)

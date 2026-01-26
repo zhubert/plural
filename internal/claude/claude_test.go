@@ -2375,3 +2375,148 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 		}
 	}
 }
+
+func TestSubagentDetection_EnterAndExit(t *testing.T) {
+	runner := New("test-subagent", "/tmp/test-subagent", false, nil)
+	defer runner.Stop()
+
+	// Create response channel
+	responseChan := make(chan ResponseChunk, 100)
+	runner.mu.Lock()
+	runner.responseChan.Setup(responseChan)
+	runner.streaming.Active = true
+	runner.mu.Unlock()
+
+	// Simulate a parent message (no subagent)
+	parentMsg := `{"type":"assistant","message":{"id":"msg_1","model":"claude-opus-4-5-20251101","content":[{"type":"text","text":"I'll delegate to haiku."}]},"parent_tool_use_id":null}`
+	runner.handleProcessLine(parentMsg)
+
+	// Simulate entering subagent (Haiku working via Task)
+	subagentMsg := `{"type":"assistant","message":{"id":"msg_2","model":"claude-haiku-4-5-20251001","content":[{"type":"tool_use","id":"tool_1","name":"Glob","input":{"pattern":"**/*.go"}}]},"parent_tool_use_id":"parent_tool_123"}`
+	runner.handleProcessLine(subagentMsg)
+
+	// Simulate exiting subagent (back to parent)
+	backToParentMsg := `{"type":"assistant","message":{"id":"msg_3","model":"claude-opus-4-5-20251101","content":[{"type":"text","text":"Done!"}]},"parent_tool_use_id":null}`
+	runner.handleProcessLine(backToParentMsg)
+
+	// Close channel and collect all chunks
+	close(responseChan)
+	var subagentChunks []ResponseChunk
+	for chunk := range responseChan {
+		if chunk.Type == ChunkTypeSubagentStatus {
+			subagentChunks = append(subagentChunks, chunk)
+		}
+	}
+
+	// Should have 2 subagent status chunks: one for enter, one for exit
+	if len(subagentChunks) != 2 {
+		t.Fatalf("Expected 2 subagent status chunks, got %d", len(subagentChunks))
+	}
+
+	// First chunk should be entering subagent (with model name)
+	if subagentChunks[0].SubagentModel == "" {
+		t.Error("First subagent chunk should have non-empty model (entering subagent)")
+	}
+	if subagentChunks[0].SubagentModel != "claude-haiku-4-5-20251001" {
+		t.Errorf("Expected haiku model, got %q", subagentChunks[0].SubagentModel)
+	}
+
+	// Second chunk should be exiting subagent (empty model)
+	if subagentChunks[1].SubagentModel != "" {
+		t.Errorf("Second subagent chunk should have empty model (exiting subagent), got %q", subagentChunks[1].SubagentModel)
+	}
+}
+
+func TestSubagentDetection_NoChunkWhenNotChanging(t *testing.T) {
+	runner := New("test-subagent-noop", "/tmp/test-subagent-noop", false, nil)
+	defer runner.Stop()
+
+	// Create response channel
+	responseChan := make(chan ResponseChunk, 100)
+	runner.mu.Lock()
+	runner.responseChan.Setup(responseChan)
+	runner.streaming.Active = true
+	runner.mu.Unlock()
+
+	// Simulate two consecutive parent messages (no state change)
+	parentMsg1 := `{"type":"assistant","message":{"id":"msg_1","model":"claude-opus-4-5-20251101","content":[{"type":"text","text":"Hello"}]},"parent_tool_use_id":null}`
+	parentMsg2 := `{"type":"assistant","message":{"id":"msg_2","model":"claude-opus-4-5-20251101","content":[{"type":"text","text":"World"}]},"parent_tool_use_id":null}`
+	runner.handleProcessLine(parentMsg1)
+	runner.handleProcessLine(parentMsg2)
+
+	// Close channel and check for subagent chunks
+	close(responseChan)
+	var subagentChunks []ResponseChunk
+	for chunk := range responseChan {
+		if chunk.Type == ChunkTypeSubagentStatus {
+			subagentChunks = append(subagentChunks, chunk)
+		}
+	}
+
+	// Should have no subagent status chunks (no state change)
+	if len(subagentChunks) != 0 {
+		t.Errorf("Expected 0 subagent status chunks when state doesn't change, got %d", len(subagentChunks))
+	}
+}
+
+func TestSubagentDetection_UserMessagesTracked(t *testing.T) {
+	runner := New("test-subagent-user", "/tmp/test-subagent-user", false, nil)
+	defer runner.Stop()
+
+	// Create response channel
+	responseChan := make(chan ResponseChunk, 100)
+	runner.mu.Lock()
+	runner.responseChan.Setup(responseChan)
+	runner.streaming.Active = true
+	runner.mu.Unlock()
+
+	// Simulate entering subagent via assistant message
+	subagentMsg := `{"type":"assistant","message":{"id":"msg_1","model":"claude-haiku-4-5-20251001","content":[{"type":"tool_use","id":"tool_1","name":"Glob","input":{"pattern":"**/*.go"}}]},"parent_tool_use_id":"parent_tool_123"}`
+	runner.handleProcessLine(subagentMsg)
+
+	// Simulate user message (tool result) while still in subagent
+	userMsg := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_1","content":"found files"}]},"parent_tool_use_id":"parent_tool_123"}`
+	runner.handleProcessLine(userMsg)
+
+	// Simulate exiting subagent via user message with no parent
+	exitUserMsg := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool_2","content":"done"}]},"parent_tool_use_id":null}`
+	runner.handleProcessLine(exitUserMsg)
+
+	// Close channel and collect all chunks
+	close(responseChan)
+	var subagentChunks []ResponseChunk
+	for chunk := range responseChan {
+		if chunk.Type == ChunkTypeSubagentStatus {
+			subagentChunks = append(subagentChunks, chunk)
+		}
+	}
+
+	// Should have 2 subagent status chunks: enter and exit
+	if len(subagentChunks) != 2 {
+		t.Fatalf("Expected 2 subagent status chunks, got %d", len(subagentChunks))
+	}
+
+	// First chunk should be entering subagent
+	if subagentChunks[0].SubagentModel == "" {
+		t.Error("First subagent chunk should have non-empty model")
+	}
+
+	// Second chunk should be exiting subagent
+	if subagentChunks[1].SubagentModel != "" {
+		t.Error("Second subagent chunk should have empty model")
+	}
+}
+
+func TestStreamingState_SubagentModelReset(t *testing.T) {
+	state := NewStreamingState()
+
+	// Set a subagent model
+	state.CurrentSubagentModel = "claude-haiku-4-5-20251001"
+
+	// Reset should clear it
+	state.Reset()
+
+	if state.CurrentSubagentModel != "" {
+		t.Errorf("Expected empty subagent model after reset, got %q", state.CurrentSubagentModel)
+	}
+}

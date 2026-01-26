@@ -60,6 +60,9 @@ type SessionState struct {
 
 	// Current todo list from TodoWrite tool
 	CurrentTodoList *claude.TodoList
+
+	// Subagent indicator - model name when subagent is active (empty when none)
+	SubagentModel string
 }
 
 // ToolUseRollupState tracks consecutive tool uses for non-active sessions
@@ -344,6 +347,24 @@ func (s *SessionState) SetCurrentTodoList(list *claude.TodoList) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.CurrentTodoList = list
+}
+
+// --- Thread-safe accessors for SubagentModel ---
+
+// GetSubagentModel returns the current subagent model (empty if none active).
+// Thread-safe.
+func (s *SessionState) GetSubagentModel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.SubagentModel
+}
+
+// SetSubagentModel sets the current subagent model (empty string to clear).
+// Thread-safe.
+func (s *SessionState) SetSubagentModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SubagentModel = model
 }
 
 // --- Thread-safe accessors for WaitStart ---

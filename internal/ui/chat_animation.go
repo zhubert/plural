@@ -116,7 +116,8 @@ func renderSpinner(verb string, frameIdx int) string {
 
 // renderStreamingStatus renders the full status line during streaming.
 // Format: ✺ Thinking... (esc to interrupt • 12s • ↓ 342 tokens)
-func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, stats *pclaude.StreamStats) string {
+// Or with subagent: ✺ Thinking... [haiku working] (esc to interrupt • 12s • ↓ 342 tokens)
+func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, stats *pclaude.StreamStats, subagentModel string) string {
 	// Get the current spinner frame
 	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
 
@@ -134,6 +135,16 @@ func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, sta
 	metaStyle := lipgloss.NewStyle().
 		Foreground(ColorTextMuted)
 
+	// Build the verb portion with optional subagent indicator
+	verbPart := verbStyle.Render(verb + "...")
+	if subagentModel != "" {
+		subagentStyle := lipgloss.NewStyle().
+			Foreground(ColorWarning).
+			Italic(true)
+		shortName := shortModelName(subagentModel)
+		verbPart += " " + subagentStyle.Render("["+shortName+" working]")
+	}
+
 	// Build metadata parts: (esc to interrupt • 12s • ↓ 342 tokens)
 	var parts []string
 	parts = append(parts, "esc to interrupt")
@@ -144,7 +155,7 @@ func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, sta
 	}
 
 	meta := metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
-	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...") + " " + meta
+	return spinnerStyle.Render(frame) + " " + verbPart + " " + meta
 }
 
 // formatElapsed formats a duration for display (e.g., "12s", "1m30s")
@@ -167,6 +178,23 @@ func formatTokenCount(n int) string {
 // SetStreamStats updates the streaming statistics for display
 func (c *Chat) SetStreamStats(stats *pclaude.StreamStats) {
 	c.streamStats = stats
+	c.updateContent()
+}
+
+// SetSubagentModel sets the current subagent model (empty string clears it)
+func (c *Chat) SetSubagentModel(model string) {
+	c.subagentModel = model
+	c.updateContent()
+}
+
+// GetSubagentModel returns the current subagent model (empty if none active)
+func (c *Chat) GetSubagentModel() string {
+	return c.subagentModel
+}
+
+// ClearSubagentModel clears the subagent indicator
+func (c *Chat) ClearSubagentModel() {
+	c.subagentModel = ""
 	c.updateContent()
 }
 

@@ -62,10 +62,11 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	logger.WithSession(sessionID).Info("completed streaming")
 	m.sidebar.SetStreaming(sessionID, false)
 
-	// Flush any pending tool uses and clear streaming content
+	// Flush any pending tool uses, clear streaming content, and clear subagent indicator
 	if state := m.sessionState().GetIfExists(sessionID); state != nil {
 		state.FlushToolUseRollup(ui.GetToolIcon, ui.ToolUseInProgress, ui.ToolUseComplete)
 		state.SetStreamingContent("")
+		state.SetSubagentModel("")
 	}
 	m.sessionState().StopWaiting(sessionID)
 
@@ -73,6 +74,8 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	if isActiveSession {
 		m.chat.SetWaiting(false)
 		m.chat.FinishStreaming()
+		// Clear subagent indicator
+		m.chat.ClearSubagentModel()
 		// Start completion flash animation
 		completionCmd = m.chat.StartCompletionFlash()
 
@@ -157,6 +160,10 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 			if chunk.Stats != nil {
 				m.chat.SetStreamStats(chunk.Stats)
 			}
+		case claude.ChunkTypeSubagentStatus:
+			// Update subagent indicator (empty model means subagent ended)
+			m.chat.SetSubagentModel(chunk.SubagentModel)
+			m.sessionState().GetOrCreate(sessionID).SetSubagentModel(chunk.SubagentModel)
 		default:
 			// For backwards compatibility, treat unknown types as text
 			if chunk.Content != "" {
@@ -195,6 +202,10 @@ func (m *Model) handleNonActiveSessionStreaming(sessionID string, chunk claude.R
 		if chunk.TodoList != nil {
 			state.SetCurrentTodoList(chunk.TodoList)
 		}
+
+	case claude.ChunkTypeSubagentStatus:
+		// Store subagent status for non-active session
+		state.SetSubagentModel(chunk.SubagentModel)
 
 	default:
 		if chunk.Content != "" {

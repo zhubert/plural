@@ -76,6 +76,9 @@ type StreamingState struct {
 	EndsWithNewline   bool            // Track if response ends with \n
 	EndsWithDoubleNL  bool            // Track if response ends with \n\n
 	FirstChunk        bool            // Track if this is first chunk
+
+	// Subagent tracking
+	CurrentSubagentModel string // Model of active subagent (empty when no subagent)
 }
 
 // NewStreamingState creates a new StreamingState ready for use.
@@ -100,6 +103,7 @@ func (s *StreamingState) Reset() {
 	s.EndsWithNewline = false
 	s.EndsWithDoubleNL = false
 	s.FirstChunk = true
+	s.CurrentSubagentModel = ""
 }
 
 // TokenTracking accumulates token usage across API calls within a request.
