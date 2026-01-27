@@ -831,45 +831,22 @@ func TestProcessManager_MultipleStartStop_NoLeak(t *testing.T) {
 	}
 }
 
-func TestProcessManager_HandleExit_ResumeFallback(t *testing.T) {
-	// This test verifies that when auto-restart fails with --resume,
-	// the process manager falls back to starting as a new session.
-
-	// Track what happens
-	var restartAttemptCount int32
-	var fatalErrorCalled int32
+func TestProcessManager_ConfigTransition_ResumeToNewSession(t *testing.T) {
+	// Verify that clearing SessionStarted and ForkFromSessionID produces
+	// correct command args (new session instead of resume).
+	// The resume fallback logic lives in Runner.ensureProcessRunning(),
+	// which creates a fresh ProcessManager with these flags cleared.
 
 	pm := NewProcessManager(ProcessConfig{
-		SessionID:      "test-session",
-		WorkingDir:     "/tmp",
-		SessionStarted: true, // This is the key - we're in "resume" mode
-		MCPConfigPath:  "/tmp/mcp.json",
-	}, ProcessCallbacks{
-		OnProcessExit: func(err error, stderrContent string) bool {
-			return true // Allow restart
-		},
-		OnRestartAttempt: func(attemptNum int) {
-			atomic.AddInt32(&restartAttemptCount, 1)
-		},
-		OnRestartFailed: func(err error) {},
-		OnFatalError: func(err error) {
-			atomic.AddInt32(&fatalErrorCalled, 1)
-		},
-	}, pmTestLogger())
+		SessionID:         "test-session",
+		WorkingDir:        "/tmp",
+		SessionStarted:    true,
+		MCPConfigPath:     "/tmp/mcp.json",
+		ForkFromSessionID: "parent-id",
+	}, ProcessCallbacks{}, pmTestLogger())
 
-	// Verify that when SessionStarted is true and Start fails,
-	// the config gets updated to try without resume
-	// We can't easily test the full flow without a claude binary,
-	// but we can verify the config change logic
-
-	// Simulate: set SessionStarted and try to start (will fail because no claude binary)
-	pm.mu.Lock()
-	pm.config.SessionStarted = true
-	pm.config.ForkFromSessionID = "parent-id"
-	pm.mu.Unlock()
-
-	// After the fallback logic runs, SessionStarted should be cleared
-	// We verify this by checking BuildCommandArgs with the modified config
+	// Simulate what Runner.ensureProcessRunning does on resume fallback:
+	// clear the resume/fork flags
 	pm.mu.Lock()
 	pm.config.SessionStarted = false
 	pm.config.ForkFromSessionID = ""
@@ -879,10 +856,10 @@ func TestProcessManager_HandleExit_ResumeFallback(t *testing.T) {
 
 	// Should now use --session-id (new session) instead of --resume
 	if containsArg(args, "--resume") {
-		t.Error("After resume fallback, should not have --resume flag")
+		t.Error("After clearing SessionStarted, should not have --resume flag")
 	}
 	if !containsArg(args, "--session-id") {
-		t.Error("After resume fallback, should have --session-id flag")
+		t.Error("After clearing SessionStarted, should have --session-id flag")
 	}
 }
 

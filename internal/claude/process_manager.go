@@ -676,19 +676,6 @@ func (pm *ProcessManager) handleExit(err error) {
 
 		// Attempt restart
 		if err := pm.Start(); err != nil {
-			// If resume failed, try falling back to a new session
-			if pm.config.SessionStarted {
-				pm.log.Warn("restart with resume failed, trying as new session", "error", err)
-				pm.mu.Lock()
-				pm.config.SessionStarted = false
-				pm.config.ForkFromSessionID = ""
-				pm.mu.Unlock()
-				if fallbackErr := pm.Start(); fallbackErr == nil {
-					pm.log.Info("process restarted as new session (resume fallback)")
-					return
-				}
-			}
-
 			pm.log.Error("failed to restart process", "error", err)
 			if pm.callbacks.OnRestartFailed != nil {
 				pm.callbacks.OnRestartFailed(err)
