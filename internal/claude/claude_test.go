@@ -1160,6 +1160,58 @@ func TestRunner_SessionStarted(t *testing.T) {
 	}
 }
 
+func TestRunner_SessionStartedOnInitMessage(t *testing.T) {
+	runner := New("session-init", "/tmp", false, nil)
+	if runner.SessionStarted() {
+		t.Error("Session should not be started initially")
+	}
+
+	// Simulate receiving a system/init message from Claude CLI
+	initMsg := `{"type":"system","subtype":"init","session_id":"session-init"}`
+	runner.handleProcessLine(initMsg)
+
+	if !runner.SessionStarted() {
+		t.Error("Session should be marked as started after receiving system/init message")
+	}
+}
+
+func TestRunner_SessionStartedOnInitMessage_WithProcessManager(t *testing.T) {
+	runner := New("session-init-pm", "/tmp", false, nil)
+
+	// Set up a real ProcessManager so MarkSessionStarted is called
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:      "session-init-pm",
+		SessionStarted: false,
+	}, ProcessCallbacks{}, testLogger())
+	runner.processManager = pm
+
+	initMsg := `{"type":"system","subtype":"init","session_id":"session-init-pm"}`
+	runner.handleProcessLine(initMsg)
+
+	if !runner.SessionStarted() {
+		t.Error("Runner should be marked as started after init message")
+	}
+
+	pm.mu.Lock()
+	pmStarted := pm.config.SessionStarted
+	pm.mu.Unlock()
+	if !pmStarted {
+		t.Error("ProcessManager config should have SessionStarted=true after init message")
+	}
+}
+
+func TestRunner_SessionStartedOnInitMessage_AlreadyStarted(t *testing.T) {
+	// If already started, the init check should be a no-op (no panic, no double-set)
+	runner := New("session-already", "/tmp", true, nil)
+
+	initMsg := `{"type":"system","subtype":"init","session_id":"session-already"}`
+	runner.handleProcessLine(initMsg)
+
+	if !runner.SessionStarted() {
+		t.Error("Session should remain started")
+	}
+}
+
 func TestParseStreamMessage_NestedToolInput(t *testing.T) {
 	log := testLogger()
 	// Test tool use with nested input object
