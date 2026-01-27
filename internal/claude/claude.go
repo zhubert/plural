@@ -618,6 +618,21 @@ func (r *Runner) handleProcessLine(line string) {
 		}
 	}
 
+	// Mark session as started as soon as we receive the init message.
+	// This is the earliest signal that Claude CLI has accepted the session ID.
+	// Without this, interrupting before a result message leaves sessionStarted=false,
+	// causing subsequent starts to use --session-id (which fails with "already in use")
+	// instead of --resume.
+	if !r.sessionStarted && strings.Contains(line, `"type":"system"`) && strings.Contains(line, `"subtype":"init"`) {
+		r.mu.Lock()
+		r.sessionStarted = true
+		if r.processManager != nil {
+			r.processManager.MarkSessionStarted()
+		}
+		r.mu.Unlock()
+		r.log.Info("session marked as started on init message")
+	}
+
 	// Parse the JSON message
 	// hasStreamEvents is true because we always use --include-partial-messages,
 	// which means text content arrives via stream_event deltas. The full assistant
