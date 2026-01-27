@@ -2608,7 +2608,9 @@ func TestEnsureProcessRunning_ReplacesFailedPM(t *testing.T) {
 	runner.processManager = originalPM
 	runner.mu.Unlock()
 
-	// ensureProcessRunning should fail on Start(), then create a fresh PM and retry
+	// ensureProcessRunning should detect the old PM isn't running, create a fresh one,
+	// and attempt Start(). The first Start() will fail (no claude binary + SessionStarted=true
+	// means --resume which fails), so it falls back to a new session with SessionStarted=false.
 	err := runner.ensureProcessRunning()
 
 	// Both attempts fail (no claude binary), but the PM should have been replaced
@@ -2617,10 +2619,10 @@ func TestEnsureProcessRunning_ReplacesFailedPM(t *testing.T) {
 	runner.mu.Unlock()
 
 	if pm == originalPM {
-		t.Error("ensureProcessRunning should have created a new ProcessManager after Start failure")
+		t.Error("ensureProcessRunning should have created a new ProcessManager when old one isn't running")
 	}
 
-	// The new PM's config should have SessionStarted=false (cleared for retry)
+	// The new PM's config should have SessionStarted=false (from resume fallback)
 	if pm != nil {
 		pm.mu.Lock()
 		sessionStarted := pm.config.SessionStarted
@@ -2673,4 +2675,36 @@ func TestEnsureProcessRunning_ReplacesStoppedPM(t *testing.T) {
 	// err will be non-nil (no claude binary), but the important thing
 	// is recovery was attempted with a fresh PM
 	_ = err
+}
+
+func TestEnsureProcessRunning_FreshPMAfterInterrupt(t *testing.T) {
+	// Test that ensureProcessRunning always creates a fresh ProcessManager
+	// when the old one is not running (e.g., after an interrupt).
+	// This prevents race conditions from old goroutines still winding down.
+	runner := New("test-session", "/nonexistent/path", false, nil)
+	runner.mcpConfigPath = "/tmp/fake-mcp.json"
+
+	// Create an initial ProcessManager that is not running
+	// (simulating state after process was interrupted and exited)
+	oldPM := NewProcessManager(ProcessConfig{
+		SessionID:  "test-session",
+		WorkingDir: "/nonexistent/path",
+	}, runner.createProcessCallbacks(), runner.log)
+	// Don't start it - it stays in not-running state
+
+	runner.mu.Lock()
+	runner.processManager = oldPM
+	runner.mu.Unlock()
+
+	// ensureProcessRunning should detect oldPM isn't running and create a fresh one
+	_ = runner.ensureProcessRunning() // Will fail (no claude binary), that's fine
+
+	runner.mu.Lock()
+	newPM := runner.processManager
+	runner.mu.Unlock()
+
+	// The key assertion: a NEW ProcessManager was created, not the old one reused
+	if newPM == oldPM {
+		t.Error("ensureProcessRunning should create a fresh ProcessManager when old one isn't running, not reuse it")
+	}
 }

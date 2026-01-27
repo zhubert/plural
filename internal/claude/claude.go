@@ -545,49 +545,38 @@ func (r *Runner) ensureProcessRunning() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Create ProcessManager if it doesn't exist
-	if r.processManager == nil {
-		config := ProcessConfig{
-			SessionID:         r.sessionID,
-			WorkingDir:        r.workingDir,
-			SessionStarted:    r.sessionStarted,
-			AllowedTools:      make([]string, len(r.allowedTools)),
-			MCPConfigPath:     r.mcpConfigPath,
-			ForkFromSessionID: r.forkFromSessionID,
-		}
-		copy(config.AllowedTools, r.allowedTools)
-
-		r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
-	}
-
-	// Start the process if not running
-	if !r.processManager.IsRunning() {
-		// Build config with current state
-		config := ProcessConfig{
-			SessionID:         r.sessionID,
-			WorkingDir:        r.workingDir,
-			SessionStarted:    r.sessionStarted,
-			AllowedTools:      make([]string, len(r.allowedTools)),
-			MCPConfigPath:     r.mcpConfigPath,
-			ForkFromSessionID: r.forkFromSessionID,
-		}
-		copy(config.AllowedTools, r.allowedTools)
-		r.processManager.UpdateConfig(config)
-
-		err := r.processManager.Start()
-		if err != nil {
-			// Start failed — create a fresh ProcessManager and retry.
-			// Clear resume/fork flags so the retry starts a new session.
-			r.log.Warn("process start failed, retrying with fresh process manager", "error", err)
-			config.SessionStarted = false
-			config.ForkFromSessionID = ""
-			r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
-			return r.processManager.Start()
-		}
+	// If there's already a running ProcessManager, nothing to do.
+	if r.processManager != nil && r.processManager.IsRunning() {
 		return nil
 	}
 
-	return nil
+	// Always create a fresh ProcessManager when one doesn't exist or isn't running.
+	// After an interrupt or crash, the old ProcessManager's goroutines (readOutput,
+	// drainStderr, monitorExit) may still be winding down. Reusing it would cause
+	// race conditions between old and new goroutines competing for pipes and locks.
+	config := ProcessConfig{
+		SessionID:         r.sessionID,
+		WorkingDir:        r.workingDir,
+		SessionStarted:    r.sessionStarted,
+		AllowedTools:      make([]string, len(r.allowedTools)),
+		MCPConfigPath:     r.mcpConfigPath,
+		ForkFromSessionID: r.forkFromSessionID,
+	}
+	copy(config.AllowedTools, r.allowedTools)
+
+	r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
+
+	err := r.processManager.Start()
+	if err != nil && config.SessionStarted {
+		// Resume failed (e.g., session was interrupted and can't be resumed).
+		// Fall back to starting as a new session.
+		r.log.Warn("resume failed, falling back to new session", "error", err)
+		config.SessionStarted = false
+		config.ForkFromSessionID = ""
+		r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
+		return r.processManager.Start()
+	}
+	return err
 }
 
 // createProcessCallbacks creates the callbacks for ProcessManager events.

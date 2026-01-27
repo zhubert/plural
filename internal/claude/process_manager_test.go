@@ -828,25 +828,22 @@ func TestProcessManager_MultipleStartStop_NoLeak(t *testing.T) {
 	}
 }
 
-func TestProcessManager_HandleExit_Restart(t *testing.T) {
-	// Verify that handleExit uses callbacks and attempts restart.
-	// Resume fallback logic lives in Runner.ensureProcessRunning(), not in PM.
+func TestProcessManager_ConfigTransition_ResumeToNewSession(t *testing.T) {
+	// Verify that clearing SessionStarted and ForkFromSessionID produces
+	// correct command args (new session instead of resume).
+	// The resume fallback logic lives in Runner.ensureProcessRunning(),
+	// which creates a fresh ProcessManager with these flags cleared.
 
 	pm := NewProcessManager(ProcessConfig{
-		SessionID:      "test-session",
-		WorkingDir:     "/tmp",
-		SessionStarted: true,
-		MCPConfigPath:  "/tmp/mcp.json",
-	}, ProcessCallbacks{
-		OnProcessExit: func(err error, stderrContent string) bool {
-			return true
-		},
-		OnRestartAttempt: func(attemptNum int) {},
-		OnRestartFailed:  func(err error) {},
-		OnFatalError:     func(err error) {},
-	}, pmTestLogger())
+		SessionID:         "test-session",
+		WorkingDir:        "/tmp",
+		SessionStarted:    true,
+		MCPConfigPath:     "/tmp/mcp.json",
+		ForkFromSessionID: "parent-id",
+	}, ProcessCallbacks{}, pmTestLogger())
 
-	// Verify config transitions for BuildCommandArgs still work
+	// Simulate what Runner.ensureProcessRunning does on resume fallback:
+	// clear the resume/fork flags
 	pm.mu.Lock()
 	pm.config.SessionStarted = false
 	pm.config.ForkFromSessionID = ""
