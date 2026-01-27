@@ -157,10 +157,6 @@ type ProcessManager struct {
 
 	// Goroutine lifecycle management
 	wg sync.WaitGroup
-
-	// Ensures Stop is idempotent
-	stopOnce sync.Once
-	stopped  bool
 }
 
 // NewProcessManager creates a new ProcessManager with the given configuration and callbacks.
@@ -234,10 +230,6 @@ func (pm *ProcessManager) Start() error {
 
 	if pm.running {
 		return nil
-	}
-
-	if pm.stopped {
-		return fmt.Errorf("process manager has been stopped")
 	}
 
 	pm.log.Info("starting process")
@@ -322,67 +314,68 @@ func (pm *ProcessManager) Start() error {
 
 // Stop stops the persistent process gracefully.
 // It waits for all goroutines (readOutput, monitorExit) to complete before returning.
+// Safe to call multiple times — subsequent calls are no-ops.
 func (pm *ProcessManager) Stop() {
-	pm.stopOnce.Do(func() {
-		pm.mu.Lock()
-		pm.stopped = true
-		wasRunning := pm.running
+	pm.mu.Lock()
+	wasRunning := pm.running
 
-		// Cancel context first to signal goroutines to exit
-		if pm.cancel != nil {
-			pm.cancel()
-			pm.cancel = nil
-		}
+	// Cancel context first to signal goroutines to exit
+	if pm.cancel != nil {
+		pm.cancel()
+		pm.cancel = nil
+	}
 
-		if !wasRunning {
-			pm.mu.Unlock()
-			return
-		}
-
-		pm.log.Debug("stopping process")
-
-		// Close stdin to signal EOF to the process
-		if pm.stdin != nil {
-			pm.stdin.Close()
-			pm.stdin = nil
-		}
-
-		cmd := pm.cmd
+	if !wasRunning {
 		pm.mu.Unlock()
+		return
+	}
 
-		// Kill the process if it doesn't exit gracefully
-		if cmd != nil && cmd.Process != nil {
-			done := make(chan struct{})
-			go func() {
-				cmd.Wait()
-				close(done)
-			}()
+	pm.log.Debug("stopping process")
 
-			select {
-			case <-done:
-				pm.log.Debug("process exited gracefully")
-			case <-time.After(2 * time.Second):
-				pm.log.Debug("force killing process")
-				cmd.Process.Kill()
-			}
+	// Mark as not running immediately to prevent concurrent Stop() from
+	// doing duplicate cleanup
+	pm.running = false
+
+	// Close stdin to signal EOF to the process
+	if pm.stdin != nil {
+		pm.stdin.Close()
+		pm.stdin = nil
+	}
+
+	cmd := pm.cmd
+	pm.mu.Unlock()
+
+	// Kill the process if it doesn't exit gracefully
+	if cmd != nil && cmd.Process != nil {
+		done := make(chan struct{})
+		go func() {
+			cmd.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			pm.log.Debug("process exited gracefully")
+		case <-time.After(2 * time.Second):
+			pm.log.Debug("force killing process")
+			cmd.Process.Kill()
 		}
+	}
 
-		// Wait for goroutines (readOutput, monitorExit) to complete
-		// This prevents resource leaks when process is started/stopped quickly
-		pm.log.Debug("waiting for goroutines to complete")
-		pm.wg.Wait()
-		pm.log.Debug("all goroutines completed")
+	// Wait for goroutines (readOutput, monitorExit) to complete
+	// This prevents resource leaks when process is started/stopped quickly
+	pm.log.Debug("waiting for goroutines to complete")
+	pm.wg.Wait()
+	pm.log.Debug("all goroutines completed")
 
-		pm.mu.Lock()
-		if pm.stderr != nil {
-			pm.stderr.Close()
-			pm.stderr = nil
-		}
-		pm.cmd = nil
-		pm.stdout = nil
-		pm.running = false
-		pm.mu.Unlock()
-	})
+	pm.mu.Lock()
+	if pm.stderr != nil {
+		pm.stderr.Close()
+		pm.stderr = nil
+	}
+	pm.cmd = nil
+	pm.stdout = nil
+	pm.mu.Unlock()
 }
 
 // IsRunning returns whether the process is currently running.
@@ -616,8 +609,10 @@ func (pm *ProcessManager) handleExit(err error) {
 	wasInterrupted := pm.interrupted
 	pm.interrupted = false // Reset for next operation
 	restartAttempts := pm.restartAttempts
-	stopped := pm.stopped
 	stderrDone := pm.stderrDone
+
+	// Check if context was cancelled (Stop() was called)
+	ctxCancelled := pm.ctx != nil && pm.ctx.Err() != nil
 	pm.mu.Unlock()
 
 	// Wait for stderr to be fully drained (drainStderr goroutine reads it
@@ -636,8 +631,8 @@ func (pm *ProcessManager) handleExit(err error) {
 	pm.cleanupLocked()
 	pm.mu.Unlock()
 
-	// If user interrupted or manager is stopped, don't attempt restart
-	if wasInterrupted || stopped {
+	// If user interrupted or Stop() was called, don't attempt restart
+	if wasInterrupted || ctxCancelled {
 		pm.log.Debug("process exit due to user interrupt or stop, not restarting")
 		if pm.callbacks.OnProcessExit != nil {
 			pm.callbacks.OnProcessExit(err, stderrContent)
@@ -676,19 +671,6 @@ func (pm *ProcessManager) handleExit(err error) {
 
 		// Attempt restart
 		if err := pm.Start(); err != nil {
-			// If resume failed, try falling back to a new session
-			if pm.config.SessionStarted {
-				pm.log.Warn("restart with resume failed, trying as new session", "error", err)
-				pm.mu.Lock()
-				pm.config.SessionStarted = false
-				pm.config.ForkFromSessionID = ""
-				pm.mu.Unlock()
-				if fallbackErr := pm.Start(); fallbackErr == nil {
-					pm.log.Info("process restarted as new session (resume fallback)")
-					return
-				}
-			}
-
 			pm.log.Error("failed to restart process", "error", err)
 			if pm.callbacks.OnRestartFailed != nil {
 				pm.callbacks.OnRestartFailed(err)

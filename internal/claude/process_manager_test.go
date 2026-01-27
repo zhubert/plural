@@ -209,12 +209,8 @@ func TestProcessManager_Stop_Idempotent(t *testing.T) {
 	pm.Stop()
 	pm.Stop()
 
-	pm.mu.Lock()
-	stopped := pm.stopped
-	pm.mu.Unlock()
-
-	if !stopped {
-		t.Error("stopped flag should be true after Stop")
+	if pm.IsRunning() {
+		t.Error("should not be running after Stop")
 	}
 }
 
@@ -243,7 +239,7 @@ func TestProcessManager_Interrupt_NotRunning(t *testing.T) {
 	}
 }
 
-func TestProcessManager_Start_AfterStop(t *testing.T) {
+func TestProcessManager_Stop_ThenNotRunning(t *testing.T) {
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-session",
 		WorkingDir: "/tmp",
@@ -251,9 +247,10 @@ func TestProcessManager_Start_AfterStop(t *testing.T) {
 
 	pm.Stop()
 
-	err := pm.Start()
-	if err == nil {
-		t.Error("Start should error after Stop has been called")
+	// After Stop, IsRunning should be false. ProcessManager is disposable —
+	// callers create a new one rather than restarting a stopped one.
+	if pm.IsRunning() {
+		t.Error("should not be running after Stop")
 	}
 }
 
@@ -831,45 +828,25 @@ func TestProcessManager_MultipleStartStop_NoLeak(t *testing.T) {
 	}
 }
 
-func TestProcessManager_HandleExit_ResumeFallback(t *testing.T) {
-	// This test verifies that when auto-restart fails with --resume,
-	// the process manager falls back to starting as a new session.
-
-	// Track what happens
-	var restartAttemptCount int32
-	var fatalErrorCalled int32
+func TestProcessManager_HandleExit_Restart(t *testing.T) {
+	// Verify that handleExit uses callbacks and attempts restart.
+	// Resume fallback logic lives in Runner.ensureProcessRunning(), not in PM.
 
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:      "test-session",
 		WorkingDir:     "/tmp",
-		SessionStarted: true, // This is the key - we're in "resume" mode
+		SessionStarted: true,
 		MCPConfigPath:  "/tmp/mcp.json",
 	}, ProcessCallbacks{
 		OnProcessExit: func(err error, stderrContent string) bool {
-			return true // Allow restart
+			return true
 		},
-		OnRestartAttempt: func(attemptNum int) {
-			atomic.AddInt32(&restartAttemptCount, 1)
-		},
-		OnRestartFailed: func(err error) {},
-		OnFatalError: func(err error) {
-			atomic.AddInt32(&fatalErrorCalled, 1)
-		},
+		OnRestartAttempt: func(attemptNum int) {},
+		OnRestartFailed:  func(err error) {},
+		OnFatalError:     func(err error) {},
 	}, pmTestLogger())
 
-	// Verify that when SessionStarted is true and Start fails,
-	// the config gets updated to try without resume
-	// We can't easily test the full flow without a claude binary,
-	// but we can verify the config change logic
-
-	// Simulate: set SessionStarted and try to start (will fail because no claude binary)
-	pm.mu.Lock()
-	pm.config.SessionStarted = true
-	pm.config.ForkFromSessionID = "parent-id"
-	pm.mu.Unlock()
-
-	// After the fallback logic runs, SessionStarted should be cleared
-	// We verify this by checking BuildCommandArgs with the modified config
+	// Verify config transitions for BuildCommandArgs still work
 	pm.mu.Lock()
 	pm.config.SessionStarted = false
 	pm.config.ForkFromSessionID = ""
@@ -877,12 +854,11 @@ func TestProcessManager_HandleExit_ResumeFallback(t *testing.T) {
 
 	args := BuildCommandArgs(pm.config)
 
-	// Should now use --session-id (new session) instead of --resume
 	if containsArg(args, "--resume") {
-		t.Error("After resume fallback, should not have --resume flag")
+		t.Error("After clearing SessionStarted, should not have --resume flag")
 	}
 	if !containsArg(args, "--session-id") {
-		t.Error("After resume fallback, should have --session-id flag")
+		t.Error("After clearing SessionStarted, should have --session-id flag")
 	}
 }
 

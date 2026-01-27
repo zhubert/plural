@@ -562,7 +562,7 @@ func (r *Runner) ensureProcessRunning() error {
 
 	// Start the process if not running
 	if !r.processManager.IsRunning() {
-		// Update config before starting (in case allowed tools changed)
+		// Build config with current state
 		config := ProcessConfig{
 			SessionID:         r.sessionID,
 			WorkingDir:        r.workingDir,
@@ -575,17 +575,16 @@ func (r *Runner) ensureProcessRunning() error {
 		r.processManager.UpdateConfig(config)
 
 		err := r.processManager.Start()
-		if err != nil && config.SessionStarted {
-			// Resume failed (e.g., session was interrupted and can't be resumed).
-			// Fall back to starting as a new session.
-			r.log.Warn("resume failed, falling back to new session", "error", err)
+		if err != nil {
+			// Start failed — create a fresh ProcessManager and retry.
+			// Clear resume/fork flags so the retry starts a new session.
+			r.log.Warn("process start failed, retrying with fresh process manager", "error", err)
 			config.SessionStarted = false
 			config.ForkFromSessionID = ""
-			// Create a fresh ProcessManager since the old one may be in a bad state
 			r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
 			return r.processManager.Start()
 		}
-		return err
+		return nil
 	}
 
 	return nil

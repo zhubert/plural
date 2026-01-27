@@ -2590,42 +2590,37 @@ func TestStreamingState_SubagentModelReset(t *testing.T) {
 	}
 }
 
-func TestEnsureProcessRunning_ResumeFallback(t *testing.T) {
-	// Test that ensureProcessRunning creates a fresh ProcessManager with
-	// SessionStarted=false when the initial Start() fails for a resumed session.
+func TestEnsureProcessRunning_ReplacesFailedPM(t *testing.T) {
+	// Test that ensureProcessRunning always creates a fresh ProcessManager
+	// when Start() fails, regardless of SessionStarted state.
 	runner := New("test-session", "/nonexistent/path", true, nil)
 	runner.mcpConfigPath = "/tmp/fake-mcp.json"
 
-	// Manually create a ProcessManager that is in "stopped" state to simulate
-	// a failed Start (the stopped flag prevents Start from working)
-	stoppedPM := NewProcessManager(ProcessConfig{
+	// Create a PM that will fail to Start (no claude binary)
+	originalPM := NewProcessManager(ProcessConfig{
 		SessionID:      "test-session",
 		WorkingDir:     "/nonexistent/path",
 		SessionStarted: true,
 		MCPConfigPath:  "/tmp/fake-mcp.json",
 	}, runner.createProcessCallbacks(), runner.log)
-	stoppedPM.Stop() // Sets stopped=true, so Start() will fail
 
 	runner.mu.Lock()
-	runner.processManager = stoppedPM
+	runner.processManager = originalPM
 	runner.mu.Unlock()
 
-	// ensureProcessRunning should fail on the stopped PM, detect SessionStarted=true,
-	// then create a new PM with SessionStarted=false
+	// ensureProcessRunning should fail on Start(), then create a fresh PM and retry
 	err := runner.ensureProcessRunning()
 
-	// The second attempt will also fail (no claude binary), but the important thing
-	// is that a NEW ProcessManager was created (not the stopped one)
+	// Both attempts fail (no claude binary), but the PM should have been replaced
 	runner.mu.Lock()
 	pm := runner.processManager
 	runner.mu.Unlock()
 
-	// Verify the ProcessManager was replaced (not the stopped one)
-	if pm == stoppedPM {
-		t.Error("ensureProcessRunning should have created a new ProcessManager after resume failure")
+	if pm == originalPM {
+		t.Error("ensureProcessRunning should have created a new ProcessManager after Start failure")
 	}
 
-	// The new PM's config should have SessionStarted=false
+	// The new PM's config should have SessionStarted=false (cleared for retry)
 	if pm != nil {
 		pm.mu.Lock()
 		sessionStarted := pm.config.SessionStarted
@@ -2633,13 +2628,49 @@ func TestEnsureProcessRunning_ResumeFallback(t *testing.T) {
 		pm.mu.Unlock()
 
 		if sessionStarted {
-			t.Error("New ProcessManager should have SessionStarted=false after resume fallback")
+			t.Error("New ProcessManager should have SessionStarted=false after fallback")
 		}
 		if forkFrom != "" {
-			t.Error("New ProcessManager should have empty ForkFromSessionID after resume fallback")
+			t.Error("New ProcessManager should have empty ForkFromSessionID after fallback")
 		}
 	}
 
 	// err will be non-nil because there's no claude binary, but the fallback logic ran
+	_ = err
+}
+
+func TestEnsureProcessRunning_ReplacesStoppedPM(t *testing.T) {
+	// Test that ensureProcessRunning recovers when the existing PM was stopped.
+	// This is the "check-the-docs" scenario: PM was stopped, user sends new message.
+	runner := New("test-session", "/nonexistent/path", false, nil)
+	runner.mcpConfigPath = "/tmp/fake-mcp.json"
+
+	// Create a PM and stop it (simulating a previous session that was stopped)
+	stoppedPM := NewProcessManager(ProcessConfig{
+		SessionID:     "test-session",
+		WorkingDir:    "/nonexistent/path",
+		MCPConfigPath: "/tmp/fake-mcp.json",
+	}, runner.createProcessCallbacks(), runner.log)
+	stoppedPM.Stop()
+
+	runner.mu.Lock()
+	runner.processManager = stoppedPM
+	runner.mu.Unlock()
+
+	// ensureProcessRunning should detect the stopped PM can't start,
+	// create a fresh one, and retry
+	err := runner.ensureProcessRunning()
+
+	runner.mu.Lock()
+	pm := runner.processManager
+	runner.mu.Unlock()
+
+	// PM should have been replaced
+	if pm == stoppedPM {
+		t.Error("ensureProcessRunning should replace a stopped ProcessManager")
+	}
+
+	// err will be non-nil (no claude binary), but the important thing
+	// is recovery was attempted with a fresh PM
 	_ = err
 }
