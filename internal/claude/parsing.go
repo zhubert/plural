@@ -38,7 +38,8 @@ type streamMessage struct {
 	Event *streamEvent `json:"event,omitempty"`
 	// ToolUseResult contains rich details about the tool execution result.
 	// This is a top-level field in user messages, separate from message.content.
-	ToolUseResult     *toolUseResultData          `json:"tool_use_result,omitempty"`
+	// Can be either a string (for errors/simple results) or a structured object.
+	ToolUseResult     *toolUseResultField         `json:"tool_use_result,omitempty"`
 	Result            string                      `json:"result,omitempty"`             // Final result text
 	Error             string                      `json:"error,omitempty"`              // Error message (alternative to result)
 	Errors            []string                    `json:"errors,omitempty"`             // Error messages array (used by error_during_execution)
@@ -75,6 +76,35 @@ type toolUseResultData struct {
 	ExitCode *int   `json:"exitCode,omitempty"`
 	Stdout   string `json:"stdout,omitempty"`
 	Stderr   string `json:"stderr,omitempty"`
+}
+
+// toolUseResultField wraps toolUseResultData to handle the case where
+// tool_use_result can be either a string (for errors/simple results)
+// or a structured object (for rich result data).
+type toolUseResultField struct {
+	// StringValue is populated when tool_use_result is a plain string
+	StringValue string
+	// Data is populated when tool_use_result is a structured object
+	Data *toolUseResultData
+}
+
+// UnmarshalJSON implements json.Unmarshaler for toolUseResultField.
+// It handles both string values and structured objects.
+func (f *toolUseResultField) UnmarshalJSON(data []byte) error {
+	// First, try to unmarshal as a string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		f.StringValue = s
+		return nil
+	}
+
+	// Not a string, try as structured object
+	var obj toolUseResultData
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	f.Data = &obj
+	return nil
 }
 
 // toolUseResultFile represents file info in Read tool results
@@ -430,11 +460,17 @@ func formatToolIcon(toolName string) string {
 
 // extractToolResultInfo extracts rich result information from the tool_use_result field.
 // Returns nil if no meaningful info can be extracted.
-func extractToolResultInfo(data *toolUseResultData) *ToolResultInfo {
-	if data == nil {
+func extractToolResultInfo(field *toolUseResultField) *ToolResultInfo {
+	if field == nil {
 		return nil
 	}
 
+	// If tool_use_result was a string (error message or simple result), no rich info
+	if field.Data == nil {
+		return nil
+	}
+
+	data := field.Data
 	info := &ToolResultInfo{}
 	hasData := false
 

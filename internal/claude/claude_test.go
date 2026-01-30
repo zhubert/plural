@@ -600,6 +600,116 @@ func TestToolResultInfo_Summary_Empty(t *testing.T) {
 	}
 }
 
+func TestParseStreamMessage_UserToolResultWithStringResult(t *testing.T) {
+	log := testLogger()
+	// Test tool_use_result as a plain string (error messages, simple results)
+	// This occurs when tools fail or return simple text results
+	msg := `{
+		"type": "user",
+		"tool_use_result": "Error: EISDIR: illegal operation on a directory, read",
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "123", "content": "Error: EISDIR", "is_error": true}]}
+	}`
+	chunks := parseStreamMessage(msg, false, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].Type != ChunkTypeToolResult {
+		t.Errorf("Expected ChunkTypeToolResult, got %s", chunks[0].Type)
+	}
+	// When tool_use_result is a string, ResultInfo should be nil (no rich data)
+	if chunks[0].ResultInfo != nil {
+		t.Errorf("Expected ResultInfo to be nil for string tool_use_result, got %+v", chunks[0].ResultInfo)
+	}
+}
+
+func TestParseStreamMessage_UserToolResultWithStringSiblingError(t *testing.T) {
+	log := testLogger()
+	// Test the "Sibling tool call errored" case
+	msg := `{
+		"type": "user",
+		"tool_use_result": "Sibling tool call errored",
+		"message": {"content": [{"type": "tool_result", "tool_use_id": "456", "content": "<tool_use_error>Sibling tool call errored</tool_use_error>", "is_error": true}]}
+	}`
+	chunks := parseStreamMessage(msg, false, log)
+
+	if len(chunks) != 1 {
+		t.Fatalf("Expected 1 chunk, got %d", len(chunks))
+	}
+	if chunks[0].Type != ChunkTypeToolResult {
+		t.Errorf("Expected ChunkTypeToolResult, got %s", chunks[0].Type)
+	}
+	// String tool_use_result should not produce ResultInfo
+	if chunks[0].ResultInfo != nil {
+		t.Errorf("Expected ResultInfo to be nil for string tool_use_result")
+	}
+}
+
+func TestToolUseResultField_UnmarshalJSON_String(t *testing.T) {
+	// Test unmarshaling a string value
+	jsonStr := `"Error: something went wrong"`
+	var field toolUseResultField
+	if err := json.Unmarshal([]byte(jsonStr), &field); err != nil {
+		t.Fatalf("Failed to unmarshal string: %v", err)
+	}
+	if field.StringValue != "Error: something went wrong" {
+		t.Errorf("Expected StringValue 'Error: something went wrong', got %q", field.StringValue)
+	}
+	if field.Data != nil {
+		t.Errorf("Expected Data to be nil for string value, got %+v", field.Data)
+	}
+}
+
+func TestToolUseResultField_UnmarshalJSON_Object(t *testing.T) {
+	// Test unmarshaling a structured object
+	jsonStr := `{"type": "text", "exitCode": 0, "stdout": "success"}`
+	var field toolUseResultField
+	if err := json.Unmarshal([]byte(jsonStr), &field); err != nil {
+		t.Fatalf("Failed to unmarshal object: %v", err)
+	}
+	if field.StringValue != "" {
+		t.Errorf("Expected StringValue to be empty, got %q", field.StringValue)
+	}
+	if field.Data == nil {
+		t.Fatal("Expected Data to be populated")
+	}
+	if field.Data.Type != "text" {
+		t.Errorf("Expected Data.Type 'text', got %q", field.Data.Type)
+	}
+	if field.Data.ExitCode == nil || *field.Data.ExitCode != 0 {
+		t.Errorf("Expected Data.ExitCode 0, got %v", field.Data.ExitCode)
+	}
+}
+
+func TestToolUseResultField_UnmarshalJSON_ObjectWithFile(t *testing.T) {
+	// Test unmarshaling a Read tool result
+	jsonStr := `{
+		"type": "text",
+		"file": {
+			"filePath": "/path/to/file.go",
+			"numLines": 50,
+			"startLine": 1,
+			"totalLines": 100
+		}
+	}`
+	var field toolUseResultField
+	if err := json.Unmarshal([]byte(jsonStr), &field); err != nil {
+		t.Fatalf("Failed to unmarshal: %v", err)
+	}
+	if field.Data == nil {
+		t.Fatal("Expected Data to be populated")
+	}
+	if field.Data.File == nil {
+		t.Fatal("Expected Data.File to be populated")
+	}
+	if field.Data.File.FilePath != "/path/to/file.go" {
+		t.Errorf("Expected FilePath '/path/to/file.go', got %q", field.Data.File.FilePath)
+	}
+	if field.Data.File.NumLines != 50 {
+		t.Errorf("Expected NumLines 50, got %d", field.Data.File.NumLines)
+	}
+}
+
 func TestParseStreamMessage_Result(t *testing.T) {
 	log := testLogger()
 	msg := `{"type":"result","subtype":"success","result":"Operation completed"}`
