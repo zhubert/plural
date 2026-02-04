@@ -523,8 +523,9 @@ func (s *Sidebar) getSelectedLine() int {
 	sessionIdx := 0
 	for i, group := range s.groups {
 		if i > 0 {
-			line++ // repo header (not for first group since no title above it)
+			line++ // blank line between repos (not before first group)
 		}
+		line++ // repo header line
 		for range group.Sessions {
 			if sessionIdx == s.selectedIdx {
 				return line

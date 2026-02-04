@@ -418,25 +418,33 @@ func TestSidebar_GetSelectedLine(t *testing.T) {
 	}
 	sidebar.SetSessions(sessions)
 
-	// First session
+	// Rendered structure:
+	// - repo1 header (line 0)
+	// - session s1 (line 1)
+	// - session s2 (line 2)
+	// - blank line (line 3)
+	// - repo2 header (line 4)
+	// - session s3 (line 5)
+
+	// First session (after repo1 header)
 	sidebar.selectedIdx = 0
 	line := sidebar.getSelectedLine()
-	if line != 0 {
-		t.Errorf("Expected line 0 for first session, got %d", line)
+	if line != 1 {
+		t.Errorf("Expected line 1 for first session (after header), got %d", line)
 	}
 
 	// Second session (same repo group)
 	sidebar.selectedIdx = 1
 	line = sidebar.getSelectedLine()
-	if line != 1 {
-		t.Errorf("Expected line 1 for second session, got %d", line)
+	if line != 2 {
+		t.Errorf("Expected line 2 for second session, got %d", line)
 	}
 
-	// Third session (new repo group, has header between)
+	// Third session (new repo group: blank line + header before)
 	sidebar.selectedIdx = 2
 	line = sidebar.getSelectedLine()
-	if line != 3 { // 2 sessions + 1 header
-		t.Errorf("Expected line 3 for third session, got %d", line)
+	if line != 5 { // 1 header + 2 sessions + 1 blank + 1 header
+		t.Errorf("Expected line 5 for third session, got %d", line)
 	}
 }
 
