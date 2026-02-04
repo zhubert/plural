@@ -74,6 +74,10 @@ Each session runs in its own git worktree with a dedicated branch. Claude can ed
 
 When Claude offers multiple approaches ("Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), fork the session and explore them all at once. Child sessions appear indented in the sidebar. Try different solutions in parallel and merge the winner.
 
+### Broadcast Across Repos
+
+Send the same prompt to multiple repositories at once. Plural creates a session for each repo and sends your prompt in parallel—perfect for applying the same change across a fleet of services. Later, use the broadcast group modal to send follow-up prompts or create PRs for all sessions at once.
+
 ### GitHub Integration
 
 Import GitHub issues directly—Plural creates a session for each with full context, and Claude starts working immediately. When you create a PR from an issue session, "Fixes #N" is automatically added to close the issue on merge.
