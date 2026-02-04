@@ -22,6 +22,7 @@ type (
 	HelpShortcutTriggeredMsg = modals.HelpShortcutTriggeredMsg
 	HelpSection              = modals.HelpSection
 	SearchResult             = modals.SearchResult
+	RepoItem                 = modals.RepoItem
 
 	AddRepoState             = modals.AddRepoState
 	SelectRepoForIssuesState = modals.SelectRepoForIssuesState
@@ -48,6 +49,7 @@ type (
 	ExploreOptionsState     = modals.ExploreOptionsState
 	SearchMessagesState     = modals.SearchMessagesState
 	PreviewActiveState      = modals.PreviewActiveState
+	BroadcastState          = modals.BroadcastState
 )
 
 // Re-export constructor functions
@@ -77,6 +79,7 @@ var (
 	NewExploreOptionsState     = modals.NewExploreOptionsState
 	NewSearchMessagesState     = modals.NewSearchMessagesState
 	NewPreviewActiveState      = modals.NewPreviewActiveState
+	NewBroadcastState          = modals.NewBroadcastState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
 	TruncateString                 = modals.TruncateString

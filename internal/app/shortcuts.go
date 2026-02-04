@@ -103,6 +103,26 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutImportIssues,
 	},
 	{
+		Key:         "ctrl+b",
+		DisplayKey:  "ctrl-b",
+		Description: "Broadcast prompt to multiple repos",
+		Category:    CategorySessions,
+		Handler:     shortcutBroadcast,
+		Condition:   func(m *Model) bool { return len(m.config.GetRepos()) > 0 },
+	},
+	{
+		Key:             "ctrl+shift+b",
+		DisplayKey:      "ctrl-shift-b",
+		Description:     "Send to all sessions in broadcast group",
+		Category:        CategorySessions,
+		RequiresSession: true,
+		Handler:         shortcutBroadcastToGroup,
+		Condition: func(m *Model) bool {
+			sess := m.sidebar.SelectedSession()
+			return sess != nil && sess.BroadcastGroupID != ""
+		},
+	},
+	{
 		Key:             "r",
 		Description:     "Rename selected session",
 		Category:        CategorySessions,
@@ -830,4 +850,30 @@ end tell`, escapedPath)
 			return TerminalErrorMsg{Error: errMsg}
 		}
 	}
+}
+
+func shortcutBroadcast(m *Model) (tea.Model, tea.Cmd) {
+	repos := m.config.GetRepos()
+	m.modal.Show(ui.NewBroadcastState(repos))
+	return m, nil
+}
+
+func shortcutBroadcastToGroup(m *Model) (tea.Model, tea.Cmd) {
+	// Get current input text from chat
+	prompt := m.chat.GetInput()
+	if strings.TrimSpace(prompt) == "" {
+		return m, m.ShowFlashWarning("Enter a message first")
+	}
+
+	sess := m.sidebar.SelectedSession()
+	if sess == nil || sess.BroadcastGroupID == "" {
+		return m, m.ShowFlashWarning("Session is not part of a broadcast group")
+	}
+
+	groupSessions := m.config.GetSessionsByBroadcastGroup(sess.BroadcastGroupID)
+	if len(groupSessions) == 0 {
+		return m, m.ShowFlashWarning("No sessions found in broadcast group")
+	}
+
+	return m.broadcastToSessions(groupSessions, prompt)
 }

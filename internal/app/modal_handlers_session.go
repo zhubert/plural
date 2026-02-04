@@ -2,8 +2,12 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
+	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
@@ -414,4 +418,188 @@ func (m *Model) handlePreviewActiveModal(key string, msg tea.KeyPressMsg, state 
 		return m.endPreview()
 	}
 	return m, nil
+}
+
+// handleBroadcastModal handles key events for the Broadcast modal.
+func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.BroadcastState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "escape":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selectedRepos := state.GetSelectedRepos()
+		if len(selectedRepos) == 0 {
+			m.modal.SetError("Select at least one repository")
+			return m, nil
+		}
+
+		prompt := state.GetPrompt()
+		if strings.TrimSpace(prompt) == "" {
+			m.modal.SetError("Enter a prompt")
+			return m, nil
+		}
+
+		m.modal.Hide()
+		return m.createBroadcastSessions(selectedRepos, prompt)
+	}
+
+	// Forward other keys to modal for navigation/selection
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// createBroadcastSessions creates sessions for each selected repo and sends the prompt to each.
+func (m *Model) createBroadcastSessions(repoPaths []string, prompt string) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	log.Info("creating broadcast sessions", "repoCount", len(repoPaths))
+
+	// Generate a broadcast group ID for this batch
+	groupID := uuid.New().String()
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+
+	var createdSessions []*config.Session
+	var failedRepos []string
+
+	ctx := context.Background()
+
+	// Create a session for each repo
+	for _, repoPath := range repoPaths {
+		sess, err := m.sessionService.Create(ctx, repoPath, "", branchPrefix, session.BasePointOrigin)
+		if err != nil {
+			log.Error("failed to create session for broadcast", "repo", repoPath, "error", err)
+			failedRepos = append(failedRepos, repoPath)
+			continue
+		}
+
+		// Set the broadcast group ID
+		sess.BroadcastGroupID = groupID
+
+		// Add session to config
+		m.config.AddSession(*sess)
+		createdSessions = append(createdSessions, sess)
+
+		logger.WithSession(sess.ID).Info("created broadcast session", "repo", repoPath, "groupID", groupID)
+	}
+
+	// Save config after creating all sessions
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after broadcast session creation", "error", err)
+	}
+
+	// Update sidebar with new sessions
+	m.sidebar.SetSessions(m.config.GetSessions())
+
+	// If no sessions were created, show error
+	if len(createdSessions) == 0 {
+		return m, m.ShowFlashError("Failed to create any sessions")
+	}
+
+	// Select the first session
+	firstSession := createdSessions[0]
+	m.sidebar.SelectSession(firstSession.ID)
+	m.selectSession(firstSession)
+
+	// Build content blocks for the prompt
+	content := []claude.ContentBlock{{
+		Type: claude.ContentTypeText,
+		Text: prompt,
+	}}
+
+	// Collect all commands for parallel execution
+	var cmds []tea.Cmd
+
+	// Send prompt to each created session
+	for _, sess := range createdSessions {
+		// Get or create the runner for this session
+		result := m.sessionMgr.Select(sess, "", "", "")
+		if result == nil || result.Runner == nil {
+			log.Error("failed to get runner for broadcast session", "sessionID", sess.ID)
+			continue
+		}
+
+		runner := result.Runner
+		sessionID := sess.ID
+
+		// Create context for this request
+		reqCtx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartWaiting(sessionID, cancel)
+		m.sidebar.SetStreaming(sessionID, true)
+
+		// Send the content
+		responseChan := runner.SendContent(reqCtx, content)
+
+		// Add listeners for this session
+		cmds = append(cmds, m.sessionListeners(sessionID, runner, responseChan)...)
+	}
+
+	// Set the app state to streaming
+	m.setState(StateStreamingClaude)
+
+	// Add UI update ticks
+	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+
+	// Show status message
+	msg := fmt.Sprintf("Broadcasting to %d repo(s)", len(createdSessions))
+	if len(failedRepos) > 0 {
+		msg += fmt.Sprintf(" (failed: %d)", len(failedRepos))
+	}
+
+	cmds = append(cmds, m.ShowFlashSuccess(msg))
+
+	return m, tea.Batch(cmds...)
+}
+
+// broadcastToSessions sends a prompt to all sessions in a group.
+func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	log.Info("broadcasting to existing sessions", "count", len(sessions))
+
+	// Build content blocks for the prompt
+	content := []claude.ContentBlock{{
+		Type: claude.ContentTypeText,
+		Text: prompt,
+	}}
+
+	// Collect all commands for parallel execution
+	var cmds []tea.Cmd
+	sentCount := 0
+
+	for _, sess := range sessions {
+		// Get or create the runner for this session
+		result := m.sessionMgr.Select(&sess, "", "", "")
+		if result == nil || result.Runner == nil {
+			log.Error("failed to get runner for broadcast session", "sessionID", sess.ID)
+			continue
+		}
+
+		runner := result.Runner
+		sessionID := sess.ID
+
+		// Create context for this request
+		reqCtx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartWaiting(sessionID, cancel)
+		m.sidebar.SetStreaming(sessionID, true)
+
+		// Send the content
+		responseChan := runner.SendContent(reqCtx, content)
+
+		// Add listeners for this session
+		cmds = append(cmds, m.sessionListeners(sessionID, runner, responseChan)...)
+		sentCount++
+	}
+
+	// Set the app state to streaming
+	m.setState(StateStreamingClaude)
+
+	// Clear the chat input since we're sending it
+	m.chat.ClearInput()
+
+	// Add UI update ticks
+	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+
+	// Show status message
+	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Sent to %d session(s)", sentCount)))
+
+	return m, tea.Batch(cmds...)
 }

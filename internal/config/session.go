@@ -15,11 +15,12 @@ type Session struct {
 	CreatedAt  time.Time `json:"created_at"`
 	Started    bool      `json:"started,omitempty"` // Whether session has been started with Claude CLI
 
-	Merged         bool   `json:"merged,omitempty"`           // Whether session has been merged to main
-	PRCreated      bool   `json:"pr_created,omitempty"`       // Whether a PR has been created for this session
-	ParentID       string `json:"parent_id,omitempty"`        // ID of parent session if this is a fork
-	MergedToParent bool   `json:"merged_to_parent,omitempty"` // Whether session has been merged back to its parent (locks the session)
-	IssueNumber    int    `json:"issue_number,omitempty"`     // GitHub issue number if session was created from an issue
+	Merged           bool   `json:"merged,omitempty"`             // Whether session has been merged to main
+	PRCreated        bool   `json:"pr_created,omitempty"`         // Whether a PR has been created for this session
+	ParentID         string `json:"parent_id,omitempty"`          // ID of parent session if this is a fork
+	MergedToParent   bool   `json:"merged_to_parent,omitempty"`   // Whether session has been merged back to its parent (locks the session)
+	IssueNumber      int    `json:"issue_number,omitempty"`       // GitHub issue number if session was created from an issue
+	BroadcastGroupID string `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
 }
 
 // AddSession adds a new session
@@ -139,6 +140,38 @@ func (c *Config) RenameSession(sessionID, newName, newBranch string) bool {
 		if c.Sessions[i].ID == sessionID {
 			c.Sessions[i].Name = newName
 			c.Sessions[i].Branch = newBranch
+			return true
+		}
+	}
+	return false
+}
+
+// GetSessionsByBroadcastGroup returns all sessions that belong to the given broadcast group
+func (c *Config) GetSessionsByBroadcastGroup(groupID string) []Session {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if groupID == "" {
+		return nil
+	}
+
+	var sessions []Session
+	for _, s := range c.Sessions {
+		if s.BroadcastGroupID == groupID {
+			sessions = append(sessions, s)
+		}
+	}
+	return sessions
+}
+
+// SetSessionBroadcastGroup sets the broadcast group ID for a session
+func (c *Config) SetSessionBroadcastGroup(sessionID, groupID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].BroadcastGroupID = groupID
 			return true
 		}
 	}
