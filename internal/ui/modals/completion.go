@@ -181,6 +181,47 @@ func expandHome(path string) string {
 	return path
 }
 
+// ExpandGlobToDirs expands a glob pattern and returns only directories.
+// If the path contains no glob characters, it returns a slice with just that path.
+// Returns expanded paths with home directory (~) expansion applied.
+func ExpandGlobToDirs(pattern string) ([]string, error) {
+	// Expand ~ to home directory
+	expandedPattern := expandHome(pattern)
+
+	// Check if pattern contains glob characters
+	if !strings.ContainsAny(expandedPattern, "*?[") {
+		// No glob, return as-is
+		return []string{expandedPattern}, nil
+	}
+
+	// Expand the glob
+	matches, err := filepath.Glob(expandedPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filter to only directories
+	var dirs []string
+	for _, match := range matches {
+		info, err := os.Stat(match)
+		if err != nil {
+			continue // Skip paths we can't stat
+		}
+		if info.IsDir() {
+			dirs = append(dirs, match)
+		}
+	}
+
+	sort.Strings(dirs)
+	return dirs, nil
+}
+
+// IsGlobPattern returns true if the path contains glob characters.
+func IsGlobPattern(path string) bool {
+	expandedPath := expandHome(path)
+	return strings.ContainsAny(expandedPath, "*?[")
+}
+
 // commonPrefix finds the longest common prefix among all strings.
 func commonPrefix(strs []string) string {
 	if len(strs) == 0 {

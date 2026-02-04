@@ -2,8 +2,12 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
+	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
@@ -29,7 +33,15 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			m.modal.SetError("Please enter a path")
 			return m, nil
 		}
+
 		ctx := context.Background()
+
+		// Check if this is a glob pattern
+		if ui.IsGlobPattern(path) {
+			return m.handleAddReposFromGlob(ctx, path)
+		}
+
+		// Single path - validate and add
 		if err := m.sessionService.ValidateRepo(ctx, path); err != nil {
 			m.modal.SetError(err.Error())
 			return m, nil
@@ -49,6 +61,59 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleAddReposFromGlob expands a glob pattern and adds all matching git repositories.
+func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea.Model, tea.Cmd) {
+	// Expand the glob to directories
+	dirs, err := ui.ExpandGlobToDirs(pattern)
+	if err != nil {
+		m.modal.SetError("Invalid glob pattern: " + err.Error())
+		return m, nil
+	}
+
+	if len(dirs) == 0 {
+		m.modal.SetError("No directories match the pattern")
+		return m, nil
+	}
+
+	// Filter to valid git repos and add them
+	var added, skipped, alreadyAdded int
+	for _, dir := range dirs {
+		if err := m.sessionService.ValidateRepo(ctx, dir); err != nil {
+			skipped++
+			continue
+		}
+		if !m.config.AddRepo(dir) {
+			alreadyAdded++
+			continue
+		}
+		added++
+	}
+
+	// Save if any were added
+	if added > 0 {
+		if err := m.config.Save(); err != nil {
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+	}
+
+	m.modal.Hide()
+
+	// Build status message
+	if added == 0 {
+		if alreadyAdded > 0 {
+			return m, m.ShowFlashWarning(fmt.Sprintf("All %d repos already added", alreadyAdded))
+		}
+		return m, m.ShowFlashWarning("No git repositories found matching pattern")
+	}
+
+	msg := fmt.Sprintf("Added %d repo(s)", added)
+	if skipped > 0 || alreadyAdded > 0 {
+		msg += fmt.Sprintf(" (skipped: %d non-git, %d already added)", skipped, alreadyAdded)
+	}
+	return m, m.ShowFlashSuccess(msg)
 }
 
 // handleNewSessionModal handles key events for the New Session modal.
@@ -414,4 +479,328 @@ func (m *Model) handlePreviewActiveModal(key string, msg tea.KeyPressMsg, state 
 		return m.endPreview()
 	}
 	return m, nil
+}
+
+// handleBroadcastModal handles key events for the Broadcast modal.
+func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.BroadcastState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "escape":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selectedRepos := state.GetSelectedRepos()
+		if len(selectedRepos) == 0 {
+			m.modal.SetError("Select at least one repository")
+			return m, nil
+		}
+
+		prompt := state.GetPrompt()
+		if strings.TrimSpace(prompt) == "" {
+			m.modal.SetError("Enter a prompt")
+			return m, nil
+		}
+
+		// Get the optional session name
+		sessionName := strings.TrimSpace(state.GetName())
+
+		// Validate session name if provided
+		if sessionName != "" {
+			if err := session.ValidateBranchName(sessionName); err != nil {
+				m.modal.SetError(err.Error())
+				return m, nil
+			}
+		}
+
+		m.modal.Hide()
+		return m.createBroadcastSessions(selectedRepos, prompt, sessionName)
+	}
+
+	// Forward other keys to modal for navigation/selection
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// createBroadcastSessions creates sessions for each selected repo and sends the prompt to each.
+// If sessionName is provided (non-empty), it will be used as the branch name for all sessions.
+func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
+
+	// Generate a broadcast group ID for this batch
+	groupID := uuid.New().String()
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+
+	var createdSessions []*config.Session
+	var failedRepos []string
+
+	ctx := context.Background()
+
+	// Create a session for each repo
+	for _, repoPath := range repoPaths {
+		sess, err := m.sessionService.Create(ctx, repoPath, sessionName, branchPrefix, session.BasePointOrigin)
+		if err != nil {
+			log.Error("failed to create session for broadcast", "repo", repoPath, "error", err)
+			failedRepos = append(failedRepos, repoPath)
+			continue
+		}
+
+		// Set the broadcast group ID
+		sess.BroadcastGroupID = groupID
+
+		// Add session to config
+		m.config.AddSession(*sess)
+		createdSessions = append(createdSessions, sess)
+
+		logger.WithSession(sess.ID).Info("created broadcast session", "repo", repoPath, "groupID", groupID)
+	}
+
+	// Save config after creating all sessions
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after broadcast session creation", "error", err)
+	}
+
+	// Update sidebar with new sessions
+	m.sidebar.SetSessions(m.config.GetSessions())
+
+	// If no sessions were created, show error
+	if len(createdSessions) == 0 {
+		return m, m.ShowFlashError("Failed to create any sessions")
+	}
+
+	// Select the first session
+	firstSession := createdSessions[0]
+	m.sidebar.SelectSession(firstSession.ID)
+	m.selectSession(firstSession)
+
+	// Build content blocks for the prompt
+	content := []claude.ContentBlock{{
+		Type: claude.ContentTypeText,
+		Text: prompt,
+	}}
+
+	// Collect all commands for parallel execution
+	var cmds []tea.Cmd
+
+	// Send prompt to each created session
+	for _, sess := range createdSessions {
+		// Get or create the runner for this session
+		result := m.sessionMgr.Select(sess, "", "", "")
+		if result == nil || result.Runner == nil {
+			log.Error("failed to get runner for broadcast session", "sessionID", sess.ID)
+			continue
+		}
+
+		runner := result.Runner
+		sessionID := sess.ID
+
+		// Create context for this request
+		reqCtx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartWaiting(sessionID, cancel)
+		m.sidebar.SetStreaming(sessionID, true)
+
+		// Send the content
+		responseChan := runner.SendContent(reqCtx, content)
+
+		// Add listeners for this session
+		cmds = append(cmds, m.sessionListeners(sessionID, runner, responseChan)...)
+	}
+
+	// Set the app state to streaming
+	m.setState(StateStreamingClaude)
+
+	// Add UI update ticks
+	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+
+	// Show status message
+	msg := fmt.Sprintf("Broadcasting to %d repo(s)", len(createdSessions))
+	if len(failedRepos) > 0 {
+		msg += fmt.Sprintf(" (failed: %d)", len(failedRepos))
+	}
+
+	cmds = append(cmds, m.ShowFlashSuccess(msg))
+
+	return m, tea.Batch(cmds...)
+}
+
+// broadcastToSessions sends a prompt to all sessions in a group.
+func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	log.Info("broadcasting to existing sessions", "count", len(sessions))
+
+	// Build content blocks for the prompt
+	content := []claude.ContentBlock{{
+		Type: claude.ContentTypeText,
+		Text: prompt,
+	}}
+
+	// Collect all commands for parallel execution
+	var cmds []tea.Cmd
+	sentCount := 0
+
+	for _, sess := range sessions {
+		// Get or create the runner for this session
+		result := m.sessionMgr.Select(&sess, "", "", "")
+		if result == nil || result.Runner == nil {
+			log.Error("failed to get runner for broadcast session", "sessionID", sess.ID)
+			continue
+		}
+
+		runner := result.Runner
+		sessionID := sess.ID
+
+		// Create context for this request
+		reqCtx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartWaiting(sessionID, cancel)
+		m.sidebar.SetStreaming(sessionID, true)
+
+		// Send the content
+		responseChan := runner.SendContent(reqCtx, content)
+
+		// Add listeners for this session
+		cmds = append(cmds, m.sessionListeners(sessionID, runner, responseChan)...)
+		sentCount++
+	}
+
+	// Set the app state to streaming
+	m.setState(StateStreamingClaude)
+
+	// Clear the chat input since we're sending it
+	m.chat.ClearInput()
+
+	// Add UI update ticks
+	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+
+	// Show status message
+	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Sent to %d session(s)", sentCount)))
+
+	return m, tea.Batch(cmds...)
+}
+
+// handleBroadcastGroupModal handles key events for the Broadcast Group modal.
+func (m *Model) handleBroadcastGroupModal(key string, msg tea.KeyPressMsg, state *ui.BroadcastGroupState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "escape":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selectedIDs := state.GetSelectedSessions()
+		if len(selectedIDs) == 0 {
+			m.modal.SetError("Select at least one session")
+			return m, nil
+		}
+
+		action := state.GetAction()
+		m.modal.Hide()
+
+		// Get the full session objects for selected sessions
+		var selectedSessions []config.Session
+		for _, id := range selectedIDs {
+			if sess := m.config.GetSession(id); sess != nil {
+				selectedSessions = append(selectedSessions, *sess)
+			}
+		}
+
+		if len(selectedSessions) == 0 {
+			return m, m.ShowFlashError("No valid sessions found")
+		}
+
+		switch action {
+		case ui.BroadcastActionSendPrompt:
+			prompt := state.GetPrompt()
+			if strings.TrimSpace(prompt) == "" {
+				m.modal.Show(state) // Re-show modal
+				m.modal.SetError("Enter a prompt")
+				return m, nil
+			}
+			return m.broadcastToSessions(selectedSessions, prompt)
+
+		case ui.BroadcastActionCreatePRs:
+			return m.createPRsForSessions(selectedSessions)
+		}
+	}
+
+	// Forward other keys to modal for navigation/selection
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// createPRsForSessions triggers PR creation for multiple sessions.
+func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	log.Info("creating PRs for multiple sessions", "count", len(sessions))
+
+	ctx := context.Background()
+	var cmds []tea.Cmd
+	startedCount := 0
+	skippedCount := 0
+
+	for _, sess := range sessions {
+		sessionLog := logger.WithSession(sess.ID)
+
+		// Skip if PR already created
+		if sess.PRCreated {
+			sessionLog.Debug("skipping PR creation - PR already exists")
+			skippedCount++
+			continue
+		}
+
+		// Skip if session is merged
+		if sess.Merged {
+			sessionLog.Debug("skipping PR creation - session already merged")
+			skippedCount++
+			continue
+		}
+
+		// Check if there's already a merge in progress for this session
+		if state := m.sessionState().GetIfExists(sess.ID); state != nil && state.IsMerging() {
+			sessionLog.Debug("skipping PR creation - merge already in progress")
+			skippedCount++
+			continue
+		}
+
+		// Check for uncommitted changes
+		status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
+		if err != nil {
+			sessionLog.Warn("failed to check worktree status", "error", err)
+			skippedCount++
+			continue
+		}
+
+		if status.HasChanges {
+			// Need to commit first - this requires user interaction for commit message
+			// For now, skip sessions with uncommitted changes
+			sessionLog.Debug("skipping PR creation - has uncommitted changes")
+			skippedCount++
+			continue
+		}
+
+		// Start PR creation
+		sessionLog.Info("starting PR creation")
+		mergeCtx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
+
+		// Add listener for merge result
+		cmds = append(cmds, m.listenForMergeResult(sess.ID))
+		startedCount++
+	}
+
+	// Show status message
+	var msg string
+	if startedCount > 0 {
+		msg = fmt.Sprintf("Creating PRs for %d session(s)", startedCount)
+		if skippedCount > 0 {
+			msg += fmt.Sprintf(" (skipped %d)", skippedCount)
+		}
+		cmds = append(cmds, m.ShowFlashSuccess(msg))
+	} else {
+		msg = "No sessions eligible for PR creation"
+		if skippedCount > 0 {
+			msg += fmt.Sprintf(" (%d skipped - already have PRs, merged, or have uncommitted changes)", skippedCount)
+		}
+		cmds = append(cmds, m.ShowFlashWarning(msg))
+	}
+
+	return m, tea.Batch(cmds...)
 }

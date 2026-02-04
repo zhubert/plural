@@ -202,6 +202,28 @@ Merge types enum: `MergeTypeMerge` (to main), `MergeTypePR` (create PR), `MergeT
 
 **Squash on Merge**: Per-repo setting (`config.RepoSquashOnMerge`) that squashes all commits into one when using "Merge to main". Uses `git merge --squash` followed by explicit commit with user-provided message.
 
+### Broadcasting
+
+Broadcast allows sending the same prompt to multiple repositories or sessions at once:
+
+- **Broadcast to repos** (`Ctrl+B`): Opens modal to select repositories, enter an optional session name, and a prompt. Creates new sessions for each selected repo and sends the prompt to all of them. Sessions share a `BroadcastGroupID` for grouping.
+- **Broadcast group actions** (`Ctrl+Shift+B`): When on a session that's part of a broadcast group, opens modal with two action options:
+  - **Send Prompt**: Send the same message to all (or selected) sessions in the group
+  - **Create PRs**: Trigger PR creation for all (or selected) sessions in the group. Skips sessions that already have PRs, are merged, or have uncommitted changes.
+
+**Data structures** (`internal/ui/modals/broadcast.go`):
+- `BroadcastState`: Modal for creating new sessions across repos
+- `BroadcastGroupState`: Modal for actions on existing broadcast group sessions
+- `BroadcastGroupAction`: Enum for `BroadcastActionSendPrompt` and `BroadcastActionCreatePRs`
+- `SessionItem`: Represents a session in the broadcast group modal
+
+**Implementation** (`internal/app/modal_handlers_session.go`):
+- `handleBroadcastModal()`: Handles new session creation across repos
+- `handleBroadcastGroupModal()`: Handles actions on existing broadcast groups
+- `createBroadcastSessions()`: Creates sessions and sends initial prompt
+- `broadcastToSessions()`: Sends prompt to existing sessions
+- `createPRsForSessions()`: Triggers PR creation for multiple sessions
+
 ### Session Struct
 
 Session struct (`internal/config/config.go`) tracks:
@@ -211,6 +233,7 @@ Session struct (`internal/config/config.go`) tracks:
 - `Merged`, `PRCreated`: Merge/PR status
 - `ParentID`, `MergedToParent`: Parent-child relationships for forked sessions
 - `IssueNumber`: GitHub issue number if created from issue import
+- `BroadcastGroupID`: Links sessions created from the same broadcast operation
 
 ### GitHub Issue Sessions
 

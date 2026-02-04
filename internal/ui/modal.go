@@ -22,6 +22,7 @@ type (
 	HelpShortcutTriggeredMsg = modals.HelpShortcutTriggeredMsg
 	HelpSection              = modals.HelpSection
 	SearchResult             = modals.SearchResult
+	RepoItem                 = modals.RepoItem
 
 	AddRepoState             = modals.AddRepoState
 	SelectRepoForIssuesState = modals.SelectRepoForIssuesState
@@ -47,7 +48,17 @@ type (
 	HelpState               = modals.HelpState
 	ExploreOptionsState     = modals.ExploreOptionsState
 	SearchMessagesState     = modals.SearchMessagesState
-	PreviewActiveState      = modals.PreviewActiveState
+	PreviewActiveState       = modals.PreviewActiveState
+	BroadcastState           = modals.BroadcastState
+	BroadcastGroupState      = modals.BroadcastGroupState
+	BroadcastGroupAction     = modals.BroadcastGroupAction
+	SessionItem              = modals.SessionItem
+)
+
+// Re-export broadcast action constants
+const (
+	BroadcastActionSendPrompt = modals.BroadcastActionSendPrompt
+	BroadcastActionCreatePRs  = modals.BroadcastActionCreatePRs
 )
 
 // Re-export constructor functions
@@ -77,11 +88,15 @@ var (
 	NewExploreOptionsState     = modals.NewExploreOptionsState
 	NewSearchMessagesState     = modals.NewSearchMessagesState
 	NewPreviewActiveState      = modals.NewPreviewActiveState
+	NewBroadcastState          = modals.NewBroadcastState
+	NewBroadcastGroupState     = modals.NewBroadcastGroupState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
 	TruncateString                 = modals.TruncateString
 	RenderSelectableList           = modals.RenderSelectableList
 	RenderSelectableListWithFocus  = modals.RenderSelectableListWithFocus
+	ExpandGlobToDirs               = modals.ExpandGlobToDirs
+	IsGlobPattern                  = modals.IsGlobPattern
 )
 
 // NewThemeState creates a new ThemeState - wrapper to handle ThemeName conversion

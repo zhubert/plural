@@ -1419,3 +1419,126 @@ func TestConfig_SquashOnMerge_Persistence(t *testing.T) {
 		t.Error("RepoSquashOnMerge should be persisted")
 	}
 }
+
+func TestConfig_GetSessionsByBroadcastGroup(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{"/path/to/repo"},
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path/to/repo1", WorkTree: "/wt1", Branch: "b1", BroadcastGroupID: "group-abc"},
+			{ID: "session-2", RepoPath: "/path/to/repo2", WorkTree: "/wt2", Branch: "b2", BroadcastGroupID: "group-abc"},
+			{ID: "session-3", RepoPath: "/path/to/repo3", WorkTree: "/wt3", Branch: "b3", BroadcastGroupID: "group-def"},
+			{ID: "session-4", RepoPath: "/path/to/repo4", WorkTree: "/wt4", Branch: "b4"}, // No group
+		},
+	}
+
+	// Test getting sessions by group
+	group1Sessions := cfg.GetSessionsByBroadcastGroup("group-abc")
+	if len(group1Sessions) != 2 {
+		t.Errorf("Expected 2 sessions in group-abc, got %d", len(group1Sessions))
+	}
+
+	// Verify the correct sessions are returned
+	ids := make(map[string]bool)
+	for _, s := range group1Sessions {
+		ids[s.ID] = true
+	}
+	if !ids["session-1"] || !ids["session-2"] {
+		t.Error("Expected session-1 and session-2 in group-abc")
+	}
+
+	// Test different group
+	group2Sessions := cfg.GetSessionsByBroadcastGroup("group-def")
+	if len(group2Sessions) != 1 {
+		t.Errorf("Expected 1 session in group-def, got %d", len(group2Sessions))
+	}
+	if group2Sessions[0].ID != "session-3" {
+		t.Errorf("Expected session-3 in group-def, got %s", group2Sessions[0].ID)
+	}
+
+	// Test non-existent group
+	noSessions := cfg.GetSessionsByBroadcastGroup("nonexistent")
+	if len(noSessions) != 0 {
+		t.Errorf("Expected 0 sessions for nonexistent group, got %d", len(noSessions))
+	}
+
+	// Test empty group ID
+	emptyGroup := cfg.GetSessionsByBroadcastGroup("")
+	if len(emptyGroup) != 0 {
+		t.Errorf("Expected 0 sessions for empty group ID, got %d", len(emptyGroup))
+	}
+}
+
+func TestConfig_SetSessionBroadcastGroup(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1"},
+		},
+	}
+
+	// Test setting broadcast group
+	if !cfg.SetSessionBroadcastGroup("session-1", "group-xyz") {
+		t.Error("SetSessionBroadcastGroup should return true for existing session")
+	}
+
+	sess := cfg.GetSession("session-1")
+	if sess.BroadcastGroupID != "group-xyz" {
+		t.Errorf("Expected BroadcastGroupID 'group-xyz', got '%s'", sess.BroadcastGroupID)
+	}
+
+	// Test setting for non-existent session
+	if cfg.SetSessionBroadcastGroup("nonexistent", "group-xyz") {
+		t.Error("SetSessionBroadcastGroup should return false for non-existent session")
+	}
+}
+
+func TestConfig_BroadcastGroupID_Persistence(t *testing.T) {
+	// Create a temp directory for test config
+	tmpDir, err := os.MkdirTemp("", "plural-broadcast-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create config with broadcast group
+	cfg := &Config{
+		Repos: []string{"/path/to/repo"},
+		Sessions: []Session{
+			{
+				ID:               "session-1",
+				RepoPath:         "/path/to/repo",
+				WorkTree:         "/path/to/worktree",
+				Branch:           "plural-session-1",
+				Name:             "session1",
+				BroadcastGroupID: "broadcast-group-123",
+			},
+		},
+		filePath: configPath,
+	}
+
+	// Save the config
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Read and verify JSON structure includes broadcast_group_id field
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+
+	if len(loaded.Sessions) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(loaded.Sessions))
+	}
+
+	if loaded.Sessions[0].BroadcastGroupID != "broadcast-group-123" {
+		t.Errorf("BroadcastGroupID = %q, want 'broadcast-group-123'", loaded.Sessions[0].BroadcastGroupID)
+	}
+}
