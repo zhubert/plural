@@ -384,3 +384,29 @@ func TestBroadcastState_ModalStateInterface(t *testing.T) {
 		t.Error("Update should return non-nil state")
 	}
 }
+
+func TestFormatCount(t *testing.T) {
+	tests := []struct {
+		count    int
+		total    int
+		contains string
+	}{
+		{0, 0, "0"},
+		{5, 0, "5"},
+		{3, 10, "3"},
+		{3, 10, "/10"},
+		{12, 15, "12"},
+		{12, 15, "/15"},
+		{6, 12, "6"},
+		{6, 12, "/12"},
+		{100, 200, "100"},
+		{100, 200, "/200"},
+	}
+
+	for _, tt := range tests {
+		result := formatCount(tt.count, tt.total)
+		if !strings.Contains(result, tt.contains) {
+			t.Errorf("formatCount(%d, %d) = %q, want to contain %q", tt.count, tt.total, result, tt.contains)
+		}
+	}
+}

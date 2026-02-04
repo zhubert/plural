@@ -1,6 +1,7 @@
 package modals
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -160,9 +161,9 @@ func (s *BroadcastState) renderRepoList() string {
 
 func formatCount(count, total int) string {
 	if total > 0 {
-		return lipgloss.NewStyle().Bold(true).Render(string(rune('0'+count%10))) + "/" + string(rune('0'+total%10))
+		return lipgloss.NewStyle().Bold(true).Render(fmt.Sprintf("%d", count)) + fmt.Sprintf("/%d", total)
 	}
-	return string(rune('0' + count%10))
+	return fmt.Sprintf("%d", count)
 }
 
 func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
@@ -313,6 +314,7 @@ func NewBroadcastState(repoPaths []string) *BroadcastState {
 	promptInput.CharLimit = 10000
 	promptInput.SetWidth(ModalWidth - 6) // Account for padding/borders
 	promptInput.SetHeight(4)
+	promptInput.Prompt = "" // Remove default prompt to avoid double bar with focus border
 
 	// Apply transparent background styles
 	ApplyTextareaStyles(&promptInput)
