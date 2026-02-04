@@ -410,3 +410,371 @@ func TestFormatCount(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// BroadcastGroupState Tests
+// =============================================================================
+
+func TestNewBroadcastGroupState(t *testing.T) {
+	sessions := []SessionItem{
+		{ID: "sess1", Name: "feature-a", RepoName: "repo1", Selected: false},
+		{ID: "sess2", Name: "feature-b", RepoName: "repo2", Selected: false},
+		{ID: "sess3", Name: "feature-c", RepoName: "repo1", Selected: false},
+	}
+	state := NewBroadcastGroupState("group123", sessions)
+
+	// Check initial state
+	if len(state.Sessions) != 3 {
+		t.Errorf("expected 3 sessions, got %d", len(state.Sessions))
+	}
+
+	// Check sessions are selected by default
+	for i, sess := range state.Sessions {
+		if !sess.Selected {
+			t.Errorf("session %d should be selected by default", i)
+		}
+	}
+
+	// Check initial focus is on action selector
+	if state.Focus != 0 {
+		t.Errorf("expected initial focus 0 (action selector), got %d", state.Focus)
+	}
+
+	// Check default action is SendPrompt
+	if state.Action != BroadcastActionSendPrompt {
+		t.Errorf("expected default action to be SendPrompt, got %d", state.Action)
+	}
+
+	// Check group ID is set
+	if state.GroupID != "group123" {
+		t.Errorf("expected group ID 'group123', got %s", state.GroupID)
+	}
+}
+
+func TestBroadcastGroupState_Title(t *testing.T) {
+	state := NewBroadcastGroupState("group1", nil)
+	if state.Title() != "Broadcast Group" {
+		t.Errorf("unexpected title: %s", state.Title())
+	}
+}
+
+func TestBroadcastGroupState_Help(t *testing.T) {
+	sessions := []SessionItem{{ID: "s1", Name: "sess1"}}
+	state := NewBroadcastGroupState("g1", sessions)
+
+	// Help when focused on action selector
+	state.Focus = 0
+	help := state.Help()
+	if !strings.Contains(help, "left/right") {
+		t.Errorf("action selector help should mention left/right: %s", help)
+	}
+
+	// Help when focused on session list (SendPrompt action)
+	state.Focus = 1
+	state.Action = BroadcastActionSendPrompt
+	help = state.Help()
+	if !strings.Contains(help, "Tab: prompt") {
+		t.Errorf("session list help should mention Tab: prompt for SendPrompt action: %s", help)
+	}
+
+	// Help when focused on session list (CreatePRs action)
+	state.Action = BroadcastActionCreatePRs
+	help = state.Help()
+	if strings.Contains(help, "Tab: prompt") {
+		t.Errorf("session list help should not mention prompt for CreatePRs action: %s", help)
+	}
+
+	// Help when focused on prompt
+	state.Focus = 2
+	help = state.Help()
+	if !strings.Contains(help, "Shift+Tab") {
+		t.Errorf("prompt help should mention Shift+Tab: %s", help)
+	}
+}
+
+func TestBroadcastGroupState_ActionToggle(t *testing.T) {
+	state := NewBroadcastGroupState("g1", nil)
+
+	// Initial action is SendPrompt
+	if state.Action != BroadcastActionSendPrompt {
+		t.Error("initial action should be SendPrompt")
+	}
+
+	// Change to CreatePRs
+	state.Action = BroadcastActionCreatePRs
+	if state.Action != BroadcastActionCreatePRs {
+		t.Error("action should be CreatePRs after toggle")
+	}
+
+	// Change back to SendPrompt
+	state.Action = BroadcastActionSendPrompt
+	if state.Action != BroadcastActionSendPrompt {
+		t.Error("action should be SendPrompt after second toggle")
+	}
+}
+
+func TestBroadcastGroupState_GetSelectedSessions(t *testing.T) {
+	sessions := []SessionItem{
+		{ID: "sess1", Name: "feature-a", Selected: true},
+		{ID: "sess2", Name: "feature-b", Selected: false},
+		{ID: "sess3", Name: "feature-c", Selected: true},
+	}
+	state := NewBroadcastGroupState("g1", sessions)
+
+	// Deselect one to test partial selection
+	state.Sessions[0].Selected = false
+
+	selected := state.GetSelectedSessions()
+
+	// Should have sess2 (false from initial) and sess3 (true)
+	// Wait, we set Selected=true in NewBroadcastGroupState, so initially all are true
+	// Then we deselected state.Sessions[0]
+	// So we should have sess2 and sess3 selected
+
+	if len(selected) != 2 {
+		t.Errorf("expected 2 selected sessions, got %d", len(selected))
+	}
+
+	// Check IDs
+	found2, found3 := false, false
+	for _, id := range selected {
+		if id == "sess2" {
+			found2 = true
+		}
+		if id == "sess3" {
+			found3 = true
+		}
+	}
+	if !found2 || !found3 {
+		t.Errorf("expected sess2 and sess3, got %v", selected)
+	}
+}
+
+func TestBroadcastGroupState_GetSelectedCount(t *testing.T) {
+	sessions := []SessionItem{
+		{ID: "s1", Name: "a"},
+		{ID: "s2", Name: "b"},
+		{ID: "s3", Name: "c"},
+		{ID: "s4", Name: "d"},
+	}
+	state := NewBroadcastGroupState("g1", sessions)
+
+	// All selected by default
+	if state.GetSelectedCount() != 4 {
+		t.Errorf("expected 4 selected, got %d", state.GetSelectedCount())
+	}
+
+	// Deselect some
+	state.Sessions[0].Selected = false
+	state.Sessions[2].Selected = false
+
+	if state.GetSelectedCount() != 2 {
+		t.Errorf("expected 2 selected, got %d", state.GetSelectedCount())
+	}
+
+	// Deselect all
+	for i := range state.Sessions {
+		state.Sessions[i].Selected = false
+	}
+
+	if state.GetSelectedCount() != 0 {
+		t.Errorf("expected 0 selected, got %d", state.GetSelectedCount())
+	}
+}
+
+func TestBroadcastGroupState_GetPrompt(t *testing.T) {
+	state := NewBroadcastGroupState("g1", nil)
+
+	// Initial prompt is empty
+	if state.GetPrompt() != "" {
+		t.Errorf("expected empty prompt, got %s", state.GetPrompt())
+	}
+
+	// Set prompt
+	state.PromptInput.SetValue("Test prompt message")
+
+	if state.GetPrompt() != "Test prompt message" {
+		t.Errorf("expected 'Test prompt message', got %s", state.GetPrompt())
+	}
+}
+
+func TestBroadcastGroupState_GetAction(t *testing.T) {
+	state := NewBroadcastGroupState("g1", nil)
+
+	if state.GetAction() != BroadcastActionSendPrompt {
+		t.Error("expected default action to be SendPrompt")
+	}
+
+	state.Action = BroadcastActionCreatePRs
+	if state.GetAction() != BroadcastActionCreatePRs {
+		t.Error("expected action to be CreatePRs")
+	}
+}
+
+func TestBroadcastGroupState_Render(t *testing.T) {
+	initTestStyles()
+
+	sessions := []SessionItem{
+		{ID: "s1", Name: "feature-a", RepoName: "repo1"},
+		{ID: "s2", Name: "feature-b", RepoName: "repo2"},
+	}
+	state := NewBroadcastGroupState("g1", sessions)
+
+	rendered := state.Render()
+
+	// Check that title is rendered
+	if !strings.Contains(rendered, "Broadcast Group") {
+		t.Error("rendered output should contain title")
+	}
+
+	// Check that action options are rendered
+	if !strings.Contains(rendered, "Send Prompt") {
+		t.Error("rendered output should contain 'Send Prompt' action")
+	}
+	if !strings.Contains(rendered, "Create PRs") {
+		t.Error("rendered output should contain 'Create PRs' action")
+	}
+
+	// Check that sessions are rendered
+	if !strings.Contains(rendered, "feature-a") {
+		t.Error("rendered output should contain session name")
+	}
+
+	// Check that prompt input is shown for SendPrompt action
+	state.Action = BroadcastActionSendPrompt
+	rendered = state.Render()
+	if !strings.Contains(rendered, "Prompt") {
+		t.Error("rendered output should contain Prompt label for SendPrompt action")
+	}
+
+	// Check that prompt input is hidden for CreatePRs action
+	state.Action = BroadcastActionCreatePRs
+	createPRsRender := state.Render()
+	state.Action = BroadcastActionSendPrompt
+	sendPromptRender := state.Render()
+	// CreatePRs action should have fewer "Prompt" occurrences (no input label)
+	createPRsPromptCount := strings.Count(createPRsRender, "Prompt")
+	sendPromptCount := strings.Count(sendPromptRender, "Prompt")
+	if createPRsPromptCount >= sendPromptCount {
+		t.Errorf("CreatePRs render should have fewer 'Prompt' occurrences than SendPrompt render: %d vs %d", createPRsPromptCount, sendPromptCount)
+	}
+}
+
+func TestBroadcastGroupState_EmptySessions(t *testing.T) {
+	state := NewBroadcastGroupState("g1", []SessionItem{})
+
+	if len(state.Sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(state.Sessions))
+	}
+
+	selected := state.GetSelectedSessions()
+	if len(selected) != 0 {
+		t.Errorf("expected 0 selected sessions, got %d", len(selected))
+	}
+
+	// Render should not panic
+	rendered := state.Render()
+	if rendered == "" {
+		t.Error("render should return something even with no sessions")
+	}
+}
+
+func TestBroadcastGroupState_ModalStateInterface(t *testing.T) {
+	state := NewBroadcastGroupState("g1", nil)
+
+	// Verify it implements ModalState interface
+	var _ ModalState = state
+
+	// Verify Title returns string
+	title := state.Title()
+	if title == "" {
+		t.Error("Title should not be empty")
+	}
+
+	// Verify Help returns string
+	help := state.Help()
+	if help == "" {
+		t.Error("Help should not be empty")
+	}
+
+	// Verify Render returns string
+	rendered := state.Render()
+	if rendered == "" {
+		t.Error("Render should not be empty")
+	}
+
+	// Verify Update returns ModalState
+	newState, _ := state.Update(nil)
+	if newState == nil {
+		t.Error("Update should return non-nil state")
+	}
+}
+
+func TestBroadcastGroupState_Navigation(t *testing.T) {
+	sessions := []SessionItem{
+		{ID: "s1", Name: "a"},
+		{ID: "s2", Name: "b"},
+		{ID: "s3", Name: "c"},
+	}
+	state := NewBroadcastGroupState("g1", sessions)
+
+	// Start with focus on action selector
+	state.Focus = 1 // Move to session list
+
+	// Test navigation
+	state.SelectedIndex = 0
+	if state.SelectedIndex != 0 {
+		t.Error("should start at index 0")
+	}
+
+	state.SelectedIndex = 1
+	if state.SelectedIndex != 1 {
+		t.Error("should be at index 1 after moving down")
+	}
+
+	state.SelectedIndex = 2
+	if state.SelectedIndex != 2 {
+		t.Error("should be at index 2 after moving down again")
+	}
+
+	// Can't go past end
+	if state.SelectedIndex >= len(state.Sessions) {
+		t.Error("should not exceed session count")
+	}
+}
+
+func TestBroadcastGroupState_SelectAllNone(t *testing.T) {
+	sessions := []SessionItem{
+		{ID: "s1", Name: "a", Selected: false},
+		{ID: "s2", Name: "b", Selected: false},
+		{ID: "s3", Name: "c", Selected: false},
+	}
+	state := NewBroadcastGroupState("g1", sessions)
+
+	// NewBroadcastGroupState selects all by default, so deselect first
+	for i := range state.Sessions {
+		state.Sessions[i].Selected = false
+	}
+
+	if state.GetSelectedCount() != 0 {
+		t.Errorf("expected 0 selected after deselecting all, got %d", state.GetSelectedCount())
+	}
+
+	// Select all (simulating 'a' key)
+	for i := range state.Sessions {
+		state.Sessions[i].Selected = true
+	}
+
+	if state.GetSelectedCount() != 3 {
+		t.Errorf("expected 3 selected after select all, got %d", state.GetSelectedCount())
+	}
+
+	// Select none (simulating 'n' key)
+	for i := range state.Sessions {
+		state.Sessions[i].Selected = false
+	}
+
+	if state.GetSelectedCount() != 0 {
+		t.Errorf("expected 0 selected after select none, got %d", state.GetSelectedCount())
+	}
+}

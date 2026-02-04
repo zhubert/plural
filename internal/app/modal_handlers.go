@@ -37,6 +37,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleRenameSessionModal(key, msg, s)
 	case *ui.BroadcastState:
 		return m.handleBroadcastModal(key, msg, s)
+	case *ui.BroadcastGroupState:
+		return m.handleBroadcastGroupModal(key, msg, s)
 
 	// Git modals (modal_handlers_git.go)
 	case *ui.MergeState:

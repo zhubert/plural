@@ -48,8 +48,17 @@ type (
 	HelpState               = modals.HelpState
 	ExploreOptionsState     = modals.ExploreOptionsState
 	SearchMessagesState     = modals.SearchMessagesState
-	PreviewActiveState      = modals.PreviewActiveState
-	BroadcastState          = modals.BroadcastState
+	PreviewActiveState       = modals.PreviewActiveState
+	BroadcastState           = modals.BroadcastState
+	BroadcastGroupState      = modals.BroadcastGroupState
+	BroadcastGroupAction     = modals.BroadcastGroupAction
+	SessionItem              = modals.SessionItem
+)
+
+// Re-export broadcast action constants
+const (
+	BroadcastActionSendPrompt = modals.BroadcastActionSendPrompt
+	BroadcastActionCreatePRs  = modals.BroadcastActionCreatePRs
 )
 
 // Re-export constructor functions
@@ -80,6 +89,7 @@ var (
 	NewSearchMessagesState     = modals.NewSearchMessagesState
 	NewPreviewActiveState      = modals.NewPreviewActiveState
 	NewBroadcastState          = modals.NewBroadcastState
+	NewBroadcastGroupState     = modals.NewBroadcastGroupState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
 	TruncateString                 = modals.TruncateString

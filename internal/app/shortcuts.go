@@ -113,7 +113,7 @@ var ShortcutRegistry = []Shortcut{
 	{
 		Key:             "ctrl+shift+b",
 		DisplayKey:      "ctrl-shift-b",
-		Description:     "Send to all sessions in broadcast group",
+		Description:     "Broadcast group actions (send prompt/create PRs)",
 		Category:        CategorySessions,
 		RequiresSession: true,
 		Handler:         shortcutBroadcastToGroup,
@@ -859,12 +859,6 @@ func shortcutBroadcast(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutBroadcastToGroup(m *Model) (tea.Model, tea.Cmd) {
-	// Get current input text from chat
-	prompt := m.chat.GetInput()
-	if strings.TrimSpace(prompt) == "" {
-		return m, m.ShowFlashWarning("Enter a message first")
-	}
-
 	sess := m.sidebar.SelectedSession()
 	if sess == nil || sess.BroadcastGroupID == "" {
 		return m, m.ShowFlashWarning("Session is not part of a broadcast group")
@@ -875,5 +869,17 @@ func shortcutBroadcastToGroup(m *Model) (tea.Model, tea.Cmd) {
 		return m, m.ShowFlashWarning("No sessions found in broadcast group")
 	}
 
-	return m.broadcastToSessions(groupSessions, prompt)
+	// Convert sessions to SessionItems for the modal
+	sessionItems := make([]ui.SessionItem, len(groupSessions))
+	for i, s := range groupSessions {
+		sessionItems[i] = ui.SessionItem{
+			ID:       s.ID,
+			Name:     s.Name,
+			RepoName: filepath.Base(s.RepoPath),
+			Selected: true,
+		}
+	}
+
+	m.modal.Show(ui.NewBroadcastGroupState(sess.BroadcastGroupID, sessionItems))
+	return m, nil
 }

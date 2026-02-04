@@ -676,3 +676,131 @@ func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (t
 
 	return m, tea.Batch(cmds...)
 }
+
+// handleBroadcastGroupModal handles key events for the Broadcast Group modal.
+func (m *Model) handleBroadcastGroupModal(key string, msg tea.KeyPressMsg, state *ui.BroadcastGroupState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "escape":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		selectedIDs := state.GetSelectedSessions()
+		if len(selectedIDs) == 0 {
+			m.modal.SetError("Select at least one session")
+			return m, nil
+		}
+
+		action := state.GetAction()
+		m.modal.Hide()
+
+		// Get the full session objects for selected sessions
+		var selectedSessions []config.Session
+		for _, id := range selectedIDs {
+			if sess := m.config.GetSession(id); sess != nil {
+				selectedSessions = append(selectedSessions, *sess)
+			}
+		}
+
+		if len(selectedSessions) == 0 {
+			return m, m.ShowFlashError("No valid sessions found")
+		}
+
+		switch action {
+		case ui.BroadcastActionSendPrompt:
+			prompt := state.GetPrompt()
+			if strings.TrimSpace(prompt) == "" {
+				m.modal.Show(state) // Re-show modal
+				m.modal.SetError("Enter a prompt")
+				return m, nil
+			}
+			return m.broadcastToSessions(selectedSessions, prompt)
+
+		case ui.BroadcastActionCreatePRs:
+			return m.createPRsForSessions(selectedSessions)
+		}
+	}
+
+	// Forward other keys to modal for navigation/selection
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// createPRsForSessions triggers PR creation for multiple sessions.
+func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	log.Info("creating PRs for multiple sessions", "count", len(sessions))
+
+	ctx := context.Background()
+	var cmds []tea.Cmd
+	startedCount := 0
+	skippedCount := 0
+
+	for _, sess := range sessions {
+		sessionLog := logger.WithSession(sess.ID)
+
+		// Skip if PR already created
+		if sess.PRCreated {
+			sessionLog.Debug("skipping PR creation - PR already exists")
+			skippedCount++
+			continue
+		}
+
+		// Skip if session is merged
+		if sess.Merged {
+			sessionLog.Debug("skipping PR creation - session already merged")
+			skippedCount++
+			continue
+		}
+
+		// Check if there's already a merge in progress for this session
+		if state := m.sessionState().GetIfExists(sess.ID); state != nil && state.IsMerging() {
+			sessionLog.Debug("skipping PR creation - merge already in progress")
+			skippedCount++
+			continue
+		}
+
+		// Check for uncommitted changes
+		status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
+		if err != nil {
+			sessionLog.Warn("failed to check worktree status", "error", err)
+			skippedCount++
+			continue
+		}
+
+		if status.HasChanges {
+			// Need to commit first - this requires user interaction for commit message
+			// For now, skip sessions with uncommitted changes
+			sessionLog.Debug("skipping PR creation - has uncommitted changes")
+			skippedCount++
+			continue
+		}
+
+		// Start PR creation
+		sessionLog.Info("starting PR creation")
+		mergeCtx, cancel := context.WithCancel(context.Background())
+		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
+
+		// Add listener for merge result
+		cmds = append(cmds, m.listenForMergeResult(sess.ID))
+		startedCount++
+	}
+
+	// Show status message
+	var msg string
+	if startedCount > 0 {
+		msg = fmt.Sprintf("Creating PRs for %d session(s)", startedCount)
+		if skippedCount > 0 {
+			msg += fmt.Sprintf(" (skipped %d)", skippedCount)
+		}
+		cmds = append(cmds, m.ShowFlashSuccess(msg))
+	} else {
+		msg = "No sessions eligible for PR creation"
+		if skippedCount > 0 {
+			msg += fmt.Sprintf(" (%d skipped - already have PRs, merged, or have uncommitted changes)", skippedCount)
+		}
+		cmds = append(cmds, m.ShowFlashWarning(msg))
+	}
+
+	return m, tea.Batch(cmds...)
+}

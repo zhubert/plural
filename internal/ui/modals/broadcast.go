@@ -328,3 +328,347 @@ func NewBroadcastState(repoPaths []string) *BroadcastState {
 		ScrollOffset:  0,
 	}
 }
+
+// =============================================================================
+// BroadcastGroupState - State for sending to existing broadcast group sessions
+// =============================================================================
+
+// BroadcastGroupAction represents the action to perform on the broadcast group
+type BroadcastGroupAction int
+
+const (
+	BroadcastActionSendPrompt BroadcastGroupAction = iota
+	BroadcastActionCreatePRs
+)
+
+// SessionItem represents a session for display in the broadcast group modal
+type SessionItem struct {
+	ID       string
+	Name     string
+	RepoName string
+	Selected bool
+}
+
+// BroadcastGroupState is the state for the broadcast group modal
+type BroadcastGroupState struct {
+	GroupID       string
+	Sessions      []SessionItem
+	SelectedIndex int             // Currently highlighted session
+	Action        BroadcastGroupAction
+	PromptInput   textarea.Model  // Multi-line prompt input (only for SendPrompt action)
+	Focus         int             // 0=action selector, 1=session list, 2=prompt textarea
+	ScrollOffset  int             // For scrolling the session list
+}
+
+func (*BroadcastGroupState) modalState() {}
+
+func (s *BroadcastGroupState) Title() string { return "Broadcast Group" }
+
+func (s *BroadcastGroupState) Help() string {
+	switch s.Focus {
+	case 0:
+		return "left/right: action  Tab: sessions  Enter: execute  Esc: cancel"
+	case 1:
+		if s.Action == BroadcastActionSendPrompt {
+			return "Space: toggle  Tab: prompt  a: all  n: none  Enter: execute  Esc: cancel"
+		}
+		return "Space: toggle  a: all  n: none  Enter: execute  Esc: cancel"
+	default:
+		return "Tab: action  Shift+Tab: sessions  Enter: execute  Esc: cancel"
+	}
+}
+
+func (s *BroadcastGroupState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Action selector section
+	actionLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Action:")
+
+	actionOptions := s.renderActionSelector()
+
+	// Session list section
+	sessionLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Sessions:")
+
+	var sessionList string
+	if len(s.Sessions) == 0 {
+		sessionList = lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render("No sessions in this broadcast group.")
+	} else {
+		sessionList = s.renderSessionList()
+	}
+
+	// Count selected sessions
+	selectedCount := s.GetSelectedCount()
+	countLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Italic(true).
+		Render("(" + formatCount(selectedCount, len(s.Sessions)) + " selected)")
+
+	// Build the content based on action
+	parts := []string{
+		title,
+		actionLabel,
+		actionOptions,
+		sessionLabel,
+		countLabel,
+		sessionList,
+	}
+
+	// Only show prompt input for SendPrompt action
+	if s.Action == BroadcastActionSendPrompt {
+		promptLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Prompt:")
+
+		promptStyle := lipgloss.NewStyle()
+		if s.Focus == 2 {
+			promptStyle = promptStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			promptStyle = promptStyle.PaddingLeft(2)
+		}
+		promptView := promptStyle.Render(s.PromptInput.View())
+
+		parts = append(parts, promptLabel, promptView)
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+	parts = append(parts, help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (s *BroadcastGroupState) renderActionSelector() string {
+	sendStyle := lipgloss.NewStyle().Padding(0, 1)
+	prStyle := lipgloss.NewStyle().Padding(0, 1)
+
+	if s.Focus == 0 {
+		if s.Action == BroadcastActionSendPrompt {
+			sendStyle = sendStyle.Background(ColorPrimary).Foreground(ColorTextInverse)
+			prStyle = prStyle.Foreground(ColorTextMuted)
+		} else {
+			sendStyle = sendStyle.Foreground(ColorTextMuted)
+			prStyle = prStyle.Background(ColorPrimary).Foreground(ColorTextInverse)
+		}
+	} else {
+		if s.Action == BroadcastActionSendPrompt {
+			sendStyle = sendStyle.Bold(true).Foreground(ColorSecondary)
+			prStyle = prStyle.Foreground(ColorTextMuted)
+		} else {
+			sendStyle = sendStyle.Foreground(ColorTextMuted)
+			prStyle = prStyle.Bold(true).Foreground(ColorSecondary)
+		}
+	}
+
+	sendOption := sendStyle.Render("Send Prompt")
+	prOption := prStyle.Render("Create PRs")
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, "  ", sendOption, "  ", prOption)
+}
+
+func (s *BroadcastGroupState) renderSessionList() string {
+	var lines []string
+
+	// Calculate visible range
+	startIdx := s.ScrollOffset
+	endIdx := startIdx + BroadcastMaxVisibleRepos
+	if endIdx > len(s.Sessions) {
+		endIdx = len(s.Sessions)
+	}
+
+	// Show scroll indicator at top if needed
+	if startIdx > 0 {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Render("  ... "+formatCount(startIdx, 0)+" more above"))
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		sess := s.Sessions[i]
+		style := SidebarItemStyle
+		prefix := "  "
+		if i == s.SelectedIndex && s.Focus == 1 {
+			style = SidebarSelectedStyle
+			prefix = "> "
+		}
+
+		checkbox := "[ ]"
+		if sess.Selected {
+			checkbox = "[x]"
+		}
+
+		// Show session name and repo name
+		displayName := sess.Name
+		if sess.RepoName != "" {
+			displayName = fmt.Sprintf("%s (%s)", sess.Name, sess.RepoName)
+		}
+
+		lines = append(lines, style.Render(prefix+checkbox+" "+displayName))
+	}
+
+	// Show scroll indicator at bottom if needed
+	if endIdx < len(s.Sessions) {
+		remaining := len(s.Sessions) - endIdx
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Render("  ... "+formatCount(remaining, 0)+" more below"))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (s *BroadcastGroupState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		key := keyMsg.String()
+
+		// Handle focus-specific keys
+		switch s.Focus {
+		case 0:
+			// Action selector focused
+			switch key {
+			case "left", "h":
+				s.Action = BroadcastActionSendPrompt
+				return s, nil
+			case "right", "l":
+				s.Action = BroadcastActionCreatePRs
+				return s, nil
+			case "tab":
+				s.Focus = 1
+				return s, nil
+			}
+		case 1:
+			// Session list focused
+			switch key {
+			case "up", "k":
+				if s.SelectedIndex > 0 {
+					s.SelectedIndex--
+					if s.SelectedIndex < s.ScrollOffset {
+						s.ScrollOffset = s.SelectedIndex
+					}
+				}
+				return s, nil
+			case "down", "j":
+				if s.SelectedIndex < len(s.Sessions)-1 {
+					s.SelectedIndex++
+					if s.SelectedIndex >= s.ScrollOffset+BroadcastMaxVisibleRepos {
+						s.ScrollOffset = s.SelectedIndex - BroadcastMaxVisibleRepos + 1
+					}
+				}
+				return s, nil
+			case "space":
+				if len(s.Sessions) > 0 && s.SelectedIndex < len(s.Sessions) {
+					s.Sessions[s.SelectedIndex].Selected = !s.Sessions[s.SelectedIndex].Selected
+				}
+				return s, nil
+			case "a":
+				for i := range s.Sessions {
+					s.Sessions[i].Selected = true
+				}
+				return s, nil
+			case "n":
+				for i := range s.Sessions {
+					s.Sessions[i].Selected = false
+				}
+				return s, nil
+			case "tab":
+				if s.Action == BroadcastActionSendPrompt {
+					s.Focus = 2
+					s.PromptInput.Focus()
+				} else {
+					s.Focus = 0
+				}
+				return s, nil
+			case "shift+tab":
+				s.Focus = 0
+				return s, nil
+			}
+		case 2:
+			// Prompt textarea focused
+			switch key {
+			case "tab":
+				s.Focus = 0
+				s.PromptInput.Blur()
+				return s, nil
+			case "shift+tab":
+				s.Focus = 1
+				s.PromptInput.Blur()
+				return s, nil
+			}
+		}
+	}
+
+	// Forward to textarea if focused
+	if s.Focus == 2 {
+		var cmd tea.Cmd
+		s.PromptInput, cmd = s.PromptInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetSelectedSessions returns the IDs of all selected sessions
+func (s *BroadcastGroupState) GetSelectedSessions() []string {
+	var selected []string
+	for _, sess := range s.Sessions {
+		if sess.Selected {
+			selected = append(selected, sess.ID)
+		}
+	}
+	return selected
+}
+
+// GetSelectedCount returns the number of selected sessions
+func (s *BroadcastGroupState) GetSelectedCount() int {
+	count := 0
+	for _, sess := range s.Sessions {
+		if sess.Selected {
+			count++
+		}
+	}
+	return count
+}
+
+// GetPrompt returns the prompt text
+func (s *BroadcastGroupState) GetPrompt() string {
+	return s.PromptInput.Value()
+}
+
+// GetAction returns the selected action
+func (s *BroadcastGroupState) GetAction() BroadcastGroupAction {
+	return s.Action
+}
+
+// NewBroadcastGroupState creates a new BroadcastGroupState
+func NewBroadcastGroupState(groupID string, sessions []SessionItem) *BroadcastGroupState {
+	// Select all sessions by default
+	for i := range sessions {
+		sessions[i].Selected = true
+	}
+
+	promptInput := textarea.New()
+	promptInput.Placeholder = "Enter prompt to send to selected sessions..."
+	promptInput.CharLimit = 10000
+	promptInput.SetWidth(ModalWidth - 6)
+	promptInput.SetHeight(4)
+	promptInput.Prompt = ""
+
+	ApplyTextareaStyles(&promptInput)
+
+	return &BroadcastGroupState{
+		GroupID:       groupID,
+		Sessions:      sessions,
+		SelectedIndex: 0,
+		Action:        BroadcastActionSendPrompt,
+		PromptInput:   promptInput,
+		Focus:         0, // Start focused on action selector
+		ScrollOffset:  0,
+	}
+}
