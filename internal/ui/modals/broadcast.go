@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -22,10 +23,11 @@ type RepoItem struct {
 // BroadcastState is the state for the broadcast modal
 type BroadcastState struct {
 	Repos         []RepoItem
-	SelectedIndex int            // Currently highlighted repo
-	PromptInput   textarea.Model // Multi-line prompt input
-	Focus         int            // 0=repo list, 1=prompt textarea
-	ScrollOffset  int            // For scrolling the repo list
+	SelectedIndex int              // Currently highlighted repo
+	NameInput     textinput.Model  // Session name input (optional)
+	PromptInput   textarea.Model   // Multi-line prompt input
+	Focus         int              // 0=repo list, 1=name input, 2=prompt textarea
+	ScrollOffset  int              // For scrolling the repo list
 }
 
 func (*BroadcastState) modalState() {}
@@ -33,10 +35,14 @@ func (*BroadcastState) modalState() {}
 func (s *BroadcastState) Title() string { return "Broadcast to Repositories" }
 
 func (s *BroadcastState) Help() string {
-	if s.Focus == 0 {
-		return "Space: toggle  Tab: prompt  a: all  n: none  Enter: send  Esc: cancel"
+	switch s.Focus {
+	case 0:
+		return "Space: toggle  Tab: name  a: all  n: none  Enter: send  Esc: cancel"
+	case 1:
+		return "Tab: prompt  Shift+Tab: repos  Enter: send  Esc: cancel"
+	default:
+		return "Tab: repos  Shift+Tab: name  Enter: send  Esc: cancel"
 	}
-	return "Tab: repos  Enter: send  Esc: cancel"
 }
 
 func (s *BroadcastState) Render() string {
@@ -64,6 +70,20 @@ func (s *BroadcastState) Render() string {
 		Italic(true).
 		Render("(" + formatCount(selectedCount, len(s.Repos)) + " selected)")
 
+	// Session name input section
+	nameLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Session name (optional):")
+
+	nameStyle := lipgloss.NewStyle()
+	if s.Focus == 1 {
+		nameStyle = nameStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		nameStyle = nameStyle.PaddingLeft(2)
+	}
+	nameView := nameStyle.Render(s.NameInput.View())
+
 	// Prompt input section
 	promptLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
@@ -71,7 +91,7 @@ func (s *BroadcastState) Render() string {
 		Render("Prompt:")
 
 	promptStyle := lipgloss.NewStyle()
-	if s.Focus == 1 {
+	if s.Focus == 2 {
 		promptStyle = promptStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 	} else {
 		promptStyle = promptStyle.PaddingLeft(2)
@@ -85,6 +105,8 @@ func (s *BroadcastState) Render() string {
 		repoLabel,
 		countLabel,
 		repoList,
+		nameLabel,
+		nameView,
 		promptLabel,
 		promptView,
 		help,
@@ -148,7 +170,8 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		key := keyMsg.String()
 
 		// Handle focus-specific keys
-		if s.Focus == 0 {
+		switch s.Focus {
+		case 0:
 			// Repo list focused
 			switch key {
 			case "up", "k":
@@ -188,22 +211,47 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				return s, nil
 			case "tab":
 				s.Focus = 1
-				s.PromptInput.Focus()
+				s.NameInput.Focus()
 				return s, nil
 			}
-		} else {
+		case 1:
+			// Name input focused
+			switch key {
+			case "tab":
+				s.Focus = 2
+				s.NameInput.Blur()
+				s.PromptInput.Focus()
+				return s, nil
+			case "shift+tab":
+				s.Focus = 0
+				s.NameInput.Blur()
+				return s, nil
+			}
+		case 2:
 			// Prompt textarea focused
 			switch key {
 			case "tab":
 				s.Focus = 0
 				s.PromptInput.Blur()
 				return s, nil
+			case "shift+tab":
+				s.Focus = 1
+				s.PromptInput.Blur()
+				s.NameInput.Focus()
+				return s, nil
 			}
 		}
 	}
 
-	// Forward to textarea if focused
+	// Forward to name input if focused
 	if s.Focus == 1 {
+		var cmd tea.Cmd
+		s.NameInput, cmd = s.NameInput.Update(msg)
+		return s, cmd
+	}
+
+	// Forward to textarea if focused
+	if s.Focus == 2 {
 		var cmd tea.Cmd
 		s.PromptInput, cmd = s.PromptInput.Update(msg)
 		return s, cmd
@@ -234,6 +282,11 @@ func (s *BroadcastState) GetSelectedCount() int {
 	return count
 }
 
+// GetName returns the session name (may be empty)
+func (s *BroadcastState) GetName() string {
+	return s.NameInput.Value()
+}
+
 // GetPrompt returns the prompt text
 func (s *BroadcastState) GetPrompt() string {
 	return s.PromptInput.Value()
@@ -250,6 +303,11 @@ func NewBroadcastState(repoPaths []string) *BroadcastState {
 		}
 	}
 
+	nameInput := textinput.New()
+	nameInput.Placeholder = "Leave empty for auto-generated name"
+	nameInput.CharLimit = 100
+	nameInput.SetWidth(ModalWidth - 6) // Account for padding/borders
+
 	promptInput := textarea.New()
 	promptInput.Placeholder = "Enter prompt to send to all selected repos..."
 	promptInput.CharLimit = 10000
@@ -262,6 +320,7 @@ func NewBroadcastState(repoPaths []string) *BroadcastState {
 	return &BroadcastState{
 		Repos:         repos,
 		SelectedIndex: 0,
+		NameInput:     nameInput,
 		PromptInput:   promptInput,
 		Focus:         0, // Start focused on repo list
 		ScrollOffset:  0,

@@ -56,14 +56,21 @@ func TestBroadcastState_Help(t *testing.T) {
 	// Help when focused on repos
 	state.Focus = 0
 	help := state.Help()
-	if help != "Space: toggle  Tab: prompt  a: all  n: none  Enter: send  Esc: cancel" {
+	if help != "Space: toggle  Tab: name  a: all  n: none  Enter: send  Esc: cancel" {
 		t.Errorf("unexpected help for repo focus: %s", help)
 	}
 
-	// Help when focused on prompt
+	// Help when focused on name input
 	state.Focus = 1
 	help = state.Help()
-	if help != "Tab: repos  Enter: send  Esc: cancel" {
+	if help != "Tab: prompt  Shift+Tab: repos  Enter: send  Esc: cancel" {
+		t.Errorf("unexpected help for name focus: %s", help)
+	}
+
+	// Help when focused on prompt
+	state.Focus = 2
+	help = state.Help()
+	if help != "Tab: repos  Shift+Tab: name  Enter: send  Esc: cancel" {
 		t.Errorf("unexpected help for prompt focus: %s", help)
 	}
 }
@@ -143,16 +150,22 @@ func TestBroadcastState_FocusToggle(t *testing.T) {
 		t.Errorf("expected initial focus 0, got %d", state.Focus)
 	}
 
-	// Manually switch focus (simulating tab key)
+	// Tab from repos to name input
 	state.Focus = 1
 	if state.Focus != 1 {
-		t.Errorf("expected focus 1 after toggle, got %d", state.Focus)
+		t.Errorf("expected focus 1 (name input), got %d", state.Focus)
 	}
 
-	// Toggle back
+	// Tab from name to prompt
+	state.Focus = 2
+	if state.Focus != 2 {
+		t.Errorf("expected focus 2 (prompt), got %d", state.Focus)
+	}
+
+	// Tab from prompt wraps back to repos
 	state.Focus = 0
 	if state.Focus != 0 {
-		t.Errorf("expected focus 0 after second toggle, got %d", state.Focus)
+		t.Errorf("expected focus 0 (repos) after wrap, got %d", state.Focus)
 	}
 }
 
@@ -176,6 +189,22 @@ func TestBroadcastState_GetSelectedRepos(t *testing.T) {
 	}
 	if selected[1] != "/repo3" {
 		t.Errorf("expected '/repo3', got %s", selected[1])
+	}
+}
+
+func TestBroadcastState_GetName(t *testing.T) {
+	state := NewBroadcastState([]string{"/repo"})
+
+	// Initial name is empty
+	if state.GetName() != "" {
+		t.Errorf("expected empty name, got %s", state.GetName())
+	}
+
+	// Set value in name input (simulate typing)
+	state.NameInput.SetValue("my-feature")
+
+	if state.GetName() != "my-feature" {
+		t.Errorf("expected name 'my-feature', got %s", state.GetName())
 	}
 }
 

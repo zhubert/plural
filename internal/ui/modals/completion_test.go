@@ -251,3 +251,121 @@ func TestPathCompleter_HiddenFiles(t *testing.T) {
 		}
 	})
 }
+
+func TestIsGlobPattern(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"/path/to/repo", false},
+		{"/path/to/*", true},
+		{"/path/to/repo*", true},
+		{"/path/*/repo", true},
+		{"/path/to/repo?", true},
+		{"/path/to/[abc]", true},
+		{"~/Code/*", true},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := IsGlobPattern(tt.input)
+			if result != tt.expected {
+				t.Errorf("IsGlobPattern(%q) = %v, want %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExpandGlobToDirs(t *testing.T) {
+	// Create a temporary directory structure
+	tmpDir, err := os.MkdirTemp("", "glob_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create test directories
+	testDirs := []string{
+		"repo1",
+		"repo2",
+		"repo3",
+		"other",
+	}
+	for _, dir := range testDirs {
+		if err := os.MkdirAll(filepath.Join(tmpDir, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Create a test file (should NOT be returned since we only want dirs)
+	if err := os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("non-glob path returns as-is", func(t *testing.T) {
+		path := filepath.Join(tmpDir, "repo1")
+		result, err := ExpandGlobToDirs(path)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(result) != 1 || result[0] != path {
+			t.Errorf("Expected [%s], got %v", path, result)
+		}
+	})
+
+	t.Run("glob matches all directories", func(t *testing.T) {
+		pattern := filepath.Join(tmpDir, "*")
+		result, err := ExpandGlobToDirs(pattern)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		// Should get 4 directories (repo1, repo2, repo3, other) but NOT file.txt
+		if len(result) != 4 {
+			t.Errorf("Expected 4 directories, got %d: %v", len(result), result)
+		}
+		// Verify file.txt is not included
+		for _, r := range result {
+			if filepath.Base(r) == "file.txt" {
+				t.Error("file.txt should not be in results")
+			}
+		}
+	})
+
+	t.Run("glob with prefix matches subset", func(t *testing.T) {
+		pattern := filepath.Join(tmpDir, "repo*")
+		result, err := ExpandGlobToDirs(pattern)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		// Should get repo1, repo2, repo3
+		if len(result) != 3 {
+			t.Errorf("Expected 3 directories, got %d: %v", len(result), result)
+		}
+	})
+
+	t.Run("glob with no matches returns empty", func(t *testing.T) {
+		pattern := filepath.Join(tmpDir, "nonexistent*")
+		result, err := ExpandGlobToDirs(pattern)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("Expected 0 directories, got %d: %v", len(result), result)
+		}
+	})
+
+	t.Run("results are sorted", func(t *testing.T) {
+		pattern := filepath.Join(tmpDir, "*")
+		result, err := ExpandGlobToDirs(pattern)
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+		for i := 1; i < len(result); i++ {
+			if result[i] < result[i-1] {
+				t.Errorf("Results not sorted: %v", result)
+				break
+			}
+		}
+	})
+}

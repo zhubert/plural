@@ -33,7 +33,15 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			m.modal.SetError("Please enter a path")
 			return m, nil
 		}
+
 		ctx := context.Background()
+
+		// Check if this is a glob pattern
+		if ui.IsGlobPattern(path) {
+			return m.handleAddReposFromGlob(ctx, path)
+		}
+
+		// Single path - validate and add
 		if err := m.sessionService.ValidateRepo(ctx, path); err != nil {
 			m.modal.SetError(err.Error())
 			return m, nil
@@ -53,6 +61,59 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleAddReposFromGlob expands a glob pattern and adds all matching git repositories.
+func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea.Model, tea.Cmd) {
+	// Expand the glob to directories
+	dirs, err := ui.ExpandGlobToDirs(pattern)
+	if err != nil {
+		m.modal.SetError("Invalid glob pattern: " + err.Error())
+		return m, nil
+	}
+
+	if len(dirs) == 0 {
+		m.modal.SetError("No directories match the pattern")
+		return m, nil
+	}
+
+	// Filter to valid git repos and add them
+	var added, skipped, alreadyAdded int
+	for _, dir := range dirs {
+		if err := m.sessionService.ValidateRepo(ctx, dir); err != nil {
+			skipped++
+			continue
+		}
+		if !m.config.AddRepo(dir) {
+			alreadyAdded++
+			continue
+		}
+		added++
+	}
+
+	// Save if any were added
+	if added > 0 {
+		if err := m.config.Save(); err != nil {
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+	}
+
+	m.modal.Hide()
+
+	// Build status message
+	if added == 0 {
+		if alreadyAdded > 0 {
+			return m, m.ShowFlashWarning(fmt.Sprintf("All %d repos already added", alreadyAdded))
+		}
+		return m, m.ShowFlashWarning("No git repositories found matching pattern")
+	}
+
+	msg := fmt.Sprintf("Added %d repo(s)", added)
+	if skipped > 0 || alreadyAdded > 0 {
+		msg += fmt.Sprintf(" (skipped: %d non-git, %d already added)", skipped, alreadyAdded)
+	}
+	return m, m.ShowFlashSuccess(msg)
 }
 
 // handleNewSessionModal handles key events for the New Session modal.
@@ -439,8 +500,19 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 			return m, nil
 		}
 
+		// Get the optional session name
+		sessionName := strings.TrimSpace(state.GetName())
+
+		// Validate session name if provided
+		if sessionName != "" {
+			if err := session.ValidateBranchName(sessionName); err != nil {
+				m.modal.SetError(err.Error())
+				return m, nil
+			}
+		}
+
 		m.modal.Hide()
-		return m.createBroadcastSessions(selectedRepos, prompt)
+		return m.createBroadcastSessions(selectedRepos, prompt, sessionName)
 	}
 
 	// Forward other keys to modal for navigation/selection
@@ -450,9 +522,10 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 }
 
 // createBroadcastSessions creates sessions for each selected repo and sends the prompt to each.
-func (m *Model) createBroadcastSessions(repoPaths []string, prompt string) (tea.Model, tea.Cmd) {
+// If sessionName is provided (non-empty), it will be used as the branch name for all sessions.
+func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string) (tea.Model, tea.Cmd) {
 	log := logger.Get()
-	log.Info("creating broadcast sessions", "repoCount", len(repoPaths))
+	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
 
 	// Generate a broadcast group ID for this batch
 	groupID := uuid.New().String()
@@ -465,7 +538,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string) (tea.
 
 	// Create a session for each repo
 	for _, repoPath := range repoPaths {
-		sess, err := m.sessionService.Create(ctx, repoPath, "", branchPrefix, session.BasePointOrigin)
+		sess, err := m.sessionService.Create(ctx, repoPath, sessionName, branchPrefix, session.BasePointOrigin)
 		if err != nil {
 			log.Error("failed to create session for broadcast", "repo", repoPath, "error", err)
 			failedRepos = append(failedRepos, repoPath)

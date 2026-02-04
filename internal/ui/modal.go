@@ -85,6 +85,8 @@ var (
 	TruncateString                 = modals.TruncateString
 	RenderSelectableList           = modals.RenderSelectableList
 	RenderSelectableListWithFocus  = modals.RenderSelectableListWithFocus
+	ExpandGlobToDirs               = modals.ExpandGlobToDirs
+	IsGlobPattern                  = modals.IsGlobPattern
 )
 
 // NewThemeState creates a new ThemeState - wrapper to handle ThemeName conversion

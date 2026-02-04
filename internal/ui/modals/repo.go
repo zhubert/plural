@@ -281,7 +281,7 @@ func (s *AddRepoState) IsShowingOptions() bool {
 // NewAddRepoState creates a new AddRepoState with proper initialization
 func NewAddRepoState(suggestedRepo string) *AddRepoState {
 	ti := textinput.New()
-	ti.Placeholder = "/path/to/repo"
+	ti.Placeholder = "/path/to/repo or /path/to/* (glob)"
 	ti.CharLimit = ModalInputCharLimit
 	ti.SetWidth(ModalInputWidth)
 
