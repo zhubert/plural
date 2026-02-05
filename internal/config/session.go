@@ -36,6 +36,9 @@ type Session struct {
 
 // GetIssueRef returns the IssueRef for this session, converting from legacy IssueNumber if needed.
 // Returns nil if no issue is associated with this session.
+// Migration: older sessions only have IssueNumber (GitHub-specific int). New sessions use IssueRef
+// which supports any provider. Once all persisted sessions have been re-saved with IssueRef,
+// the IssueNumber field and this fallback can be removed.
 func (s *Session) GetIssueRef() *IssueRef {
 	// Prefer new IssueRef if set
 	if s.IssueRef != nil {
