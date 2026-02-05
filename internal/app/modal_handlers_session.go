@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
@@ -523,6 +524,7 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 
 // createBroadcastSessions creates sessions for each selected repo and sends the prompt to each.
 // If sessionName is provided (non-empty), it will be used as the branch name for all sessions.
+// Sessions are created in parallel for better performance with many repos.
 func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
@@ -531,28 +533,53 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	groupID := uuid.New().String()
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 
+	// Use a semaphore to limit concurrent session creation (avoid overwhelming git/network)
+	const maxConcurrent = 10
+	sem := make(chan struct{}, maxConcurrent)
+
+	// Thread-safe collection of results
+	var mu sync.Mutex
 	var createdSessions []*config.Session
 	var failedRepos []string
 
-	ctx := context.Background()
-
-	// Create a session for each repo
+	// Create sessions in parallel
+	var wg sync.WaitGroup
 	for _, repoPath := range repoPaths {
-		sess, err := m.sessionService.Create(ctx, repoPath, sessionName, branchPrefix, session.BasePointOrigin)
-		if err != nil {
-			log.Error("failed to create session for broadcast", "repo", repoPath, "error", err)
-			failedRepos = append(failedRepos, repoPath)
-			continue
-		}
+		wg.Add(1)
+		go func(repoPath string) {
+			defer wg.Done()
 
-		// Set the broadcast group ID
-		sess.BroadcastGroupID = groupID
+			// Acquire semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		// Add session to config
+			ctx := context.Background()
+			sess, err := m.sessionService.Create(ctx, repoPath, sessionName, branchPrefix, session.BasePointOrigin)
+			if err != nil {
+				log.Error("failed to create session for broadcast", "repo", repoPath, "error", err)
+				mu.Lock()
+				failedRepos = append(failedRepos, repoPath)
+				mu.Unlock()
+				return
+			}
+
+			// Set the broadcast group ID
+			sess.BroadcastGroupID = groupID
+
+			mu.Lock()
+			createdSessions = append(createdSessions, sess)
+			mu.Unlock()
+
+			logger.WithSession(sess.ID).Info("created broadcast session", "repo", repoPath, "groupID", groupID)
+		}(repoPath)
+	}
+
+	// Wait for all session creations to complete
+	wg.Wait()
+
+	// Add all sessions to config (after parallel creation completes)
+	for _, sess := range createdSessions {
 		m.config.AddSession(*sess)
-		createdSessions = append(createdSessions, sess)
-
-		logger.WithSession(sess.ID).Info("created broadcast session", "repo", repoPath, "groupID", groupID)
 	}
 
 	// Save config after creating all sessions
