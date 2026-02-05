@@ -43,12 +43,14 @@ type OptionItem struct {
 	GroupIndex int // Which group this option belongs to (for visual separation)
 }
 
-// IssueItem represents a GitHub issue for display in the modal
+// IssueItem represents an issue/task for display in the modal.
+// Works with both GitHub issues and Asana tasks.
 type IssueItem struct {
-	Number   int
+	ID       string // Issue/task ID ("123" for GitHub, "1234567890123" for Asana)
 	Title    string
 	Body     string
 	URL      string
+	Source   string // "github" or "asana"
 	Selected bool
 }
 

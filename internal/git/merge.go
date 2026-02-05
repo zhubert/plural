@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 
+	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 )
 
@@ -217,8 +218,8 @@ func (s *GitService) AbortMerge(ctx context.Context, repoPath string) error {
 // CreatePR pushes the branch and creates a pull request using gh CLI
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
-// If issueNumber is provided (non-zero), "Fixes #N" will be added to the PR body
-func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string, issueNumber int) <-chan Result {
+// If issueRef is provided, appropriate link text will be added to the PR body based on the source.
+func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string, issueRef *config.IssueRef) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -250,7 +251,7 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 
 		// Generate PR title and body with Claude
 		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
-		prTitle, prBody, err := s.GeneratePRTitleAndBody(ctx, repoPath, branch, issueNumber)
+		prTitle, prBody, err := s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, issueRef)
 		var ghArgs []string
 		if err != nil {
 			log.Warn("Claude PR generation failed, using --fill", "error", err)

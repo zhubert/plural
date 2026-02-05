@@ -317,10 +317,11 @@ func NewThemeState(themes []string, themeNames []string, currentTheme string) *T
 
 type SettingsState struct {
 	BranchPrefixInput    textinput.Model
+	AsanaProjectInput    textinput.Model
 	NotificationsEnabled bool
 	SquashOnMerge        bool   // Per-repo setting: squash commits when merging to main
 	RepoPath             string // Current repo path (for per-repo settings)
-	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash
+	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash, 3 = asana project
 }
 
 func (*SettingsState) modalState() {}
@@ -375,9 +376,10 @@ func (s *SettingsState) Render() string {
 		Render("Notify when Claude finishes while app is in background")
 	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
 
-	// Squash on merge checkbox (per-repo setting)
-	var squashSection string
+	// Per-repo settings (only shown when a repo is selected)
+	var repoSections []string
 	if s.RepoPath != "" {
+		// Squash on merge checkbox
 		squashLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			MarginTop(1).
@@ -398,41 +400,56 @@ func (s *SettingsState) Render() string {
 			Italic(true).
 			Render("Combine all commits into one when merging to main")
 		squashView := squashCheckboxStyle.Render(squashCheckbox + " " + squashDesc)
-		squashSection = squashLabel + "\n" + squashView
+		repoSections = append(repoSections, squashLabel+"\n"+squashView)
+
+		// Asana project GID
+		asanaLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Asana project GID (this repo):")
+
+		asanaDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Links this repo to an Asana project for task import")
+
+		asanaInputStyle := lipgloss.NewStyle()
+		if s.Focus == 3 {
+			asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			asanaInputStyle = asanaInputStyle.PaddingLeft(2)
+		}
+		asanaView := asanaInputStyle.Render(s.AsanaProjectInput.View())
+		repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	if squashSection != "" {
-		return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, squashSection, help)
+	parts := []string{title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView}
+	for _, section := range repoSections {
+		parts = append(parts, section)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, help)
+	parts = append(parts, help)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	// Determine number of focusable fields (3 if repo selected, 2 otherwise)
+	// Determine number of focusable fields (4 if repo selected, 2 otherwise)
 	numFields := 2
 	if s.RepoPath != "" {
-		numFields = 3
+		numFields = 4
 	}
 
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case "tab":
 			s.Focus = (s.Focus + 1) % numFields
-			if s.Focus == 0 {
-				s.BranchPrefixInput.Focus()
-			} else {
-				s.BranchPrefixInput.Blur()
-			}
+			s.updateInputFocus()
 			return s, nil
 		case "shift+tab":
 			s.Focus = (s.Focus - 1 + numFields) % numFields
-			if s.Focus == 0 {
-				s.BranchPrefixInput.Focus()
-			} else {
-				s.BranchPrefixInput.Blur()
-			}
+			s.updateInputFocus()
 			return s, nil
 		case "space":
 			// Toggle checkbox when focused on notifications or squash
@@ -452,7 +469,28 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		return s, cmd
 	}
 
+	// Handle text input updates when focused on Asana project GID
+	if s.Focus == 3 {
+		var cmd tea.Cmd
+		s.AsanaProjectInput, cmd = s.AsanaProjectInput.Update(msg)
+		return s, cmd
+	}
+
 	return s, nil
+}
+
+// updateInputFocus manages focus state for text inputs based on current Focus index.
+func (s *SettingsState) updateInputFocus() {
+	if s.Focus == 0 {
+		s.BranchPrefixInput.Focus()
+		s.AsanaProjectInput.Blur()
+	} else if s.Focus == 3 {
+		s.AsanaProjectInput.Focus()
+		s.BranchPrefixInput.Blur()
+	} else {
+		s.BranchPrefixInput.Blur()
+		s.AsanaProjectInput.Blur()
+	}
 }
 
 // GetBranchPrefix returns the branch prefix value
@@ -475,10 +513,15 @@ func (s *SettingsState) GetRepoPath() string {
 	return s.RepoPath
 }
 
+// GetAsanaProject returns the Asana project GID value
+func (s *SettingsState) GetAsanaProject() string {
+	return s.AsanaProjectInput.Value()
+}
+
 // NewSettingsState creates a new SettingsState with the current settings values.
 // repoPath should be set to the current session's repo path for per-repo settings,
 // or empty string if no session is selected.
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, repoPath string) *SettingsState {
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, repoPath string, asanaProject string) *SettingsState {
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
@@ -486,8 +529,15 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squ
 	prefixInput.SetValue(currentBranchPrefix)
 	prefixInput.Focus()
 
+	asanaInput := textinput.New()
+	asanaInput.Placeholder = "e.g., 1234567890123 (leave empty to disable)"
+	asanaInput.CharLimit = BranchPrefixCharLimit
+	asanaInput.SetWidth(ModalInputWidth)
+	asanaInput.SetValue(asanaProject)
+
 	return &SettingsState{
 		BranchPrefixInput:    prefixInput,
+		AsanaProjectInput:    asanaInput,
 		NotificationsEnabled: notificationsEnabled,
 		SquashOnMerge:        squashOnMerge,
 		RepoPath:             repoPath,

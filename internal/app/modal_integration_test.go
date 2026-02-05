@@ -715,12 +715,63 @@ func TestSettingsModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus 1 after tab, got %d", state.Focus)
 	}
 
-	// Tab back to branch prefix
+	// Tab back to branch prefix (only 2 fields when no repo)
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 
 	if state.Focus != 0 {
 		t.Errorf("Expected focus 0 after second tab, got %d", state.Focus)
+	}
+}
+
+func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session so we have a repo path
+	m = sendKey(m, "enter")
+	m = sendKey(m, "tab") // Back to sidebar
+
+	m = sendKey(m, ",")
+	state := m.modal.State.(*ui.SettingsState)
+
+	// Verify we have a repo path (enables per-repo fields)
+	if state.RepoPath == "" {
+		t.Fatal("Expected RepoPath to be set when session is active")
+	}
+
+	// Focus 0: branch prefix
+	if state.Focus != 0 {
+		t.Errorf("Expected initial focus 0, got %d", state.Focus)
+	}
+
+	// Focus 1: notifications
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.SettingsState)
+	if state.Focus != 1 {
+		t.Errorf("Expected focus 1, got %d", state.Focus)
+	}
+
+	// Focus 2: squash on merge
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.SettingsState)
+	if state.Focus != 2 {
+		t.Errorf("Expected focus 2, got %d", state.Focus)
+	}
+
+	// Focus 3: Asana project GID
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.SettingsState)
+	if state.Focus != 3 {
+		t.Errorf("Expected focus 3, got %d", state.Focus)
+	}
+
+	// Focus 0: wrap around to branch prefix
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.SettingsState)
+	if state.Focus != 0 {
+		t.Errorf("Expected focus 0 after full cycle, got %d", state.Focus)
 	}
 }
 
@@ -747,6 +798,66 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 
 	if state.NotificationsEnabled {
 		t.Error("Notifications should be disabled after space")
+	}
+}
+
+func TestSettingsModal_AsanaProjectGID(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session so we have a repo path
+	m = sendKey(m, "enter")
+	repoPath := m.activeSession.RepoPath
+	m = sendKey(m, "tab") // Back to sidebar
+
+	m = sendKey(m, ",")
+	state := m.modal.State.(*ui.SettingsState)
+
+	// Set the Asana project GID
+	state.AsanaProjectInput.SetValue("1234567890123")
+
+	// Save
+	m = sendKey(m, "enter")
+
+	// Config should have the Asana project GID
+	if got := m.config.GetAsanaProject(repoPath); got != "1234567890123" {
+		t.Errorf("Expected Asana project '1234567890123', got %q", got)
+	}
+}
+
+func TestSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
+	cfg := testConfigWithSessions()
+	// Pre-set an Asana project GID
+	repoPath := cfg.Sessions[0].RepoPath
+	cfg.SetAsanaProject(repoPath, "9999999999999")
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select a session
+	m = sendKey(m, "enter")
+	m = sendKey(m, "tab") // Back to sidebar
+
+	m = sendKey(m, ",")
+	state := m.modal.State.(*ui.SettingsState)
+
+	// Verify it was loaded
+	if state.GetAsanaProject() != "9999999999999" {
+		t.Errorf("Expected pre-set Asana project '9999999999999', got %q", state.GetAsanaProject())
+	}
+
+	// Clear the value
+	state.AsanaProjectInput.SetValue("")
+
+	// Save
+	m = sendKey(m, "enter")
+
+	// Config should have the Asana project removed
+	if got := m.config.GetAsanaProject(repoPath); got != "" {
+		t.Errorf("Expected empty Asana project after clearing, got %q", got)
+	}
+	if m.config.HasAsanaProject(repoPath) {
+		t.Error("HasAsanaProject should return false after clearing")
 	}
 }
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -483,6 +484,7 @@ func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Mo
 }
 
 // handleGitHubIssuesFetchedMsg handles fetched GitHub issues.
+// Deprecated: use handleIssuesFetchedMsg instead
 func (m *Model) handleGitHubIssuesFetchedMsg(msg GitHubIssuesFetchedMsg) (tea.Model, tea.Cmd) {
 	// Handle fetched GitHub issues - update the modal if it's still visible
 	if state, ok := m.modal.State.(*ui.ImportIssuesState); ok {
@@ -493,10 +495,35 @@ func (m *Model) handleGitHubIssuesFetchedMsg(msg GitHubIssuesFetchedMsg) (tea.Mo
 			items := make([]ui.IssueItem, len(msg.Issues))
 			for i, issue := range msg.Issues {
 				items[i] = ui.IssueItem{
-					Number: issue.Number,
+					ID:     fmt.Sprintf("%d", issue.Number),
 					Title:  issue.Title,
 					Body:   issue.Body,
 					URL:    issue.URL,
+					Source: "github",
+				}
+			}
+			state.SetIssues(items)
+		}
+	}
+	return m, nil
+}
+
+// handleIssuesFetchedMsg handles fetched issues/tasks from any source.
+func (m *Model) handleIssuesFetchedMsg(msg IssuesFetchedMsg) (tea.Model, tea.Cmd) {
+	// Handle fetched issues - update the modal if it's still visible
+	if state, ok := m.modal.State.(*ui.ImportIssuesState); ok {
+		if msg.Error != nil {
+			state.SetError(msg.Error.Error())
+		} else {
+			// Convert to UI issue items
+			items := make([]ui.IssueItem, len(msg.Issues))
+			for i, issue := range msg.Issues {
+				items[i] = ui.IssueItem{
+					ID:     issue.ID,
+					Title:  issue.Title,
+					Body:   issue.Body,
+					URL:    issue.URL,
+					Source: string(issue.Source),
 				}
 			}
 			state.SetIssues(items)

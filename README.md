@@ -78,9 +78,30 @@ When Claude offers multiple approaches ("Option 1: Use Redis" vs "Option 2: Use 
 
 Send the same prompt to multiple repositories at once. Plural creates a session for each repo and sends your prompt in parallel—perfect for applying the same change across a fleet of services. Later, use the broadcast group modal to send follow-up prompts or create PRs for all sessions at once.
 
-### GitHub Integration
+### Issue & Task Import
 
-Import GitHub issues directly—Plural creates a session for each with full context, and Claude starts working immediately. When you create a PR from an issue session, "Fixes #N" is automatically added to close the issue on merge.
+Press `i` to import issues or tasks and create sessions from them. Plural creates a session for each with full context, and Claude starts working immediately.
+
+**GitHub Issues** — Always available (uses the `gh` CLI). When you create a PR from an issue session, "Fixes #N" is automatically added to close the issue on merge.
+
+**Asana Tasks** — Available when configured. To set up Asana integration:
+
+1. Create a [Personal Access Token](https://app.asana.com/0/developer-console) in Asana
+2. Set the `ASANA_PAT` environment variable:
+   ```bash
+   export ASANA_PAT="your-token-here"
+   ```
+3. Map a repository to an Asana project. In `~/.plural/config.json`, add:
+   ```json
+   {
+     "repo_asana_project": {
+       "/path/to/your/repo": "your-asana-project-gid"
+     }
+   }
+   ```
+   You can find the project GID in the Asana project URL: `https://app.asana.com/0/<project-gid>/...`
+
+When both GitHub and Asana are configured for a repository, Plural will prompt you to choose a source before importing.
 
 ### Merge & PR Workflow
 

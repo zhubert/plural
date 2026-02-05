@@ -17,6 +17,7 @@ type Config struct {
 	AllowedTools      []string               `json:"allowed_tools,omitempty"`       // Global allowed tools
 	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`  // Per-repo allowed tools
 	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
+	RepoAsanaProject  map[string]string      `json:"repo_asana_project,omitempty"`  // Per-repo Asana project GID mapping
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
 	LastSeenVersion      string `json:"last_seen_version,omitempty"`     // Last version user has seen changelog for
@@ -121,6 +122,9 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoSquashOnMerge == nil {
 		c.RepoSquashOnMerge = make(map[string]bool)
+	}
+	if c.RepoAsanaProject == nil {
+		c.RepoAsanaProject = make(map[string]string)
 	}
 }
 
@@ -364,4 +368,33 @@ func (c *Config) SetSquashOnMerge(repoPath string, enabled bool) {
 	} else {
 		delete(c.RepoSquashOnMerge, repoPath)
 	}
+}
+
+// GetAsanaProject returns the Asana project GID for a repo, or empty string if not configured
+func (c *Config) GetAsanaProject(repoPath string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoAsanaProject == nil {
+		return ""
+	}
+	return c.RepoAsanaProject[repoPath]
+}
+
+// SetAsanaProject sets the Asana project GID for a repo
+func (c *Config) SetAsanaProject(repoPath, projectGID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoAsanaProject == nil {
+		c.RepoAsanaProject = make(map[string]string)
+	}
+	if projectGID == "" {
+		delete(c.RepoAsanaProject, repoPath)
+	} else {
+		c.RepoAsanaProject[repoPath] = projectGID
+	}
+}
+
+// HasAsanaProject returns true if the repo has an Asana project configured
+func (c *Config) HasAsanaProject(repoPath string) bool {
+	return c.GetAsanaProject(repoPath) != ""
 }

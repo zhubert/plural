@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
 )
 
@@ -38,9 +39,26 @@ func (s *GitService) FetchGitHubIssues(ctx context.Context, repoPath string) ([]
 
 // GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
 // If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
+// Deprecated: use GeneratePRTitleAndBodyWithIssueRef for new code.
 func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
+	// Convert legacy issueNumber to IssueRef for backwards compatibility
+	var issueRef *config.IssueRef
+	if issueNumber > 0 {
+		issueRef = &config.IssueRef{
+			Source: "github",
+			ID:     fmt.Sprintf("%d", issueNumber),
+		}
+	}
+	return s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, issueRef)
+}
+
+// GeneratePRTitleAndBodyWithIssueRef uses Claude to generate a PR title and body from the branch changes.
+// If issueRef is provided, it will add appropriate link text based on the source:
+//   - GitHub: adds "Fixes #{number}" to auto-close the issue
+//   - Asana: no auto-close support (Asana doesn't use commit message keywords)
+func (s *GitService) GeneratePRTitleAndBodyWithIssueRef(ctx context.Context, repoPath, branch string, issueRef *config.IssueRef) (title, body string, err error) {
 	log := logger.WithComponent("git")
-	log.Info("generating PR title and body with Claude", "branch", branch, "issueNumber", issueNumber)
+	log.Info("generating PR title and body with Claude", "branch", branch, "issueRef", issueRef)
 
 	defaultBranch := s.GetDefaultBranch(ctx, repoPath)
 
@@ -126,13 +144,36 @@ Diff:
 		return "", "", fmt.Errorf("Claude returned empty PR title")
 	}
 
-	// Add "Fixes #N" to the body if this PR is for a GitHub issue
-	if issueNumber > 0 {
-		fixesLine := fmt.Sprintf("\n\nFixes #%d", issueNumber)
-		body = body + fixesLine
-		log.Info("added issue reference", "issueNumber", issueNumber)
+	// Add issue reference to the body based on source
+	if issueRef != nil {
+		linkText := GetPRLinkText(issueRef)
+		if linkText != "" {
+			body = body + linkText
+			log.Info("added issue reference", "source", issueRef.Source, "id", issueRef.ID)
+		}
 	}
 
 	log.Info("generated PR title", "title", title)
 	return title, body, nil
+}
+
+// GetPRLinkText returns the appropriate text to add to a PR body based on the issue source.
+// For GitHub issues: returns "\n\nFixes #123"
+// For Asana tasks: returns "" (no auto-close support)
+// For unknown sources: returns ""
+func GetPRLinkText(issueRef *config.IssueRef) string {
+	if issueRef == nil {
+		return ""
+	}
+
+	switch issueRef.Source {
+	case "github":
+		return fmt.Sprintf("\n\nFixes #%s", issueRef.ID)
+	case "asana":
+		// Asana doesn't support auto-closing tasks via commit message keywords.
+		// Users can manually link PRs in Asana or use the Asana GitHub integration.
+		return ""
+	default:
+		return ""
+	}
 }

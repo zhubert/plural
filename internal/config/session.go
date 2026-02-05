@@ -1,8 +1,18 @@
 package config
 
 import (
+	"strconv"
 	"time"
 )
+
+// IssueRef represents a reference to an issue/task from any supported source.
+// This is the generic replacement for the deprecated IssueNumber field.
+type IssueRef struct {
+	Source string `json:"source"` // "github" or "asana"
+	ID     string `json:"id"`     // Issue/task ID (number for GitHub, GID for Asana)
+	Title  string `json:"title"`  // Issue/task title for display
+	URL    string `json:"url"`    // Link to the issue/task
+}
 
 // Session represents a Claude Code conversation session with its own worktree
 type Session struct {
@@ -15,12 +25,37 @@ type Session struct {
 	CreatedAt  time.Time `json:"created_at"`
 	Started    bool      `json:"started,omitempty"` // Whether session has been started with Claude CLI
 
-	Merged           bool   `json:"merged,omitempty"`             // Whether session has been merged to main
-	PRCreated        bool   `json:"pr_created,omitempty"`         // Whether a PR has been created for this session
-	ParentID         string `json:"parent_id,omitempty"`          // ID of parent session if this is a fork
-	MergedToParent   bool   `json:"merged_to_parent,omitempty"`   // Whether session has been merged back to its parent (locks the session)
-	IssueNumber      int    `json:"issue_number,omitempty"`       // GitHub issue number if session was created from an issue
-	BroadcastGroupID string `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
+	Merged           bool      `json:"merged,omitempty"`             // Whether session has been merged to main
+	PRCreated        bool      `json:"pr_created,omitempty"`         // Whether a PR has been created for this session
+	ParentID         string    `json:"parent_id,omitempty"`          // ID of parent session if this is a fork
+	MergedToParent   bool      `json:"merged_to_parent,omitempty"`   // Whether session has been merged back to its parent (locks the session)
+	IssueNumber      int       `json:"issue_number,omitempty"`       // Deprecated: use IssueRef instead. Kept for backwards compatibility.
+	IssueRef         *IssueRef `json:"issue_ref,omitempty"`          // Generic issue/task reference (GitHub, Asana, etc.)
+	BroadcastGroupID string    `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
+}
+
+// GetIssueRef returns the IssueRef for this session, converting from legacy IssueNumber if needed.
+// Returns nil if no issue is associated with this session.
+func (s *Session) GetIssueRef() *IssueRef {
+	// Prefer new IssueRef if set
+	if s.IssueRef != nil {
+		return s.IssueRef
+	}
+	// Fall back to legacy IssueNumber for backwards compatibility
+	if s.IssueNumber > 0 {
+		return &IssueRef{
+			Source: "github",
+			ID:     strconv.Itoa(s.IssueNumber),
+			Title:  "", // Title not stored in legacy format
+			URL:    "", // URL not stored in legacy format
+		}
+	}
+	return nil
+}
+
+// HasIssue returns true if this session was created from an issue/task.
+func (s *Session) HasIssue() bool {
+	return s.GetIssueRef() != nil
 }
 
 // AddSession adds a new session
