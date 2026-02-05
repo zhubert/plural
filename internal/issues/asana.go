@@ -95,6 +95,9 @@ func (p *AsanaProvider) FetchIssues(ctx context.Context, repoPath, projectID str
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("Asana API returned 403 Forbidden - check that your ASANA_PAT has access to this project")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Asana API returned status %d", resp.StatusCode)
 	}

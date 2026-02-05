@@ -159,14 +159,14 @@ type issueSessionInfo struct {
 
 // createSessionsFromIssues creates new sessions for each selected issue/task.
 // Works with both GitHub issues and Asana tasks.
-func (m *Model) createSessionsFromIssues(repoPath string, issueItems []ui.IssueItem) (tea.Model, tea.Cmd) {
+func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.IssueItem) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 
 	var createdSessions []issueSessionInfo
 	var firstSession *config.Session
 	var failedIssues []string
 
-	for _, issue := range issueItems {
+	for _, issue := range selectedIssues {
 		// Get the provider to generate branch name
 		var branchName string
 		if m.issueRegistry != nil {

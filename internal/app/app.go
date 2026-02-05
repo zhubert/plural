@@ -1357,21 +1357,6 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 
 // Note: updateSizes() and View() have been moved to view.go for better organization.
 
-// fetchGitHubIssues creates a command to fetch GitHub issues asynchronously
-// Deprecated: use fetchIssues instead
-func (m *Model) fetchGitHubIssues(repoPath string) tea.Cmd {
-	gitSvc := m.gitService
-	return func() tea.Msg {
-		ctx := context.Background()
-		ghIssues, err := gitSvc.FetchGitHubIssues(ctx, repoPath)
-		return GitHubIssuesFetchedMsg{
-			RepoPath: repoPath,
-			Issues:   ghIssues,
-			Error:    err,
-		}
-	}
-}
-
 // fetchIssues creates a command to fetch issues/tasks from any source asynchronously
 func (m *Model) fetchIssues(repoPath, source, projectID string) tea.Cmd {
 	registry := m.issueRegistry
