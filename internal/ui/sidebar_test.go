@@ -408,43 +408,33 @@ func TestSidebar_View_MultipleSpinners_ForkedSessions(t *testing.T) {
 	}
 }
 
-func TestSidebar_GetSelectedLine(t *testing.T) {
+func TestSidebar_TreeOrder(t *testing.T) {
+	// This test ensures sessions are ordered correctly when they have
+	// parent-child relationships (tree order differs from input order)
 	sidebar := NewSidebar()
 
+	// Create sessions where input order differs from tree order
+	// Input order: parent, sibling, child (of parent)
+	// Tree order:  parent, child, sibling
 	sessions := []config.Session{
-		{ID: "s1", RepoPath: "/repo1", Branch: "b1"},
-		{ID: "s2", RepoPath: "/repo1", Branch: "b2"},
-		{ID: "s3", RepoPath: "/repo2", Branch: "b3"},
+		{ID: "parent", RepoPath: "/repo1", Branch: "b1", Name: "parent"},
+		{ID: "sibling", RepoPath: "/repo1", Branch: "b2", Name: "sibling"},
+		{ID: "child", RepoPath: "/repo1", Branch: "b3", Name: "child", ParentID: "parent"},
 	}
 	sidebar.SetSessions(sessions)
 
-	// Rendered structure:
-	// - repo1 header (line 0)
-	// - session s1 (line 1)
-	// - session s2 (line 2)
-	// - blank line (line 3)
-	// - repo2 header (line 4)
-	// - session s3 (line 5)
-
-	// First session (after repo1 header)
-	sidebar.selectedIdx = 0
-	line := sidebar.getSelectedLine()
-	if line != 1 {
-		t.Errorf("Expected line 1 for first session (after header), got %d", line)
+	// After SetSessions, s.sessions should be in tree order: parent, child, sibling
+	if len(sidebar.sessions) != 3 {
+		t.Fatalf("Expected 3 sessions, got %d", len(sidebar.sessions))
 	}
-
-	// Second session (same repo group)
-	sidebar.selectedIdx = 1
-	line = sidebar.getSelectedLine()
-	if line != 2 {
-		t.Errorf("Expected line 2 for second session, got %d", line)
+	if sidebar.sessions[0].ID != "parent" {
+		t.Errorf("Expected sessions[0]=parent, got %s", sidebar.sessions[0].ID)
 	}
-
-	// Third session (new repo group: blank line + header before)
-	sidebar.selectedIdx = 2
-	line = sidebar.getSelectedLine()
-	if line != 5 { // 1 header + 2 sessions + 1 blank + 1 header
-		t.Errorf("Expected line 5 for third session, got %d", line)
+	if sidebar.sessions[1].ID != "child" {
+		t.Errorf("Expected sessions[1]=child, got %s", sidebar.sessions[1].ID)
+	}
+	if sidebar.sessions[2].ID != "sibling" {
+		t.Errorf("Expected sessions[2]=sibling, got %s", sidebar.sessions[2].ID)
 	}
 }
 

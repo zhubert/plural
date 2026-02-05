@@ -478,64 +478,18 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 	return s, nil
 }
 
-// ensureVisible adjusts scroll offset to keep selection visible
+// ensureVisible is now handled in View() where we have accurate line counts
+// after text wrapping. This is kept as a no-op for API compatibility.
 func (s *Sidebar) ensureVisible() {
-	ctx := GetViewContext()
-	visibleHeight := ctx.InnerHeight(s.height)
-
-	// Calculate the line number of the selected session in the rendered view
-	selectedLine := s.getSelectedLine()
-
-	if selectedLine < s.scrollOffset {
-		s.scrollOffset = selectedLine
-	} else if selectedLine >= s.scrollOffset+visibleHeight {
-		s.scrollOffset = selectedLine - visibleHeight + 1
-	}
+	// Scroll adjustment happens in View() with actual rendered line counts
 }
 
-// ensureVisibleFiltered adjusts scroll offset for filtered list (no repo headers)
+// ensureVisibleFiltered is now handled in View() where we have accurate line counts
+// after text wrapping. This is kept as a no-op for API compatibility.
 func (s *Sidebar) ensureVisibleFiltered(displaySessions []config.Session) {
-	ctx := GetViewContext()
-	// Account for search input line when in search mode
-	visibleHeight := ctx.InnerHeight(s.height)
-	if s.searchMode {
-		visibleHeight-- // Reserve one line for search input
-	}
-
-	// In filtered mode, each session is one line (no repo headers)
-	selectedLine := s.selectedIdx
-
-	// Ensure we don't go past the end of the list
-	if selectedLine >= len(displaySessions) {
-		selectedLine = len(displaySessions) - 1
-	}
-
-	if selectedLine < s.scrollOffset {
-		s.scrollOffset = selectedLine
-	} else if selectedLine >= s.scrollOffset+visibleHeight {
-		s.scrollOffset = selectedLine - visibleHeight + 1
-	}
+	// Scroll adjustment happens in View() with actual rendered line counts
 }
 
-// getSelectedLine returns the line number of the selected session in the rendered list
-func (s *Sidebar) getSelectedLine() int {
-	line := 0
-	sessionIdx := 0
-	for i, group := range s.groups {
-		if i > 0 {
-			line++ // blank line between repos (not before first group)
-		}
-		line++ // repo header line
-		for range group.Sessions {
-			if sessionIdx == s.selectedIdx {
-				return line
-			}
-			line++
-			sessionIdx++
-		}
-	}
-	return line
-}
 
 // View renders the sidebar
 func (s *Sidebar) View() string {
@@ -580,47 +534,76 @@ func (s *Sidebar) View() string {
 		content = emptyMsg
 	} else if s.searchMode && s.filteredSessions != nil {
 		// Render flat filtered list (no repo grouping)
-		var lines []string
+		// Use actual lines to handle text wrapping correctly
+		var allLines []string
+		selectedStartLine := 0
 		innerWidth := ctx.InnerWidth(s.width)
+
 		for idx, sess := range s.filteredSessions {
 			displayName := s.renderSessionName(sess, idx)
 			itemStyle := SidebarItemStyle.Width(innerWidth)
 			if idx == s.selectedIdx {
 				itemStyle = SidebarSelectedStyle.Width(innerWidth)
 				displayName = "> " + strings.TrimPrefix(displayName, "  ")
+				selectedStartLine = len(allLines)
 			}
-			lines = append(lines, itemStyle.Render(displayName))
+			// Render and split into actual lines
+			rendered := itemStyle.Render(displayName)
+			for _, line := range strings.Split(rendered, "\n") {
+				allLines = append(allLines, line)
+			}
 		}
 
-		// Apply scrolling
-		if len(lines) > innerHeight && s.scrollOffset > 0 {
-			if s.scrollOffset < len(lines) {
-				lines = lines[s.scrollOffset:]
-			}
+		// Adjust scroll to keep selected session visible
+		visibleHeight := innerHeight
+		if selectedStartLine < s.scrollOffset {
+			s.scrollOffset = selectedStartLine
+		} else if selectedStartLine >= s.scrollOffset+visibleHeight {
+			s.scrollOffset = selectedStartLine - visibleHeight + 1
 		}
-		if len(lines) > innerHeight {
-			lines = lines[:innerHeight]
+
+		// Ensure scrollOffset is valid
+		if s.scrollOffset < 0 {
+			s.scrollOffset = 0
 		}
-		content = strings.Join(lines, "\n")
+		maxScroll := len(allLines) - visibleHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if s.scrollOffset > maxScroll {
+			s.scrollOffset = maxScroll
+		}
+
+		// Apply scrolling and truncate
+		if s.scrollOffset > 0 && s.scrollOffset < len(allLines) {
+			allLines = allLines[s.scrollOffset:]
+		}
+		if len(allLines) > visibleHeight {
+			allLines = allLines[:visibleHeight]
+		}
+		content = strings.Join(allLines, "\n")
 	} else {
 		// Build the grouped list (normal mode) with tree structure
-		var lines []string
+		// Use actual lines (not items) to handle text wrapping correctly
+		var allLines []string
+		selectedStartLine := 0 // Line where selected session starts
 
 		sessionIdx := 0
+		innerWidth := ctx.InnerWidth(s.width)
+
 		for i, group := range s.groups {
 			// Add blank line between repos (not before first one)
 			if i > 0 {
-				lines = append(lines, "")
+				allLines = append(allLines, "")
 			}
 
 			// Repo header
 			repoStyle := lipgloss.NewStyle().
 				Foreground(ColorTextMuted).
 				Bold(true)
-			lines = append(lines, repoStyle.Render(group.RepoName))
+			allLines = append(allLines, repoStyle.Render(group.RepoName))
 
 			// Render sessions in tree order with indentation
-			innerWidth := ctx.InnerWidth(s.width)
 			var renderNode func(node sessionNode, depth int, isLastChild bool)
 			renderNode = func(node sessionNode, depth int, isLastChild bool) {
 				isSelected := sessionIdx == s.selectedIdx
@@ -630,9 +613,14 @@ func (s *Sidebar) View() string {
 				itemStyle := SidebarItemStyle.Width(innerWidth)
 				if isSelected {
 					itemStyle = SidebarSelectedStyle.Width(innerWidth)
+					selectedStartLine = len(allLines) // Record where selected session starts
 				}
 
-				lines = append(lines, itemStyle.Render(displayName))
+				// Render and split into actual lines (handles text wrapping)
+				rendered := itemStyle.Render(displayName)
+				for _, line := range strings.Split(rendered, "\n") {
+					allLines = append(allLines, line)
+				}
 				sessionIdx++
 
 				// Render children with increased depth
@@ -648,22 +636,37 @@ func (s *Sidebar) View() string {
 			}
 		}
 
-		// Apply scrolling
+		// Adjust scroll to keep selected session visible
 		visibleHeight := innerHeight
-
-		if len(lines) > visibleHeight && s.scrollOffset > 0 {
-			// Show scroll indicator at top
-			if s.scrollOffset < len(lines) {
-				lines = lines[s.scrollOffset:]
-			}
+		if selectedStartLine < s.scrollOffset {
+			// Selected is above visible area - scroll up
+			s.scrollOffset = selectedStartLine
+		} else if selectedStartLine >= s.scrollOffset+visibleHeight {
+			// Selected is below visible area - scroll down
+			s.scrollOffset = selectedStartLine - visibleHeight + 1
 		}
 
-		// Truncate to fit
-		if len(lines) > visibleHeight {
-			lines = lines[:visibleHeight]
+		// Ensure scrollOffset is valid
+		if s.scrollOffset < 0 {
+			s.scrollOffset = 0
+		}
+		maxScroll := len(allLines) - visibleHeight
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if s.scrollOffset > maxScroll {
+			s.scrollOffset = maxScroll
 		}
 
-		content = strings.Join(lines, "\n")
+		// Apply scrolling and truncate
+		if s.scrollOffset > 0 && s.scrollOffset < len(allLines) {
+			allLines = allLines[s.scrollOffset:]
+		}
+		if len(allLines) > visibleHeight {
+			allLines = allLines[:visibleHeight]
+		}
+
+		content = strings.Join(allLines, "\n")
 	}
 
 	// Ensure content fits
