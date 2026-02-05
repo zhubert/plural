@@ -13,7 +13,7 @@ import (
 //   - modal_handlers_git.go: Git operations (merge, commit, conflict resolution)
 //   - modal_handlers_config.go: Configuration (MCP servers, plugins, themes, settings)
 //   - modal_handlers_navigation.go: Navigation/info (help, welcome, changelog, search)
-//   - modal_handlers_github.go: GitHub integration (issues, explore options)
+//   - modal_handlers_issues.go: Issue/task import (GitHub issues, Asana tasks, explore options)
 func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
@@ -74,11 +74,13 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case *ui.SearchMessagesState:
 		return m.handleSearchMessagesModal(key, msg, s)
 
-	// GitHub modals (modal_handlers_github.go)
+	// Issue/task modals (modal_handlers_issues.go)
 	case *ui.ExploreOptionsState:
 		return m.handleExploreOptionsModal(key, msg, s)
 	case *ui.SelectRepoForIssuesState:
 		return m.handleSelectRepoForIssuesModal(key, msg, s)
+	case *ui.SelectIssueSourceState:
+		return m.handleSelectIssueSourceModal(key, msg, s)
 	case *ui.ImportIssuesState:
 		return m.handleImportIssuesModal(key, msg, s)
 	}

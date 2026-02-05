@@ -70,7 +70,7 @@ internal/
 │   ├── slash_commands.go  Local slash command handling (/cost, /help, /mcp, /plugins)
 │   ├── session_manager.go Session lifecycle, runner caching, message persistence
 │   ├── session_state.go   Thread-safe per-session state
-│   ├── modal_handlers.go  Modal key handlers (split into _config, _git, _github, _navigation, _session)
+│   ├── modal_handlers.go  Modal key handlers (split into _config, _git, _issues, _navigation, _session)
 │   ├── msg_handlers.go    Bubble Tea message handlers
 │   ├── options.go         Options detection and parsing
 │   └── types.go           Shared types
@@ -92,6 +92,10 @@ internal/
 │   └── scenarios/         Built-in demo scenarios
 ├── exec/                  Command executor abstraction for testability
 ├── git/                   Git operations for merge/PR workflow
+├── issues/                Issue provider abstraction (GitHub, Asana)
+│   ├── provider.go        Provider interface, Issue struct, ProviderRegistry
+│   ├── github.go          GitHub provider (wraps git.FetchGitHubIssues)
+│   └── asana.go           Asana provider (HTTP client, ASANA_PAT env var)
 ├── logger/                Thread-safe file logger
 ├── mcp/                   MCP server for permissions via Unix socket IPC
 ├── notification/          Desktop notifications (beeep library)
@@ -226,18 +230,40 @@ Broadcast allows sending the same prompt to multiple repositories or sessions at
 
 ### Session Struct
 
-Session struct (`internal/config/config.go`) tracks:
+Session struct (`internal/config/session.go`) tracks:
 - `ID`, `RepoPath`, `WorkTree`, `Branch`, `Name`, `CreatedAt`
 - `BaseBranch`: Branch the session was created from (e.g., "main", parent branch) - shown in header
 - `Started`: Whether Claude CLI has been started
 - `Merged`, `PRCreated`: Merge/PR status
 - `ParentID`, `MergedToParent`: Parent-child relationships for forked sessions
-- `IssueNumber`: GitHub issue number if created from issue import
+- `IssueNumber`: Deprecated - use `IssueRef` instead
+- `IssueRef`: Generic issue/task reference (supports GitHub and Asana)
 - `BroadcastGroupID`: Links sessions created from the same broadcast operation
 
-### GitHub Issue Sessions
+### Issue/Task Import
 
-Issue number stored in session. When PR created from issue session, "Fixes #N" auto-added to PR body. Branch naming: `issue-{number}`.
+Sessions can be created from issues/tasks. Press `i` to import:
+
+**GitHub Issues**: Always available (uses `gh` CLI). Branch naming: `issue-{number}`. When PR created, "Fixes #N" auto-added to body.
+
+**Asana Tasks**: Available when:
+1. `ASANA_PAT` environment variable is set (Personal Access Token)
+2. Repository has an Asana project mapped in config (`repo_asana_project`)
+
+Branch naming: `task-{slug}` where slug is derived from task name. Asana doesn't support auto-close via PR.
+
+**Data structures** (`internal/issues/`):
+- `Provider` interface: Generic issue provider abstraction
+- `GitHubProvider`: Wraps `gh issue list`
+- `AsanaProvider`: Uses Asana REST API
+- `ProviderRegistry`: Manages available providers
+
+**Config** (`internal/config/config.go`):
+- `RepoAsanaProject map[string]string`: Maps repo paths to Asana project GIDs
+
+**Session** (`internal/config/session.go`):
+- `IssueRef` struct: `Source` (github/asana), `ID`, `Title`, `URL`
+- `GetIssueRef()`: Returns IssueRef, converting legacy IssueNumber if needed
 
 ### User Preferences
 

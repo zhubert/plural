@@ -437,10 +437,8 @@ func shortcutForkSession(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutImportIssues(m *Model) (tea.Model, tea.Cmd) {
 	if sess := m.sidebar.SelectedSession(); sess != nil {
-		// Session selected - use its repo
-		repoName := filepath.Base(sess.RepoPath)
-		m.modal.Show(ui.NewImportIssuesState(sess.RepoPath, repoName))
-		return m, m.fetchGitHubIssues(sess.RepoPath)
+		// Session selected - use its repo, check for multiple sources
+		return m.showIssueSourceOrFetch(sess.RepoPath)
 	}
 	// No session - show repo picker
 	repos := m.config.GetRepos()
@@ -611,15 +609,18 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	var repoPath string
 	var squashEnabled bool
+	var asanaProject string
 	if m.activeSession != nil {
 		repoPath = m.activeSession.RepoPath
 		squashEnabled = m.config.GetSquashOnMerge(repoPath)
+		asanaProject = m.config.GetAsanaProject(repoPath)
 	}
 	m.modal.Show(ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
 		squashEnabled,
 		repoPath,
+		asanaProject,
 	))
 	return m, nil
 }

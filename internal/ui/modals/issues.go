@@ -21,11 +21,20 @@ type ImportIssuesState struct {
 	LoadError     string
 	ScrollOffset  int
 	maxVisible    int
+	Source        string // "github" or "asana"
+	ProjectID     string // Asana project GID (only used for Asana)
 }
 
 func (*ImportIssuesState) modalState() {}
 
-func (s *ImportIssuesState) Title() string { return "Import GitHub Issues" }
+func (s *ImportIssuesState) Title() string {
+	switch s.Source {
+	case "asana":
+		return "Import Asana Tasks"
+	default:
+		return "Import GitHub Issues"
+	}
+}
 
 func (s *ImportIssuesState) Help() string {
 	if s.Loading {
@@ -53,10 +62,14 @@ func (s *ImportIssuesState) Render() string {
 
 	// Loading state
 	if s.Loading {
+		loadingMsg := "Fetching issues from GitHub..."
+		if s.Source == "asana" {
+			loadingMsg = "Fetching tasks from Asana..."
+		}
 		loadingText := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			Render("Fetching issues from GitHub...")
+			Render(loadingMsg)
 		help := ModalHelpStyle.Render(s.Help())
 		return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoName, loadingText, help)
 	}
@@ -70,18 +83,26 @@ func (s *ImportIssuesState) Render() string {
 
 	// No issues
 	if len(s.Issues) == 0 {
+		noIssuesMsg := "No open issues found"
+		if s.Source == "asana" {
+			noIssuesMsg = "No incomplete tasks found"
+		}
 		noIssues := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			Render("No open issues found")
+			Render(noIssuesMsg)
 		help := ModalHelpStyle.Render(s.Help())
 		return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoName, noIssues, help)
 	}
 
+	descMsg := "Select issues to import as sessions:"
+	if s.Source == "asana" {
+		descMsg = "Select tasks to import as sessions:"
+	}
 	description := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		MarginBottom(1).
-		Render("Select issues to import as sessions:")
+		Render(descMsg)
 
 	// Build issue list with scrolling
 	var issueList string
@@ -111,7 +132,13 @@ func (s *ImportIssuesState) Render() string {
 			titleText = titleText[:42] + "..."
 		}
 
-		issueLine := fmt.Sprintf("%s #%d: %s", checkbox, issue.Number, titleText)
+		// Format depends on source: GitHub uses "#123", Asana just shows title
+		var issueLine string
+		if issue.Source == "asana" {
+			issueLine = fmt.Sprintf("%s %s", checkbox, titleText)
+		} else {
+			issueLine = fmt.Sprintf("%s #%s: %s", checkbox, issue.ID, titleText)
+		}
 		issueList += style.Render(prefix+issueLine) + "\n"
 	}
 
@@ -198,7 +225,7 @@ func (s *ImportIssuesState) SetError(err string) {
 	s.Loading = false
 }
 
-// NewImportIssuesState creates a new ImportIssuesState in loading state
+// NewImportIssuesState creates a new ImportIssuesState in loading state for GitHub issues.
 func NewImportIssuesState(repoPath, repoName string) *ImportIssuesState {
 	return &ImportIssuesState{
 		RepoPath:      repoPath,
@@ -207,5 +234,20 @@ func NewImportIssuesState(repoPath, repoName string) *ImportIssuesState {
 		SelectedIndex: 0,
 		ScrollOffset:  0,
 		maxVisible:    IssuesModalMaxVisible,
+		Source:        "github",
+	}
+}
+
+// NewImportIssuesStateWithSource creates a new ImportIssuesState for a specific source.
+func NewImportIssuesStateWithSource(repoPath, repoName, source, projectID string) *ImportIssuesState {
+	return &ImportIssuesState{
+		RepoPath:      repoPath,
+		RepoName:      repoName,
+		Loading:       true,
+		SelectedIndex: 0,
+		ScrollOffset:  0,
+		maxVisible:    IssuesModalMaxVisible,
+		Source:        source,
+		ProjectID:     projectID,
 	}
 }

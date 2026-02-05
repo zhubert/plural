@@ -44,8 +44,10 @@ type (
 	ChangelogState          = modals.ChangelogState
 	ThemeState              = modals.ThemeState
 	SettingsState           = modals.SettingsState
-	ImportIssuesState       = modals.ImportIssuesState
-	HelpState               = modals.HelpState
+	ImportIssuesState        = modals.ImportIssuesState
+	SelectIssueSourceState   = modals.SelectIssueSourceState
+	IssueSource              = modals.IssueSource
+	HelpState                = modals.HelpState
 	ExploreOptionsState     = modals.ExploreOptionsState
 	SearchMessagesState     = modals.SearchMessagesState
 	PreviewActiveState       = modals.PreviewActiveState
@@ -83,8 +85,10 @@ var (
 	NewWelcomeState            = modals.NewWelcomeState
 	NewChangelogState          = modals.NewChangelogState
 	NewSettingsState           = modals.NewSettingsState
-	NewImportIssuesState       = modals.NewImportIssuesState
-	NewHelpStateFromSections   = modals.NewHelpStateFromSections
+	NewImportIssuesState           = modals.NewImportIssuesState
+	NewImportIssuesStateWithSource = modals.NewImportIssuesStateWithSource
+	NewSelectIssueSourceState      = modals.NewSelectIssueSourceState
+	NewHelpStateFromSections       = modals.NewHelpStateFromSections
 	NewExploreOptionsState     = modals.NewExploreOptionsState
 	NewSearchMessagesState     = modals.NewSearchMessagesState
 	NewPreviewActiveState      = modals.NewPreviewActiveState

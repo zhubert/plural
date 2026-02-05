@@ -13,6 +13,7 @@ import (
 	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/session"
@@ -72,6 +73,7 @@ type Model struct {
 	// Service instances for dependency injection
 	gitService     *git.GitService
 	sessionService *session.SessionService
+	issueRegistry  *issues.ProviderRegistry
 
 	// State machine
 	state AppState // Current application state
@@ -132,10 +134,20 @@ type SendPendingMessageMsg struct {
 }
 
 // GitHubIssuesFetchedMsg is sent when GitHub issues have been fetched
+// Deprecated: use IssuesFetchedMsg instead
 type GitHubIssuesFetchedMsg struct {
 	RepoPath string
 	Issues   []git.GitHubIssue
 	Error    error
+}
+
+// IssuesFetchedMsg is sent when issues/tasks have been fetched from any source
+type IssuesFetchedMsg struct {
+	RepoPath  string
+	Source    string // "github" or "asana"
+	ProjectID string // Asana project GID (only for Asana)
+	Issues    []issues.Issue
+	Error     error
 }
 
 // ChangelogFetchedMsg is sent when changelog has been fetched from GitHub
@@ -156,6 +168,11 @@ func New(cfg *config.Config, version string) *Model {
 	gitSvc := git.NewGitService()
 	sessionSvc := session.NewSessionService()
 
+	// Initialize issue providers
+	githubProvider := issues.NewGitHubProvider(gitSvc)
+	asanaProvider := issues.NewAsanaProvider(cfg)
+	issueRegistry := issues.NewProviderRegistry(githubProvider, asanaProvider)
+
 	m := &Model{
 		config:         cfg,
 		version:        version,
@@ -168,6 +185,7 @@ func New(cfg *config.Config, version string) *Model {
 		sessionMgr:     NewSessionManager(cfg, gitSvc),
 		gitService:     gitSvc,
 		sessionService: sessionSvc,
+		issueRegistry:  issueRegistry,
 		state:          StateIdle,
 		windowFocused:  true, // Assume window is focused on startup
 	}
@@ -515,6 +533,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case GitHubIssuesFetchedMsg:
 		return m.handleGitHubIssuesFetchedMsg(msg)
+
+	case IssuesFetchedMsg:
+		return m.handleIssuesFetchedMsg(msg)
 
 	case ChangelogFetchedMsg:
 		return m.handleChangelogFetchedMsg(msg)
@@ -1337,15 +1358,42 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 // Note: updateSizes() and View() have been moved to view.go for better organization.
 
 // fetchGitHubIssues creates a command to fetch GitHub issues asynchronously
+// Deprecated: use fetchIssues instead
 func (m *Model) fetchGitHubIssues(repoPath string) tea.Cmd {
 	gitSvc := m.gitService
 	return func() tea.Msg {
 		ctx := context.Background()
-		issues, err := gitSvc.FetchGitHubIssues(ctx, repoPath)
+		ghIssues, err := gitSvc.FetchGitHubIssues(ctx, repoPath)
 		return GitHubIssuesFetchedMsg{
 			RepoPath: repoPath,
-			Issues:   issues,
+			Issues:   ghIssues,
 			Error:    err,
+		}
+	}
+}
+
+// fetchIssues creates a command to fetch issues/tasks from any source asynchronously
+func (m *Model) fetchIssues(repoPath, source, projectID string) tea.Cmd {
+	registry := m.issueRegistry
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		provider := registry.GetProvider(issues.Source(source))
+		if provider == nil {
+			return IssuesFetchedMsg{
+				RepoPath: repoPath,
+				Source:   source,
+				Error:    fmt.Errorf("unknown issue source: %s", source),
+			}
+		}
+
+		fetchedIssues, err := provider.FetchIssues(ctx, repoPath, projectID)
+		return IssuesFetchedMsg{
+			RepoPath:  repoPath,
+			Source:    source,
+			ProjectID: projectID,
+			Issues:    fetchedIssues,
+			Error:     err,
 		}
 	}
 }

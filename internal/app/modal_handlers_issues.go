@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
@@ -46,15 +47,80 @@ func (m *Model) handleSelectRepoForIssuesModal(key string, msg tea.KeyPressMsg, 
 		if repoPath == "" {
 			return m, nil
 		}
-		repoName := filepath.Base(repoPath)
-		m.modal.Show(ui.NewImportIssuesState(repoPath, repoName))
-		return m, m.fetchGitHubIssues(repoPath)
+		return m.showIssueSourceOrFetch(repoPath)
 	case "up", "k", "down", "j":
 		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
 		return m, cmd
 	}
+	return m, nil
+}
+
+// handleSelectIssueSourceModal handles key events for the Select Issue Source modal.
+func (m *Model) handleSelectIssueSourceModal(key string, msg tea.KeyPressMsg, state *ui.SelectIssueSourceState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		source := state.GetSelectedSource()
+		if source == "" {
+			return m, nil
+		}
+		repoName := filepath.Base(state.RepoPath)
+
+		if source == "asana" {
+			projectID := m.config.GetAsanaProject(state.RepoPath)
+			m.modal.Show(ui.NewImportIssuesStateWithSource(state.RepoPath, repoName, source, projectID))
+			return m, m.fetchIssues(state.RepoPath, source, projectID)
+		}
+
+		// Default: GitHub
+		m.modal.Show(ui.NewImportIssuesState(state.RepoPath, repoName))
+		return m, m.fetchIssues(state.RepoPath, "github", "")
+	case "up", "k", "down", "j":
+		// Forward navigation keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
+
+// showIssueSourceOrFetch checks available issue sources and either shows source selection modal
+// or directly fetches from the only available source.
+func (m *Model) showIssueSourceOrFetch(repoPath string) (tea.Model, tea.Cmd) {
+	repoName := filepath.Base(repoPath)
+
+	// Build list of available sources
+	var availableSources []ui.IssueSource
+
+	// GitHub is always available
+	availableSources = append(availableSources, ui.IssueSource{
+		Name:   "GitHub Issues",
+		Source: "github",
+	})
+
+	// Check if Asana is configured for this repo
+	if m.issueRegistry != nil {
+		asanaProvider := m.issueRegistry.GetProvider(issues.SourceAsana)
+		if asanaProvider != nil && asanaProvider.IsConfigured(repoPath) {
+			availableSources = append(availableSources, ui.IssueSource{
+				Name:   "Asana Tasks",
+				Source: "asana",
+			})
+		}
+	}
+
+	// If only one source, skip selection modal and go directly to import
+	if len(availableSources) == 1 {
+		m.modal.Show(ui.NewImportIssuesState(repoPath, repoName))
+		return m, m.fetchIssues(repoPath, "github", "")
+	}
+
+	// Multiple sources available - show selection modal
+	m.modal.Show(ui.NewSelectIssueSourceState(repoPath, availableSources))
 	return m, nil
 }
 
@@ -91,43 +157,74 @@ type issueSessionInfo struct {
 	InitialMsg string
 }
 
-// createSessionsFromIssues creates new sessions for each selected GitHub issue.
-func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem) (tea.Model, tea.Cmd) {
+// createSessionsFromIssues creates new sessions for each selected issue/task.
+// Works with both GitHub issues and Asana tasks.
+func (m *Model) createSessionsFromIssues(repoPath string, issueItems []ui.IssueItem) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 
 	var createdSessions []issueSessionInfo
 	var firstSession *config.Session
-	var failedIssues []int
+	var failedIssues []string
 
-	for _, issue := range issues {
-		// Create branch name from issue number
-		branchName := fmt.Sprintf("issue-%d", issue.Number)
+	for _, issue := range issueItems {
+		// Get the provider to generate branch name
+		var branchName string
+		if m.issueRegistry != nil {
+			provider := m.issueRegistry.GetProvider(issues.Source(issue.Source))
+			if provider != nil {
+				branchName = provider.GenerateBranchName(issues.Issue{
+					ID:     issue.ID,
+					Title:  issue.Title,
+					Source: issues.Source(issue.Source),
+				})
+			}
+		}
+		// Fallback branch name
+		if branchName == "" {
+			if issue.Source == "asana" {
+				branchName = fmt.Sprintf("task-%s", issue.ID)
+			} else {
+				branchName = fmt.Sprintf("issue-%s", issue.ID)
+			}
+		}
+
 		fullBranchName := branchPrefix + branchName
 
 		// Check if branch already exists and skip if so
 		ctx := context.Background()
 		if m.sessionService.BranchExists(ctx, repoPath, fullBranchName) {
-			logger.Get().Debug("skipping issue - branch already exists", "issue", issue.Number, "branch", fullBranchName)
+			logger.Get().Debug("skipping issue - branch already exists", "issue", issue.ID, "branch", fullBranchName)
 			continue
 		}
 
 		// Create new session (always from origin for issue-based sessions)
 		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, session.BasePointOrigin)
 		if err != nil {
-			logger.Get().Error("failed to create session for issue", "issue", issue.Number, "error", err)
-			failedIssues = append(failedIssues, issue.Number)
+			logger.Get().Error("failed to create session for issue", "issue", issue.ID, "error", err)
+			failedIssues = append(failedIssues, issue.ID)
 			continue
 		}
 
-		// Store the issue number so we can reference it in the PR
-		sess.IssueNumber = issue.Number
+		// Store the issue reference so we can reference it in the PR
+		sess.IssueRef = &config.IssueRef{
+			Source: issue.Source,
+			ID:     issue.ID,
+			Title:  issue.Title,
+			URL:    issue.URL,
+		}
 
 		// Create initial message with issue context
-		initialMsg := fmt.Sprintf("GitHub Issue #%d: %s\n\n%s\n\n---\nPlease help me work on this issue.",
-			issue.Number, issue.Title, issue.Body)
+		var initialMsg string
+		if issue.Source == "asana" {
+			initialMsg = fmt.Sprintf("Asana Task: %s\n\n%s\n\n---\nPlease help me work on this task.",
+				issue.Title, issue.Body)
+		} else {
+			initialMsg = fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nPlease help me work on this issue.",
+				issue.ID, issue.Title, issue.Body)
+		}
 
 		// No parent ID - these are top-level sessions
-		logger.WithSession(sess.ID).Info("created session for issue", "issue", issue.Number, "name", sess.Name)
+		logger.WithSession(sess.ID).Info("created session for issue", "issue", issue.ID, "source", issue.Source, "name", sess.Name)
 
 		m.config.AddSession(*sess)
 		createdSessions = append(createdSessions, issueSessionInfo{
@@ -151,7 +248,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 	// Show flash message for any failed session creations
 	if len(failedIssues) > 0 {
 		if len(failedIssues) == 1 {
-			cmds = append(cmds, m.ShowFlashError(fmt.Sprintf("Failed to create session for issue #%d", failedIssues[0])))
+			cmds = append(cmds, m.ShowFlashError(fmt.Sprintf("Failed to create session for issue %s", failedIssues[0])))
 		} else {
 			cmds = append(cmds, m.ShowFlashError(fmt.Sprintf("Failed to create sessions for %d issues", len(failedIssues))))
 		}
@@ -177,7 +274,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, issues []ui.IssueItem)
 			m.sessionState().StartWaiting(sess.ID, cancel)
 			m.sidebar.SetStreaming(sess.ID, true)
 
-			logger.WithSession(sess.ID).Debug("auto-starting issue session", "issue", sess.IssueNumber)
+			logger.WithSession(sess.ID).Debug("auto-starting issue session", "issue", sess.GetIssueRef())
 
 			// Send the initial message to Claude
 			content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}

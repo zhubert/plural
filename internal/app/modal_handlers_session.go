@@ -903,7 +903,7 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 		sessionLog := logger.WithSession(sess.ID)
 		sessionLog.Info("starting PR creation")
 		mergeCtx, cancel := context.WithCancel(context.Background())
-		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)
+		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.GetIssueRef()), cancel, MergeTypePR)
 
 		// Add listener for merge result
 		cmds = append(cmds, m.listenForMergeResult(sess.ID))
