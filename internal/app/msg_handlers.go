@@ -2,7 +2,7 @@ package app
 
 import (
 	"context"
-	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -495,7 +495,7 @@ func (m *Model) handleGitHubIssuesFetchedMsg(msg GitHubIssuesFetchedMsg) (tea.Mo
 			items := make([]ui.IssueItem, len(msg.Issues))
 			for i, issue := range msg.Issues {
 				items[i] = ui.IssueItem{
-					ID:     fmt.Sprintf("%d", issue.Number),
+					ID:     strconv.Itoa(issue.Number),
 					Title:  issue.Title,
 					Body:   issue.Body,
 					URL:    issue.URL,
