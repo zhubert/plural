@@ -65,6 +65,7 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 }
 
 // handleAddReposFromGlob expands a glob pattern and adds all matching git repositories.
+// Validation checks are parallelized for better performance with many directories.
 func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea.Model, tea.Cmd) {
 	// Expand the glob to directories
 	dirs, err := ui.ExpandGlobToDirs(pattern)
@@ -78,13 +79,43 @@ func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea
 		return m, nil
 	}
 
-	// Filter to valid git repos and add them
-	var added, skipped, alreadyAdded int
+	// Parallelize validation checks
+	type validationResult struct {
+		dir   string
+		valid bool
+	}
+
+	results := make(chan validationResult, len(dirs))
+	var wg sync.WaitGroup
+
 	for _, dir := range dirs {
-		if err := m.sessionService.ValidateRepo(ctx, dir); err != nil {
+		wg.Add(1)
+		go func(dir string) {
+			defer wg.Done()
+			err := m.sessionService.ValidateRepo(ctx, dir)
+			results <- validationResult{dir: dir, valid: err == nil}
+		}(dir)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect valid repos
+	var validDirs []string
+	skipped := 0
+	for result := range results {
+		if result.valid {
+			validDirs = append(validDirs, result.dir)
+		} else {
 			skipped++
-			continue
 		}
+	}
+
+	// Sequentially add valid repos to config
+	var added, alreadyAdded int
+	for _, dir := range validDirs {
 		if !m.config.AddRepo(dir) {
 			alreadyAdded++
 			continue
@@ -651,6 +682,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 }
 
 // broadcastToSessions sends a prompt to all sessions in a group.
+// Runner retrieval is parallelized for better performance with many sessions.
 func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	log.Info("broadcasting to existing sessions", "count", len(sessions))
@@ -661,20 +693,46 @@ func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (t
 		Text: prompt,
 	}}
 
-	// Collect all commands for parallel execution
+	// First pass: parallelize getting/creating runners for all sessions
+	type runnerResult struct {
+		sess   config.Session
+		runner claude.RunnerInterface
+	}
+
+	results := make(chan runnerResult, len(sessions))
+	var wg sync.WaitGroup
+
+	for _, sess := range sessions {
+		wg.Add(1)
+		go func(sess config.Session) {
+			defer wg.Done()
+			runner := m.sessionMgr.GetOrCreateRunner(&sess)
+			results <- runnerResult{sess: sess, runner: runner}
+		}(sess)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect runners
+	var sessionsWithRunners []runnerResult
+	for result := range results {
+		if result.runner == nil {
+			log.Error("failed to get runner for broadcast session", "sessionID", result.sess.ID)
+			continue
+		}
+		sessionsWithRunners = append(sessionsWithRunners, result)
+	}
+
+	// Second pass: sequentially set up streaming and send content (modifies app state)
 	var cmds []tea.Cmd
 	sentCount := 0
 
-	for _, sess := range sessions {
-		// Get or create the runner for this session
-		result := m.sessionMgr.Select(&sess, "", "", "")
-		if result == nil || result.Runner == nil {
-			log.Error("failed to get runner for broadcast session", "sessionID", sess.ID)
-			continue
-		}
-
-		runner := result.Runner
-		sessionID := sess.ID
+	for _, result := range sessionsWithRunners {
+		sessionID := result.sess.ID
+		runner := result.runner
 
 		// Create context for this request
 		reqCtx, cancel := context.WithCancel(context.Background())
@@ -754,15 +812,17 @@ func (m *Model) handleBroadcastGroupModal(key string, msg tea.KeyPressMsg, state
 }
 
 // createPRsForSessions triggers PR creation for multiple sessions.
+// Worktree status checks are parallelized for better performance with many sessions.
 func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	log.Info("creating PRs for multiple sessions", "count", len(sessions))
 
-	ctx := context.Background()
 	var cmds []tea.Cmd
 	startedCount := 0
 	skippedCount := 0
 
+	// First pass: quick in-memory filtering to find candidates
+	var candidates []config.Session
 	for _, sess := range sessions {
 		sessionLog := logger.WithSession(sess.ID)
 
@@ -787,23 +847,60 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 			continue
 		}
 
-		// Check for uncommitted changes
-		status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
-		if err != nil {
-			sessionLog.Warn("failed to check worktree status", "error", err)
+		candidates = append(candidates, sess)
+	}
+
+	// Second pass: parallel worktree status checks
+	type statusResult struct {
+		sess       config.Session
+		hasChanges bool
+		err        error
+	}
+
+	const maxConcurrent = 10
+	sem := make(chan struct{}, maxConcurrent)
+	results := make(chan statusResult, len(candidates))
+
+	var wg sync.WaitGroup
+	for _, sess := range candidates {
+		wg.Add(1)
+		go func(sess config.Session) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ctx := context.Background()
+			status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
+			results <- statusResult{sess: sess, hasChanges: status != nil && status.HasChanges, err: err}
+		}(sess)
+	}
+
+	// Close results channel when all goroutines complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect eligible sessions
+	var eligible []config.Session
+	for result := range results {
+		sessionLog := logger.WithSession(result.sess.ID)
+		if result.err != nil {
+			sessionLog.Warn("failed to check worktree status", "error", result.err)
 			skippedCount++
 			continue
 		}
-
-		if status.HasChanges {
-			// Need to commit first - this requires user interaction for commit message
-			// For now, skip sessions with uncommitted changes
+		if result.hasChanges {
 			sessionLog.Debug("skipping PR creation - has uncommitted changes")
 			skippedCount++
 			continue
 		}
+		eligible = append(eligible, result.sess)
+	}
 
-		// Start PR creation
+	// Third pass: start PR creation for eligible sessions (sequential - modifies app state)
+	for _, sess := range eligible {
+		sessionLog := logger.WithSession(sess.ID)
 		sessionLog.Info("starting PR creation")
 		mergeCtx, cancel := context.WithCancel(context.Background())
 		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.IssueNumber), cancel, MergeTypePR)

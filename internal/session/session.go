@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -409,7 +410,8 @@ type OrphanedWorktree struct {
 }
 
 // FindOrphanedWorktrees finds all worktrees in .plural-worktrees directories
-// that don't have a matching session in config
+// that don't have a matching session in config.
+// Directory scans are parallelized for better performance with many repos.
 func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 	log := logger.WithComponent("session")
 	log.Info("searching for orphaned worktrees")
@@ -420,16 +422,20 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 		knownSessions[sess.ID] = true
 	}
 
-	var orphans []OrphanedWorktree
-
 	// Get all repo paths from config
 	repoPaths := cfg.GetRepos()
 	if len(repoPaths) == 0 {
 		log.Info("no repos in config, checking common locations")
 	}
 
-	// Check .plural-worktrees directories next to each repo
+	// Build list of unique directories to check
+	type dirToCheck struct {
+		worktreesDir string
+		repoPath     string
+	}
 	checkedDirs := make(map[string]bool)
+	var dirsToCheck []dirToCheck
+
 	for _, repoPath := range repoPaths {
 		repoParent := filepath.Dir(repoPath)
 		worktreesDir := filepath.Join(repoParent, ".plural-worktrees")
@@ -438,14 +444,35 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 			continue
 		}
 		checkedDirs[worktreesDir] = true
-
-		orphansInDir, err := findOrphansInDir(worktreesDir, repoPath, knownSessions)
-		if err != nil {
-			continue // Skip if directory doesn't exist or can't be read
-		}
-		orphans = append(orphans, orphansInDir...)
+		dirsToCheck = append(dirsToCheck, dirToCheck{worktreesDir: worktreesDir, repoPath: repoPath})
 	}
 
+	if len(dirsToCheck) == 0 {
+		return nil, nil
+	}
+
+	// Scan directories in parallel
+	var mu sync.Mutex
+	var orphans []OrphanedWorktree
+
+	var wg sync.WaitGroup
+	for _, dir := range dirsToCheck {
+		wg.Add(1)
+		go func(dir dirToCheck) {
+			defer wg.Done()
+
+			orphansInDir, err := findOrphansInDir(dir.worktreesDir, dir.repoPath, knownSessions)
+			if err != nil {
+				return // Skip if directory doesn't exist or can't be read
+			}
+
+			mu.Lock()
+			orphans = append(orphans, orphansInDir...)
+			mu.Unlock()
+		}(dir)
+	}
+
+	wg.Wait()
 	log.Info("orphaned worktree search complete", "count", len(orphans))
 	return orphans, nil
 }
@@ -475,7 +502,9 @@ func findOrphansInDir(worktreesDir, repoPath string, knownSessions map[string]bo
 	return orphans, nil
 }
 
-// PruneOrphanedWorktrees removes all orphaned worktrees and their branches
+// PruneOrphanedWorktrees removes all orphaned worktrees and their branches.
+// Pruning operations are parallelized across repos, but serialized within each repo
+// to avoid concurrent git operations on the same repository.
 func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config.Config) (int, error) {
 	log := logger.WithComponent("session")
 
@@ -484,38 +513,62 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 		return 0, err
 	}
 
-	pruned := 0
-	for _, orphan := range orphans {
-		log.Info("pruning orphaned worktree", "path", orphan.Path)
-
-		// Try to remove via git worktree remove first
-		_, _, err := s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "remove", orphan.Path, "--force")
-		if err != nil {
-			// If git command fails, try direct removal
-			log.Warn("git worktree remove failed, trying direct removal", "path", orphan.Path)
-			if err := os.RemoveAll(orphan.Path); err != nil {
-				log.Error("failed to remove orphan", "path", orphan.Path, "error", err)
-				continue
-			}
-		}
-
-		// Prune worktree references
-		s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune")
-
-		// Try to delete the branch
-		branchName := fmt.Sprintf("plural-%s", orphan.ID)
-		s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName)
-
-		// Delete session messages file
-		if err := config.DeleteSessionMessages(orphan.ID); err != nil {
-			log.Warn("failed to delete session messages", "sessionID", orphan.ID, "error", err)
-		} else {
-			log.Info("deleted session messages", "sessionID", orphan.ID)
-		}
-
-		pruned++
-		log.Info("pruned orphan", "path", orphan.Path)
+	if len(orphans) == 0 {
+		return 0, nil
 	}
 
+	// Group orphans by repo to avoid concurrent git operations on the same repo
+	orphansByRepo := make(map[string][]OrphanedWorktree)
+	for _, orphan := range orphans {
+		orphansByRepo[orphan.RepoPath] = append(orphansByRepo[orphan.RepoPath], orphan)
+	}
+
+	var mu sync.Mutex
+	pruned := 0
+
+	// Process repos in parallel, but orphans within each repo sequentially
+	var wg sync.WaitGroup
+	for repoPath, repoOrphans := range orphansByRepo {
+		wg.Add(1)
+		go func(repoPath string, repoOrphans []OrphanedWorktree) {
+			defer wg.Done()
+
+			for _, orphan := range repoOrphans {
+				log.Info("pruning orphaned worktree", "path", orphan.Path)
+
+				// Try to remove via git worktree remove first
+				_, _, err := s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "remove", orphan.Path, "--force")
+				if err != nil {
+					// If git command fails, try direct removal
+					log.Warn("git worktree remove failed, trying direct removal", "path", orphan.Path)
+					if err := os.RemoveAll(orphan.Path); err != nil {
+						log.Error("failed to remove orphan", "path", orphan.Path, "error", err)
+						continue
+					}
+				}
+
+				// Prune worktree references
+				s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune")
+
+				// Try to delete the branch
+				branchName := fmt.Sprintf("plural-%s", orphan.ID)
+				s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName)
+
+				// Delete session messages file
+				if err := config.DeleteSessionMessages(orphan.ID); err != nil {
+					log.Warn("failed to delete session messages", "sessionID", orphan.ID, "error", err)
+				} else {
+					log.Info("deleted session messages", "sessionID", orphan.ID)
+				}
+
+				mu.Lock()
+				pruned++
+				mu.Unlock()
+				log.Info("pruned orphan", "path", orphan.Path)
+			}
+		}(repoPath, repoOrphans)
+	}
+
+	wg.Wait()
 	return pruned, nil
 }

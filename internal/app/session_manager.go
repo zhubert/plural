@@ -170,7 +170,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 	log.Debug("selecting session", "name", sess.Name)
 
 	// Get or create runner
-	runner := sm.getOrCreateRunner(sess)
+	runner := sm.GetOrCreateRunner(sess)
 
 	// Determine header name (branch if custom, otherwise session name)
 	headerName := sess.Name
@@ -242,10 +242,11 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 	return result
 }
 
-// getOrCreateRunner returns an existing runner or creates a new one for the session.
+// GetOrCreateRunner returns an existing runner or creates a new one for the session.
 // Uses double-checked locking to prevent race conditions where multiple goroutines
 // could create duplicate runners for the same session.
-func (sm *SessionManager) getOrCreateRunner(sess *config.Session) claude.RunnerInterface {
+// This is safe to call concurrently from multiple goroutines.
+func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerInterface {
 	log := logger.WithSession(sess.ID)
 
 	// Fast path: check with read lock

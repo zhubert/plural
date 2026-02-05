@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/spf13/cobra"
 	"github.com/zhubert/plural/internal/config"
@@ -121,22 +122,42 @@ func runCleanWithReader(input io.Reader) error {
 		fmt.Fprintf(os.Stderr, "Warning: error clearing session messages: %v\n", err)
 	}
 
-	// Prune orphans (from --prune)
+	// Prune orphans in parallel (from --prune)
 	sessionSvc := session.NewSessionService()
 	ctx := context.Background()
-	prunedWorktrees, err := sessionSvc.PruneOrphanedWorktrees(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: error pruning worktrees: %v\n", err)
-	}
 
-	prunedMessages, err := config.PruneOrphanedSessionMessages(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: error pruning session messages: %v\n", err)
-	}
+	var prunedWorktrees, prunedMessages, prunedProcesses int
+	var worktreesErr, messagesErr, processesErr error
 
-	prunedProcesses, err := process.CleanupOrphanedProcesses(knownSessions)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: error killing orphaned processes: %v\n", err)
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		prunedWorktrees, worktreesErr = sessionSvc.PruneOrphanedWorktrees(ctx, cfg)
+	}()
+
+	go func() {
+		defer wg.Done()
+		prunedMessages, messagesErr = config.PruneOrphanedSessionMessages(cfg)
+	}()
+
+	go func() {
+		defer wg.Done()
+		prunedProcesses, processesErr = process.CleanupOrphanedProcesses(knownSessions)
+	}()
+
+	wg.Wait()
+
+	// Report any errors
+	if worktreesErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error pruning worktrees: %v\n", worktreesErr)
+	}
+	if messagesErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error pruning session messages: %v\n", messagesErr)
+	}
+	if processesErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error killing orphaned processes: %v\n", processesErr)
 	}
 
 	// Print results
