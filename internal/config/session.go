@@ -90,14 +90,16 @@ func (c *Config) ClearSessions() {
 	c.Sessions = []Session{}
 }
 
-// GetSession returns a session by ID
+// GetSession returns a copy of a session by ID.
+// Returns nil if no session with the given ID exists.
 func (c *Config) GetSession(id string) *Session {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	for i := range c.Sessions {
 		if c.Sessions[i].ID == id {
-			return &c.Sessions[i]
+			sess := c.Sessions[i] // copy
+			return &sess
 		}
 	}
 	return nil

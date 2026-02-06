@@ -167,6 +167,27 @@ func TestConfig_GetSession(t *testing.T) {
 	}
 }
 
+func TestConfig_GetSession_ReturnsCopy(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path1", Branch: "original"},
+		},
+	}
+
+	// Get session and modify the copy
+	sess := cfg.GetSession("session-1")
+	if sess == nil {
+		t.Fatal("GetSession should return session")
+	}
+	sess.Branch = "modified"
+
+	// Original in config should be unchanged
+	sess2 := cfg.GetSession("session-1")
+	if sess2.Branch != "original" {
+		t.Errorf("GetSession should return a copy; modifying it should not affect config, got branch=%q", sess2.Branch)
+	}
+}
+
 func TestConfig_AllowedTools(t *testing.T) {
 	cfg := &Config{
 		Repos:            []string{"/path/to/repo"},
