@@ -282,7 +282,7 @@ func (s *SocketServer) sendPermissionResponse(conn net.Conn, resp PermissionResp
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
 	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
 		s.log.Error("write error", "error", err)
 	}
@@ -299,7 +299,7 @@ func (s *SocketServer) sendQuestionResponse(conn net.Conn, resp QuestionResponse
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
 	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
 		s.log.Error("write error", "error", err)
 	}
@@ -355,7 +355,7 @@ func (s *SocketServer) sendPlanApprovalResponse(conn net.Conn, resp PlanApproval
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(SocketReadTimeout))
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
 	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
 		s.log.Error("write error", "error", err)
 	}

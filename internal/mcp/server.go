@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -554,8 +555,15 @@ func (s *Server) send(resp JSONRPCResponse) {
 }
 
 // readPlanFromPath attempts to read the plan from the specified file path.
+// The path must resolve to within ~/.claude/plans/ to prevent path traversal attacks.
 // Returns the file contents if found, or an error message if not.
 func (s *Server) readPlanFromPath(planPath string) string {
+	// Validate the path is within the allowed plans directory
+	if err := validatePlanPath(planPath); err != nil {
+		s.log.Warn("plan path validation failed", "path", planPath, "error", err)
+		return fmt.Sprintf("*Invalid plan path: %v*", err)
+	}
+
 	content, err := os.ReadFile(planPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -568,6 +576,34 @@ func (s *Server) readPlanFromPath(planPath string) string {
 
 	s.log.Debug("successfully read plan file", "bytes", len(content), "path", planPath)
 	return string(content)
+}
+
+// validatePlanPath ensures the given path resolves to within ~/.claude/plans/.
+// This prevents path traversal attacks where a malicious filePath argument
+// could read arbitrary files from the filesystem.
+func validatePlanPath(planPath string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home directory: %w", err)
+	}
+
+	allowedDir := filepath.Join(homeDir, ".claude", "plans")
+
+	// Clean and resolve the path to eliminate ../ traversal
+	absPath, err := filepath.Abs(planPath)
+	if err != nil {
+		return fmt.Errorf("cannot resolve path: %w", err)
+	}
+	cleanPath := filepath.Clean(absPath)
+
+	// Ensure the resolved path is within the allowed directory.
+	// We append os.PathSeparator to prevent prefix matches like
+	// ~/.claude/plans-evil/ matching ~/.claude/plans
+	if !strings.HasPrefix(cleanPath, allowedDir+string(os.PathSeparator)) && cleanPath != allowedDir {
+		return fmt.Errorf("path must be within %s", allowedDir)
+	}
+
+	return nil
 }
 
 // buildToolDescription creates a human-readable description for known tools
