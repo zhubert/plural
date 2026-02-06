@@ -278,6 +278,8 @@ func (c *Chat) IsFocused() bool {
 // RefreshStyles updates the textarea styles after a theme change
 func (c *Chat) RefreshStyles() {
 	applyTextareaStyles(&c.input)
+	c.messageCache = nil // Clear cache so messages re-render with new theme
+	c.updateContent()
 }
 
 // SetSession sets the current session info

@@ -2001,6 +2001,43 @@ func TestChat_SetSize(t *testing.T) {
 	}
 }
 
+func TestChat_RefreshStyles_ClearsMessageCache(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 24)
+
+	// Set a session with messages to populate the cache
+	messages := []claude.Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there!"},
+	}
+	chat.SetSession("test-session", messages)
+
+	// Force content rendering to populate cache
+	chat.updateContent()
+
+	// Verify cache is populated
+	if len(chat.messageCache) == 0 {
+		t.Fatal("Expected message cache to be populated after updateContent")
+	}
+
+	// Save a reference to the old cache entries
+	oldCache := chat.messageCache
+
+	// Refresh styles (simulating a theme change)
+	// This should clear old cache and re-render with new styles
+	chat.RefreshStyles()
+
+	// Cache should be repopulated (updateContent called internally)
+	if len(chat.messageCache) == 0 {
+		t.Error("Expected message cache to be repopulated after RefreshStyles")
+	}
+
+	// Verify it's a new cache (not the same slice)
+	if &oldCache[0] == &chat.messageCache[0] {
+		t.Error("Expected RefreshStyles to create new cache entries, not reuse old ones")
+	}
+}
+
 func TestToolUseConstants(t *testing.T) {
 	if ToolUseInProgress != "○" {
 		t.Errorf("Expected ToolUseInProgress to be ○, got %q", ToolUseInProgress)
