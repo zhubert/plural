@@ -383,6 +383,57 @@ func TestLoggerWithAttrs(t *testing.T) {
 	}
 }
 
+func TestEnsureInit_DefaultPath(t *testing.T) {
+	Reset()
+	defer Reset()
+
+	// Don't call Init - let ensureInit use the default path
+	log := Get()
+	if log == nil {
+		t.Fatal("Get() returned nil without prior Init()")
+	}
+
+	// Should not panic
+	log.Info("default path test")
+}
+
+func TestConcurrent_InitAndGet(t *testing.T) {
+	// Test that concurrent Init and Get calls don't race
+	for i := 0; i < 10; i++ {
+		Reset()
+
+		tmpDir := t.TempDir()
+		logPath := filepath.Join(tmpDir, "concurrent.log")
+
+		done := make(chan bool, 20)
+
+		// Race Init and Get/WithSession/WithComponent
+		for j := 0; j < 5; j++ {
+			go func() {
+				_ = Init(logPath)
+				done <- true
+			}()
+			go func() {
+				Get().Info("concurrent get")
+				done <- true
+			}()
+			go func() {
+				WithSession("sess").Info("concurrent session")
+				done <- true
+			}()
+			go func() {
+				WithComponent("comp").Info("concurrent component")
+				done <- true
+			}()
+		}
+
+		for j := 0; j < 20; j++ {
+			<-done
+		}
+	}
+	Reset()
+}
+
 func TestMCPLogPath(t *testing.T) {
 	sessionID := "test-session-123"
 	expected := "/tmp/plural-mcp-test-session-123.log"
