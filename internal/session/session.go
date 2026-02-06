@@ -547,12 +547,16 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 					}
 				}
 
-				// Prune worktree references
-				s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune")
+				// Prune worktree references (best-effort cleanup)
+				if _, _, pruneErr := s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "prune"); pruneErr != nil {
+					log.Warn("worktree prune failed (best-effort)", "repoPath", orphan.RepoPath, "error", pruneErr)
+				}
 
 				// Try to delete the branch
 				branchName := fmt.Sprintf("plural-%s", orphan.ID)
-				s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName)
+				if _, _, branchErr := s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName); branchErr != nil {
+					log.Warn("failed to delete branch (may already be deleted)", "branch", branchName, "error", branchErr)
+				}
 
 				// Delete session messages file
 				if err := config.DeleteSessionMessages(orphan.ID); err != nil {

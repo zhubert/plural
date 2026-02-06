@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/zhubert/plural/internal/config"
+	pexec "github.com/zhubert/plural/internal/exec"
 )
 
 // Test helper variables
@@ -1206,5 +1208,80 @@ func TestCreateFromBranch_BaseBranch(t *testing.T) {
 	// BaseBranch should be the source branch
 	if session.BaseBranch != "source-branch" {
 		t.Errorf("BaseBranch = %q, want %q", session.BaseBranch, "source-branch")
+	}
+}
+
+func TestPruneOrphanedWorktrees_LogsGitErrors(t *testing.T) {
+	// Create a real repo + orphan worktree directory so FindOrphanedWorktrees finds it
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	orphanID := "fake-orphan-session-id"
+	repoParent := filepath.Dir(repoPath)
+	worktreesDir := filepath.Join(repoParent, ".plural-worktrees")
+	orphanPath := filepath.Join(worktreesDir, orphanID)
+
+	if err := os.MkdirAll(orphanPath, 0755); err != nil {
+		t.Fatalf("Failed to create orphan dir: %v", err)
+	}
+
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{}, // No sessions, so the orphan dir is an orphan
+	}
+
+	// Use a mock executor that fails on worktree remove, prune, and branch delete
+	mockExec := pexec.NewMockExecutor(nil)
+	mockExec.AddPrefixMatch("git", []string{"worktree", "remove"}, pexec.MockResponse{
+		Err: fmt.Errorf("mock: worktree remove failed"),
+	})
+	mockExec.AddPrefixMatch("git", []string{"worktree", "prune"}, pexec.MockResponse{
+		Err: fmt.Errorf("mock: worktree prune failed"),
+	})
+	mockExec.AddPrefixMatch("git", []string{"branch", "-D"}, pexec.MockResponse{
+		Err: fmt.Errorf("mock: branch delete failed"),
+	})
+
+	mockSvc := NewSessionServiceWithExecutor(mockExec)
+
+	// Manually remove the orphan dir so the os.RemoveAll fallback succeeds
+	// (the mock executor won't actually remove it)
+	pruned, err := mockSvc.PruneOrphanedWorktrees(ctx, cfg)
+	if err != nil {
+		t.Fatalf("PruneOrphanedWorktrees should not return error: %v", err)
+	}
+
+	if pruned != 1 {
+		t.Errorf("Expected 1 pruned, got %d", pruned)
+	}
+
+	// Verify the git commands were called (including prune and branch delete)
+	calls := mockExec.GetCalls()
+	var hasWorktreeRemove, hasWorktreePrune, hasBranchDelete bool
+	for _, call := range calls {
+		if call.Name == "git" && len(call.Args) > 0 {
+			if call.Args[0] == "worktree" && len(call.Args) > 1 {
+				if call.Args[1] == "remove" {
+					hasWorktreeRemove = true
+				}
+				if call.Args[1] == "prune" {
+					hasWorktreePrune = true
+				}
+			}
+			if call.Args[0] == "branch" && len(call.Args) > 1 && call.Args[1] == "-D" {
+				hasBranchDelete = true
+			}
+		}
+	}
+
+	if !hasWorktreeRemove {
+		t.Error("Expected git worktree remove to be called")
+	}
+	if !hasWorktreePrune {
+		t.Error("Expected git worktree prune to be called")
+	}
+	if !hasBranchDelete {
+		t.Error("Expected git branch -D to be called")
 	}
 }
