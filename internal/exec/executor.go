@@ -294,14 +294,14 @@ func (e *MockExecutor) Start(ctx context.Context, dir string, name string, args 
 	e.recordCall(dir, name, args)
 
 	if resp := e.findMatch(dir, name, args); resp != nil {
-		return &mockCommandHandle{response: *resp}, nil
+		return newMockCommandHandle(*resp), nil
 	}
 
 	if e.fallback != nil {
 		return e.fallback.Start(ctx, dir, name, args...)
 	}
 
-	return &mockCommandHandle{response: MockResponse{}}, nil
+	return newMockCommandHandle(MockResponse{}), nil
 }
 
 // mockCommandHandle wraps a mock response.
@@ -311,17 +311,23 @@ type mockCommandHandle struct {
 	stderrBuf bytes.Buffer
 }
 
+// newMockCommandHandle creates a mock handle with buffers pre-populated once.
+func newMockCommandHandle(resp MockResponse) *mockCommandHandle {
+	h := &mockCommandHandle{response: resp}
+	h.stdoutBuf.Write(resp.Stdout)
+	h.stderrBuf.Write(resp.Stderr)
+	return h
+}
+
 func (h *mockCommandHandle) Wait() (stdout, stderr []byte, err error) {
 	return h.response.Stdout, h.response.Stderr, h.response.Err
 }
 
 func (h *mockCommandHandle) StdoutPipe() *bytes.Buffer {
-	h.stdoutBuf.Write(h.response.Stdout)
 	return &h.stdoutBuf
 }
 
 func (h *mockCommandHandle) StderrPipe() *bytes.Buffer {
-	h.stderrBuf.Write(h.response.Stderr)
 	return &h.stderrBuf
 }
 

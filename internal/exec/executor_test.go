@@ -341,3 +341,43 @@ func TestDefaultExecutor(t *testing.T) {
 	// Restore original
 	SetDefaultExecutor(originalExecutor)
 }
+
+func TestMockCommandHandle_PipeIdempotent(t *testing.T) {
+	mock := NewMockExecutor(nil)
+	mock.AddExactMatch("test", []string{}, MockResponse{
+		Stdout: []byte("hello"),
+		Stderr: []byte("err"),
+	})
+
+	ctx := context.Background()
+	handle, err := mock.Start(ctx, "", "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Call StdoutPipe multiple times - should return same data, not duplicate
+	pipe1 := handle.StdoutPipe()
+	data1 := pipe1.String()
+	if data1 != "hello" {
+		t.Errorf("first StdoutPipe call: expected %q, got %q", "hello", data1)
+	}
+
+	pipe2 := handle.StdoutPipe()
+	data2 := pipe2.String()
+	if data2 != "hello" {
+		t.Errorf("second StdoutPipe call: expected %q, got %q (data should not duplicate)", "hello", data2)
+	}
+
+	// Same for StderrPipe
+	errPipe1 := handle.StderrPipe()
+	errData1 := errPipe1.String()
+	if errData1 != "err" {
+		t.Errorf("first StderrPipe call: expected %q, got %q", "err", errData1)
+	}
+
+	errPipe2 := handle.StderrPipe()
+	errData2 := errPipe2.String()
+	if errData2 != "err" {
+		t.Errorf("second StderrPipe call: expected %q, got %q (data should not duplicate)", "err", errData2)
+	}
+}
