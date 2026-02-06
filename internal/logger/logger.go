@@ -13,7 +13,6 @@ var (
 	levelVar = new(slog.LevelVar)
 	logFile  *os.File
 	mu       sync.Mutex
-	once     sync.Once
 	logPath  string
 	initDone bool
 )
@@ -65,23 +64,25 @@ func Init(path string) error {
 	return nil
 }
 
+// ensureInit initializes the logger with default settings if not already initialized.
+// Caller must hold mu.
 func ensureInit() {
-	if !initDone {
-		once.Do(func() {
-			logPath = DefaultLogPath
-			f, err := os.OpenFile(DefaultLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", DefaultLogPath, err)
-				return
-			}
-			logFile = f
-			handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: levelVar})
-			root = slog.New(handler)
-			initDone = true
-
-			root.Info("logger initialized", "path", DefaultLogPath)
-		})
+	if initDone {
+		return
 	}
+
+	logPath = DefaultLogPath
+	f, err := os.OpenFile(DefaultLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", DefaultLogPath, err)
+		return
+	}
+	logFile = f
+	handler := slog.NewTextHandler(f, &slog.HandlerOptions{Level: levelVar})
+	root = slog.New(handler)
+	initDone = true
+
+	root.Info("logger initialized", "path", DefaultLogPath)
 }
 
 // Get returns the root logger instance.
@@ -161,7 +162,6 @@ func Reset() {
 		logFile = nil
 	}
 	initDone = false
-	once = sync.Once{}
 	logPath = ""
 	root = nil
 	levelVar = new(slog.LevelVar)
