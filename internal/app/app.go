@@ -1192,7 +1192,7 @@ func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInt
 	state := m.sessionState().GetOrCreate(sessionID)
 	msgs := runner.GetMessages()
 	if len(msgs) == 0 {
-		state.DetectedOptions = nil
+		state.SetDetectedOptions(nil)
 		return
 	}
 
@@ -1202,7 +1202,7 @@ func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInt
 			options := DetectOptions(msgs[i].Content)
 			if len(options) >= 2 {
 				logger.WithSession(sessionID).Debug("detected options", "count", len(options))
-				state.DetectedOptions = options
+				state.SetDetectedOptions(options)
 				return
 			}
 			break // Only check the most recent assistant message
@@ -1210,7 +1210,7 @@ func (m *Model) detectOptionsInSession(sessionID string, runner claude.RunnerInt
 	}
 
 	// No options found
-	state.DetectedOptions = nil
+	state.SetDetectedOptions(nil)
 }
 
 // showExploreOptionsModal displays the modal for selecting options to explore in parallel
@@ -1223,7 +1223,7 @@ func (m *Model) showExploreOptionsModal() (tea.Model, tea.Cmd) {
 	if state == nil || !state.HasDetectedOptions() {
 		return m, nil
 	}
-	options := state.DetectedOptions
+	options := state.GetDetectedOptions()
 
 	// Convert to UI option items
 	items := make([]ui.OptionItem, len(options))

@@ -88,6 +88,27 @@ func (s *SessionState) HasDetectedOptions() bool {
 	return len(s.DetectedOptions) >= 2
 }
 
+// GetDetectedOptions returns a copy of the detected options slice.
+// Thread-safe.
+func (s *SessionState) GetDetectedOptions() []DetectedOption {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.DetectedOptions == nil {
+		return nil
+	}
+	result := make([]DetectedOption, len(s.DetectedOptions))
+	copy(result, s.DetectedOptions)
+	return result
+}
+
+// SetDetectedOptions sets the detected options.
+// Thread-safe.
+func (s *SessionState) SetDetectedOptions(options []DetectedOption) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.DetectedOptions = options
+}
+
 // HasTodoList returns true if there is a non-empty todo list.
 // Thread-safe.
 func (s *SessionState) HasTodoList() bool {

@@ -429,11 +429,11 @@ func TestSessionState_HelperMethods(t *testing.T) {
 	if state.HasDetectedOptions() {
 		t.Error("expected HasDetectedOptions to be false with empty slice")
 	}
-	state.DetectedOptions = []DetectedOption{{Number: 1}}
+	state.SetDetectedOptions([]DetectedOption{{Number: 1}})
 	if state.HasDetectedOptions() {
 		t.Error("expected HasDetectedOptions to be false with single option")
 	}
-	state.DetectedOptions = []DetectedOption{{Number: 1}, {Number: 2}}
+	state.SetDetectedOptions([]DetectedOption{{Number: 1}, {Number: 2}})
 	if !state.HasDetectedOptions() {
 		t.Error("expected HasDetectedOptions to be true with 2+ options")
 	}

@@ -1953,8 +1953,8 @@ Let me know which you prefer.`)
 	}
 
 	// Verify the correct number of options
-	if len(stateA.DetectedOptions) != 3 {
-		t.Errorf("Expected 3 detected options, got %d", len(stateA.DetectedOptions))
+	if opts := stateA.GetDetectedOptions(); len(opts) != 3 {
+		t.Errorf("Expected 3 detected options, got %d", len(opts))
 	}
 }
 
@@ -1977,10 +1977,10 @@ func TestSessionSelect_ClearsOptionsWhenNoOptions(t *testing.T) {
 
 	// Manually set some detected options to verify they get cleared
 	stateA := m.sessionState().GetOrCreate(sessionA)
-	stateA.DetectedOptions = []DetectedOption{
+	stateA.SetDetectedOptions([]DetectedOption{
 		{Number: 1, Text: "Fake option"},
 		{Number: 2, Text: "Another fake"},
-	}
+	})
 
 	// Switch away and back
 	m = sendKey(m, "tab")
@@ -2038,8 +2038,8 @@ Which would you prefer?`},
 		t.Error("Options should be detected on initial session selection")
 	}
 
-	if len(state.DetectedOptions) != 2 {
-		t.Errorf("Expected 2 detected options, got %d", len(state.DetectedOptions))
+	if opts := state.GetDetectedOptions(); len(opts) != 2 {
+		t.Errorf("Expected 2 detected options, got %d", len(opts))
 	}
 }
 
