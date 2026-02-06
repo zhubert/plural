@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -772,13 +773,22 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 	})
 
 	t.Run("filePath argument reads from specified file", func(t *testing.T) {
-		// Create a temp file with a whimsical name (like Claude Code uses)
-		tmpDir := t.TempDir()
+		// Create a file in the actual plans directory (like Claude Code does)
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		plansDir := filepath.Join(homeDir, ".claude", "plans")
+		if err := os.MkdirAll(plansDir, 0755); err != nil {
+			t.Fatalf("Failed to create plans dir: %v", err)
+		}
+
 		planContent := "# Plan from ~/.claude/plans/\n\nThis is a plan with a whimsical name."
-		planPath := tmpDir + "/dancing-purple-elephant.md"
+		planPath := filepath.Join(plansDir, "test-dancing-purple-elephant.md")
 		if err := os.WriteFile(planPath, []byte(planContent), 0644); err != nil {
 			t.Fatalf("Failed to write plan file: %v", err)
 		}
+		defer os.Remove(planPath)
 
 		planApprovalChan := make(chan PlanApprovalRequest, 1)
 		planResponseChan := make(chan PlanApprovalResponse, 1)
@@ -809,13 +819,24 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 func TestReadPlanFromPath(t *testing.T) {
 	s := &Server{log: logger.WithSession("test")}
 
-	t.Run("reads existing file", func(t *testing.T) {
-		tmpDir := t.TempDir()
+	t.Run("reads existing file in plans directory", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		plansDir := filepath.Join(homeDir, ".claude", "plans")
+
+		// Create plans dir if it doesn't exist
+		if err := os.MkdirAll(plansDir, 0755); err != nil {
+			t.Fatalf("Failed to create plans dir: %v", err)
+		}
+
 		planContent := "# Test Plan\n\n1. Step one\n2. Step two"
-		planPath := tmpDir + "/whimsical-dancing-unicorn.md"
+		planPath := filepath.Join(plansDir, "test-plan-for-unit-test.md")
 		if err := os.WriteFile(planPath, []byte(planContent), 0644); err != nil {
 			t.Fatalf("Failed to write plan file: %v", err)
 		}
+		defer os.Remove(planPath)
 
 		result := s.readPlanFromPath(planPath)
 		if result != planContent {
@@ -823,12 +844,95 @@ func TestReadPlanFromPath(t *testing.T) {
 		}
 	})
 
-	t.Run("returns error message when file missing", func(t *testing.T) {
-		result := s.readPlanFromPath("/nonexistent/path/plan.md")
+	t.Run("rejects path outside plans directory", func(t *testing.T) {
+		result := s.readPlanFromPath("/etc/passwd")
+		if !strings.Contains(result, "Invalid plan path") {
+			t.Errorf("Expected 'Invalid plan path' message for /etc/passwd, got: %q", result)
+		}
+	})
+
+	t.Run("rejects path traversal with dot-dot", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		traversalPath := filepath.Join(homeDir, ".claude", "plans", "..", "..", "..", "etc", "passwd")
+		result := s.readPlanFromPath(traversalPath)
+		if !strings.Contains(result, "Invalid plan path") {
+			t.Errorf("Expected 'Invalid plan path' message for traversal path, got: %q", result)
+		}
+	})
+
+	t.Run("returns error message when file missing in valid dir", func(t *testing.T) {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("Failed to get home dir: %v", err)
+		}
+		missingPath := filepath.Join(homeDir, ".claude", "plans", "nonexistent-plan.md")
+		result := s.readPlanFromPath(missingPath)
 		if !strings.Contains(result, "Plan file not found") {
 			t.Errorf("Expected 'Plan file not found' message, got: %q", result)
 		}
 	})
+}
+
+func TestValidatePlanPath(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("Failed to get home dir: %v", err)
+	}
+	plansDir := filepath.Join(homeDir, ".claude", "plans")
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{
+			name:    "valid path in plans directory",
+			path:    filepath.Join(plansDir, "whimsical-dancing-unicorn.md"),
+			wantErr: false,
+		},
+		{
+			name:    "path traversal with dot-dot",
+			path:    filepath.Join(plansDir, "..", "..", "etc", "passwd"),
+			wantErr: true,
+		},
+		{
+			name:    "absolute path outside plans dir",
+			path:    "/etc/passwd",
+			wantErr: true,
+		},
+		{
+			name:    "path to similar directory name (prefix attack)",
+			path:    plansDir + "-evil/malicious.md",
+			wantErr: true,
+		},
+		{
+			name:    "relative path from current dir",
+			path:    "../../etc/passwd",
+			wantErr: true,
+		},
+		{
+			name:    "home directory itself",
+			path:    homeDir,
+			wantErr: true,
+		},
+		{
+			name:    "claude directory but not plans",
+			path:    filepath.Join(homeDir, ".claude", "config.json"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePlanPath(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validatePlanPath(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+			}
+		})
+	}
 }
 
 func TestHandleExitPlanMode_ParsesAllowedPrompts(t *testing.T) {
