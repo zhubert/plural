@@ -71,7 +71,7 @@ func (v *ViewContext) UpdateTerminalSize(width, height int) {
 	// Content area is everything between header and footer
 	v.ContentHeight = height - v.HeaderHeight - v.FooterHeight
 
-	// Sidebar is 1/3 of width, chat gets the rest
+	// Sidebar is 1/5 of width, chat gets the rest
 	v.SidebarWidth = width / SidebarWidthRatio
 	v.ChatWidth = width - v.SidebarWidth
 
