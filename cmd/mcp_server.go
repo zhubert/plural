@@ -102,7 +102,14 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 
 	// Run MCP server on stdin/stdout
 	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, nil, sessionID)
-	if err := server.Run(); err != nil {
+	err = server.Run()
+
+	// Close request channels so the forwarding goroutines exit their range loops
+	close(reqChan)
+	close(questionChan)
+	close(planApprovalChan)
+
+	if err != nil {
 		return fmt.Errorf("MCP server error: %w", err)
 	}
 	return nil
