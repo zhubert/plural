@@ -501,7 +501,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle multi-select mode keys when sidebar is focused
 		if m.sidebar.IsMultiSelectMode() && m.focus == FocusSidebar {
 			switch key {
-			case "space":
+			case keys.Space:
 				m.sidebar.ToggleSelected()
 				return m, nil
 			case "a":
@@ -510,14 +510,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "n":
 				m.sidebar.DeselectAll()
 				return m, nil
-			case "enter":
+			case keys.Enter:
 				ids := m.sidebar.GetSelectedSessionIDs()
 				if len(ids) > 0 {
 					workspaces := m.config.GetWorkspaces()
 					m.modal.Show(ui.NewBulkActionState(ids, workspaces))
 				}
 				return m, nil
-			case "up", "k", "down", "j":
+			case keys.Up, "k", keys.Down, "j":
 				// Let sidebar handle navigation
 				m.sidebar, _ = m.sidebar.Update(msg)
 				return m, nil
@@ -685,7 +685,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.focus == FocusSidebar && m.activeSession != nil {
 		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 			switch keyMsg.String() {
-			case keys.PgUp, keys.PgDown, "page up", "page down", keys.CtrlU, keys.CtrlD, keys.Home, keys.End:
+			case keys.PgUp, keys.PgDown, keys.CtrlU, keys.CtrlD, keys.Home, keys.End:
 				chat, cmd := m.chat.Update(msg)
 				m.chat = chat
 				cmds = append(cmds, cmd)
