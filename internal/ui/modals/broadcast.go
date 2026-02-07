@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // BroadcastMaxVisibleRepos is the maximum number of repos visible before scrolling
@@ -175,7 +176,7 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case 0:
 			// Repo list focused
 			switch key {
-			case "up", "k":
+			case keys.Up, "k":
 				if s.SelectedIndex > 0 {
 					s.SelectedIndex--
 					// Adjust scroll if selection is above visible area
@@ -184,7 +185,7 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					}
 				}
 				return s, nil
-			case "down", "j":
+			case keys.Down, "j":
 				if s.SelectedIndex < len(s.Repos)-1 {
 					s.SelectedIndex++
 					// Adjust scroll if selection is below visible area
@@ -193,7 +194,7 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					}
 				}
 				return s, nil
-			case "space":
+			case keys.Space:
 				if len(s.Repos) > 0 && s.SelectedIndex < len(s.Repos) {
 					s.Repos[s.SelectedIndex].Selected = !s.Repos[s.SelectedIndex].Selected
 				}
@@ -210,7 +211,7 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.Repos[i].Selected = false
 				}
 				return s, nil
-			case "tab":
+			case keys.Tab:
 				s.Focus = 1
 				s.NameInput.Focus()
 				return s, nil
@@ -218,12 +219,12 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case 1:
 			// Name input focused
 			switch key {
-			case "tab":
+			case keys.Tab:
 				s.Focus = 2
 				s.NameInput.Blur()
 				s.PromptInput.Focus()
 				return s, nil
-			case "shift+tab":
+			case keys.ShiftTab:
 				s.Focus = 0
 				s.NameInput.Blur()
 				return s, nil
@@ -231,11 +232,11 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case 2:
 			// Prompt textarea focused
 			switch key {
-			case "tab":
+			case keys.Tab:
 				s.Focus = 0
 				s.PromptInput.Blur()
 				return s, nil
-			case "shift+tab":
+			case keys.ShiftTab:
 				s.Focus = 1
 				s.PromptInput.Blur()
 				s.NameInput.Focus()
@@ -533,20 +534,20 @@ func (s *BroadcastGroupState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case 0:
 			// Action selector focused
 			switch key {
-			case "left", "h":
+			case keys.Left, "h":
 				s.Action = BroadcastActionSendPrompt
 				return s, nil
-			case "right", "l":
+			case keys.Right, "l":
 				s.Action = BroadcastActionCreatePRs
 				return s, nil
-			case "tab":
+			case keys.Tab:
 				s.Focus = 1
 				return s, nil
 			}
 		case 1:
 			// Session list focused
 			switch key {
-			case "up", "k":
+			case keys.Up, "k":
 				if s.SelectedIndex > 0 {
 					s.SelectedIndex--
 					if s.SelectedIndex < s.ScrollOffset {
@@ -554,7 +555,7 @@ func (s *BroadcastGroupState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					}
 				}
 				return s, nil
-			case "down", "j":
+			case keys.Down, "j":
 				if s.SelectedIndex < len(s.Sessions)-1 {
 					s.SelectedIndex++
 					if s.SelectedIndex >= s.ScrollOffset+BroadcastMaxVisibleRepos {
@@ -562,7 +563,7 @@ func (s *BroadcastGroupState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					}
 				}
 				return s, nil
-			case "space":
+			case keys.Space:
 				if len(s.Sessions) > 0 && s.SelectedIndex < len(s.Sessions) {
 					s.Sessions[s.SelectedIndex].Selected = !s.Sessions[s.SelectedIndex].Selected
 				}
@@ -577,7 +578,7 @@ func (s *BroadcastGroupState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.Sessions[i].Selected = false
 				}
 				return s, nil
-			case "tab":
+			case keys.Tab:
 				if s.Action == BroadcastActionSendPrompt {
 					s.Focus = 2
 					s.PromptInput.Focus()
@@ -585,18 +586,18 @@ func (s *BroadcastGroupState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.Focus = 0
 				}
 				return s, nil
-			case "shift+tab":
+			case keys.ShiftTab:
 				s.Focus = 0
 				return s, nil
 			}
 		case 2:
 			// Prompt textarea focused
 			switch key {
-			case "tab":
+			case keys.Tab:
 				s.Focus = 0
 				s.PromptInput.Blur()
 				return s, nil
-			case "shift+tab":
+			case keys.ShiftTab:
 				s.Focus = 1
 				s.PromptInput.Blur()
 				return s, nil

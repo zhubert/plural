@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
@@ -18,17 +19,17 @@ import (
 // handleAddRepoModal handles key events for the Add Repository modal.
 func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.AddRepoState) (tea.Model, tea.Cmd) {
 	// If showing completion options, forward Enter to the modal to select the option
-	if state.IsShowingOptions() && key == "enter" {
+	if state.IsShowingOptions() && key == keys.Enter {
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
 		return m, cmd
 	}
 
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		path := state.GetPath()
 		if path == "" {
 			m.modal.SetError("Please enter a path")
@@ -151,7 +152,7 @@ func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea
 // handleNewSessionModal handles key events for the New Session modal.
 func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui.NewSessionState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
 	case "d":
@@ -170,7 +171,7 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			return m, cmd
 		}
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		repoPath := state.GetSelectedRepo()
 		if repoPath == "" {
 			return m, nil
@@ -226,10 +227,10 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 // handleConfirmDeleteModal handles key events for the Confirm Delete modal.
 func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmDeleteState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		if sess := m.sidebar.SelectedSession(); sess != nil {
 			log := logger.WithSession(sess.ID)
 			deleteWorktree := state.ShouldDeleteWorktree()
@@ -275,7 +276,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 		}
 		m.modal.Hide()
 		return m, nil
-	case "up", "down", "j", "k":
+	case keys.Up, keys.Down, "j", "k":
 		// Forward navigation keys to modal for option selection
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -287,10 +288,10 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 // handleForkSessionModal handles key events for the Fork Session modal.
 func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *ui.ForkSessionState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		branchName := state.GetBranchName()
 		// Validate branch name
 		if err := session.ValidateBranchName(branchName); err != nil {
@@ -376,10 +377,10 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 // handleRenameSessionModal handles key events for the Rename Session modal.
 func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state *ui.RenameSessionState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		newName := state.GetNewName()
 		if newName == "" {
 			m.modal.SetError("Name cannot be empty")
@@ -451,11 +452,11 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 // handleConfirmDeleteRepoModal handles key events for the Confirm Delete Repo modal.
 func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmDeleteRepoState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		// Go back to the new session modal
 		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		repoPath := state.GetRepoPath()
 		logger.Get().Debug("deleting repository", "path", repoPath)
 
@@ -479,10 +480,10 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 // handleConfirmExitModal handles key events for the Confirm Exit modal.
 func (m *Model) handleConfirmExitModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmExitState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		if state.ShouldExit() {
 			logger.Get().Info("user confirmed exit with active sessions")
 			return m, tea.Quit
@@ -490,7 +491,7 @@ func (m *Model) handleConfirmExitModal(key string, msg tea.KeyPressMsg, state *u
 		// Cancel selected
 		m.modal.Hide()
 		return m, nil
-	case "up", "down", "j", "k":
+	case keys.Up, keys.Down, "j", "k":
 		// Forward navigation keys to modal for option selection
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -502,7 +503,7 @@ func (m *Model) handleConfirmExitModal(key string, msg tea.KeyPressMsg, state *u
 // handlePreviewActiveModal handles key events for the Preview Active warning modal.
 func (m *Model) handlePreviewActiveModal(key string, msg tea.KeyPressMsg, state *ui.PreviewActiveState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "enter":
+	case keys.Escape, keys.Enter:
 		m.modal.Hide()
 		return m, nil
 	case "p":
@@ -516,10 +517,10 @@ func (m *Model) handlePreviewActiveModal(key string, msg tea.KeyPressMsg, state 
 // handleBroadcastModal handles key events for the Broadcast modal.
 func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.BroadcastState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "escape":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		selectedRepos := state.GetSelectedRepos()
 		if len(selectedRepos) == 0 {
 			m.modal.SetError("Select at least one repository")
@@ -765,10 +766,10 @@ func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (t
 // handleBroadcastGroupModal handles key events for the Broadcast Group modal.
 func (m *Model) handleBroadcastGroupModal(key string, msg tea.KeyPressMsg, state *ui.BroadcastGroupState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "escape":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		selectedIDs := state.GetSelectedSessions()
 		if len(selectedIDs) == 0 {
 			m.modal.SetError("Select at least one session")

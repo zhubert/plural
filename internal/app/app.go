@@ -14,6 +14,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/session"
@@ -326,7 +327,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Handle Escape to exit search mode, view changes mode, log viewer, or interrupt streaming
-		if msg.String() == "esc" {
+		if msg.String() == keys.Escape {
 			// First check if sidebar is in search mode
 			if m.sidebar.IsSearchMode() {
 				m.sidebar.ExitSearchMode()
@@ -398,13 +399,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m.submitQuestionResponse(m.activeSession.ID)
 					}
 					return m, nil
-				case "up", "k":
+				case keys.Up, "k":
 					m.chat.MoveQuestionSelection(-1)
 					return m, nil
-				case "down", "j":
+				case keys.Down, "j":
 					m.chat.MoveQuestionSelection(1)
 					return m, nil
-				case "enter":
+				case keys.Enter:
 					if m.chat.SelectCurrentOption() {
 						return m.submitQuestionResponse(m.activeSession.ID)
 					}
@@ -419,27 +420,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m.submitPlanApprovalResponse(m.activeSession.ID, true)
 				case "n", "N":
 					return m.submitPlanApprovalResponse(m.activeSession.ID, false)
-				case "up", "k":
+				case keys.Up, "k":
 					m.chat.ScrollPlan(-3)
 					return m, nil
-				case "down", "j":
+				case keys.Down, "j":
 					m.chat.ScrollPlan(3)
 					return m, nil
 				}
 			}
 
 			// Ctrl+V for image pasting (fallback for terminals that send raw key presses)
-			if key == "ctrl+v" {
+			if key == keys.CtrlV {
 				return m.handleImagePaste()
 			}
 
 			// Ctrl+O for parallel option exploration (reuse state from permission check)
-			if key == "ctrl+o" && state != nil && state.HasDetectedOptions() {
+			if key == keys.CtrlO && state != nil && state.HasDetectedOptions() {
 				return m.showExploreOptionsModal()
 			}
 
 			// Backspace to remove pending image when input is empty
-			if key == "backspace" && m.chat.HasPendingImage() && m.chat.GetInput() == "" {
+			if key == keys.Backspace && m.chat.HasPendingImage() && m.chat.GetInput() == "" {
 				m.chat.ClearImage()
 				return m, nil
 			}
@@ -449,7 +450,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		key := msg.String()
 
 		// Handle ctrl+c specially - always quits
-		if key == "ctrl+c" {
+		if key == keys.CtrlC {
 			return m, tea.Quit
 		}
 
@@ -460,7 +461,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle special cases not in the registry
 		switch key {
-		case "enter":
+		case keys.Enter:
 			switch m.focus {
 			case FocusSidebar:
 				// Select session
@@ -608,7 +609,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.focus == FocusSidebar && m.activeSession != nil {
 		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 			switch keyMsg.String() {
-			case "pgup", "pgdown", "page up", "page down", "ctrl+u", "ctrl+d", "home", "end":
+			case keys.PgUp, keys.PgDown, "page up", "page down", keys.CtrlU, keys.CtrlD, keys.Home, keys.End:
 				chat, cmd := m.chat.Update(msg)
 				m.chat = chat
 				cmds = append(cmds, cmd)

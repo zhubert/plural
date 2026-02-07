@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -110,15 +112,15 @@ func (s *ExploreOptionsState) Render() string {
 func (s *ExploreOptionsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Options)-1 {
 				s.SelectedIndex++
 			}
-		case "space":
+		case keys.Space:
 			// Toggle selection
 			if s.SelectedIndex < len(s.Options) {
 				s.Options[s.SelectedIndex].Selected = !s.Options[s.SelectedIndex].Selected

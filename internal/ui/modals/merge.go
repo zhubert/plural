@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -82,11 +84,11 @@ func (s *MergeState) Render() string {
 func (s *MergeState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Options)-1 {
 				s.SelectedIndex++
 			}
@@ -419,11 +421,11 @@ func (s *MergeConflictState) Render() string {
 func (s *MergeConflictState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Options)-1 {
 				s.SelectedIndex++
 			}
@@ -493,11 +495,11 @@ func (s *ConfirmDeleteState) Render() string {
 func (s *ConfirmDeleteState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Options)-1 {
 				s.SelectedIndex++
 			}
@@ -622,11 +624,11 @@ func (s *ConfirmExitState) Render() string {
 func (s *ConfirmExitState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Options)-1 {
 				s.SelectedIndex++
 			}

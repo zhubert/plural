@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -15,10 +16,10 @@ import (
 // handleMergeModal handles key events for the Merge/PR modal.
 func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.MergeState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		option := state.GetSelectedOption()
 		sess := m.sidebar.SelectedSession()
 		if option == "" || sess == nil {
@@ -132,7 +133,7 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 // handleLoadingCommitModal handles key events for the Loading Commit modal.
 func (m *Model) handleLoadingCommitModal(key string, _ tea.KeyPressMsg, _ *ui.LoadingCommitState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		// Cancel commit message generation
 		m.modal.Hide()
 		m.pendingCommit = nil
@@ -146,7 +147,7 @@ func (m *Model) handleLoadingCommitModal(key string, _ tea.KeyPressMsg, _ *ui.Lo
 // handleEditCommitModal handles key events for the Edit Commit modal.
 func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui.EditCommitState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		// Cancel commit message editing
 		m.modal.Hide()
 		if state.MergeType == "conflict" {
@@ -157,7 +158,7 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 			m.chat.AppendStreaming("Cancelled.\n")
 		}
 		return m, nil
-	case "ctrl+s":
+	case keys.CtrlS:
 		// Confirm commit
 		commitMsg := state.GetMessage()
 		if commitMsg == "" {
@@ -262,10 +263,10 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 // handleMergeConflictModal handles key events for the Merge Conflict modal.
 func (m *Model) handleMergeConflictModal(key string, msg tea.KeyPressMsg, state *ui.MergeConflictState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		option := state.GetSelectedOption()
 		m.modal.Hide()
 
@@ -278,7 +279,7 @@ func (m *Model) handleMergeConflictModal(key string, msg tea.KeyPressMsg, state 
 			return m.handleManualResolve(state)
 		}
 		return m, nil
-	case "up", "k", "down", "j":
+	case keys.Up, "k", keys.Down, "j":
 		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal

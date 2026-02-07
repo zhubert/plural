@@ -9,6 +9,7 @@ import (
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/issues"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
@@ -17,17 +18,17 @@ import (
 // handleExploreOptionsModal handles key events for the Explore Options modal.
 func (m *Model) handleExploreOptionsModal(key string, msg tea.KeyPressMsg, state *ui.ExploreOptionsState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		selected := state.GetSelectedOptions()
 		if len(selected) == 0 {
 			return m, nil
 		}
 		m.modal.Hide()
 		return m.createParallelSessions(selected)
-	case "up", "k", "down", "j", "space":
+	case keys.Up, "k", keys.Down, "j", keys.Space:
 		// Forward navigation and space (toggle) keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -39,16 +40,16 @@ func (m *Model) handleExploreOptionsModal(key string, msg tea.KeyPressMsg, state
 // handleSelectRepoForIssuesModal handles key events for the Select Repo for Issues modal.
 func (m *Model) handleSelectRepoForIssuesModal(key string, msg tea.KeyPressMsg, state *ui.SelectRepoForIssuesState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		repoPath := state.GetSelectedRepo()
 		if repoPath == "" {
 			return m, nil
 		}
 		return m.showIssueSourceOrFetch(repoPath)
-	case "up", "k", "down", "j":
+	case keys.Up, "k", keys.Down, "j":
 		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -60,10 +61,10 @@ func (m *Model) handleSelectRepoForIssuesModal(key string, msg tea.KeyPressMsg, 
 // handleSelectIssueSourceModal handles key events for the Select Issue Source modal.
 func (m *Model) handleSelectIssueSourceModal(key string, msg tea.KeyPressMsg, state *ui.SelectIssueSourceState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		source := state.GetSelectedSource()
 		if source == "" {
 			return m, nil
@@ -79,7 +80,7 @@ func (m *Model) handleSelectIssueSourceModal(key string, msg tea.KeyPressMsg, st
 		// Default: GitHub
 		m.modal.Show(ui.NewImportIssuesState(state.RepoPath, repoName))
 		return m, m.fetchIssues(state.RepoPath, "github", "")
-	case "up", "k", "down", "j":
+	case keys.Up, "k", keys.Down, "j":
 		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -132,17 +133,17 @@ func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *
 	}
 
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		selected := state.GetSelectedIssues()
 		if len(selected) == 0 {
 			return m, nil
 		}
 		m.modal.Hide()
 		return m.createSessionsFromIssues(state.RepoPath, selected)
-	case "up", "k", "down", "j", "space":
+	case keys.Up, "k", keys.Down, "j", keys.Space:
 		// Forward navigation and space (toggle) keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal

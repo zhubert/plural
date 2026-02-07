@@ -7,6 +7,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -208,7 +210,7 @@ func (s *SearchMessagesState) highlightMatch(text string, start, end int) string
 func (s *SearchMessagesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "ctrl+p":
+		case keys.Up, keys.CtrlP:
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 				// Scroll up if needed
@@ -217,7 +219,7 @@ func (s *SearchMessagesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				}
 			}
 			return s, nil
-		case "down", "ctrl+n":
+		case keys.Down, keys.CtrlN:
 			if s.SelectedIndex < len(s.Results)-1 {
 				s.SelectedIndex++
 				// Scroll down if needed

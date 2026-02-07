@@ -4,6 +4,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -83,11 +85,11 @@ func (s *MCPServersState) Render() string {
 func (s *MCPServersState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Servers)-1 {
 				s.SelectedIndex++
 			}
@@ -234,13 +236,13 @@ func (s *AddMCPServerState) Render() string {
 func (s *AddMCPServerState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "tab", "down":
+		case keys.Tab, keys.Down:
 			s.AdvanceInput()
 			return s, nil
-		case "shift+tab", "up":
+		case keys.ShiftTab, keys.Up:
 			s.RetreatInput()
 			return s, nil
-		case "space":
+		case keys.Space:
 			// Space toggles scope when on scope selector
 			if s.InputIndex == 0 {
 				s.IsGlobal = !s.IsGlobal

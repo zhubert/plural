@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 )
 
@@ -428,22 +429,22 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 		// Handle search mode input
 		if s.searchMode {
 			switch msg.String() {
-			case "esc":
+			case keys.Escape:
 				s.ExitSearchMode()
 				return s, nil
-			case "enter":
+			case keys.Enter:
 				// Exit search mode but keep filter applied (user selected)
 				s.searchMode = false
 				s.searchInput.Blur()
 				return s, nil
-			case "up", "ctrl+p":
+			case keys.Up, keys.CtrlP:
 				displaySessions := s.getDisplaySessions()
 				if s.selectedIdx > 0 {
 					s.selectedIdx--
 					s.ensureVisibleFiltered(displaySessions)
 				}
 				return s, nil
-			case "down", "ctrl+n":
+			case keys.Down, keys.CtrlN:
 				displaySessions := s.getDisplaySessions()
 				if s.selectedIdx < len(displaySessions)-1 {
 					s.selectedIdx++
@@ -462,12 +463,12 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 
 		// Normal mode navigation
 		switch msg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.selectedIdx > 0 {
 				s.selectedIdx--
 				s.ensureVisible()
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.selectedIdx < len(s.sessions)-1 {
 				s.selectedIdx++
 				s.ensureVisible()
