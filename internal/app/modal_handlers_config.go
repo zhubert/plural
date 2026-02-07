@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -245,7 +246,7 @@ func (m *Model) handleWorkspaceListModal(key string, msg tea.KeyPressMsg, state 
 	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		// Switch active workspace
 		selectedID := state.GetSelectedWorkspaceID()
 		m.config.SetActiveWorkspaceID(selectedID)
@@ -265,6 +266,8 @@ func (m *Model) handleWorkspaceListModal(key string, msg tea.KeyPressMsg, state 
 		if !state.IsAllSessionsSelected() {
 			wsID := state.GetSelectedWorkspaceID()
 			if wsID != "" {
+				// Count affected sessions before deletion
+				affectedSessions := m.config.GetSessionsByWorkspace(wsID)
 				m.config.RemoveWorkspace(wsID)
 				if err := m.config.Save(); err != nil {
 					logger.Get().Error("failed to save after workspace deletion", "error", err)
@@ -272,6 +275,9 @@ func (m *Model) handleWorkspaceListModal(key string, msg tea.KeyPressMsg, state 
 				m.sidebar.SetSessions(m.getFilteredSessions())
 				m.header.SetWorkspaceName(m.getActiveWorkspaceName())
 				m.showWorkspaceListModal() // Refresh
+				if len(affectedSessions) > 0 {
+					return m, m.ShowFlashInfo(fmt.Sprintf("%d session(s) moved to All Sessions", len(affectedSessions)))
+				}
 			}
 		}
 		return m, nil

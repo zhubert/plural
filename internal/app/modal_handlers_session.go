@@ -948,10 +948,10 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 // handleBulkActionModal handles key events for the Bulk Action modal.
 func (m *Model) handleBulkActionModal(key string, msg tea.KeyPressMsg, state *ui.BulkActionState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		switch state.GetAction() {
 		case ui.BulkActionDelete:
 			return m.executeBulkDelete(state.SessionIDs)
@@ -973,8 +973,9 @@ func (m *Model) handleBulkActionModal(key string, msg tea.KeyPressMsg, state *ui
 // executeBulkDelete deletes multiple sessions
 func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 	log := logger.Get()
-	var deleted int
+	ctx := context.Background()
 
+	// Delete worktrees and clean up state for each session
 	for _, id := range sessionIDs {
 		sess := m.config.GetSession(id)
 		if sess == nil {
@@ -982,13 +983,11 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 		}
 
 		// Delete worktree
-		ctx := context.Background()
 		if err := m.sessionService.Delete(ctx, sess); err != nil {
 			log.Warn("failed to delete worktree during bulk delete", "session", id, "error", err)
 		}
 
-		// Remove from config and clean up
-		m.config.RemoveSession(id)
+		// Clean up session-related state
 		config.DeleteSessionMessages(id)
 		m.sessionMgr.DeleteSession(id)
 		m.sidebar.SetPendingPermission(id, false)
@@ -1005,9 +1004,10 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 			m.header.SetBaseBranch("")
 			m.header.SetDiffStats(nil)
 		}
-
-		deleted++
 	}
+
+	// Batch remove all sessions from config
+	deleted := m.config.RemoveSessions(sessionIDs)
 
 	if err := m.config.Save(); err != nil {
 		log.Error("failed to save config after bulk delete", "error", err)

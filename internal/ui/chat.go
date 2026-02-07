@@ -1310,7 +1310,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				}
 				return c, nil
 			case keys.Up, "k", keys.Down, "j", keys.PgUp, keys.PgDown, keys.CtrlUp, keys.CtrlDown,
-				keys.Home, keys.End, "page up", "page down", keys.CtrlU, keys.CtrlD:
+				keys.Home, keys.End, keys.CtrlU, keys.CtrlD:
 				// Scroll diff viewport
 				var cmd tea.Cmd
 				c.viewChanges.Viewport, cmd = c.viewChanges.Viewport.Update(msg)
@@ -1359,7 +1359,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				c.RefreshLogViewer()
 				return c, nil
 			case keys.Up, "k", keys.Down, "j", keys.PgUp, keys.PgDown, keys.CtrlUp, keys.CtrlDown,
-				keys.Home, keys.End, "page up", "page down", keys.CtrlU, keys.CtrlD:
+				keys.Home, keys.End, keys.CtrlU, keys.CtrlD:
 				// Scroll log viewport - disable follow mode when manually scrolling
 				if c.logViewer.FollowTail {
 					c.logViewer.FollowTail = false
@@ -1477,7 +1477,7 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 			// Allow scroll keys to pass through to viewport
 			switch key {
 			case keys.PgUp, keys.PgDown, keys.CtrlUp, keys.CtrlDown, keys.Home, keys.End,
-				"page up", "page down", keys.CtrlU, keys.CtrlD:
+				keys.CtrlU, keys.CtrlD:
 				// Pass to viewport for scrolling
 				var cmd tea.Cmd
 				c.viewport, cmd = c.viewport.Update(msg)

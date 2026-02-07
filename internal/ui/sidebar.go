@@ -155,30 +155,28 @@ func hashSessions(sessions []config.Session) uint64 {
 	return h.Sum64()
 }
 
-// hashAttention computes a hash of the attention state maps to detect ordering changes
+// hashAttention computes a hash of the attention state maps to detect changes.
+// Map keys are sorted before hashing to ensure deterministic output.
 func (s *Sidebar) hashAttention() uint64 {
 	h := fnv.New64a()
-	// Hash each attention map — order doesn't matter since we just need change detection
-	for id := range s.pendingPermissions {
-		h.Write([]byte("P"))
-		h.Write([]byte(id))
+
+	hashMap := func(prefix byte, m map[string]bool) {
+		keys := make([]string, 0, len(m))
+		for id := range m {
+			keys = append(keys, id)
+		}
+		sort.Strings(keys)
+		for _, id := range keys {
+			h.Write([]byte{prefix})
+			h.Write([]byte(id))
+		}
 	}
-	for id := range s.pendingQuestions {
-		h.Write([]byte("Q"))
-		h.Write([]byte(id))
-	}
-	for id := range s.streamingSessions {
-		h.Write([]byte("S"))
-		h.Write([]byte(id))
-	}
-	for id := range s.idleWithResponse {
-		h.Write([]byte("I"))
-		h.Write([]byte(id))
-	}
-	for id := range s.uncommittedChanges {
-		h.Write([]byte("U"))
-		h.Write([]byte(id))
-	}
+
+	hashMap('P', s.pendingPermissions)
+	hashMap('Q', s.pendingQuestions)
+	hashMap('S', s.streamingSessions)
+	hashMap('I', s.idleWithResponse)
+	hashMap('U', s.uncommittedChanges)
 	return h.Sum64()
 }
 
@@ -503,7 +501,7 @@ func (s *Sidebar) SelectedCount() int {
 
 // visibleSessions returns the sessions currently visible (filtered or all)
 func (s *Sidebar) visibleSessions() []config.Session {
-	if s.searchMode && len(s.filteredSessions) > 0 {
+	if s.searchMode {
 		return s.filteredSessions
 	}
 	return s.sessions
