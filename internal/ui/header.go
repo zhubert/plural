@@ -21,6 +21,7 @@ type Header struct {
 	baseBranch    string
 	diffStats     *DiffStats
 	previewActive bool
+	workspaceName string
 }
 
 // NewHeader creates a new header
@@ -53,6 +54,11 @@ func (h *Header) SetPreviewActive(active bool) {
 	h.previewActive = active
 }
 
+// SetWorkspaceName sets the workspace name to display
+func (h *Header) SetWorkspaceName(name string) {
+	h.workspaceName = name
+}
+
 // headerRegion represents a styled region in the header
 type headerRegion struct {
 	start int
@@ -64,6 +70,9 @@ type headerRegion struct {
 func (h *Header) View() string {
 	// Build the content string (without styling)
 	titleText := " plural"
+	if h.workspaceName != "" {
+		titleText += " / " + h.workspaceName
+	}
 
 	// Build right side content and track regions for coloring
 	var rightText string

@@ -191,9 +191,12 @@ func New(cfg *config.Config, version string) *Model {
 		windowFocused:  true, // Assume window is focused on startup
 	}
 
-	// Load sessions into sidebar
-	m.sidebar.SetSessions(cfg.GetSessions())
+	// Load sessions into sidebar (filtered by active workspace)
+	m.sidebar.SetSessions(m.getFilteredSessions())
 	m.sidebar.SetFocused(true)
+
+	// Set workspace name in header
+	m.header.SetWorkspaceName(m.getActiveWorkspaceName())
 
 	// Restore preview state from config (in case app was closed during a preview)
 	if cfg.IsPreviewActive() {
@@ -248,6 +251,37 @@ func (m *Model) sessionState() *SessionStateManager {
 	return m.sessionMgr.StateManager()
 }
 
+// getFilteredSessions returns sessions filtered by the active workspace.
+// If no workspace is active, returns all sessions.
+func (m *Model) getFilteredSessions() []config.Session {
+	sessions := m.config.GetSessions()
+	activeWS := m.config.GetActiveWorkspaceID()
+	if activeWS == "" {
+		return sessions
+	}
+	var filtered []config.Session
+	for _, s := range sessions {
+		if s.WorkspaceID == activeWS {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered
+}
+
+// getActiveWorkspaceName returns the name of the active workspace, or empty if none.
+func (m *Model) getActiveWorkspaceName() string {
+	activeWS := m.config.GetActiveWorkspaceID()
+	if activeWS == "" {
+		return ""
+	}
+	for _, ws := range m.config.GetWorkspaces() {
+		if ws.ID == activeWS {
+			return ws.Name
+		}
+	}
+	return ""
+}
+
 // refreshDiffStats updates the header with current git diff statistics for the active session
 func (m *Model) refreshDiffStats() {
 	if m.activeSession == nil || m.activeSession.WorkTree == "" {
@@ -268,6 +302,11 @@ func (m *Model) refreshDiffStats() {
 		Additions:    gitStats.Additions,
 		Deletions:    gitStats.Deletions,
 	})
+
+	// Update sidebar attention state for uncommitted changes
+	if m.activeSession != nil {
+		m.sidebar.SetUncommittedChanges(m.activeSession.ID, gitStats.FilesChanged > 0)
+	}
 }
 
 // Init initializes the model
@@ -326,9 +365,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleModalKey(msg)
 		}
 
-		// Handle Escape to exit search mode, view changes mode, log viewer, or interrupt streaming
+		// Handle Escape to exit multi-select mode, search mode, view changes mode, log viewer, or interrupt streaming
 		if msg.String() == keys.Escape {
-			// First check if sidebar is in search mode
+			// First check if sidebar is in multi-select mode
+			if m.sidebar.IsMultiSelectMode() {
+				m.sidebar.ExitMultiSelect()
+				return m, nil
+			}
+			// Then check if sidebar is in search mode
 			if m.sidebar.IsSearchMode() {
 				m.sidebar.ExitSearchMode()
 				return m, nil
@@ -452,6 +496,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle ctrl+c specially - always quits
 		if key == keys.CtrlC {
 			return m, tea.Quit
+		}
+
+		// Handle multi-select mode keys when sidebar is focused
+		if m.sidebar.IsMultiSelectMode() && m.focus == FocusSidebar {
+			switch key {
+			case "space":
+				m.sidebar.ToggleSelected()
+				return m, nil
+			case "a":
+				m.sidebar.SelectAll()
+				return m, nil
+			case "n":
+				m.sidebar.DeselectAll()
+				return m, nil
+			case "enter":
+				ids := m.sidebar.GetSelectedSessionIDs()
+				if len(ids) > 0 {
+					workspaces := m.config.GetWorkspaces()
+					m.modal.Show(ui.NewBulkActionState(ids, workspaces))
+				}
+				return m, nil
+			case "up", "k", "down", "j":
+				// Let sidebar handle navigation
+				m.sidebar, _ = m.sidebar.Update(msg)
+				return m, nil
+			case "?":
+				// Allow help modal in multi-select mode
+				result, cmd := shortcutHelp(m)
+				return result, cmd
+			}
+			// Block other keys in multi-select mode
+			return m, nil
 		}
 
 		// Try executing from shortcut registry
@@ -878,8 +954,10 @@ func (m *Model) selectSession(sess *config.Session) {
 			Additions:    result.DiffStats.Additions,
 			Deletions:    result.DiffStats.Deletions,
 		})
+		m.sidebar.SetUncommittedChanges(sess.ID, result.DiffStats.FilesChanged > 0)
 	} else {
 		m.header.SetDiffStats(nil)
+		m.sidebar.SetUncommittedChanges(sess.ID, false)
 	}
 	m.focus = FocusChat
 	m.sidebar.SetFocused(false)
@@ -1083,6 +1161,7 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	startTime, _ := m.sessionState().GetWaitStart(sessionID)
 	m.chat.SetWaitingWithStart(true, startTime)
 	m.sidebar.SetStreaming(sessionID, true)
+	m.sidebar.SetIdleWithResponse(sessionID, false)
 	m.setState(StateStreamingClaude)
 
 	// Start Claude request with content blocks

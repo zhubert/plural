@@ -206,13 +206,17 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			return m, nil
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
+		// Auto-assign to active workspace
+		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+			sess.WorkspaceID = activeWS
+		}
 		m.config.AddSession(*sess)
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save config", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		m.sidebar.SetSessions(m.config.GetSessions())
+		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
 		m.modal.Hide()
@@ -248,10 +252,13 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			m.config.RemoveSession(sess.ID)
 			m.config.Save()
 			config.DeleteSessionMessages(sess.ID)
-			m.sidebar.SetSessions(m.config.GetSessions())
+			m.sidebar.SetSessions(m.getFilteredSessions())
 			// Clean up runner and all per-session state via SessionManager
 			deletedRunner := m.sessionMgr.DeleteSession(sess.ID)
 			m.sidebar.SetPendingPermission(sess.ID, false)
+			m.sidebar.SetPendingQuestion(sess.ID, false)
+			m.sidebar.SetIdleWithResponse(sess.ID, false)
+			m.sidebar.SetUncommittedChanges(sess.ID, false)
 			activeSessionID := "<nil>"
 			if m.activeSession != nil {
 				activeSessionID = m.activeSession.ID
@@ -349,6 +356,10 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
+		// Auto-assign to active workspace
+		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+			sess.WorkspaceID = activeWS
+		}
 
 		log.Info("forked session created", "name", sess.Name, "parentID", sess.ParentID)
 		m.config.AddSession(*sess)
@@ -357,7 +368,7 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		m.sidebar.SetSessions(m.config.GetSessions())
+		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
 		m.modal.Hide()
@@ -434,7 +445,7 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 		logger.WithSession(state.SessionID).Info("renamed session", "branch", newBranch)
 
 		// Update sidebar and header
-		m.sidebar.SetSessions(m.config.GetSessions())
+		m.sidebar.SetSessions(m.getFilteredSessions())
 		if m.activeSession != nil && m.activeSession.ID == state.SessionID {
 			m.activeSession.Name = newBranch
 			m.activeSession.Branch = newBranch
@@ -610,7 +621,11 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	wg.Wait()
 
 	// Add all sessions to config (after parallel creation completes)
+	activeWS := m.config.GetActiveWorkspaceID()
 	for _, sess := range createdSessions {
+		if activeWS != "" {
+			sess.WorkspaceID = activeWS
+		}
 		m.config.AddSession(*sess)
 	}
 
@@ -620,7 +635,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	}
 
 	// Update sidebar with new sessions
-	m.sidebar.SetSessions(m.config.GetSessions())
+	m.sidebar.SetSessions(m.getFilteredSessions())
 
 	// If no sessions were created, show error
 	if len(createdSessions) == 0 {
@@ -928,4 +943,104 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+// handleBulkActionModal handles key events for the Bulk Action modal.
+func (m *Model) handleBulkActionModal(key string, msg tea.KeyPressMsg, state *ui.BulkActionState) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.modal.Hide()
+		return m, nil
+	case "enter":
+		switch state.GetAction() {
+		case ui.BulkActionDelete:
+			return m.executeBulkDelete(state.SessionIDs)
+		case ui.BulkActionMoveToWorkspace:
+			wsID := state.GetSelectedWorkspaceID()
+			if wsID == "" {
+				return m, nil
+			}
+			return m.executeBulkMove(state.SessionIDs, wsID)
+		}
+		return m, nil
+	}
+	// Forward other keys for navigation
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// executeBulkDelete deletes multiple sessions
+func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
+	log := logger.Get()
+	var deleted int
+
+	for _, id := range sessionIDs {
+		sess := m.config.GetSession(id)
+		if sess == nil {
+			continue
+		}
+
+		// Delete worktree
+		ctx := context.Background()
+		if err := m.sessionService.Delete(ctx, sess); err != nil {
+			log.Warn("failed to delete worktree during bulk delete", "session", id, "error", err)
+		}
+
+		// Remove from config and clean up
+		m.config.RemoveSession(id)
+		config.DeleteSessionMessages(id)
+		m.sessionMgr.DeleteSession(id)
+		m.sidebar.SetPendingPermission(id, false)
+		m.sidebar.SetPendingQuestion(id, false)
+		m.sidebar.SetIdleWithResponse(id, false)
+		m.sidebar.SetUncommittedChanges(id, false)
+
+		// Clear active session if deleted
+		if m.activeSession != nil && m.activeSession.ID == id {
+			m.activeSession = nil
+			m.claudeRunner = nil
+			m.chat.ClearSession()
+			m.header.SetSessionName("")
+			m.header.SetBaseBranch("")
+			m.header.SetDiffStats(nil)
+		}
+
+		deleted++
+	}
+
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after bulk delete", "error", err)
+	}
+
+	// Exit multi-select mode and update sidebar
+	m.sidebar.ExitMultiSelect()
+	m.sidebar.SetSessions(m.getFilteredSessions())
+	m.modal.Hide()
+
+	return m, m.ShowFlashSuccess(fmt.Sprintf("Deleted %d session(s)", deleted))
+}
+
+// executeBulkMove moves multiple sessions to a workspace
+func (m *Model) executeBulkMove(sessionIDs []string, workspaceID string) (tea.Model, tea.Cmd) {
+	count := m.config.SetSessionsWorkspace(sessionIDs, workspaceID)
+	if err := m.config.Save(); err != nil {
+		logger.Get().Error("failed to save config after bulk move", "error", err)
+	}
+
+	// Exit multi-select mode and update sidebar
+	m.sidebar.ExitMultiSelect()
+	m.sidebar.SetSessions(m.getFilteredSessions())
+	m.modal.Hide()
+
+	// Find workspace name for flash message
+	var wsName string
+	for _, ws := range m.config.GetWorkspaces() {
+		if ws.ID == workspaceID {
+			wsName = ws.Name
+			break
+		}
+	}
+
+	return m, m.ShowFlashSuccess(fmt.Sprintf("Moved %d session(s) to \"%s\"", count, wsName))
 }

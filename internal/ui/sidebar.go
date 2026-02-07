@@ -4,6 +4,7 @@ import (
 	"hash/fnv"
 	"image/color"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,12 +54,20 @@ type Sidebar struct {
 	scrollOffset       int
 	streamingSessions  map[string]bool // Map of session IDs that are currently streaming
 	pendingPermissions map[string]bool // Map of session IDs that have pending permission requests
+	pendingQuestions   map[string]bool // Map of session IDs that have pending questions
+	idleWithResponse   map[string]bool // Map of session IDs that finished streaming (user hasn't responded)
+	uncommittedChanges map[string]bool // Map of session IDs that have uncommitted changes
 	spinnerFrame       int             // Current spinner animation frame
 	spinnerTick        int             // Tick counter for frame hold timing
 
+	// Multi-select mode
+	multiSelectMode  bool
+	selectedSessions map[string]bool
+
 	// Cache for incremental updates
-	sessionIndex map[string]int  // Map of session ID to index in sessions slice
-	lastHash     uint64          // Hash of last session list for change detection
+	sessionIndex  map[string]int // Map of session ID to index in sessions slice
+	lastHash      uint64         // Hash of last session list for change detection
+	lastAttnHash  uint64         // Hash of attention state for re-ordering detection
 
 	// Search mode
 	searchMode  bool
@@ -75,6 +84,10 @@ func NewSidebar() *Sidebar {
 		selectedIdx:        0,
 		streamingSessions:  make(map[string]bool),
 		pendingPermissions: make(map[string]bool),
+		pendingQuestions:   make(map[string]bool),
+		idleWithResponse:   make(map[string]bool),
+		uncommittedChanges: make(map[string]bool),
+		selectedSessions:   make(map[string]bool),
 		searchInput:        ti,
 	}
 }
@@ -142,15 +155,44 @@ func hashSessions(sessions []config.Session) uint64 {
 	return h.Sum64()
 }
 
+// hashAttention computes a hash of the attention state maps to detect ordering changes
+func (s *Sidebar) hashAttention() uint64 {
+	h := fnv.New64a()
+	// Hash each attention map — order doesn't matter since we just need change detection
+	for id := range s.pendingPermissions {
+		h.Write([]byte("P"))
+		h.Write([]byte(id))
+	}
+	for id := range s.pendingQuestions {
+		h.Write([]byte("Q"))
+		h.Write([]byte(id))
+	}
+	for id := range s.streamingSessions {
+		h.Write([]byte("S"))
+		h.Write([]byte(id))
+	}
+	for id := range s.idleWithResponse {
+		h.Write([]byte("I"))
+		h.Write([]byte(id))
+	}
+	for id := range s.uncommittedChanges {
+		h.Write([]byte("U"))
+		h.Write([]byte(id))
+	}
+	return h.Sum64()
+}
+
 // SetSessions updates the session list, grouping by repo
 func (s *Sidebar) SetSessions(sessions []config.Session) {
-	// Fast path: check if sessions have changed using hash
+	// Fast path: check if sessions or attention state have changed
 	newHash := hashSessions(sessions)
-	if newHash == s.lastHash && len(sessions) == len(s.sessions) {
-		// No structural changes - skip expensive tree rebuild
+	newAttnHash := s.hashAttention()
+	if newHash == s.lastHash && newAttnHash == s.lastAttnHash && len(sessions) == len(s.sessions) {
+		// No structural or attention changes - skip expensive tree rebuild
 		return
 	}
 	s.lastHash = newHash
+	s.lastAttnHash = newAttnHash
 
 	// Group sessions by repo path
 	groupMap := make(map[string]*repoGroup)
@@ -168,11 +210,12 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 		groupMap[sess.RepoPath].Sessions = append(groupMap[sess.RepoPath].Sessions, sess)
 	}
 
-	// Build ordered groups with tree structure
+	// Build ordered groups with tree structure and priority sorting
 	s.groups = make([]repoGroup, 0, len(groupOrder))
 	for _, path := range groupOrder {
 		group := groupMap[path]
 		group.RootNodes = buildSessionTree(group.Sessions)
+		s.sortNodesByPriority(group.RootNodes)
 		s.groups = append(s.groups, *group)
 	}
 
@@ -310,6 +353,160 @@ func (s *Sidebar) SetPendingPermission(sessionID string, pending bool) {
 // HasPendingPermission returns whether a session has a pending permission request
 func (s *Sidebar) HasPendingPermission(sessionID string) bool {
 	return s.pendingPermissions[sessionID]
+}
+
+// SetPendingQuestion sets whether a session has a pending question
+func (s *Sidebar) SetPendingQuestion(sessionID string, pending bool) {
+	if pending {
+		s.pendingQuestions[sessionID] = true
+	} else {
+		delete(s.pendingQuestions, sessionID)
+	}
+}
+
+// SetIdleWithResponse marks that a session has finished streaming and awaits user response
+func (s *Sidebar) SetIdleWithResponse(sessionID string, idle bool) {
+	if idle {
+		s.idleWithResponse[sessionID] = true
+	} else {
+		delete(s.idleWithResponse, sessionID)
+	}
+}
+
+// SetUncommittedChanges sets whether a session has uncommitted changes
+func (s *Sidebar) SetUncommittedChanges(sessionID string, has bool) {
+	if has {
+		s.uncommittedChanges[sessionID] = true
+	} else {
+		delete(s.uncommittedChanges, sessionID)
+	}
+}
+
+// Attention priority levels (lower = higher priority, needs attention sooner)
+const (
+	priorityPermission  = 0 // Pending permission/question/plan approval
+	priorityStreaming   = 1 // Actively streaming
+	priorityIdle        = 2 // Idle with response (streaming finished, user hasn't responded)
+	priorityUncommitted = 3 // Has uncommitted changes to review
+	priorityNormal      = 4 // Normal session
+)
+
+// sessionPriority returns the attention priority for a given session ID.
+func (s *Sidebar) sessionPriority(sessionID string) int {
+	if s.pendingPermissions[sessionID] || s.pendingQuestions[sessionID] {
+		return priorityPermission
+	}
+	if s.streamingSessions[sessionID] {
+		return priorityStreaming
+	}
+	if s.idleWithResponse[sessionID] {
+		return priorityIdle
+	}
+	if s.uncommittedChanges[sessionID] {
+		return priorityUncommitted
+	}
+	return priorityNormal
+}
+
+// effectivePriority returns the best (lowest) priority across a node and all its descendants.
+func (s *Sidebar) effectivePriority(node sessionNode) int {
+	best := s.sessionPriority(node.Session.ID)
+	for _, child := range node.Children {
+		childPriority := s.effectivePriority(child)
+		if childPriority < best {
+			best = childPriority
+		}
+	}
+	return best
+}
+
+// sortNodesByPriority sorts root nodes and their children by attention priority.
+// Uses stable sort to preserve original order for sessions with the same priority.
+func (s *Sidebar) sortNodesByPriority(nodes []sessionNode) {
+	sort.SliceStable(nodes, func(i, j int) bool {
+		return s.effectivePriority(nodes[i]) < s.effectivePriority(nodes[j])
+	})
+	// Recursively sort children within each parent
+	for i := range nodes {
+		if len(nodes[i].Children) > 1 {
+			s.sortNodesByPriority(nodes[i].Children)
+		}
+	}
+}
+
+// =============================================================================
+// Multi-select mode
+// =============================================================================
+
+// EnterMultiSelect enters multi-select mode, pre-selecting the current item
+func (s *Sidebar) EnterMultiSelect() {
+	s.multiSelectMode = true
+	s.selectedSessions = make(map[string]bool)
+	// Pre-select the currently highlighted session
+	sessions := s.visibleSessions()
+	if s.selectedIdx >= 0 && s.selectedIdx < len(sessions) {
+		s.selectedSessions[sessions[s.selectedIdx].ID] = true
+	}
+}
+
+// ExitMultiSelect exits multi-select mode and clears selections
+func (s *Sidebar) ExitMultiSelect() {
+	s.multiSelectMode = false
+	s.selectedSessions = make(map[string]bool)
+}
+
+// IsMultiSelectMode returns whether multi-select mode is active
+func (s *Sidebar) IsMultiSelectMode() bool {
+	return s.multiSelectMode
+}
+
+// GetSelectedSessionIDs returns the IDs of all selected sessions
+func (s *Sidebar) GetSelectedSessionIDs() []string {
+	var ids []string
+	for id := range s.selectedSessions {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// ToggleSelected toggles the selection of the currently highlighted session
+func (s *Sidebar) ToggleSelected() {
+	sessions := s.visibleSessions()
+	if s.selectedIdx < 0 || s.selectedIdx >= len(sessions) {
+		return
+	}
+	id := sessions[s.selectedIdx].ID
+	if s.selectedSessions[id] {
+		delete(s.selectedSessions, id)
+	} else {
+		s.selectedSessions[id] = true
+	}
+}
+
+// SelectAll selects all visible sessions
+func (s *Sidebar) SelectAll() {
+	sessions := s.visibleSessions()
+	for _, sess := range sessions {
+		s.selectedSessions[sess.ID] = true
+	}
+}
+
+// DeselectAll deselects all sessions
+func (s *Sidebar) DeselectAll() {
+	s.selectedSessions = make(map[string]bool)
+}
+
+// SelectedCount returns the number of selected sessions
+func (s *Sidebar) SelectedCount() int {
+	return len(s.selectedSessions)
+}
+
+// visibleSessions returns the sessions currently visible (filtered or all)
+func (s *Sidebar) visibleSessions() []config.Session {
+	if s.searchMode && len(s.filteredSessions) > 0 {
+		return s.filteredSessions
+	}
+	return s.sessions
 }
 
 // SidebarTick returns a command that sends a tick message after a delay
@@ -793,6 +990,23 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 	}
 
 	displayName := styledPrefix + name
+
+	// In multi-select mode, prepend a checkbox
+	if s.multiSelectMode {
+		checkbox := "[ ] "
+		if s.selectedSessions[sess.ID] {
+			checkbox = "[x] "
+		}
+		if isSelected {
+			displayName = checkbox + displayName
+		} else {
+			checkStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
+			if s.selectedSessions[sess.ID] {
+				checkStyle = checkStyle.Foreground(ColorSecondary)
+			}
+			displayName = checkStyle.Render(checkbox) + displayName
+		}
+	}
 
 	return displayName
 }

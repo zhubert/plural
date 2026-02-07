@@ -39,6 +39,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleBroadcastModal(key, msg, s)
 	case *ui.BroadcastGroupState:
 		return m.handleBroadcastGroupModal(key, msg, s)
+	case *ui.BulkActionState:
+		return m.handleBulkActionModal(key, msg, s)
 
 	// Git modals (modal_handlers_git.go)
 	case *ui.MergeState:
@@ -49,6 +51,12 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleEditCommitModal(key, msg, s)
 	case *ui.MergeConflictState:
 		return m.handleMergeConflictModal(key, msg, s)
+
+	// Workspace modals (modal_handlers_config.go)
+	case *ui.WorkspaceListState:
+		return m.handleWorkspaceListModal(key, msg, s)
+	case *ui.NewWorkspaceState:
+		return m.handleNewWorkspaceModal(key, msg, s)
 
 	// Config modals (modal_handlers_config.go)
 	case *ui.MCPServersState:

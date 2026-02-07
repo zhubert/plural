@@ -63,6 +63,7 @@ func (m *Model) handleClaudeError(sessionID string, errMsg string, isActiveSessi
 func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface, isActiveSession bool) (tea.Model, tea.Cmd) {
 	logger.WithSession(sessionID).Info("completed streaming")
 	m.sidebar.SetStreaming(sessionID, false)
+	m.sidebar.SetIdleWithResponse(sessionID, true)
 
 	// Flush any pending tool uses, clear streaming content, and clear subagent indicator
 	if state := m.sessionState().GetIfExists(sessionID); state != nil {
@@ -338,7 +339,7 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 		cmds = append(cmds, m.ShowFlashError("Failed to save session state"))
 	}
 	// Update sidebar with new session status
-	m.sidebar.SetSessions(m.config.GetSessions())
+	m.sidebar.SetSessions(m.getFilteredSessions())
 	// Clean up merge state for this session
 	m.sessionState().StopMerge(sessionID)
 
@@ -448,6 +449,7 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 	log.Debug("question request received", "questionCount", len(msg.Request.Questions))
 	m.sessionState().GetOrCreate(msg.SessionID).SetPendingQuestion(&msg.Request)
 	m.sidebar.SetPendingPermission(msg.SessionID, true) // Reuse permission indicator for questions
+	m.sidebar.SetPendingQuestion(msg.SessionID, true)
 
 	// If this is the active session, show question in chat
 	if m.activeSession != nil && m.activeSession.ID == msg.SessionID {

@@ -131,6 +131,14 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSession: true,
 		Handler:         shortcutRenameSession,
 	},
+	{
+		Key:             "s",
+		Description:     "Multi-select sessions",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		Handler:         shortcutMultiSelect,
+		Condition:       func(m *Model) bool { return len(m.config.GetSessions()) > 0 },
+	},
 	// Git Operations
 	{
 		Key:             keys.CtrlE,
@@ -195,6 +203,13 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSidebar: true,
 		Handler:         shortcutSettings,
 	},
+	{
+		Key:             "w",
+		Description:     "Manage workspaces",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutWorkspaces,
+	},
 
 	// Chat
 	{
@@ -226,7 +241,7 @@ var ShortcutRegistry = []Shortcut{
 		Handler:     shortcutToggleLogViewer,
 	},
 	{
-		Key:             "w",
+		Key:             "W",
 		Description:     "What's new (changelog)",
 		Category:        CategoryGeneral,
 		RequiresSidebar: true,
@@ -852,6 +867,16 @@ end tell`, escapedPath)
 			return TerminalErrorMsg{Error: errMsg}
 		}
 	}
+}
+
+func shortcutMultiSelect(m *Model) (tea.Model, tea.Cmd) {
+	m.sidebar.EnterMultiSelect()
+	return m, nil
+}
+
+func shortcutWorkspaces(m *Model) (tea.Model, tea.Cmd) {
+	m.showWorkspaceListModal()
+	return m, nil
 }
 
 func shortcutBroadcast(m *Model) (tea.Model, tea.Cmd) {
