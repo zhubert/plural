@@ -1563,3 +1563,370 @@ func TestConfig_BroadcastGroupID_Persistence(t *testing.T) {
 		t.Errorf("BroadcastGroupID = %q, want 'broadcast-group-123'", loaded.Sessions[0].BroadcastGroupID)
 	}
 }
+
+func TestConfig_Workspaces(t *testing.T) {
+	cfg := &Config{
+		Repos:      []string{},
+		Sessions:   []Session{},
+		Workspaces: []Workspace{},
+	}
+
+	// Test adding a workspace
+	ws1 := Workspace{ID: "ws-1", Name: "Backend"}
+	if !cfg.AddWorkspace(ws1) {
+		t.Error("AddWorkspace should return true for new workspace")
+	}
+
+	workspaces := cfg.GetWorkspaces()
+	if len(workspaces) != 1 {
+		t.Errorf("Expected 1 workspace, got %d", len(workspaces))
+	}
+	if workspaces[0].ID != "ws-1" || workspaces[0].Name != "Backend" {
+		t.Errorf("Workspace mismatch: %+v", workspaces[0])
+	}
+
+	// Test adding duplicate name
+	ws2 := Workspace{ID: "ws-2", Name: "Backend"}
+	if cfg.AddWorkspace(ws2) {
+		t.Error("AddWorkspace should return false for duplicate name")
+	}
+
+	// Test adding another workspace
+	ws3 := Workspace{ID: "ws-3", Name: "Frontend"}
+	if !cfg.AddWorkspace(ws3) {
+		t.Error("AddWorkspace should return true for new name")
+	}
+
+	if len(cfg.GetWorkspaces()) != 2 {
+		t.Errorf("Expected 2 workspaces, got %d", len(cfg.GetWorkspaces()))
+	}
+
+	// Test that GetWorkspaces returns a copy
+	workspaces = cfg.GetWorkspaces()
+	workspaces[0].Name = "Modified"
+	if cfg.Workspaces[0].Name == "Modified" {
+		t.Error("GetWorkspaces should return a copy")
+	}
+}
+
+func TestConfig_RemoveWorkspace(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/r", WorkTree: "/w", Branch: "b1", WorkspaceID: "ws-1"},
+			{ID: "s2", RepoPath: "/r", WorkTree: "/w", Branch: "b2", WorkspaceID: "ws-1"},
+			{ID: "s3", RepoPath: "/r", WorkTree: "/w", Branch: "b3", WorkspaceID: "ws-2"},
+		},
+		Workspaces: []Workspace{
+			{ID: "ws-1", Name: "Backend"},
+			{ID: "ws-2", Name: "Frontend"},
+		},
+		ActiveWorkspaceID: "ws-1",
+	}
+
+	// Remove ws-1 (the active workspace)
+	if !cfg.RemoveWorkspace("ws-1") {
+		t.Error("RemoveWorkspace should return true")
+	}
+
+	// Should have 1 workspace left
+	if len(cfg.GetWorkspaces()) != 1 {
+		t.Errorf("Expected 1 workspace, got %d", len(cfg.GetWorkspaces()))
+	}
+
+	// Sessions in ws-1 should have WorkspaceID cleared
+	s1 := cfg.GetSession("s1")
+	if s1.WorkspaceID != "" {
+		t.Errorf("s1 WorkspaceID should be cleared, got %q", s1.WorkspaceID)
+	}
+	s2 := cfg.GetSession("s2")
+	if s2.WorkspaceID != "" {
+		t.Errorf("s2 WorkspaceID should be cleared, got %q", s2.WorkspaceID)
+	}
+
+	// s3 should be unchanged
+	s3 := cfg.GetSession("s3")
+	if s3.WorkspaceID != "ws-2" {
+		t.Errorf("s3 WorkspaceID should be ws-2, got %q", s3.WorkspaceID)
+	}
+
+	// Active workspace should be cleared
+	if cfg.GetActiveWorkspaceID() != "" {
+		t.Errorf("ActiveWorkspaceID should be cleared, got %q", cfg.GetActiveWorkspaceID())
+	}
+
+	// Remove non-existent workspace
+	if cfg.RemoveWorkspace("nonexistent") {
+		t.Error("RemoveWorkspace should return false for non-existent workspace")
+	}
+}
+
+func TestConfig_RenameWorkspace(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+		Workspaces: []Workspace{
+			{ID: "ws-1", Name: "Backend"},
+			{ID: "ws-2", Name: "Frontend"},
+		},
+	}
+
+	// Rename ws-1
+	if !cfg.RenameWorkspace("ws-1", "API") {
+		t.Error("RenameWorkspace should return true")
+	}
+
+	workspaces := cfg.GetWorkspaces()
+	if workspaces[0].Name != "API" {
+		t.Errorf("Expected name 'API', got %q", workspaces[0].Name)
+	}
+
+	// Rename to conflicting name
+	if cfg.RenameWorkspace("ws-1", "Frontend") {
+		t.Error("RenameWorkspace should return false for conflicting name")
+	}
+
+	// Rename non-existent workspace
+	if cfg.RenameWorkspace("nonexistent", "New") {
+		t.Error("RenameWorkspace should return false for non-existent workspace")
+	}
+
+	// Rename to same name (should succeed)
+	if !cfg.RenameWorkspace("ws-1", "API") {
+		t.Error("RenameWorkspace should return true when renaming to same name")
+	}
+}
+
+func TestConfig_ActiveWorkspace(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+	}
+
+	// Initially no active workspace
+	if cfg.GetActiveWorkspaceID() != "" {
+		t.Error("ActiveWorkspaceID should be empty initially")
+	}
+
+	// Set active workspace
+	cfg.SetActiveWorkspaceID("ws-1")
+	if cfg.GetActiveWorkspaceID() != "ws-1" {
+		t.Errorf("Expected active workspace 'ws-1', got %q", cfg.GetActiveWorkspaceID())
+	}
+
+	// Clear active workspace
+	cfg.SetActiveWorkspaceID("")
+	if cfg.GetActiveWorkspaceID() != "" {
+		t.Error("ActiveWorkspaceID should be empty after clearing")
+	}
+}
+
+func TestConfig_SetSessionWorkspace(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/r", WorkTree: "/w", Branch: "b1"},
+		},
+	}
+
+	// Assign to workspace
+	if !cfg.SetSessionWorkspace("s1", "ws-1") {
+		t.Error("SetSessionWorkspace should return true")
+	}
+
+	sess := cfg.GetSession("s1")
+	if sess.WorkspaceID != "ws-1" {
+		t.Errorf("Expected WorkspaceID 'ws-1', got %q", sess.WorkspaceID)
+	}
+
+	// Unassign
+	if !cfg.SetSessionWorkspace("s1", "") {
+		t.Error("SetSessionWorkspace should return true for unassign")
+	}
+
+	sess = cfg.GetSession("s1")
+	if sess.WorkspaceID != "" {
+		t.Errorf("Expected empty WorkspaceID, got %q", sess.WorkspaceID)
+	}
+
+	// Non-existent session
+	if cfg.SetSessionWorkspace("nonexistent", "ws-1") {
+		t.Error("SetSessionWorkspace should return false for non-existent session")
+	}
+}
+
+func TestConfig_GetSessionsByWorkspace(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/r", WorkTree: "/w", Branch: "b1", WorkspaceID: "ws-1"},
+			{ID: "s2", RepoPath: "/r", WorkTree: "/w", Branch: "b2", WorkspaceID: "ws-1"},
+			{ID: "s3", RepoPath: "/r", WorkTree: "/w", Branch: "b3", WorkspaceID: "ws-2"},
+			{ID: "s4", RepoPath: "/r", WorkTree: "/w", Branch: "b4"},
+		},
+	}
+
+	// Get sessions in ws-1
+	sessions := cfg.GetSessionsByWorkspace("ws-1")
+	if len(sessions) != 2 {
+		t.Errorf("Expected 2 sessions in ws-1, got %d", len(sessions))
+	}
+
+	// Get sessions in ws-2
+	sessions = cfg.GetSessionsByWorkspace("ws-2")
+	if len(sessions) != 1 {
+		t.Errorf("Expected 1 session in ws-2, got %d", len(sessions))
+	}
+
+	// Empty workspace ID
+	sessions = cfg.GetSessionsByWorkspace("")
+	if sessions != nil {
+		t.Error("Expected nil for empty workspace ID")
+	}
+
+	// Non-existent workspace
+	sessions = cfg.GetSessionsByWorkspace("nonexistent")
+	if len(sessions) != 0 {
+		t.Errorf("Expected 0 sessions for nonexistent workspace, got %d", len(sessions))
+	}
+}
+
+func TestConfig_RemoveSessions(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/r", WorkTree: "/w", Branch: "b1"},
+			{ID: "s2", RepoPath: "/r", WorkTree: "/w", Branch: "b2"},
+			{ID: "s3", RepoPath: "/r", WorkTree: "/w", Branch: "b3"},
+			{ID: "s4", RepoPath: "/r", WorkTree: "/w", Branch: "b4"},
+		},
+	}
+
+	// Remove multiple sessions
+	removed := cfg.RemoveSessions([]string{"s1", "s3"})
+	if removed != 2 {
+		t.Errorf("Expected 2 removed, got %d", removed)
+	}
+
+	sessions := cfg.GetSessions()
+	if len(sessions) != 2 {
+		t.Errorf("Expected 2 remaining sessions, got %d", len(sessions))
+	}
+
+	// Verify correct sessions remain
+	ids := map[string]bool{}
+	for _, s := range sessions {
+		ids[s.ID] = true
+	}
+	if !ids["s2"] || !ids["s4"] {
+		t.Error("Expected s2 and s4 to remain")
+	}
+
+	// Remove with non-existent IDs
+	removed = cfg.RemoveSessions([]string{"nonexistent"})
+	if removed != 0 {
+		t.Errorf("Expected 0 removed for nonexistent IDs, got %d", removed)
+	}
+
+	// Remove empty list
+	removed = cfg.RemoveSessions([]string{})
+	if removed != 0 {
+		t.Errorf("Expected 0 removed for empty list, got %d", removed)
+	}
+}
+
+func TestConfig_SetSessionsWorkspace(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/r", WorkTree: "/w", Branch: "b1"},
+			{ID: "s2", RepoPath: "/r", WorkTree: "/w", Branch: "b2"},
+			{ID: "s3", RepoPath: "/r", WorkTree: "/w", Branch: "b3"},
+		},
+	}
+
+	// Assign multiple sessions to workspace
+	updated := cfg.SetSessionsWorkspace([]string{"s1", "s3"}, "ws-1")
+	if updated != 2 {
+		t.Errorf("Expected 2 updated, got %d", updated)
+	}
+
+	s1 := cfg.GetSession("s1")
+	if s1.WorkspaceID != "ws-1" {
+		t.Errorf("s1 should be in ws-1, got %q", s1.WorkspaceID)
+	}
+	s2 := cfg.GetSession("s2")
+	if s2.WorkspaceID != "" {
+		t.Errorf("s2 should have no workspace, got %q", s2.WorkspaceID)
+	}
+	s3 := cfg.GetSession("s3")
+	if s3.WorkspaceID != "ws-1" {
+		t.Errorf("s3 should be in ws-1, got %q", s3.WorkspaceID)
+	}
+}
+
+func TestConfig_Workspace_Persistence(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "plural-workspace-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := &Config{
+		Repos: []string{"/path/to/repo"},
+		Sessions: []Session{
+			{
+				ID:          "s1",
+				RepoPath:    "/path/to/repo",
+				WorkTree:    "/path/to/worktree",
+				Branch:      "b1",
+				Name:        "session1",
+				WorkspaceID: "ws-1",
+			},
+		},
+		Workspaces: []Workspace{
+			{ID: "ws-1", Name: "Backend"},
+			{ID: "ws-2", Name: "Frontend"},
+		},
+		ActiveWorkspaceID: "ws-1",
+		filePath:          configPath,
+	}
+
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+
+	if len(loaded.Workspaces) != 2 {
+		t.Errorf("Expected 2 workspaces, got %d", len(loaded.Workspaces))
+	}
+	if loaded.Workspaces[0].Name != "Backend" {
+		t.Errorf("Expected first workspace name 'Backend', got %q", loaded.Workspaces[0].Name)
+	}
+	if loaded.ActiveWorkspaceID != "ws-1" {
+		t.Errorf("Expected active workspace 'ws-1', got %q", loaded.ActiveWorkspaceID)
+	}
+	if loaded.Sessions[0].WorkspaceID != "ws-1" {
+		t.Errorf("Expected session workspace 'ws-1', got %q", loaded.Sessions[0].WorkspaceID)
+	}
+}
+
+func TestConfig_EnsureInitialized_Workspaces(t *testing.T) {
+	cfg := &Config{}
+	cfg.ensureInitialized()
+
+	if cfg.Workspaces == nil {
+		t.Error("Workspaces should be initialized")
+	}
+}

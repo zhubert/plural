@@ -211,3 +211,54 @@ func TestFlashTick(t *testing.T) {
 		t.Error("FlashTick() should return a command")
 	}
 }
+
+func TestFooter_MultiSelectMode(t *testing.T) {
+	footer := NewFooter()
+	footer.SetWidth(120)
+
+	// Default view should not show multi-select bindings
+	footer.SetContext(true, true, false, false, false, false, false, false, false)
+	defaultView := footer.View()
+	if strings.Contains(defaultView, "toggle") {
+		t.Error("Default view should not contain multi-select 'toggle' binding")
+	}
+	if strings.Contains(defaultView, "select all") {
+		t.Error("Default view should not contain 'select all' binding")
+	}
+
+	// Multi-select mode should show multi-select-specific bindings
+	footer.SetContext(true, true, false, false, false, false, false, true, false)
+	multiSelectView := footer.View()
+
+	expectedBindings := []string{"toggle", "select all", "deselect all", "bulk action", "navigate", "exit", "help"}
+	for _, binding := range expectedBindings {
+		if !strings.Contains(multiSelectView, binding) {
+			t.Errorf("Multi-select view should contain %q binding", binding)
+		}
+	}
+
+	// Multi-select bindings should NOT show standard sidebar bindings
+	standardBindings := []string{"new session", "add repo", "merge/pr", "fork", "delete", "quit"}
+	for _, binding := range standardBindings {
+		if strings.Contains(multiSelectView, binding) {
+			t.Errorf("Multi-select view should NOT contain standard binding %q", binding)
+		}
+	}
+}
+
+func TestFooter_MultiSelectMode_FlashTakesPriority(t *testing.T) {
+	footer := NewFooter()
+	footer.SetWidth(120)
+
+	// Flash message should take priority over multi-select bindings
+	footer.SetContext(true, true, false, false, false, false, false, true, false)
+	footer.SetFlash("Error occurred", FlashError)
+
+	view := footer.View()
+	if !strings.Contains(view, "Error occurred") {
+		t.Error("Flash message should take priority over multi-select bindings")
+	}
+	if strings.Contains(view, "toggle") {
+		t.Error("Multi-select bindings should not show when flash is active")
+	}
+}

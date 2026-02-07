@@ -61,6 +61,7 @@ type Footer struct {
 	streaming          bool // Whether active session is streaming
 	viewChangesMode    bool // Whether showing view changes overlay
 	searchMode         bool // Whether sidebar is in search mode
+	multiSelectMode    bool // Whether sidebar is in multi-select mode
 	hasDetectedOptions bool // Whether chat has detected options for parallel exploration
 	flashMessage       *FlashMessage // Current flash message, if any
 }
@@ -83,7 +84,7 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, viewChangesMode, searchMode, hasDetectedOptions bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
@@ -91,6 +92,7 @@ func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendi
 	f.streaming = streaming
 	f.viewChangesMode = viewChangesMode
 	f.searchMode = searchMode
+	f.multiSelectMode = multiSelectMode
 	f.hasDetectedOptions = hasDetectedOptions
 }
 
@@ -231,6 +233,26 @@ func (f *Footer) View() string {
 			{Key: "↑/↓", Desc: "navigate"},
 		}
 		for _, b := range searchBindings {
+			key := FooterKeyStyle.Render(b.Key)
+			desc := FooterDescStyle.Render(": " + b.Desc)
+			parts = append(parts, key+desc)
+		}
+		content := strings.Join(parts, footerSeparator())
+		return FooterStyle.Width(f.width).MaxHeight(1).Render(content)
+	}
+
+	// Show multi-select-specific shortcuts when in multi-select mode
+	if f.multiSelectMode {
+		multiSelectBindings := []KeyBinding{
+			{Key: "space", Desc: "toggle"},
+			{Key: "a", Desc: "select all"},
+			{Key: "n", Desc: "deselect all"},
+			{Key: "enter", Desc: "bulk action"},
+			{Key: "↑/↓", Desc: "navigate"},
+			{Key: "esc", Desc: "exit"},
+			{Key: "?", Desc: "help"},
+		}
+		for _, b := range multiSelectBindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)

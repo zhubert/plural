@@ -225,6 +225,10 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 		}
 
 		// No parent ID - these are top-level sessions
+		// Auto-assign to active workspace
+		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+			sess.WorkspaceID = activeWS
+		}
 		logger.WithSession(sess.ID).Info("created session for issue", "issue", issue.ID, "source", issue.Source, "name", sess.Name)
 
 		m.config.AddSession(*sess)
@@ -244,7 +248,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 		logger.Get().Error("failed to save config", "error", err)
 		cmds = append(cmds, m.ShowFlashError("Failed to save configuration"))
 	}
-	m.sidebar.SetSessions(m.config.GetSessions())
+	m.sidebar.SetSessions(m.getFilteredSessions())
 
 	// Show flash message for any failed session creations
 	if len(failedIssues) > 0 {
@@ -384,6 +388,10 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 		// Set parent ID to track fork relationship
 		sess.ParentID = parentSession.ID
+		// Auto-assign to active workspace
+		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+			sess.WorkspaceID = activeWS
+		}
 
 		// Add session to config
 		m.config.AddSession(*sess)
@@ -403,7 +411,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 	}
 
 	// Update sidebar
-	m.sidebar.SetSessions(m.config.GetSessions())
+	m.sidebar.SetSessions(m.getFilteredSessions())
 
 	// Clear detected options since we've acted on them
 	if state := m.sessionState().GetIfExists(parentSession.ID); state != nil {

@@ -55,12 +55,22 @@ type (
 	BroadcastGroupState      = modals.BroadcastGroupState
 	BroadcastGroupAction     = modals.BroadcastGroupAction
 	SessionItem              = modals.SessionItem
+	WorkspaceListState       = modals.WorkspaceListState
+	NewWorkspaceState        = modals.NewWorkspaceState
+	BulkActionState          = modals.BulkActionState
+	BulkAction               = modals.BulkAction
 )
 
 // Re-export broadcast action constants
 const (
 	BroadcastActionSendPrompt = modals.BroadcastActionSendPrompt
 	BroadcastActionCreatePRs  = modals.BroadcastActionCreatePRs
+)
+
+// Re-export bulk action constants
+const (
+	BulkActionDelete          = modals.BulkActionDelete
+	BulkActionMoveToWorkspace = modals.BulkActionMoveToWorkspace
 )
 
 // Re-export constructor functions
@@ -94,6 +104,10 @@ var (
 	NewPreviewActiveState      = modals.NewPreviewActiveState
 	NewBroadcastState          = modals.NewBroadcastState
 	NewBroadcastGroupState     = modals.NewBroadcastGroupState
+	NewWorkspaceListState      = modals.NewWorkspaceListState
+	NewNewWorkspaceState       = modals.NewNewWorkspaceState
+	NewRenameWorkspaceState    = modals.NewRenameWorkspaceState
+	NewBulkActionState         = modals.NewBulkActionState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
 	TruncateString                 = modals.TruncateString

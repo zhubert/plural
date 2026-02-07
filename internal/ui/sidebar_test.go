@@ -603,6 +603,272 @@ func TestSidebar_RenderSessionNode_NodeSymbolStatus(t *testing.T) {
 	}
 }
 
+func TestSidebar_AttentionStateMaps(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Initially all maps are empty
+	if sidebar.sessionPriority("s1") != priorityNormal {
+		t.Error("Session should have normal priority initially")
+	}
+
+	// Set and verify pending question
+	sidebar.SetPendingQuestion("s1", true)
+	if sidebar.sessionPriority("s1") != priorityPermission {
+		t.Errorf("Expected priorityPermission, got %d", sidebar.sessionPriority("s1"))
+	}
+	sidebar.SetPendingQuestion("s1", false)
+	if sidebar.sessionPriority("s1") != priorityNormal {
+		t.Error("Should return to normal after clearing question")
+	}
+
+	// Set and verify idle with response
+	sidebar.SetIdleWithResponse("s1", true)
+	if sidebar.sessionPriority("s1") != priorityIdle {
+		t.Errorf("Expected priorityIdle, got %d", sidebar.sessionPriority("s1"))
+	}
+	sidebar.SetIdleWithResponse("s1", false)
+	if sidebar.sessionPriority("s1") != priorityNormal {
+		t.Error("Should return to normal after clearing idle")
+	}
+
+	// Set and verify uncommitted changes
+	sidebar.SetUncommittedChanges("s1", true)
+	if sidebar.sessionPriority("s1") != priorityUncommitted {
+		t.Errorf("Expected priorityUncommitted, got %d", sidebar.sessionPriority("s1"))
+	}
+	sidebar.SetUncommittedChanges("s1", false)
+	if sidebar.sessionPriority("s1") != priorityNormal {
+		t.Error("Should return to normal after clearing uncommitted")
+	}
+}
+
+func TestSidebar_SessionPriority_Ordering(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Test priority precedence: permission > streaming > idle > uncommitted > normal
+	// When multiple states are set, highest priority wins
+
+	// Permission + streaming -> permission wins
+	sidebar.SetPendingPermission("s1", true)
+	sidebar.SetStreaming("s1", true)
+	if sidebar.sessionPriority("s1") != priorityPermission {
+		t.Errorf("Permission should take priority over streaming, got %d", sidebar.sessionPriority("s1"))
+	}
+
+	// Question also maps to permission priority
+	sidebar.SetPendingPermission("s1", false)
+	sidebar.SetStreaming("s1", false)
+	sidebar.SetPendingQuestion("s2", true)
+	if sidebar.sessionPriority("s2") != priorityPermission {
+		t.Errorf("Question should be priorityPermission, got %d", sidebar.sessionPriority("s2"))
+	}
+
+	// Streaming > idle
+	sidebar.SetStreaming("s3", true)
+	sidebar.SetIdleWithResponse("s3", true)
+	if sidebar.sessionPriority("s3") != priorityStreaming {
+		t.Errorf("Streaming should take priority over idle, got %d", sidebar.sessionPriority("s3"))
+	}
+
+	// Idle > uncommitted
+	sidebar.SetIdleWithResponse("s4", true)
+	sidebar.SetUncommittedChanges("s4", true)
+	if sidebar.sessionPriority("s4") != priorityIdle {
+		t.Errorf("Idle should take priority over uncommitted, got %d", sidebar.sessionPriority("s4"))
+	}
+}
+
+func TestSidebar_EffectivePriority(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Parent with no attention, child with permission
+	sidebar.SetPendingPermission("child1", true)
+
+	node := sessionNode{
+		Session: config.Session{ID: "parent"},
+		Children: []sessionNode{
+			{Session: config.Session{ID: "child1"}},
+		},
+	}
+
+	ep := sidebar.effectivePriority(node)
+	if ep != priorityPermission {
+		t.Errorf("Effective priority should be permission (from child), got %d", ep)
+	}
+
+	// Parent with streaming, child with normal -> parent priority wins
+	sidebar.SetPendingPermission("child1", false)
+	sidebar.SetStreaming("parent", true)
+
+	ep = sidebar.effectivePriority(node)
+	if ep != priorityStreaming {
+		t.Errorf("Effective priority should be streaming (from parent), got %d", ep)
+	}
+}
+
+func TestSidebar_PrioritySorting_RootNodes(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Set up attention states before setting sessions
+	sidebar.SetPendingPermission("s-perm", true)
+	sidebar.SetStreaming("s-stream", true)
+	sidebar.SetIdleWithResponse("s-idle", true)
+	sidebar.SetUncommittedChanges("s-uncommit", true)
+
+	sessions := []config.Session{
+		{ID: "s-normal", RepoPath: "/repo", Branch: "b1", Name: "normal"},
+		{ID: "s-uncommit", RepoPath: "/repo", Branch: "b2", Name: "uncommitted"},
+		{ID: "s-idle", RepoPath: "/repo", Branch: "b3", Name: "idle"},
+		{ID: "s-stream", RepoPath: "/repo", Branch: "b4", Name: "streaming"},
+		{ID: "s-perm", RepoPath: "/repo", Branch: "b5", Name: "permission"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// After SetSessions, sessions should be sorted by priority
+	// Expected order: permission, streaming, idle, uncommitted, normal
+	expected := []string{"s-perm", "s-stream", "s-idle", "s-uncommit", "s-normal"}
+	for i, id := range expected {
+		if sidebar.sessions[i].ID != id {
+			t.Errorf("sessions[%d]: expected %s, got %s", i, id, sidebar.sessions[i].ID)
+		}
+	}
+}
+
+func TestSidebar_PrioritySorting_StableOrder(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// All sessions have normal priority - original order should be preserved
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "first"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "second"},
+		{ID: "s3", RepoPath: "/repo", Branch: "b3", Name: "third"},
+	}
+	sidebar.SetSessions(sessions)
+
+	for i, sess := range sessions {
+		if sidebar.sessions[i].ID != sess.ID {
+			t.Errorf("sessions[%d]: expected %s, got %s (stable sort failed)", i, sess.ID, sidebar.sessions[i].ID)
+		}
+	}
+}
+
+func TestSidebar_PrioritySorting_ParentChildPreserved(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Child has a pending permission - should drag parent subtree to top
+	sidebar.SetPendingPermission("child", true)
+
+	sessions := []config.Session{
+		{ID: "other", RepoPath: "/repo", Branch: "b1", Name: "other"},
+		{ID: "parent", RepoPath: "/repo", Branch: "b2", Name: "parent"},
+		{ID: "child", RepoPath: "/repo", Branch: "b3", Name: "child", ParentID: "parent"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Parent subtree should sort before "other" because child has permission
+	// Expected flat order: parent, child, other
+	if sidebar.sessions[0].ID != "parent" {
+		t.Errorf("sessions[0]: expected parent, got %s", sidebar.sessions[0].ID)
+	}
+	if sidebar.sessions[1].ID != "child" {
+		t.Errorf("sessions[1]: expected child, got %s", sidebar.sessions[1].ID)
+	}
+	if sidebar.sessions[2].ID != "other" {
+		t.Errorf("sessions[2]: expected other, got %s", sidebar.sessions[2].ID)
+	}
+}
+
+func TestSidebar_PrioritySorting_MultipleRepoGroups(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Permission in repo2, streaming in repo1
+	sidebar.SetPendingPermission("s2", true)
+	sidebar.SetStreaming("s1", true)
+
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo1", Branch: "b1", Name: "repo1-streaming"},
+		{ID: "s3", RepoPath: "/repo1", Branch: "b2", Name: "repo1-normal"},
+		{ID: "s2", RepoPath: "/repo2", Branch: "b3", Name: "repo2-permission"},
+		{ID: "s4", RepoPath: "/repo2", Branch: "b4", Name: "repo2-normal"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Each repo group sorts independently
+	// Repo1: s1 (streaming) before s3 (normal)
+	// Repo2: s2 (permission) before s4 (normal)
+	if sidebar.sessions[0].ID != "s1" {
+		t.Errorf("sessions[0]: expected s1 (streaming), got %s", sidebar.sessions[0].ID)
+	}
+	if sidebar.sessions[1].ID != "s3" {
+		t.Errorf("sessions[1]: expected s3 (normal), got %s", sidebar.sessions[1].ID)
+	}
+	if sidebar.sessions[2].ID != "s2" {
+		t.Errorf("sessions[2]: expected s2 (permission), got %s", sidebar.sessions[2].ID)
+	}
+	if sidebar.sessions[3].ID != "s4" {
+		t.Errorf("sessions[3]: expected s4 (normal), got %s", sidebar.sessions[3].ID)
+	}
+}
+
+func TestSidebar_PrioritySorting_ChildrenWithinParent(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Two children: one streaming, one with permission
+	sidebar.SetPendingPermission("child-perm", true)
+	sidebar.SetStreaming("child-stream", true)
+
+	sessions := []config.Session{
+		{ID: "parent", RepoPath: "/repo", Branch: "b1", Name: "parent"},
+		{ID: "child-stream", RepoPath: "/repo", Branch: "b2", Name: "streaming child", ParentID: "parent"},
+		{ID: "child-perm", RepoPath: "/repo", Branch: "b3", Name: "permission child", ParentID: "parent"},
+		{ID: "child-normal", RepoPath: "/repo", Branch: "b4", Name: "normal child", ParentID: "parent"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Flat order: parent, then children sorted by priority
+	// Children order: child-perm (permission), child-stream (streaming), child-normal (normal)
+	if sidebar.sessions[0].ID != "parent" {
+		t.Errorf("sessions[0]: expected parent, got %s", sidebar.sessions[0].ID)
+	}
+	if sidebar.sessions[1].ID != "child-perm" {
+		t.Errorf("sessions[1]: expected child-perm, got %s", sidebar.sessions[1].ID)
+	}
+	if sidebar.sessions[2].ID != "child-stream" {
+		t.Errorf("sessions[2]: expected child-stream, got %s", sidebar.sessions[2].ID)
+	}
+	if sidebar.sessions[3].ID != "child-normal" {
+		t.Errorf("sessions[3]: expected child-normal, got %s", sidebar.sessions[3].ID)
+	}
+}
+
+func TestSidebar_HashAttention_ChangeDetection(t *testing.T) {
+	sidebar := NewSidebar()
+
+	h1 := sidebar.hashAttention()
+
+	// Change attention state
+	sidebar.SetPendingPermission("s1", true)
+	h2 := sidebar.hashAttention()
+
+	if h1 == h2 {
+		t.Error("Hash should change when attention state changes")
+	}
+
+	// Same state should give same hash
+	h3 := sidebar.hashAttention()
+	if h2 != h3 {
+		t.Error("Hash should be stable for the same state")
+	}
+
+	// Different attention type should give different hash
+	sidebar.SetPendingPermission("s1", false)
+	sidebar.SetStreaming("s1", true)
+	h4 := sidebar.hashAttention()
+	if h2 == h4 {
+		t.Error("Different attention types should produce different hashes")
+	}
+}
+
 func TestSidebar_View_TreeStructure(t *testing.T) {
 	sidebar := NewSidebar()
 	sidebar.SetSize(60, 30)
@@ -637,5 +903,162 @@ func TestSidebar_View_TreeStructure(t *testing.T) {
 	// Children without children of their own should have ◇
 	if !strings.Contains(view, "◇") {
 		t.Errorf("Leaf children should show ◇ symbol, view:\n%s", view)
+	}
+}
+
+// =============================================================================
+// Multi-select mode tests
+// =============================================================================
+
+func TestSidebar_MultiSelect_EnterExit(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "session2"},
+	}
+	sidebar.SetSessions(sessions)
+
+	if sidebar.IsMultiSelectMode() {
+		t.Error("should not be in multi-select mode initially")
+	}
+
+	sidebar.EnterMultiSelect()
+	if !sidebar.IsMultiSelectMode() {
+		t.Error("should be in multi-select mode after enter")
+	}
+
+	// Current item should be pre-selected
+	if sidebar.SelectedCount() != 1 {
+		t.Errorf("expected 1 pre-selected session, got %d", sidebar.SelectedCount())
+	}
+
+	sidebar.ExitMultiSelect()
+	if sidebar.IsMultiSelectMode() {
+		t.Error("should not be in multi-select mode after exit")
+	}
+	if sidebar.SelectedCount() != 0 {
+		t.Error("selections should be cleared after exit")
+	}
+}
+
+func TestSidebar_MultiSelect_Toggle(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "session2"},
+	}
+	sidebar.SetSessions(sessions)
+	sidebar.EnterMultiSelect()
+
+	// s1 is pre-selected (index 0)
+	if sidebar.SelectedCount() != 1 {
+		t.Fatalf("expected 1 selected, got %d", sidebar.SelectedCount())
+	}
+
+	// Toggle s1 off
+	sidebar.ToggleSelected()
+	if sidebar.SelectedCount() != 0 {
+		t.Errorf("expected 0 selected after toggle, got %d", sidebar.SelectedCount())
+	}
+
+	// Toggle s1 back on
+	sidebar.ToggleSelected()
+	if sidebar.SelectedCount() != 1 {
+		t.Errorf("expected 1 selected after re-toggle, got %d", sidebar.SelectedCount())
+	}
+}
+
+func TestSidebar_MultiSelect_SelectAllDeselectAll(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "session2"},
+		{ID: "s3", RepoPath: "/repo", Branch: "b3", Name: "session3"},
+	}
+	sidebar.SetSessions(sessions)
+	sidebar.EnterMultiSelect()
+
+	sidebar.SelectAll()
+	if sidebar.SelectedCount() != 3 {
+		t.Errorf("expected 3 selected after SelectAll, got %d", sidebar.SelectedCount())
+	}
+
+	sidebar.DeselectAll()
+	if sidebar.SelectedCount() != 0 {
+		t.Errorf("expected 0 selected after DeselectAll, got %d", sidebar.SelectedCount())
+	}
+}
+
+func TestSidebar_MultiSelect_GetSelectedSessionIDs(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "session2"},
+	}
+	sidebar.SetSessions(sessions)
+	sidebar.EnterMultiSelect()
+	sidebar.SelectAll()
+
+	ids := sidebar.GetSelectedSessionIDs()
+	if len(ids) != 2 {
+		t.Errorf("expected 2 IDs, got %d", len(ids))
+	}
+
+	// Check both IDs are present (order is not guaranteed for maps)
+	idMap := make(map[string]bool)
+	for _, id := range ids {
+		idMap[id] = true
+	}
+	if !idMap["s1"] || !idMap["s2"] {
+		t.Errorf("expected s1 and s2, got %v", ids)
+	}
+}
+
+func TestSidebar_MultiSelect_RenderCheckboxes(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetSize(60, 24)
+
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "session2"},
+	}
+	sidebar.SetSessions(sessions)
+	sidebar.EnterMultiSelect()
+
+	// s1 is pre-selected, s2 is not
+	view := sidebar.View()
+
+	if !strings.Contains(view, "[x]") {
+		t.Errorf("should show [x] for selected session, view:\n%s", view)
+	}
+	if !strings.Contains(view, "[ ]") {
+		t.Errorf("should show [ ] for unselected session, view:\n%s", view)
+	}
+}
+
+func TestSidebar_MultiSelect_ExitClearsMode(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+	}
+	sidebar.SetSessions(sessions)
+	sidebar.EnterMultiSelect()
+	sidebar.SelectAll()
+
+	// Exit clears everything
+	sidebar.ExitMultiSelect()
+
+	if sidebar.IsMultiSelectMode() {
+		t.Error("should not be in multi-select mode")
+	}
+	if sidebar.SelectedCount() != 0 {
+		t.Error("selections should be cleared")
+	}
+
+	// View should not have checkboxes
+	sidebar.SetSize(60, 24)
+	view := sidebar.View()
+	if strings.Contains(view, "[x]") || strings.Contains(view, "[ ]") {
+		t.Error("checkboxes should not be visible after exiting multi-select mode")
 	}
 }

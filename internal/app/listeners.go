@@ -208,6 +208,7 @@ func (m *Model) submitQuestionResponse(sessionID string) (tea.Model, tea.Cmd) {
 	// Clear pending question
 	state.SetPendingQuestion(nil)
 	m.sidebar.SetPendingPermission(sessionID, false)
+	m.sidebar.SetPendingQuestion(sessionID, false)
 	m.chat.ClearPendingQuestion()
 
 	// Continue listening for session events

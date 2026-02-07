@@ -32,6 +32,7 @@ type Session struct {
 	IssueNumber      int       `json:"issue_number,omitempty"`       // Deprecated: use IssueRef instead. Kept for backwards compatibility.
 	IssueRef         *IssueRef `json:"issue_ref,omitempty"`          // Generic issue/task reference (GitHub, Asana, etc.)
 	BroadcastGroupID string    `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
+	WorkspaceID      string    `json:"workspace_id,omitempty"`       // Workspace this session belongs to
 }
 
 // GetIssueRef returns the IssueRef for this session, converting from legacy IssueNumber if needed.
