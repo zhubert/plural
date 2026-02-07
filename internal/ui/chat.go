@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	pclaude "github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
 )
@@ -1290,26 +1291,26 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 			key := keyMsg.String()
 			switch key {
-			case "esc", "q":
+			case keys.Escape, "q":
 				// Exit view changes mode
 				c.ExitViewChangesMode()
 				return c, nil
-			case "left", "h":
+			case keys.Left, "h":
 				// Navigate to previous file
 				if c.viewChanges.FileIndex > 0 {
 					c.viewChanges.FileIndex--
 					c.updateViewChangesDiff()
 				}
 				return c, nil
-			case "right", "l":
+			case keys.Right, "l":
 				// Navigate to next file
 				if c.viewChanges.FileIndex < len(c.viewChanges.Files)-1 {
 					c.viewChanges.FileIndex++
 					c.updateViewChangesDiff()
 				}
 				return c, nil
-			case "up", "k", "down", "j", "pgup", "pgdown", "ctrl+up", "ctrl+down",
-				"home", "end", "page up", "page down", "ctrl+u", "ctrl+d":
+			case keys.Up, "k", keys.Down, "j", keys.PgUp, keys.PgDown, keys.CtrlUp, keys.CtrlDown,
+				keys.Home, keys.End, "page up", "page down", keys.CtrlU, keys.CtrlD:
 				// Scroll diff viewport
 				var cmd tea.Cmd
 				c.viewChanges.Viewport, cmd = c.viewChanges.Viewport.Update(msg)
@@ -1331,18 +1332,18 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		if keyMsg, isKey := msg.(tea.KeyPressMsg); isKey {
 			key := keyMsg.String()
 			switch key {
-			case "esc", "q", "ctrl+l":
+			case keys.Escape, "q", keys.CtrlL:
 				// Exit log viewer mode
 				c.ExitLogViewerMode()
 				return c, nil
-			case "left", "h":
+			case keys.Left, "h":
 				// Navigate to previous file
 				if c.logViewer.FileIndex > 0 {
 					c.logViewer.FileIndex--
 					c.updateLogViewerContent()
 				}
 				return c, nil
-			case "right", "l":
+			case keys.Right, "l":
 				// Navigate to next file
 				if c.logViewer.FileIndex < len(c.logViewer.Files)-1 {
 					c.logViewer.FileIndex++
@@ -1357,8 +1358,8 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				// Refresh log content
 				c.RefreshLogViewer()
 				return c, nil
-			case "up", "k", "down", "j", "pgup", "pgdown", "ctrl+up", "ctrl+down",
-				"home", "end", "page up", "page down", "ctrl+u", "ctrl+d":
+			case keys.Up, "k", keys.Down, "j", keys.PgUp, keys.PgDown, keys.CtrlUp, keys.CtrlDown,
+				keys.Home, keys.End, "page up", "page down", keys.CtrlU, keys.CtrlD:
 				// Scroll log viewport - disable follow mode when manually scrolling
 				if c.logViewer.FollowTail {
 					c.logViewer.FollowTail = false
@@ -1475,17 +1476,17 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 			key := keyMsg.String()
 			// Allow scroll keys to pass through to viewport
 			switch key {
-			case "pgup", "pgdown", "ctrl+up", "ctrl+down", "home", "end",
-				"page up", "page down", "ctrl+u", "ctrl+d":
+			case keys.PgUp, keys.PgDown, keys.CtrlUp, keys.CtrlDown, keys.Home, keys.End,
+				"page up", "page down", keys.CtrlU, keys.CtrlD:
 				// Pass to viewport for scrolling
 				var cmd tea.Cmd
 				c.viewport, cmd = c.viewport.Update(msg)
 				cmds = append(cmds, cmd)
 				return c, tea.Batch(cmds...)
-			case "tab":
+			case keys.Tab:
 				// Don't let textarea consume Tab - let it bubble up for focus switching
 				return c, tea.Batch(cmds...)
-			case "esc":
+			case keys.Escape:
 				// Clear text selection if there is one
 				if c.HasTextSelection() {
 					c.SelectionClear()

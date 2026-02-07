@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -180,11 +181,11 @@ func (s *ChangelogState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.ScrollOffset > 0 {
 				s.ScrollOffset--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			maxOffset := max(0, s.totalLines-s.maxVisibleLines)
 			if s.ScrollOffset < maxOffset {
 				s.ScrollOffset++
@@ -271,11 +272,11 @@ func (s *ThemeState) Render() string {
 func (s *ThemeState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Themes)-1 {
 				s.SelectedIndex++
 			}
@@ -443,15 +444,15 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "tab":
+		case keys.Tab:
 			s.Focus = (s.Focus + 1) % numFields
 			s.updateInputFocus()
 			return s, nil
-		case "shift+tab":
+		case keys.ShiftTab:
 			s.Focus = (s.Focus - 1 + numFields) % numFields
 			s.updateInputFocus()
 			return s, nil
-		case "space":
+		case keys.Space:
 			// Toggle checkbox when focused on notifications or squash
 			if s.Focus == 1 {
 				s.NotificationsEnabled = !s.NotificationsEnabled

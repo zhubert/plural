@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -342,12 +343,12 @@ func (s *PluginsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	// When search is focused, handle special keys and send rest to input
 	if s.ActiveTab == TabDiscover && s.SearchFocused {
 		switch key {
-		case "escape":
+		case keys.Escape:
 			// Exit search mode
 			s.SearchFocused = false
 			s.SearchInput.Blur()
 			return s, nil
-		case "up", "down":
+		case keys.Up, keys.Down:
 			// Allow up/down to navigate list even when search focused
 			s.handleNavigation(key)
 			return s, nil
@@ -367,18 +368,18 @@ func (s *PluginsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 
 	// Standard navigation when search is not focused
 	switch key {
-	case "tab":
+	case keys.Tab:
 		// Tab cycles through tabs
 		s.ActiveTab = (s.ActiveTab + 1) % 3
 		s.SelectedIndex = 0
 		s.ScrollOffset = 0
-	case "left", "h":
+	case keys.Left, "h":
 		if s.ActiveTab > 0 {
 			s.ActiveTab--
 			s.SelectedIndex = 0
 			s.ScrollOffset = 0
 		}
-	case "right", "l":
+	case keys.Right, "l":
 		if s.ActiveTab < TabDiscover {
 			s.ActiveTab++
 			s.SelectedIndex = 0
@@ -402,7 +403,7 @@ func (s *PluginsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			s.SearchFocused = true
 			s.SearchInput.Focus()
 		}
-	case "up", "k", "down", "j":
+	case keys.Up, "k", keys.Down, "j":
 		s.handleNavigation(key)
 	}
 	return s, nil
@@ -416,7 +417,7 @@ func (s *PluginsState) handleNavigation(key string) {
 	}
 
 	switch key {
-	case "up", "k":
+	case keys.Up, "k":
 		if s.SelectedIndex > 0 {
 			s.SelectedIndex--
 			// Adjust scroll if selection is above visible area
@@ -424,7 +425,7 @@ func (s *PluginsState) handleNavigation(key string) {
 				s.ScrollOffset = s.SelectedIndex
 			}
 		}
-	case "down", "j":
+	case keys.Down, "j":
 		if s.SelectedIndex < listLen-1 {
 			s.SelectedIndex++
 			// Adjust scroll if selection is below visible area

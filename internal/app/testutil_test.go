@@ -7,6 +7,7 @@ import (
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/mcp"
 )
 
@@ -74,39 +75,39 @@ func testModelWithSize(cfg *config.Config, width, height int) *Model {
 // Examples: "a", "enter", "tab", "esc", "ctrl+c", "up", "down"
 func keyPress(key string) tea.KeyPressMsg {
 	switch key {
-	case "enter":
+	case keys.Enter:
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
-	case "tab":
+	case keys.Tab:
 		return tea.KeyPressMsg{Code: tea.KeyTab}
-	case "esc":
+	case keys.Escape:
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
-	case "backspace":
+	case keys.Backspace:
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
-	case "up":
+	case keys.Up:
 		return tea.KeyPressMsg{Code: tea.KeyUp}
-	case "down":
+	case keys.Down:
 		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "left":
+	case keys.Left:
 		return tea.KeyPressMsg{Code: tea.KeyLeft}
-	case "right":
+	case keys.Right:
 		return tea.KeyPressMsg{Code: tea.KeyRight}
-	case "home":
+	case keys.Home:
 		return tea.KeyPressMsg{Code: tea.KeyHome}
-	case "end":
+	case keys.End:
 		return tea.KeyPressMsg{Code: tea.KeyEnd}
-	case "pgup":
+	case keys.PgUp:
 		return tea.KeyPressMsg{Code: tea.KeyPgUp}
-	case "pgdown":
+	case keys.PgDown:
 		return tea.KeyPressMsg{Code: tea.KeyPgDown}
-	case "space":
+	case keys.Space:
 		return tea.KeyPressMsg{Code: tea.KeySpace}
-	case "ctrl+c":
+	case keys.CtrlC:
 		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
-	case "ctrl+v":
+	case keys.CtrlV:
 		return tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl}
-	case "ctrl+s":
+	case keys.CtrlS:
 		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
-	case "shift+tab":
+	case keys.ShiftTab:
 		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	default:
 		// Regular character - for single characters, set both Code and Text

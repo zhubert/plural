@@ -96,6 +96,7 @@ internal/
 │   ├── provider.go        Provider interface, Issue struct, ProviderRegistry
 │   ├── github.go          GitHub provider (wraps git.FetchGitHubIssues)
 │   └── asana.go           Asana provider (HTTP client, ASANA_PAT env var)
+├── keys/                  Key string constants for Bubble Tea v2 key events
 ├── logger/                Thread-safe file logger
 ├── mcp/                   MCP server for permissions via Unix socket IPC
 ├── notification/          Desktop notifications (beeep library)
@@ -698,30 +699,42 @@ Charm's Bubble Tea v2 stack:
 - `tea.View` returns declarative view with properties
 - Viewport uses `SetWidth()`/`SetHeight()` methods
 
-**Bubble Tea v2 key strings** (use `msg.String()` on `tea.KeyPressMsg`):
+**Bubble Tea v2 key strings** — Use constants from `internal/keys/` instead of hardcoded strings:
 
-| Key | String | NOT |
-|-----|--------|-----|
-| Escape | `"escape"` | `"esc"` |
-| Enter | `"enter"` | `"return"` |
-| Space | `"space"` | `" "` |
-| Tab | `"tab"` | `"\t"` |
-| Backspace | `"backspace"` | |
-| Delete | `"delete"` | |
-| Up arrow | `"up"` | |
-| Down arrow | `"down"` | |
-| Left arrow | `"left"` | |
-| Right arrow | `"right"` | |
-| Page Up | `"pgup"` | |
-| Page Down | `"pgdown"` | |
-| Home | `"home"` | |
-| End | `"end"` | |
-| Ctrl+C | `"ctrl+c"` | |
-| Ctrl+S | `"ctrl+s"` | |
-| Shift+Tab | `"shift+tab"` | |
+```go
+import "github.com/zhubert/plural/internal/keys"
+
+// In key handlers:
+case keys.Escape:  // "esc"
+case keys.Enter:   // "enter"
+case keys.Up:      // "up"
+case keys.CtrlC:   // "ctrl+c"
+```
+
+The `keys` package derives all values from `tea.KeyPressMsg{Code: tea.KeyXxx}.String()` at init time, guaranteeing correctness. Single-character keys like `"a"`, `"y"`, `"?"` are not included (unambiguous, cannot be misspelled).
+
+| Key | Constant | String Value |
+|-----|----------|-------------|
+| Escape | `keys.Escape` | `"esc"` |
+| Enter | `keys.Enter` | `"enter"` |
+| Space | `keys.Space` | `"space"` |
+| Tab | `keys.Tab` | `"tab"` |
+| Shift+Tab | `keys.ShiftTab` | `"shift+tab"` |
+| Backspace | `keys.Backspace` | `"backspace"` |
+| Delete | `keys.Delete` | `"delete"` |
+| Up arrow | `keys.Up` | `"up"` |
+| Down arrow | `keys.Down` | `"down"` |
+| Left arrow | `keys.Left` | `"left"` |
+| Right arrow | `keys.Right` | `"right"` |
+| Page Up | `keys.PgUp` | `"pgup"` |
+| Page Down | `keys.PgDown` | `"pgdown"` |
+| Home | `keys.Home` | `"home"` |
+| End | `keys.End` | `"end"` |
+| Ctrl+C | `keys.CtrlC` | `"ctrl+c"` |
+| Ctrl+S | `keys.CtrlS` | `"ctrl+s"` |
 
 Regular letter/number keys return their lowercase value (e.g., `"a"`, `"1"`, `"/"`).
-Always test key handling with actual keypresses when in doubt.
+Always use `keys.` constants for special keys — never hardcode strings like `"esc"` or `"escape"`.
 
 ---
 

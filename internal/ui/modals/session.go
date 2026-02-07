@@ -4,6 +4,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -78,7 +79,7 @@ func (s *NewSessionState) Render() string {
 func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			switch s.Focus {
 			case 0: // Repo list
 				if s.RepoIndex > 0 {
@@ -89,7 +90,7 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.BaseIndex--
 				}
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			switch s.Focus {
 			case 0: // Repo list
 				if s.RepoIndex < len(s.RepoOptions)-1 {
@@ -100,7 +101,7 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.BaseIndex++
 				}
 			}
-		case "tab":
+		case keys.Tab:
 			switch s.Focus {
 			case 0:
 				s.Focus = 1
@@ -112,7 +113,7 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.BranchInput.Blur()
 			}
 			return s, nil
-		case "shift+tab":
+		case keys.ShiftTab:
 			switch s.Focus {
 			case 2:
 				s.Focus = 1
@@ -259,7 +260,7 @@ func (s *ForkSessionState) Render() string {
 func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "tab":
+		case keys.Tab:
 			if s.Focus == 0 {
 				s.Focus = 1
 				s.BranchInput.Focus()
@@ -268,18 +269,18 @@ func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.BranchInput.Blur()
 			}
 			return s, nil
-		case "shift+tab":
+		case keys.ShiftTab:
 			if s.Focus == 1 {
 				s.Focus = 0
 				s.BranchInput.Blur()
 			}
 			return s, nil
-		case "space":
+		case keys.Space:
 			if s.Focus == 0 {
 				s.CopyMessages = !s.CopyMessages
 			}
 			return s, nil
-		case "up", "down", "j", "k":
+		case keys.Up, keys.Down, "j", "k":
 			// Toggle focus between options
 			if s.Focus == 0 {
 				s.Focus = 1

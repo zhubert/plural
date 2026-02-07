@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -56,7 +57,7 @@ var categoryOrder = []string{
 var ShortcutRegistry = []Shortcut{
 	// Navigation
 	{
-		Key:         "tab",
+		Key:         keys.Tab,
 		DisplayKey:  "Tab",
 		Description: "Switch between sidebar and chat",
 		Category:    CategoryNavigation,
@@ -103,7 +104,7 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutImportIssues,
 	},
 	{
-		Key:         "ctrl+b",
+		Key:         keys.CtrlB,
 		DisplayKey:  "ctrl-b",
 		Description: "Broadcast prompt to multiple repos",
 		Category:    CategorySessions,
@@ -111,7 +112,7 @@ var ShortcutRegistry = []Shortcut{
 		Condition:   func(m *Model) bool { return len(m.config.GetRepos()) > 0 },
 	},
 	{
-		Key:             "ctrl+shift+b",
+		Key:             keys.CtrlShiftB,
 		DisplayKey:      "ctrl-shift-b",
 		Description:     "Broadcast group actions (send prompt/create PRs)",
 		Category:        CategorySessions,
@@ -132,7 +133,7 @@ var ShortcutRegistry = []Shortcut{
 	},
 	// Git Operations
 	{
-		Key:             "ctrl+e",
+		Key:             keys.CtrlE,
 		DisplayKey:      "ctrl-e",
 		Description:     "Open terminal in worktree",
 		Category:        CategoryGit,
@@ -197,7 +198,7 @@ var ShortcutRegistry = []Shortcut{
 
 	// Chat
 	{
-		Key:             "ctrl+/",
+		Key:             keys.CtrlSlash,
 		DisplayKey:      "ctrl-/",
 		Description:     "Search messages",
 		Category:        CategoryChat,
@@ -206,7 +207,7 @@ var ShortcutRegistry = []Shortcut{
 		Condition:       func(m *Model) bool { return m.chat.IsFocused() },
 	},
 	{
-		Key:             "ctrl+t",
+		Key:             keys.CtrlT,
 		DisplayKey:      "ctrl-t",
 		Description:     "Toggle tool use expansion",
 		Category:        CategoryChat,
@@ -218,7 +219,7 @@ var ShortcutRegistry = []Shortcut{
 	// General
 	// Note: "?" (help) is handled specially in ExecuteShortcut to avoid init cycle
 	{
-		Key:         "ctrl+l",
+		Key:         keys.CtrlL,
 		DisplayKey:  "ctrl-l",
 		Description: "Toggle log viewer",
 		Category:    CategoryGeneral,
@@ -239,7 +240,7 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutQuit,
 	},
 	{
-		Key:         "ctrl+d",
+		Key:         keys.CtrlD,
 		DisplayKey:  "ctrl-d",
 		Description: "Quit application",
 		Category:    CategoryGeneral,

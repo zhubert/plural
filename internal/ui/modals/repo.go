@@ -6,6 +6,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -161,17 +163,17 @@ func (s *AddRepoState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		if s.showingOptions {
 			completions := s.completer.GetCompletions()
 			switch key {
-			case "up", "k":
+			case keys.Up, "k":
 				if s.completionIndex > 0 {
 					s.completionIndex--
 				}
 				return s, nil
-			case "down", "j":
+			case keys.Down, "j":
 				if s.completionIndex < len(completions)-1 {
 					s.completionIndex++
 				}
 				return s, nil
-			case "tab", "enter":
+			case keys.Tab, keys.Enter:
 				// Select the current completion
 				if s.completionIndex < len(completions) {
 					selected := completions[s.completionIndex]
@@ -182,7 +184,7 @@ func (s *AddRepoState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.completer.Reset()
 				}
 				return s, nil
-			case "esc":
+			case keys.Escape:
 				// Hide options but don't close modal
 				s.showingOptions = false
 				s.completer.Reset()
@@ -196,9 +198,9 @@ func (s *AddRepoState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		}
 
 		// Handle up/down/tab to switch between suggested and custom input (when not showing options)
-		if !s.showingOptions && s.SuggestedRepo != "" && (key == "up" || key == "down" || key == "tab") {
+		if !s.showingOptions && s.SuggestedRepo != "" && (key == keys.Up || key == keys.Down || key == keys.Tab) {
 			// Tab when on suggested switches to input; tab when on input triggers completion (handled below)
-			if key == "tab" && !s.UseSuggested {
+			if key == keys.Tab && !s.UseSuggested {
 				// Fall through to completion handling below
 			} else {
 				s.UseSuggested = !s.UseSuggested
@@ -212,7 +214,7 @@ func (s *AddRepoState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		}
 
 		// Handle Tab for path completion (only when in custom input mode)
-		if key == "tab" && !s.UseSuggested && !s.showingOptions {
+		if key == keys.Tab && !s.UseSuggested && !s.showingOptions {
 			currentValue := s.Input.Value()
 			s.completer.GenerateCompletions(currentValue)
 			completions := s.completer.GetCompletions()
@@ -345,11 +347,11 @@ func (s *SelectRepoForIssuesState) Render() string {
 func (s *SelectRepoForIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.RepoIndex > 0 {
 				s.RepoIndex--
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.RepoIndex < len(s.RepoOptions)-1 {
 				s.RepoIndex++
 			}

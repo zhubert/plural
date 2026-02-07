@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -11,7 +12,7 @@ import (
 // handleWelcomeModal handles key events for the Welcome modal.
 func (m *Model) handleWelcomeModal(key string, msg tea.KeyPressMsg, state *ui.WelcomeState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "enter", "esc":
+	case keys.Enter, keys.Escape:
 		// Mark welcome as shown and save
 		m.config.MarkWelcomeShown()
 		m.config.Save()
@@ -25,13 +26,13 @@ func (m *Model) handleWelcomeModal(key string, msg tea.KeyPressMsg, state *ui.We
 // handleChangelogModal handles key events for the Changelog modal.
 func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.ChangelogState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "enter", "esc":
+	case keys.Enter, keys.Escape:
 		// Update last seen version and save
 		m.config.SetLastSeenVersion(m.version)
 		m.config.Save()
 		m.modal.Hide()
 		return m, nil
-	case "up", "k", "down", "j":
+	case keys.Up, "k", keys.Down, "j":
 		// Forward scroll keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -43,10 +44,10 @@ func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.
 // handleHelpModal handles key events for the Help modal.
 func (m *Model) handleHelpModal(key string, msg tea.KeyPressMsg, state *ui.HelpState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc", "?", "q":
+	case keys.Escape, "?", "q":
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		// Trigger the selected shortcut
 		shortcut := state.GetSelectedShortcut()
 		if shortcut != nil {
@@ -102,10 +103,10 @@ func normalizeHelpDisplayKey(displayKey string) string {
 // handleSearchMessagesModal handles key events for the Search Messages modal.
 func (m *Model) handleSearchMessagesModal(key string, msg tea.KeyPressMsg, state *ui.SearchMessagesState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		// Go to the selected search result
 		result := state.GetSelectedResult()
 		if result != nil {

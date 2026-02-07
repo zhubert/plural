@@ -302,7 +302,7 @@ func keyPressMsg(key string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":
 		return tea.KeyPressMsg{Code: tea.KeyDown}
-	case "esc", "escape":
+	case "esc":
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	default:
 		// Regular letter keys use Text field

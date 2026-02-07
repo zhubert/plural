@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/zhubert/plural/internal/keys"
 )
 
 // =============================================================================
@@ -175,7 +177,7 @@ func (s *ImportIssuesState) Render() string {
 func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
-		case "up", "k":
+		case keys.Up, "k":
 			if s.SelectedIndex > 0 {
 				s.SelectedIndex--
 				// Scroll up if needed
@@ -183,7 +185,7 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.ScrollOffset = s.SelectedIndex
 				}
 			}
-		case "down", "j":
+		case keys.Down, "j":
 			if s.SelectedIndex < len(s.Issues)-1 {
 				s.SelectedIndex++
 				// Scroll down if needed
@@ -191,7 +193,7 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
 				}
 			}
-		case "space":
+		case keys.Space:
 			// Toggle selection
 			if s.SelectedIndex < len(s.Issues) {
 				s.Issues[s.SelectedIndex].Selected = !s.Issues[s.SelectedIndex].Selected

@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -13,7 +14,7 @@ import (
 // handleMCPServersModal handles key events for the MCP Servers modal.
 func (m *Model) handleMCPServersModal(key string, msg tea.KeyPressMsg, state *ui.MCPServersState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
 	case "a":
@@ -44,10 +45,10 @@ func (m *Model) handleMCPServersModal(key string, msg tea.KeyPressMsg, state *ui
 // handleAddMCPServerModal handles key events for the Add MCP Server modal.
 func (m *Model) handleAddMCPServerModal(key string, msg tea.KeyPressMsg, state *ui.AddMCPServerState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.showMCPServersModal() // Go back to list
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		name, command, args, repoPath, isGlobal := state.GetValues()
 		if name == "" || command == "" {
 			return m, nil
@@ -87,7 +88,7 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 	currentTab := state.ActiveTab
 
 	switch key {
-	case "escape":
+	case keys.Escape:
 		// If search is focused, let the modal handle it (exits search mode)
 		if state.SearchFocused {
 			modal, cmd := m.modal.Update(msg)
@@ -176,10 +177,10 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 // handleAddMarketplaceModal handles key events for the Add Marketplace modal.
 func (m *Model) handleAddMarketplaceModal(key string, msg tea.KeyPressMsg, state *ui.AddMarketplaceState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.showPluginsModal() // Go back to plugins modal
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		source := state.GetValue()
 		if source == "" {
 			return m, nil
@@ -200,10 +201,10 @@ func (m *Model) handleAddMarketplaceModal(key string, msg tea.KeyPressMsg, state
 // handleThemeModal handles key events for the Theme picker modal.
 func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.ThemeState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		selectedTheme := ui.GetSelectedThemeAsThemeName(state)
 		ui.SetTheme(selectedTheme)
 		m.config.SetTheme(string(selectedTheme))
@@ -211,7 +212,7 @@ func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.Them
 		m.chat.RefreshStyles()
 		m.modal.Hide()
 		return m, nil
-	case "up", "k", "down", "j":
+	case keys.Up, "k", keys.Down, "j":
 		// Forward navigation keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
@@ -223,10 +224,10 @@ func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.Them
 // handleSettingsModal handles key events for the Settings modal.
 func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.SettingsState) (tea.Model, tea.Cmd) {
 	switch key {
-	case "esc":
+	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
-	case "enter":
+	case keys.Enter:
 		// Save all settings
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
