@@ -22,7 +22,7 @@ var cleanCmd = &cobra.Command{
 	Use:   "clean",
 	Short: "Remove all sessions, logs, and orphaned worktrees",
 	Long: `Clears all session data, removes log files, prunes orphaned worktrees,
-and kills any orphaned Claude processes.
+kills any orphaned Claude processes, and removes orphaned containers.
 
 This command combines the functionality of the former --clear and --prune flags.
 It will prompt for confirmation before proceeding unless the --yes flag is used.`,
@@ -70,8 +70,13 @@ func runCleanWithReader(input io.Reader) error {
 		fmt.Fprintf(os.Stderr, "Warning: error finding orphaned processes: %v\n", err)
 	}
 
+	orphanContainers, err := process.FindOrphanedContainers(knownSessions)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error finding orphaned containers: %v\n", err)
+	}
+
 	// Check if there's anything to clean
-	if sessionCount == 0 && len(orphanWorktrees) == 0 && len(orphanMessages) == 0 && len(orphanProcesses) == 0 {
+	if sessionCount == 0 && len(orphanWorktrees) == 0 && len(orphanMessages) == 0 && len(orphanProcesses) == 0 && len(orphanContainers) == 0 {
 		fmt.Println("Nothing to clean.")
 		return nil
 	}
@@ -94,6 +99,12 @@ func runCleanWithReader(input io.Reader) error {
 		fmt.Printf("  - %d orphaned process(es)\n", len(orphanProcesses))
 		for _, proc := range orphanProcesses {
 			fmt.Printf("      PID %d\n", proc.PID)
+		}
+	}
+	if len(orphanContainers) > 0 {
+		fmt.Printf("  - %d orphaned container(s)\n", len(orphanContainers))
+		for _, c := range orphanContainers {
+			fmt.Printf("      %s\n", c.Name)
 		}
 	}
 	fmt.Println("  - All log files in /tmp/plural-*")
@@ -126,11 +137,11 @@ func runCleanWithReader(input io.Reader) error {
 	sessionSvc := session.NewSessionService()
 	ctx := context.Background()
 
-	var prunedWorktrees, prunedMessages, prunedProcesses int
-	var worktreesErr, messagesErr, processesErr error
+	var prunedWorktrees, prunedMessages, prunedProcesses, prunedContainers int
+	var worktreesErr, messagesErr, processesErr, containersErr error
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 
 	go func() {
 		defer wg.Done()
@@ -147,6 +158,11 @@ func runCleanWithReader(input io.Reader) error {
 		prunedProcesses, processesErr = process.CleanupOrphanedProcesses(knownSessions)
 	}()
 
+	go func() {
+		defer wg.Done()
+		prunedContainers, containersErr = process.CleanupOrphanedContainers(knownSessions)
+	}()
+
 	wg.Wait()
 
 	// Report any errors
@@ -158,6 +174,9 @@ func runCleanWithReader(input io.Reader) error {
 	}
 	if processesErr != nil {
 		fmt.Fprintf(os.Stderr, "Warning: error killing orphaned processes: %v\n", processesErr)
+	}
+	if containersErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error removing orphaned containers: %v\n", containersErr)
 	}
 
 	// Print results
@@ -180,6 +199,9 @@ func runCleanWithReader(input io.Reader) error {
 	}
 	if prunedProcesses > 0 {
 		fmt.Printf("  - %d orphaned process(es) killed\n", prunedProcesses)
+	}
+	if prunedContainers > 0 {
+		fmt.Printf("  - %d orphaned container(s) removed\n", prunedContainers)
 	}
 
 	return nil

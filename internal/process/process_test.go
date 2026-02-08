@@ -1,6 +1,7 @@
 package process
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -105,4 +106,66 @@ func TestFindClaudeProcesses(t *testing.T) {
 
 	// Can't assert on count since it depends on system state
 	_ = processes
+}
+
+func TestOrphanedContainer_Fields(t *testing.T) {
+	c := OrphanedContainer{
+		Name: "plural-abc123",
+	}
+
+	if c.Name != "plural-abc123" {
+		t.Errorf("Expected Name 'plural-abc123', got %q", c.Name)
+	}
+}
+
+func TestExtractSessionIDFromContainerName(t *testing.T) {
+	tests := []struct {
+		name      string
+		container string
+		wantID    string
+	}{
+		{
+			name:      "standard plural prefix",
+			container: "plural-abc123",
+			wantID:    "abc123",
+		},
+		{
+			name:      "uuid session ID",
+			container: "plural-550e8400-e29b-41d4-a716-446655440000",
+			wantID:    "550e8400-e29b-41d4-a716-446655440000",
+		},
+		{
+			name:      "minimal name",
+			container: "plural-x",
+			wantID:    "x",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := strings.TrimPrefix(tt.container, "plural-")
+			if got != tt.wantID {
+				t.Errorf("TrimPrefix(%q, 'plural-') = %q, want %q", tt.container, got, tt.wantID)
+			}
+		})
+	}
+}
+
+func TestFindOrphanedContainers_NoContainerCLI(t *testing.T) {
+	// Set PATH to empty to ensure container CLI is not found
+	// t.Setenv automatically restores the original value after the test
+	t.Setenv("PATH", "/nonexistent")
+
+	knownSessions := map[string]bool{
+		"session-1": true,
+	}
+
+	containers, err := FindOrphanedContainers(knownSessions)
+	if err != nil {
+		t.Fatalf("Expected no error when container CLI not found, got: %v", err)
+	}
+
+	if len(containers) != 0 {
+		t.Errorf("Expected empty list when container CLI not found, got %d containers", len(containers))
+	}
 }

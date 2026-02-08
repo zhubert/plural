@@ -26,7 +26,7 @@ go test ./...            # Test
 
 # CLI commands and flags
 ./plural help            # Show help
-./plural clean           # Clear sessions, logs, and orphaned worktrees (prompts for confirmation)
+./plural clean           # Clear sessions, logs, orphaned worktrees, and containers (prompts for confirmation)
 ./plural clean -y        # Clear without confirmation prompt
 ./plural demo list       # List available demo scenarios
 ./plural --debug         # Enable debug logging
@@ -523,10 +523,20 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - Settings modal (`,`): Container toggle checkbox between squash and asana fields (focus index 3)
 - Header: `[CONTAINER]` indicator in green when viewing a containerized session
 
+**Containerfile** (repo root):
+- Builds the default `plural-claude` image using `node:22-slim` base
+- Installs git and Claude CLI via npm
+- Build: `container build -t plural-claude .`
+
+**Container orphan cleanup** (`internal/process/process.go`):
+- `OrphanedContainer` struct: `Name string` (e.g., `plural-abc123`)
+- `FindOrphanedContainers()`: Runs `container ls -a --format '{{.Names}}'`, filters `plural-*`, compares against known sessions
+- `CleanupOrphanedContainers()`: Calls find, then `container rm -f` for each orphan
+- Returns empty list (no error) if `container` CLI is not installed
+- Integrated into `cmd/clean.go` as a 4th parallel cleanup goroutine
+
 **Known limitations (prototype)**:
-- No Containerfile provided — user must supply their own image with `claude` CLI installed
 - External MCP servers not supported in container mode
-- Container orphan cleanup (`plural clean`) deferred to follow-up
 
 ### Claude Process Management
 
