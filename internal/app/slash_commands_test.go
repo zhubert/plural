@@ -289,6 +289,81 @@ func TestSlashCommandDef(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// handleSlashCommand Dispatcher Tests
+// =============================================================================
+
+func TestHandleSlashCommand_Dispatcher(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	tests := []struct {
+		name          string
+		input         string
+		wantHandled   bool
+		wantAction    SlashCommandAction
+		wantResponse  string // substring expected in response
+	}{
+		{
+			name:        "non-slash input is not handled",
+			input:       "hello world",
+			wantHandled: false,
+		},
+		{
+			name:         "cost with no active session",
+			input:        "/cost",
+			wantHandled:  true,
+			wantResponse: "No active session",
+		},
+		{
+			name:         "help returns command list",
+			input:        "/help",
+			wantHandled:  true,
+			wantResponse: "/cost",
+		},
+		{
+			name:        "mcp opens modal",
+			input:       "/mcp",
+			wantHandled: true,
+			wantAction:  ActionOpenMCP,
+		},
+		{
+			name:        "plugins opens modal",
+			input:       "/plugins",
+			wantHandled: true,
+			wantAction:  ActionOpenPlugins,
+		},
+		{
+			name:        "plugin alias opens modal",
+			input:       "/plugin",
+			wantHandled: true,
+			wantAction:  ActionOpenPlugins,
+		},
+		{
+			name:        "unknown command is not handled",
+			input:       "/foobar",
+			wantHandled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.handleSlashCommand(tt.input)
+
+			if result.Handled != tt.wantHandled {
+				t.Errorf("handleSlashCommand(%q).Handled = %v, want %v", tt.input, result.Handled, tt.wantHandled)
+			}
+			if result.Action != tt.wantAction {
+				t.Errorf("handleSlashCommand(%q).Action = %v, want %v", tt.input, result.Action, tt.wantAction)
+			}
+			if tt.wantResponse != "" && !containsString(result.Response, tt.wantResponse) {
+				t.Errorf("handleSlashCommand(%q).Response should contain %q, got %q", tt.input, tt.wantResponse, result.Response)
+			}
+		})
+	}
+}
+
 func TestFormatNumber_EdgeCases(t *testing.T) {
 	tests := []struct {
 		input    int64
