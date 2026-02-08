@@ -27,6 +27,10 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 
 	switch key {
 	case keys.Escape:
+		if state.ReturnToNewSession {
+			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+			return m, nil
+		}
 		m.modal.Hide()
 		return m, nil
 	case keys.Enter:
@@ -40,7 +44,7 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 
 		// Check if this is a glob pattern
 		if ui.IsGlobPattern(path) {
-			return m.handleAddReposFromGlob(ctx, path)
+			return m.handleAddReposFromGlob(ctx, path, state.ReturnToNewSession)
 		}
 
 		// Single path - validate and add
@@ -56,6 +60,10 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
+		if state.ReturnToNewSession {
+			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+			return m, nil
+		}
 		m.modal.Hide()
 		return m, nil
 	}
@@ -67,7 +75,8 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 
 // handleAddReposFromGlob expands a glob pattern and adds all matching git repositories.
 // Validation checks are parallelized for better performance with many directories.
-func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea.Model, tea.Cmd) {
+// When returnToNewSession is true, returns to the new session modal instead of hiding.
+func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string, returnToNewSession bool) (tea.Model, tea.Cmd) {
 	// Expand the glob to directories
 	dirs, err := ui.ExpandGlobToDirs(pattern)
 	if err != nil {
@@ -132,7 +141,11 @@ func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string) (tea
 		}
 	}
 
-	m.modal.Hide()
+	if returnToNewSession {
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+	} else {
+		m.modal.Hide()
+	}
 
 	// Build status message
 	if added == 0 {
@@ -154,6 +167,31 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 	switch key {
 	case keys.Escape:
 		m.modal.Hide()
+		return m, nil
+	case "a":
+		// Only allow add when focus is on repo list
+		if state.Focus == 0 {
+			ctx := context.Background()
+			currentRepo := m.sessionService.GetCurrentDirGitRoot(ctx)
+			if currentRepo != "" {
+				for _, repo := range m.config.GetRepos() {
+					if repo == currentRepo {
+						currentRepo = ""
+						break
+					}
+				}
+			}
+			addState := ui.NewAddRepoState(currentRepo)
+			addState.ReturnToNewSession = true
+			m.modal.Show(addState)
+			return m, nil
+		}
+		// If focused on branch input, let it pass through for text input
+		if state.Focus == 2 {
+			modal, cmd := m.modal.Update(msg)
+			m.modal = modal
+			return m, cmd
+		}
 		return m, nil
 	case "d":
 		// Only allow delete when focus is on repo list and there are repos

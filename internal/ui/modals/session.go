@@ -25,8 +25,11 @@ func (*NewSessionState) modalState() {}
 func (s *NewSessionState) Title() string { return "New Session" }
 
 func (s *NewSessionState) Help() string {
+	if s.Focus == 0 && len(s.RepoOptions) == 0 {
+		return "a: add repo  Esc: cancel"
+	}
 	if s.Focus == 0 && len(s.RepoOptions) > 0 {
-		return "up/down: select  Tab: next field  d: delete repo  Enter: create"
+		return "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create"
 	}
 	return "up/down: select  Tab: next field  Enter: create"
 }
@@ -44,7 +47,7 @@ func (s *NewSessionState) Render() string {
 		repoList = lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			Render("No repositories added. Press 'r' to add one first.")
+			Render("No repositories added. Press 'a' to add one.")
 	} else {
 		repoList = RenderSelectableListWithFocus(s.RepoOptions, s.RepoIndex, s.Focus == 0, "* ")
 	}
