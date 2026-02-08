@@ -188,10 +188,12 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--verbose",
 			"--resume", config.SessionID,
 		}
-	} else if config.ForkFromSessionID != "" {
+	} else if config.ForkFromSessionID != "" && !config.Containerized {
 		// Forked session - resume parent and fork to inherit conversation history
 		// We must pass --session-id to ensure Claude uses our UUID for the forked session,
 		// otherwise Claude generates its own ID and we can't resume later.
+		// Skip in container mode: each container is a fresh environment with no parent
+		// session data, so --resume would fail with "No conversation found".
 		args = []string{
 			"--print",
 			"--output-format", "stream-json",

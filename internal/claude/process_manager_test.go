@@ -1040,15 +1040,27 @@ func TestBuildCommandArgs_Containerized_ForkedSession(t *testing.T) {
 
 	args := BuildCommandArgs(config)
 
-	// Forked session should have fork-related flags
-	if !containsArg(args, "--resume") {
-		t.Error("Forked session should have --resume flag")
+	// Containerized forked sessions must NOT use --resume/--fork-session because
+	// the parent session data doesn't exist inside the container.
+	// Instead, it should be treated as a new session with --session-id.
+	if containsArg(args, "--resume") {
+		t.Error("Containerized forked session must not have --resume (parent data not in container)")
 	}
-	if !containsArg(args, "--fork-session") {
-		t.Error("Forked session should have --fork-session flag")
+	if containsArg(args, "--fork-session") {
+		t.Error("Containerized forked session must not have --fork-session (parent data not in container)")
 	}
 	if !containsArg(args, "--session-id") {
-		t.Error("Forked session should have --session-id flag")
+		t.Error("Containerized forked session should have --session-id")
+	}
+
+	// Verify it uses our session ID, not the parent's
+	for i, arg := range args {
+		if arg == "--session-id" && i+1 < len(args) {
+			if args[i+1] != "child-session-uuid" {
+				t.Errorf("Expected --session-id child-session-uuid, got %s", args[i+1])
+			}
+			break
+		}
 	}
 
 	// Containerized: must have --dangerously-skip-permissions
