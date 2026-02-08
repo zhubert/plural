@@ -1854,3 +1854,125 @@ func TestPreviewActiveModal_RendersSessionAndBranchInfo(t *testing.T) {
 		t.Error("Rendered modal should contain branch name")
 	}
 }
+
+// =============================================================================
+// New Session Modal - Add Repo Integration Tests
+// =============================================================================
+
+func TestNewSessionModal_AddRepoOpensAddRepoModal(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Open new session modal
+	m = sendKey(m, "n")
+	if !m.modal.IsVisible() {
+		t.Fatal("New session modal should be visible")
+	}
+
+	state, ok := m.modal.State.(*ui.NewSessionState)
+	if !ok {
+		t.Fatalf("Expected NewSessionState, got %T", m.modal.State)
+	}
+
+	// Focus should be on repo list
+	if state.Focus != 0 {
+		t.Fatalf("Expected focus on repo list (0), got %d", state.Focus)
+	}
+
+	// Press 'a' to add a repo
+	m = sendKey(m, "a")
+
+	// Should now be on AddRepoState with ReturnToNewSession set
+	addState, ok := m.modal.State.(*ui.AddRepoState)
+	if !ok {
+		t.Fatalf("Expected AddRepoState after pressing 'a', got %T", m.modal.State)
+	}
+
+	if !addState.ReturnToNewSession {
+		t.Error("ReturnToNewSession should be true when opened from new session modal")
+	}
+}
+
+func TestNewSessionModal_AddRepoEscapeReturnsToNewSession(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Open new session modal, then add repo modal
+	m = sendKey(m, "n")
+	m = sendKey(m, "a")
+
+	// Verify we're on AddRepoState
+	_, ok := m.modal.State.(*ui.AddRepoState)
+	if !ok {
+		t.Fatalf("Expected AddRepoState, got %T", m.modal.State)
+	}
+
+	// Press Escape
+	m = sendKey(m, "esc")
+
+	// Should return to NewSessionState, not hide modal
+	if !m.modal.IsVisible() {
+		t.Fatal("Modal should still be visible after escape from add repo")
+	}
+
+	_, ok = m.modal.State.(*ui.NewSessionState)
+	if !ok {
+		t.Fatalf("Expected NewSessionState after escape, got %T", m.modal.State)
+	}
+}
+
+func TestNewSessionModal_AddRepoNotOnBranchInput(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Open new session modal and tab to branch input
+	m = sendKey(m, "n")
+	m = sendKey(m, "tab") // base selection
+	m = sendKey(m, "tab") // branch input
+
+	state := m.modal.State.(*ui.NewSessionState)
+	if state.Focus != 2 {
+		t.Fatalf("Expected focus on branch input (2), got %d", state.Focus)
+	}
+
+	// Press 'a' - should pass through to text input, not open add repo
+	m = sendKey(m, "a")
+
+	// Should still be on NewSessionState (not AddRepoState)
+	_, ok := m.modal.State.(*ui.NewSessionState)
+	if !ok {
+		t.Fatalf("Expected NewSessionState when pressing 'a' on branch input, got %T", m.modal.State)
+	}
+}
+
+func TestNewSessionModal_EmptyRepoShowsAddHint(t *testing.T) {
+	cfg := testConfig()
+	// Remove all repos
+	for _, repo := range cfg.GetRepos() {
+		cfg.RemoveRepo(repo)
+	}
+	m := testModelWithSize(cfg, 120, 40)
+
+	m = sendKey(m, "n")
+	state := m.modal.State.(*ui.NewSessionState)
+
+	// Render and check for the updated text
+	rendered := state.Render()
+	if !strings.Contains(rendered, "Press 'a' to add one") {
+		t.Error("Empty repo list should show 'Press 'a' to add one'")
+	}
+}
+
+func TestNewSessionModal_HelpShowsAddRepo(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	m = sendKey(m, "n")
+	state := m.modal.State.(*ui.NewSessionState)
+
+	// With repos, help should include "a: add repo"
+	help := state.Help()
+	if !strings.Contains(help, "a: add repo") {
+		t.Errorf("Help should contain 'a: add repo', got %q", help)
+	}
+}
