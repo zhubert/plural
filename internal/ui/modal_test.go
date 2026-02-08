@@ -262,20 +262,20 @@ func TestNewSessionState_Render(t *testing.T) {
 }
 
 func TestNewSessionState_Help(t *testing.T) {
-	// With repos, focused on repo list - should show delete hint
+	// With repos, focused on repo list - should show add and delete hints
 	state := NewNewSessionState([]string{"/repo1", "/repo2"}, false)
 	state.Focus = 0
 	help := state.Help()
-	if help != "up/down: select  Tab: next field  d: delete repo  Enter: create" {
-		t.Errorf("Expected help with delete hint when focused on repos, got %q", help)
+	if help != "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create" {
+		t.Errorf("Expected help with add/delete hints when focused on repos, got %q", help)
 	}
 
-	// Without repos, focused on repo list - should not show delete hint
+	// Without repos, focused on repo list - should show add hint
 	state = NewNewSessionState([]string{}, false)
 	state.Focus = 0
 	help = state.Help()
-	if help != "up/down: select  Tab: next field  Enter: create" {
-		t.Errorf("Expected help without delete hint when no repos, got %q", help)
+	if help != "a: add repo  Esc: cancel" {
+		t.Errorf("Expected help with add hint when no repos, got %q", help)
 	}
 
 	// With repos, focused on base selection - should not show delete hint

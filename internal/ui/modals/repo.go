@@ -15,13 +15,14 @@ import (
 // =============================================================================
 
 type AddRepoState struct {
-	Input            textinput.Model
-	SuggestedRepo    string
-	UseSuggested     bool
-	completer        *PathCompleter // Path auto-completion
-	lastValue        string         // Track input changes to reset completer
-	showingOptions   bool           // Whether we're showing completion options
-	completionIndex  int            // Currently selected completion option
+	Input              textinput.Model
+	SuggestedRepo      string
+	UseSuggested       bool
+	ReturnToNewSession bool           // When true, return to new session modal after adding repo
+	completer          *PathCompleter // Path auto-completion
+	lastValue          string         // Track input changes to reset completer
+	showingOptions     bool           // Whether we're showing completion options
+	completionIndex    int            // Currently selected completion option
 }
 
 func (*AddRepoState) modalState() {}
