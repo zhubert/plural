@@ -42,8 +42,8 @@ func (r *Runner) ensureServerRunning() error {
 	r.socketServer = socketServer
 	r.log.Debug("socket server created", "elapsed", time.Since(startTime))
 
-	// Start socket server in background
-	go r.socketServer.Run()
+	// Start socket server in background (Start() calls wg.Add before launching goroutine)
+	r.socketServer.Start()
 
 	// Create MCP config file
 	mcpConfigPath, err := r.createMCPConfigLocked(r.socketServer.SocketPath())
