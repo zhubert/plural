@@ -13,6 +13,7 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -638,6 +639,7 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 		m.config.GetNotificationsEnabled(),
 		squashEnabled,
 		useContainers,
+		process.ContainersSupported(),
 		repoPath,
 		asanaProject,
 	))

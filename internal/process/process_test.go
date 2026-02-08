@@ -1,6 +1,7 @@
 package process
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -106,6 +107,21 @@ func TestFindClaudeProcesses(t *testing.T) {
 
 	// Can't assert on count since it depends on system state
 	_ = processes
+}
+
+func TestContainersSupported(t *testing.T) {
+	// ContainersSupported should return a boolean without panicking.
+	// On darwin/arm64 it returns true; on all other platforms it returns false.
+	result := ContainersSupported()
+	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+		if !result {
+			t.Error("Expected ContainersSupported() to return true on darwin/arm64")
+		}
+	} else {
+		if result {
+			t.Error("Expected ContainersSupported() to return false on non-darwin/arm64")
+		}
+	}
 }
 
 func TestOrphanedContainer_Fields(t *testing.T) {

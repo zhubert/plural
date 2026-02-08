@@ -12,6 +12,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -206,8 +207,8 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			return m, nil
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
-		// Set containerized flag if container mode is enabled for this repo
-		if m.config.GetUseContainers(repoPath) {
+		// Set containerized flag if container mode is enabled for this repo and host supports it
+		if m.config.GetUseContainers(repoPath) && process.ContainersSupported() {
 			sess.Containerized = true
 		}
 		// Auto-assign to active workspace
@@ -361,8 +362,8 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
-		// Set containerized flag if container mode is enabled for this repo
-		if m.config.GetUseContainers(state.RepoPath) {
+		// Set containerized flag if container mode is enabled for this repo and host supports it
+		if m.config.GetUseContainers(state.RepoPath) && process.ContainersSupported() {
 			sess.Containerized = true
 		}
 		// Auto-assign to active workspace
@@ -618,8 +619,8 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 			// Set the broadcast group ID
 			sess.BroadcastGroupID = groupID
 
-			// Set containerized flag if container mode is enabled for this repo
-			if m.config.GetUseContainers(repoPath) {
+			// Set containerized flag if container mode is enabled for this repo and host supports it
+			if m.config.GetUseContainers(repoPath) && process.ContainersSupported() {
 				sess.Containerized = true
 			}
 

@@ -11,6 +11,11 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
+// ContainersSupported returns true if the host can run Apple containers (darwin/arm64).
+func ContainersSupported() bool {
+	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
+}
+
 // ClaudeProcess represents a running Claude CLI process found on the system.
 type ClaudeProcess struct {
 	PID     int    // Process ID

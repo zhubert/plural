@@ -535,6 +535,12 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - Returns empty list (no error) if `container` CLI is not installed
 - Integrated into `cmd/clean.go` as a 4th parallel cleanup goroutine
 
+**Platform gating** (`internal/process/process.go`):
+- `ContainersSupported()`: Returns true only on `darwin/arm64` (Apple Silicon)
+- Settings modal hides container checkbox on unsupported platforms
+- Session creation guards: `Containerized` flag only set when `ContainersSupported()` is true
+- Warning displayed near checkbox: containers are defense in depth, not a complete security boundary
+
 **Known limitations (prototype)**:
 - External MCP servers not supported in container mode
 

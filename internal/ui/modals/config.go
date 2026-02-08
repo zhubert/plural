@@ -322,8 +322,9 @@ type SettingsState struct {
 	NotificationsEnabled bool
 	SquashOnMerge        bool   // Per-repo setting: squash commits when merging to main
 	UseContainers        bool   // Per-repo setting: run sessions in containers
+	ContainersSupported  bool   // Whether the host supports Apple containers (darwin/arm64)
 	RepoPath             string // Current repo path (for per-repo settings)
-	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash, 3 = containers, 4 = asana project
+	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash, 3 = containers (if supported), next = asana project
 }
 
 func (*SettingsState) modalState() {}
@@ -404,29 +405,39 @@ func (s *SettingsState) Render() string {
 		squashView := squashCheckboxStyle.Render(squashCheckbox + " " + squashDesc)
 		repoSections = append(repoSections, squashLabel+"\n"+squashView)
 
-		// Container mode checkbox
-		containerLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Run sessions in containers (this repo):")
+		// Container mode checkbox (only on Apple Silicon)
+		if s.ContainersSupported {
+			containerLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Run sessions in containers (this repo):")
 
-		containerCheckbox := "[ ]"
-		if s.UseContainers {
-			containerCheckbox = "[x]"
+			containerCheckbox := "[ ]"
+			if s.UseContainers {
+				containerCheckbox = "[x]"
+			}
+			containerCheckboxStyle := lipgloss.NewStyle()
+			if s.Focus == 3 {
+				containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+			}
+			containerDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(50).
+				Render("Run Claude CLI inside Apple containers with --dangerously-skip-permissions")
+			containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
+
+			containerWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Italic(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Warning: Containers provide defense in depth but are not a complete security boundary. Do not use with untrusted code.")
+
+			repoSections = append(repoSections, containerLabel+"\n"+containerView+"\n"+containerWarning)
 		}
-		containerCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 3 {
-			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
-		}
-		containerDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Run Claude CLI inside Apple containers with --dangerously-skip-permissions")
-		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
-		repoSections = append(repoSections, containerLabel+"\n"+containerView)
 
 		// Asana project GID
 		asanaLabel := lipgloss.NewStyle().
@@ -441,7 +452,7 @@ func (s *SettingsState) Render() string {
 			Render("Links this repo to an Asana project for task import")
 
 		asanaInputStyle := lipgloss.NewStyle()
-		if s.Focus == 4 {
+		if s.Focus == s.asanaFocusIndex() {
 			asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			asanaInputStyle = asanaInputStyle.PaddingLeft(2)
@@ -460,12 +471,27 @@ func (s *SettingsState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	// Determine number of focusable fields (5 if repo selected, 2 otherwise)
-	numFields := 2
-	if s.RepoPath != "" {
-		numFields = 5
+// numFields returns the number of focusable fields in the settings modal.
+func (s *SettingsState) numFields() int {
+	if s.RepoPath == "" {
+		return 2 // branch prefix, notifications
 	}
+	if s.ContainersSupported {
+		return 5 // branch prefix, notifications, squash, containers, asana
+	}
+	return 4 // branch prefix, notifications, squash, asana
+}
+
+// asanaFocusIndex returns the focus index for the Asana project field.
+func (s *SettingsState) asanaFocusIndex() int {
+	if s.ContainersSupported {
+		return 4
+	}
+	return 3
+}
+
+func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	numFields := s.numFields()
 
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
@@ -483,7 +509,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.NotificationsEnabled = !s.NotificationsEnabled
 			} else if s.Focus == 2 && s.RepoPath != "" {
 				s.SquashOnMerge = !s.SquashOnMerge
-			} else if s.Focus == 3 && s.RepoPath != "" {
+			} else if s.Focus == 3 && s.RepoPath != "" && s.ContainersSupported {
 				s.UseContainers = !s.UseContainers
 			}
 			return s, nil
@@ -498,7 +524,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	}
 
 	// Handle text input updates when focused on Asana project GID
-	if s.Focus == 4 {
+	if s.Focus == s.asanaFocusIndex() {
 		var cmd tea.Cmd
 		s.AsanaProjectInput, cmd = s.AsanaProjectInput.Update(msg)
 		return s, cmd
@@ -512,7 +538,7 @@ func (s *SettingsState) updateInputFocus() {
 	if s.Focus == 0 {
 		s.BranchPrefixInput.Focus()
 		s.AsanaProjectInput.Blur()
-	} else if s.Focus == 4 {
+	} else if s.Focus == s.asanaFocusIndex() {
 		s.AsanaProjectInput.Focus()
 		s.BranchPrefixInput.Blur()
 	} else {
@@ -554,7 +580,8 @@ func (s *SettingsState) GetAsanaProject() string {
 // NewSettingsState creates a new SettingsState with the current settings values.
 // repoPath should be set to the current session's repo path for per-repo settings,
 // or empty string if no session is selected.
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, useContainers bool, repoPath string, asanaProject string) *SettingsState {
+// containersSupported indicates whether the host supports Apple containers (darwin/arm64).
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, useContainers bool, containersSupported bool, repoPath string, asanaProject string) *SettingsState {
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
@@ -574,6 +601,7 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squ
 		NotificationsEnabled: notificationsEnabled,
 		SquashOnMerge:        squashOnMerge,
 		UseContainers:        useContainers,
+		ContainersSupported:  containersSupported,
 		RepoPath:             repoPath,
 		Focus:                0,
 	}
