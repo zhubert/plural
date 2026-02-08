@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -45,7 +46,7 @@ func TestHandleHelpCommand(t *testing.T) {
 	// Check that the response contains expected commands
 	expected := []string{"/cost", "/help", "/mcp", "Plural Slash Commands"}
 	for _, exp := range expected {
-		if !containsString(result.Response, exp) {
+		if !strings.Contains(result.Response, exp) {
 			t.Errorf("handleHelpCommand response should contain %q", exp)
 		}
 	}
@@ -75,18 +76,6 @@ func TestHandlePluginsCommand(t *testing.T) {
 	}
 }
 
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
 
 func TestGetSlashCommands(t *testing.T) {
 	commands := getSlashCommands()
@@ -124,7 +113,7 @@ func TestHandleCostCommand_NoSession(t *testing.T) {
 		t.Error("handleCostCommand should return Handled=true")
 	}
 
-	if !containsString(result.Response, "No active session") {
+	if !strings.Contains(result.Response, "No active session") {
 		t.Error("Response should mention no active session")
 	}
 }
@@ -286,6 +275,81 @@ func TestSlashCommandDef(t *testing.T) {
 
 	if cmd.description != "A test command" {
 		t.Errorf("description = %q, want 'A test command'", cmd.description)
+	}
+}
+
+// =============================================================================
+// handleSlashCommand Dispatcher Tests
+// =============================================================================
+
+func TestHandleSlashCommand_Dispatcher(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	tests := []struct {
+		name          string
+		input         string
+		wantHandled   bool
+		wantAction    SlashCommandAction
+		wantResponse  string // substring expected in response
+	}{
+		{
+			name:        "non-slash input is not handled",
+			input:       "hello world",
+			wantHandled: false,
+		},
+		{
+			name:         "cost with no active session",
+			input:        "/cost",
+			wantHandled:  true,
+			wantResponse: "No active session",
+		},
+		{
+			name:         "help returns command list",
+			input:        "/help",
+			wantHandled:  true,
+			wantResponse: "/cost",
+		},
+		{
+			name:        "mcp opens modal",
+			input:       "/mcp",
+			wantHandled: true,
+			wantAction:  ActionOpenMCP,
+		},
+		{
+			name:        "plugins opens modal",
+			input:       "/plugins",
+			wantHandled: true,
+			wantAction:  ActionOpenPlugins,
+		},
+		{
+			name:        "plugin alias opens modal",
+			input:       "/plugin",
+			wantHandled: true,
+			wantAction:  ActionOpenPlugins,
+		},
+		{
+			name:        "unknown command is not handled",
+			input:       "/foobar",
+			wantHandled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := m.handleSlashCommand(tt.input)
+
+			if result.Handled != tt.wantHandled {
+				t.Errorf("handleSlashCommand(%q).Handled = %v, want %v", tt.input, result.Handled, tt.wantHandled)
+			}
+			if result.Action != tt.wantAction {
+				t.Errorf("handleSlashCommand(%q).Action = %v, want %v", tt.input, result.Action, tt.wantAction)
+			}
+			if tt.wantResponse != "" && !strings.Contains(result.Response, tt.wantResponse) {
+				t.Errorf("handleSlashCommand(%q).Response should contain %q, got %q", tt.input, tt.wantResponse, result.Response)
+			}
+		})
 	}
 }
 

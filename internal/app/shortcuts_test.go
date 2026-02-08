@@ -826,6 +826,124 @@ func TestPreviewInMain_CommitsSessionChangesFirst(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Shortcut Handler Tests (0% coverage handlers)
+// =============================================================================
+
+func TestShortcutSearchMessages_NoMessages(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select session and switch to chat
+	m = sendKey(m, "enter")
+	if !m.chat.IsFocused() {
+		t.Fatal("expected chat to be focused")
+	}
+
+	// Chat has no messages, shortcutSearchMessages should return nil cmd
+	result, cmd := shortcutSearchMessages(m)
+	if cmd != nil {
+		t.Error("expected nil cmd when no messages")
+	}
+	if result != m {
+		t.Error("expected model to be unchanged")
+	}
+}
+
+func TestShortcutToggleToolUseRollup_NoPanic(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+
+	// Should not panic even without active rollup
+	result, cmd := shortcutToggleToolUseRollup(m)
+	if result == nil {
+		t.Error("expected non-nil model")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd")
+	}
+}
+
+func TestShortcutWhatsNew_ReturnsCommand(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	_, cmd := shortcutWhatsNew(m)
+	if cmd == nil {
+		t.Error("expected non-nil cmd from shortcutWhatsNew")
+	}
+}
+
+func TestShortcutMultiSelect_EntersMode(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	if m.sidebar.IsMultiSelectMode() {
+		t.Fatal("should not be in multi-select mode initially")
+	}
+
+	shortcutMultiSelect(m)
+
+	if !m.sidebar.IsMultiSelectMode() {
+		t.Error("expected sidebar to be in multi-select mode")
+	}
+}
+
+func TestShortcutWorkspaces_OpensModal(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	if m.modal.IsVisible() {
+		t.Fatal("modal should not be visible initially")
+	}
+
+	shortcutWorkspaces(m)
+
+	if !m.modal.IsVisible() {
+		t.Error("expected modal to be visible after shortcutWorkspaces")
+	}
+}
+
+func TestShortcutBroadcast_OpensModal(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	if m.modal.IsVisible() {
+		t.Fatal("modal should not be visible initially")
+	}
+
+	shortcutBroadcast(m)
+
+	if !m.modal.IsVisible() {
+		t.Error("expected modal to be visible after shortcutBroadcast")
+	}
+
+	_, ok := m.modal.State.(*ui.BroadcastState)
+	if !ok {
+		t.Errorf("expected BroadcastState modal, got %T", m.modal.State)
+	}
+}
+
+func TestShortcutSettings_OpensModal(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	shortcutSettings(m)
+
+	if !m.modal.IsVisible() {
+		t.Error("expected modal to be visible")
+	}
+	_, ok := m.modal.State.(*ui.SettingsState)
+	if !ok {
+		t.Errorf("expected SettingsState modal, got %T", m.modal.State)
+	}
+}
+
 func TestPreviewInMain_NoCommitWhenClean(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
