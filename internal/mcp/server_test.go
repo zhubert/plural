@@ -602,7 +602,7 @@ func TestTruncateString_EdgeCases(t *testing.T) {
 		expected string
 	}{
 		{"", 10, ""},
-		{"a", 0, ""},     // Zero maxLen returns empty (per implementation)
+		{"a", 0, "a"},    // Zero maxLen means no limit
 		{"ab", 1, "a"},   // Very short truncation
 		{"abc", 3, "abc"}, // Exact length
 	}

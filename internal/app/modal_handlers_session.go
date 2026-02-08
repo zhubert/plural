@@ -250,6 +250,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			}
 
 			m.config.RemoveSession(sess.ID)
+			m.config.ClearOrphanedParentIDs([]string{sess.ID})
 			m.config.Save()
 			config.DeleteSessionMessages(sess.ID)
 			m.sidebar.SetSessions(m.getFilteredSessions())
@@ -975,19 +976,29 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	ctx := context.Background()
 
-	// Delete worktrees and clean up state for each session
+	// Delete worktrees in parallel using bounded concurrency
+	const maxConcurrent = 10
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
 	for _, id := range sessionIDs {
 		sess := m.config.GetSession(id)
 		if sess == nil {
 			continue
 		}
+		wg.Add(1)
+		go func(s *config.Session) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := m.sessionService.Delete(ctx, s); err != nil {
+				log.Warn("failed to delete worktree during bulk delete", "session", s.ID, "error", err)
+			}
+		}(sess)
+	}
+	wg.Wait()
 
-		// Delete worktree
-		if err := m.sessionService.Delete(ctx, sess); err != nil {
-			log.Warn("failed to delete worktree during bulk delete", "session", id, "error", err)
-		}
-
-		// Clean up session-related state
+	// Clean up state for each session (must be sequential - UI operations)
+	for _, id := range sessionIDs {
 		config.DeleteSessionMessages(id)
 		m.sessionMgr.DeleteSession(id)
 		m.sidebar.SetPendingPermission(id, false)
@@ -1006,8 +1017,9 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Batch remove all sessions from config
+	// Batch remove all sessions from config and clean up orphaned parent refs
 	deleted := m.config.RemoveSessions(sessionIDs)
+	m.config.ClearOrphanedParentIDs(sessionIDs)
 
 	if err := m.config.Save(); err != nil {
 		log.Error("failed to save config after bulk delete", "error", err)

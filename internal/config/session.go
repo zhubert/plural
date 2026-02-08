@@ -84,6 +84,24 @@ func (c *Config) RemoveSession(id string) bool {
 	return false
 }
 
+// ClearOrphanedParentIDs clears ParentID references that point to any of the deleted session IDs.
+// This prevents child sessions from referencing non-existent parents.
+func (c *Config) ClearOrphanedParentIDs(deletedIDs []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	idSet := make(map[string]bool, len(deletedIDs))
+	for _, id := range deletedIDs {
+		idSet[id] = true
+	}
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ParentID != "" && idSet[c.Sessions[i].ParentID] {
+			c.Sessions[i].ParentID = ""
+		}
+	}
+}
+
 // ClearSessions removes all sessions
 func (c *Config) ClearSessions() {
 	c.mu.Lock()
