@@ -1004,12 +1004,13 @@ func TestBuildCommandArgs_Containerized_ResumedSession(t *testing.T) {
 
 	args := BuildCommandArgs(config)
 
-	// Resumed session should use --resume
-	if !containsArg(args, "--resume") {
-		t.Error("Should have --resume flag")
+	// Containerized sessions always use --session-id (never --resume) because
+	// each container run is a fresh environment with no prior session data
+	if containsArg(args, "--resume") {
+		t.Error("Containerized session must not use --resume (no session data persists across container runs)")
 	}
-	if got := getArgValue(args, "--resume"); got != "container-session-uuid" {
-		t.Errorf("--resume = %q, want 'container-session-uuid'", got)
+	if got := getArgValue(args, "--session-id"); got != "container-session-uuid" {
+		t.Errorf("--session-id = %q, want 'container-session-uuid'", got)
 	}
 
 	// Containerized: must have --dangerously-skip-permissions
@@ -1137,19 +1138,19 @@ func TestBuildContainerRunArgs(t *testing.T) {
 		t.Errorf("Working directory = %q, want '/workspace'", got)
 	}
 
-	// Verify image name appears before claude command
+	// Verify image name appears before claude args (entrypoint handles running claude)
 	foundImage := false
 	for i, arg := range args {
 		if arg == "plural-claude" {
-			// Next arg should be "claude"
-			if i+1 < len(args) && args[i+1] == "claude" {
+			// Next arg should be a claude flag (entrypoint invokes claude)
+			if i+1 < len(args) && args[i+1] == "--print" {
 				foundImage = true
 			}
 			break
 		}
 	}
 	if !foundImage {
-		t.Error("Should have image name followed by 'claude'")
+		t.Error("Should have image name followed by claude args")
 	}
 
 	// Verify claude args are appended

@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -175,8 +176,10 @@ func NewProcessManager(config ProcessConfig, callbacks ProcessCallbacks, log *sl
 // This is exported for testing purposes to verify correct argument construction.
 func BuildCommandArgs(config ProcessConfig) []string {
 	var args []string
-	if config.SessionStarted {
+	if config.SessionStarted && !config.Containerized {
 		// Session already started - resume our own session
+		// (Skip resume in container mode: each container run is a fresh environment
+		// with no prior session data, so --resume would fail with "No conversation found")
 		args = []string{
 			"--print",
 			"--output-format", "stream-json",
@@ -388,6 +391,10 @@ func (pm *ProcessManager) Stop() {
 		if err := rmCmd.Run(); err != nil {
 			pm.log.Debug("container rm failed (may already be removed)", "error", err)
 		}
+
+		// Clean up the auth secrets file from the host
+		authFile := fmt.Sprintf("/tmp/plural-auth-%s", pm.config.SessionID)
+		os.Remove(authFile)
 	}
 
 	// Wait for goroutines (readOutput, monitorExit) to complete
@@ -745,13 +752,86 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) []string {
 		"run", "-i", "--rm",
 		"--name", containerName,
 		"-v", config.WorkingDir + ":/workspace",
-		"-v", homeDir + "/.claude:/root/.claude:ro",
+		"-v", homeDir + "/.claude:/home/claude/.claude-host:ro",
 		"-w", "/workspace",
-		image,
-		"claude",
 	}
+
+	// Mount auth credentials file into the container.
+	// On macOS, Claude Code stores auth in the system keychain which isn't
+	// accessible inside a Linux container. We write the key to a temp file
+	// (0600 permissions) and mount it read-only, rather than passing via -e
+	// which would expose the key in `ps` output.
+	if authFile := writeContainerAuthFile(config.SessionID); authFile != "" {
+		args = append(args, "-v", authFile+":/home/claude/.auth:ro")
+	}
+
+	args = append(args, image)
 	args = append(args, claudeArgs...)
 	return args
+}
+
+// writeContainerAuthFile writes credentials to a temporary file with
+// restricted permissions (0600) and returns the file path. The entrypoint
+// script reads this file and exports the appropriate env var.
+//
+// File format: ENV_VAR_NAME=value
+//
+// Credential priority:
+//  1. ANTHROPIC_API_KEY from environment (explicit user override, API billing)
+//  2. OAuth access token from "Claude Code-credentials" keychain (subscription billing)
+//  3. API key from "anthropic_api_key" keychain entry (API billing)
+//
+// Returns empty string if no credentials are available.
+func writeContainerAuthFile(sessionID string) string {
+	var content string
+
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		content = "ANTHROPIC_API_KEY=" + apiKey
+	} else if oauthToken := readOAuthAccessToken(); oauthToken != "" {
+		content = "CLAUDE_CODE_OAUTH_TOKEN=" + oauthToken
+	} else if apiKey := readKeychainPassword("anthropic_api_key"); apiKey != "" {
+		content = "ANTHROPIC_API_KEY=" + apiKey
+	}
+
+	if content == "" {
+		return ""
+	}
+
+	path := fmt.Sprintf("/tmp/plural-auth-%s", sessionID)
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		return ""
+	}
+	return path
+}
+
+// readOAuthAccessToken extracts the OAuth access token from the
+// "Claude Code-credentials" macOS keychain entry. This is used for
+// subscription billing (Claude Pro/Team/Enterprise).
+func readOAuthAccessToken() string {
+	credsJSON := readKeychainPassword("Claude Code-credentials")
+	if credsJSON == "" {
+		return ""
+	}
+
+	var creds struct {
+		ClaudeAiOauth struct {
+			AccessToken string `json:"accessToken"`
+		} `json:"claudeAiOauth"`
+	}
+	if err := json.Unmarshal([]byte(credsJSON), &creds); err != nil {
+		return ""
+	}
+	return creds.ClaudeAiOauth.AccessToken
+}
+
+// readKeychainPassword reads a password from the macOS keychain.
+// Returns empty string if not found or on error.
+func readKeychainPassword(service string) string {
+	out, err := exec.Command("security", "find-generic-password", "-s", service, "-w").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // cleanupLocked cleans up process resources. Must be called with mu held.
