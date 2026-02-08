@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/changelog"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
@@ -725,11 +726,11 @@ func TestFlashMessages(t *testing.T) {
 
 	tests := []struct {
 		name string
-		fn   func(string) interface{}
+		fn   func(string) tea.Cmd
 	}{
-		{"ShowFlashWarning", func(s string) interface{} { return m.ShowFlashWarning(s) }},
-		{"ShowFlashInfo", func(s string) interface{} { return m.ShowFlashInfo(s) }},
-		{"ShowFlashSuccess", func(s string) interface{} { return m.ShowFlashSuccess(s) }},
+		{"ShowFlashWarning", func(s string) tea.Cmd { return m.ShowFlashWarning(s) }},
+		{"ShowFlashInfo", func(s string) tea.Cmd { return m.ShowFlashInfo(s) }},
+		{"ShowFlashSuccess", func(s string) tea.Cmd { return m.ShowFlashSuccess(s) }},
 	}
 
 	for _, tt := range tests {
