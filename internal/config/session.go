@@ -98,6 +98,7 @@ func (c *Config) ClearOrphanedParentIDs(deletedIDs []string) {
 	for i := range c.Sessions {
 		if c.Sessions[i].ParentID != "" && idSet[c.Sessions[i].ParentID] {
 			c.Sessions[i].ParentID = ""
+			c.Sessions[i].MergedToParent = false
 		}
 	}
 }

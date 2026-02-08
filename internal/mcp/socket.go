@@ -97,10 +97,16 @@ func (s *SocketServer) SocketPath() string {
 	return s.socketPath
 }
 
-// Run starts accepting connections. The caller should use the WaitGroup
-// (tracked internally) to wait for this goroutine to finish during shutdown.
-func (s *SocketServer) Run() {
+// Start launches Run() in a goroutine. It increments the WaitGroup before
+// starting the goroutine to avoid a race with Close()/wg.Wait().
+func (s *SocketServer) Start() {
 	s.wg.Add(1)
+	go s.Run()
+}
+
+// Run starts accepting connections. Must be paired with a wg.Add(1) call
+// before the goroutine is launched — use Start() instead of calling go Run() directly.
+func (s *SocketServer) Run() {
 	defer s.wg.Done()
 
 	for {

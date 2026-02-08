@@ -1934,11 +1934,11 @@ func TestConfig_EnsureInitialized_Workspaces(t *testing.T) {
 func TestConfig_ClearOrphanedParentIDs(t *testing.T) {
 	cfg := &Config{
 		Sessions: []Session{
-			{ID: "child-1", ParentID: "parent-1"},
-			{ID: "child-2", ParentID: "parent-2"},
+			{ID: "child-1", ParentID: "parent-1", MergedToParent: true},
+			{ID: "child-2", ParentID: "parent-2", MergedToParent: true},
 			{ID: "child-3", ParentID: "parent-1"},
 			{ID: "orphan", ParentID: ""},
-			{ID: "unrelated", ParentID: "still-exists"},
+			{ID: "unrelated", ParentID: "still-exists", MergedToParent: true},
 		},
 	}
 
@@ -1949,9 +1949,15 @@ func TestConfig_ClearOrphanedParentIDs(t *testing.T) {
 	if sess1.ParentID != "" {
 		t.Errorf("child-1 ParentID should be cleared, got %q", sess1.ParentID)
 	}
+	if sess1.MergedToParent {
+		t.Error("child-1 MergedToParent should be cleared when parent is orphaned")
+	}
 	sess3 := cfg.GetSession("child-3")
 	if sess3.ParentID != "" {
 		t.Errorf("child-3 ParentID should be cleared, got %q", sess3.ParentID)
+	}
+	if sess3.MergedToParent {
+		t.Error("child-3 MergedToParent should be cleared when parent is orphaned")
 	}
 
 	// child-2 had ParentID=parent-2, should be unchanged
@@ -1959,11 +1965,17 @@ func TestConfig_ClearOrphanedParentIDs(t *testing.T) {
 	if sess2.ParentID != "parent-2" {
 		t.Errorf("child-2 ParentID should be unchanged, got %q", sess2.ParentID)
 	}
+	if !sess2.MergedToParent {
+		t.Error("child-2 MergedToParent should be unchanged")
+	}
 
 	// unrelated had ParentID=still-exists, should be unchanged
 	unrelated := cfg.GetSession("unrelated")
 	if unrelated.ParentID != "still-exists" {
 		t.Errorf("unrelated ParentID should be unchanged, got %q", unrelated.ParentID)
+	}
+	if !unrelated.MergedToParent {
+		t.Error("unrelated MergedToParent should be unchanged")
 	}
 }
 

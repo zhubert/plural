@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"encoding/json"
-	"sync"
 	"testing"
 	"time"
 )
@@ -215,12 +214,7 @@ func TestSocketClientServer_Integration(t *testing.T) {
 	defer server.Close()
 
 	// Start server in background
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		server.Run()
-	}()
+	server.Start()
 
 	// Give server time to start
 	time.Sleep(50 * time.Millisecond)
@@ -275,7 +269,6 @@ func TestSocketClientServer_Integration(t *testing.T) {
 
 	// Close server to stop Run()
 	server.Close()
-	wg.Wait()
 }
 
 func TestSocketClientServer_Question(t *testing.T) {
@@ -293,12 +286,7 @@ func TestSocketClientServer_Question(t *testing.T) {
 	defer server.Close()
 
 	// Start server
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		server.Run()
-	}()
+	server.Start()
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -345,7 +333,6 @@ func TestSocketClientServer_Question(t *testing.T) {
 	}
 
 	server.Close()
-	wg.Wait()
 }
 
 func TestNewSocketClient_InvalidPath(t *testing.T) {
@@ -385,12 +372,7 @@ func TestSocketClientServer_PlanApproval(t *testing.T) {
 	defer server.Close()
 
 	// Start server
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		server.Run()
-	}()
+	server.Start()
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -435,7 +417,6 @@ func TestSocketClientServer_PlanApproval(t *testing.T) {
 	}
 
 	server.Close()
-	wg.Wait()
 }
 
 func TestSocketClient_WriteTimeoutErrorMessage(t *testing.T) {
