@@ -58,9 +58,10 @@ type SocketServer struct {
 	answerCh      <-chan QuestionResponse
 	planReqCh     chan<- PlanApprovalRequest
 	planRespCh    <-chan PlanApprovalResponse
-	closed        bool         // Set to true when Close() is called
-	closedMu      sync.RWMutex // Guards closed flag
-	log           *slog.Logger // Logger with session context
+	closed        bool           // Set to true when Close() is called
+	closedMu      sync.RWMutex   // Guards closed flag
+	wg            sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
+	log           *slog.Logger   // Logger with session context
 }
 
 // NewSocketServer creates a new socket server for the given session
@@ -96,8 +97,12 @@ func (s *SocketServer) SocketPath() string {
 	return s.socketPath
 }
 
-// Run starts accepting connections
+// Run starts accepting connections. The caller should use the WaitGroup
+// (tracked internally) to wait for this goroutine to finish during shutdown.
 func (s *SocketServer) Run() {
+	s.wg.Add(1)
+	defer s.wg.Done()
+
 	for {
 		// Check if we're closed before accepting
 		s.closedMu.RLock()
@@ -361,7 +366,7 @@ func (s *SocketServer) sendPlanApprovalResponse(conn net.Conn, resp PlanApproval
 	}
 }
 
-// Close shuts down the socket server
+// Close shuts down the socket server and waits for the Run() goroutine to exit.
 func (s *SocketServer) Close() error {
 	s.log.Info("closing socket server")
 
@@ -372,6 +377,10 @@ func (s *SocketServer) Close() error {
 
 	// Close listener (this will unblock Accept())
 	err := s.listener.Close()
+
+	// Wait for the Run() goroutine to finish so we don't remove the socket
+	// file while it's still being used
+	s.wg.Wait()
 
 	// Remove socket file, logging any errors
 	if removeErr := os.Remove(s.socketPath); removeErr != nil && !os.IsNotExist(removeErr) {

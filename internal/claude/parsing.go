@@ -405,12 +405,16 @@ func formatToolInput(value string, shorten bool, maxLen int) string {
 	return value
 }
 
-// truncateString truncates a string to maxLen characters with "..." suffix.
+// truncateString truncates a string to maxLen characters, including "..." suffix.
+// A maxLen of 0 means no limit.
 func truncateString(s string, maxLen int) string {
-	if maxLen > 0 && len(s) > maxLen {
-		return s[:maxLen] + "..."
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
 	}
-	return s
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // shortenPath returns just the filename or last path component

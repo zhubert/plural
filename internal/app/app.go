@@ -501,6 +501,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle multi-select mode keys when sidebar is focused
 		if m.sidebar.IsMultiSelectMode() && m.focus == FocusSidebar {
 			switch key {
+			case keys.Escape:
+				m.sidebar.ExitMultiSelect()
+				return m, nil
 			case keys.Space:
 				m.sidebar.ToggleSelected()
 				return m, nil
@@ -1441,7 +1444,8 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 func (m *Model) fetchIssues(repoPath, source, projectID string) tea.Cmd {
 	registry := m.issueRegistry
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 
 		provider := registry.GetProvider(issues.Source(source))
 		if provider == nil {

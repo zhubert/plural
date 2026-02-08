@@ -18,6 +18,74 @@ type Result struct {
 	RepoPath        string   // Path to the repo where conflict occurred
 }
 
+// syncWithRemote checks if the local default branch needs syncing with its remote
+// counterpart before a merge. It fetches, detects divergence, and fast-forwards if
+// behind. Returns false if the merge should be aborted (e.g., divergence detected).
+// This is shared by MergeToMain and SquashMergeToMain.
+func (s *GitService) syncWithRemote(ctx context.Context, ch chan Result, repoPath, defaultBranch string) bool {
+	log := logger.WithComponent("git")
+
+	if s.HasRemoteOrigin(ctx, repoPath) {
+		remoteBranch := fmt.Sprintf("origin/%s", defaultBranch)
+
+		// Fetch to update remote refs
+		ch <- Result{Output: "Fetching from origin...\n"}
+		output, err := s.executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
+		if err != nil {
+			// Fetch failed - check if remote branch exists
+			if !s.RemoteBranchExists(ctx, repoPath, remoteBranch) {
+				ch <- Result{Output: "Remote branch not found, continuing with local merge...\n"}
+			} else {
+				ch <- Result{Output: string(output), Error: fmt.Errorf("failed to fetch from origin: %w", err), Done: true}
+				return false
+			}
+		} else {
+			ch <- Result{Output: string(output)}
+
+			// Check for divergence using programmatic git commands
+			divergence, divErr := s.GetBranchDivergence(ctx, repoPath, defaultBranch, remoteBranch)
+			if divErr != nil {
+				log.Warn("could not check divergence", "error", divErr)
+			} else if divergence.IsDiverged() {
+				// Local branch has diverged from remote - this is dangerous
+				hint := fmt.Sprintf(`
+Your local %s branch has diverged from origin/%s.
+Local is %d commit(s) ahead and %d commit(s) behind.
+This can cause commits to be lost if we merge now.
+
+To fix this, sync your local %s branch first:
+  cd %s
+  git checkout %s
+  git pull --rebase   # or: git reset --hard origin/%s
+
+Then try merging again.
+`, defaultBranch, defaultBranch, divergence.Ahead, divergence.Behind, defaultBranch, repoPath, defaultBranch, defaultBranch)
+				ch <- Result{
+					Output: hint,
+					Error:  fmt.Errorf("local %s has diverged from origin (%d ahead, %d behind) - sync required before merge", defaultBranch, divergence.Ahead, divergence.Behind),
+					Done:   true,
+				}
+				return false
+			} else if divergence.Behind > 0 {
+				// Local is behind, can fast-forward - pull the changes
+				ch <- Result{Output: fmt.Sprintf("Pulling %d commit(s) from origin...\n", divergence.Behind)}
+				output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
+				if err != nil {
+					ch <- Result{Output: string(output), Error: fmt.Errorf("failed to pull: %w", err), Done: true}
+					return false
+				}
+				ch <- Result{Output: string(output)}
+			} else {
+				ch <- Result{Output: "Already up to date with origin.\n"}
+			}
+		}
+	} else if !s.HasTrackingBranch(ctx, repoPath, defaultBranch) {
+		ch <- Result{Output: "No remote configured, continuing with local merge...\n"}
+	}
+
+	return true
+}
+
 // MergeToMain merges a branch into the default branch
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
@@ -45,64 +113,9 @@ func (s *GitService) MergeToMain(ctx context.Context, repoPath, worktreePath, br
 		}
 		ch <- Result{Output: string(output)}
 
-		// Check if we need to sync with remote before merging
-		// Use programmatic checks instead of string matching on error messages
-		if s.HasRemoteOrigin(ctx, repoPath) {
-			remoteBranch := fmt.Sprintf("origin/%s", defaultBranch)
-
-			// Fetch to update remote refs
-			ch <- Result{Output: "Fetching from origin...\n"}
-			output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
-			if err != nil {
-				// Fetch failed - check if remote branch exists
-				if !s.RemoteBranchExists(ctx, repoPath, remoteBranch) {
-					ch <- Result{Output: "Remote branch not found, continuing with local merge...\n"}
-				} else {
-					ch <- Result{Output: string(output), Error: fmt.Errorf("failed to fetch from origin: %w", err), Done: true}
-					return
-				}
-			} else {
-				ch <- Result{Output: string(output)}
-
-				// Check for divergence using programmatic git commands
-				divergence, divErr := s.GetBranchDivergence(ctx, repoPath, defaultBranch, remoteBranch)
-				if divErr != nil {
-					log.Warn("could not check divergence", "error", divErr)
-				} else if divergence.IsDiverged() {
-					// Local branch has diverged from remote - this is dangerous
-					hint := fmt.Sprintf(`
-Your local %s branch has diverged from origin/%s.
-Local is %d commit(s) ahead and %d commit(s) behind.
-This can cause commits to be lost if we merge now.
-
-To fix this, sync your local %s branch first:
-  cd %s
-  git checkout %s
-  git pull --rebase   # or: git reset --hard origin/%s
-
-Then try merging again.
-`, defaultBranch, defaultBranch, divergence.Ahead, divergence.Behind, defaultBranch, repoPath, defaultBranch, defaultBranch)
-					ch <- Result{
-						Output: hint,
-						Error:  fmt.Errorf("local %s has diverged from origin (%d ahead, %d behind) - sync required before merge", defaultBranch, divergence.Ahead, divergence.Behind),
-						Done:   true,
-					}
-					return
-				} else if divergence.Behind > 0 {
-					// Local is behind, can fast-forward - pull the changes
-					ch <- Result{Output: fmt.Sprintf("Pulling %d commit(s) from origin...\n", divergence.Behind)}
-					output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
-					if err != nil {
-						ch <- Result{Output: string(output), Error: fmt.Errorf("failed to pull: %w", err), Done: true}
-						return
-					}
-					ch <- Result{Output: string(output)}
-				} else {
-					ch <- Result{Output: "Already up to date with origin.\n"}
-				}
-			}
-		} else if !s.HasTrackingBranch(ctx, repoPath, defaultBranch) {
-			ch <- Result{Output: "No remote configured, continuing with local merge...\n"}
+		// Sync with remote before merging (fetch, divergence check, fast-forward)
+		if !s.syncWithRemote(ctx, ch, repoPath, defaultBranch) {
+			return
 		}
 
 		// Merge the branch
@@ -317,63 +330,9 @@ func (s *GitService) SquashMergeToMain(ctx context.Context, repoPath, worktreePa
 		}
 		ch <- Result{Output: string(output)}
 
-		// Check if we need to sync with remote before merging (same logic as MergeToMain)
-		if s.HasRemoteOrigin(ctx, repoPath) {
-			remoteBranch := fmt.Sprintf("origin/%s", defaultBranch)
-
-			// Fetch to update remote refs
-			ch <- Result{Output: "Fetching from origin...\n"}
-			output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "fetch", "origin", defaultBranch)
-			if err != nil {
-				// Fetch failed - check if remote branch exists
-				if !s.RemoteBranchExists(ctx, repoPath, remoteBranch) {
-					ch <- Result{Output: "Remote branch not found, continuing with local merge...\n"}
-				} else {
-					ch <- Result{Output: string(output), Error: fmt.Errorf("failed to fetch from origin: %w", err), Done: true}
-					return
-				}
-			} else {
-				ch <- Result{Output: string(output)}
-
-				// Check for divergence using programmatic git commands
-				divergence, divErr := s.GetBranchDivergence(ctx, repoPath, defaultBranch, remoteBranch)
-				if divErr != nil {
-					log.Warn("could not check divergence", "error", divErr)
-				} else if divergence.IsDiverged() {
-					// Local branch has diverged from remote - this is dangerous
-					hint := fmt.Sprintf(`
-Your local %s branch has diverged from origin/%s.
-Local is %d commit(s) ahead and %d commit(s) behind.
-This can cause commits to be lost if we merge now.
-
-To fix this, sync your local %s branch first:
-  cd %s
-  git checkout %s
-  git pull --rebase   # or: git reset --hard origin/%s
-
-Then try merging again.
-`, defaultBranch, defaultBranch, divergence.Ahead, divergence.Behind, defaultBranch, repoPath, defaultBranch, defaultBranch)
-					ch <- Result{
-						Output: hint,
-						Error:  fmt.Errorf("local %s has diverged from origin (%d ahead, %d behind) - sync required before merge", defaultBranch, divergence.Ahead, divergence.Behind),
-						Done:   true,
-					}
-					return
-				} else if divergence.Behind > 0 {
-					// Local is behind, can fast-forward - pull the changes
-					ch <- Result{Output: fmt.Sprintf("Pulling %d commit(s) from origin...\n", divergence.Behind)}
-					output, err = s.executor.CombinedOutput(ctx, repoPath, "git", "pull", "--ff-only")
-					if err != nil {
-						ch <- Result{Output: string(output), Error: fmt.Errorf("failed to pull: %w", err), Done: true}
-						return
-					}
-					ch <- Result{Output: string(output)}
-				} else {
-					ch <- Result{Output: "Already up to date with origin.\n"}
-				}
-			}
-		} else if !s.HasTrackingBranch(ctx, repoPath, defaultBranch) {
-			ch <- Result{Output: "No remote configured, continuing with local merge...\n"}
+		// Sync with remote before merging (fetch, divergence check, fast-forward)
+		if !s.syncWithRemote(ctx, ch, repoPath, defaultBranch) {
+			return
 		}
 
 		// Squash merge the branch (stages all changes but doesn't commit)
