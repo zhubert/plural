@@ -11,7 +11,6 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -355,29 +354,13 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		// Save per-repo settings if a repo is selected
-		var containerImageMissing bool
-		var containerImage string
 		if repoPath := state.GetRepoPath(); repoPath != "" {
 			m.config.SetSquashOnMerge(repoPath, state.GetSquashOnMerge())
-			m.config.SetUseContainers(repoPath, state.GetUseContainers())
 			m.config.SetAsanaProject(repoPath, state.GetAsanaProject())
-
-			// Check if enabling containers but image doesn't exist
-			if state.GetUseContainers() {
-				containerImage = m.config.GetContainerImage()
-				if !process.ContainerImageExists(containerImage) {
-					containerImageMissing = true
-				}
-			}
 		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
-			return m, nil
-		}
-		if containerImageMissing {
-			// Show build instructions modal instead of dismissing
-			m.modal.Show(ui.NewContainerBuildState(containerImage))
 			return m, nil
 		}
 		m.modal.Hide()

@@ -256,8 +256,16 @@ func TestNewSessionModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus on branch input (2) after second tab, got %d", state.Focus)
 	}
 
-	// Tab back to repo list (Focus == 0)
-	m = sendKey(m, "tab")
+	// Tab through remaining fields to wrap back to repo list (Focus == 0)
+	// If containers are supported, there's an extra field (focus 3) before wrapping
+	if state.ContainersSupported {
+		m = sendKey(m, "tab") // Focus 3: containers
+		state = m.modal.State.(*ui.NewSessionState)
+		if state.Focus != 3 {
+			t.Errorf("Expected focus on containers (3) after third tab, got %d", state.Focus)
+		}
+	}
+	m = sendKey(m, "tab") // Wrap to 0
 	state = m.modal.State.(*ui.NewSessionState)
 
 	if state.Focus != 0 {
@@ -458,12 +466,20 @@ func TestForkSessionModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus 1 after tab, got %d", state.Focus)
 	}
 
-	// Tab back to checkbox
-	m = sendKey(m, "tab")
+	// Tab through remaining fields to wrap back to checkbox
+	// If containers are supported, there's an extra field (focus 2) before wrapping
+	if state.ContainersSupported {
+		m = sendKey(m, "tab") // Focus 2: containers
+		state = m.modal.State.(*ui.ForkSessionState)
+		if state.Focus != 2 {
+			t.Errorf("Expected focus on containers (2) after second tab, got %d", state.Focus)
+		}
+	}
+	m = sendKey(m, "tab") // Wrap to 0
 	state = m.modal.State.(*ui.ForkSessionState)
 
 	if state.Focus != 0 {
-		t.Errorf("Expected focus 0 after second tab, got %d", state.Focus)
+		t.Errorf("Expected focus 0 after full tab cycle, got %d", state.Focus)
 	}
 }
 
@@ -760,18 +776,11 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		t.Errorf("Expected focus 2, got %d", state.Focus)
 	}
 
-	// Focus 3: containers
+	// Focus 3: Asana project GID
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 3 {
 		t.Errorf("Expected focus 3, got %d", state.Focus)
-	}
-
-	// Focus 4: Asana project GID
-	m = sendKey(m, "tab")
-	state = m.modal.State.(*ui.SettingsState)
-	if state.Focus != 4 {
-		t.Errorf("Expected focus 4, got %d", state.Focus)
 	}
 
 	// Focus 0: wrap around to branch prefix

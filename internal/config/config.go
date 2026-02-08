@@ -18,7 +18,6 @@ type Config struct {
 	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`  // Per-repo allowed tools
 	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
 	RepoAsanaProject   map[string]string      `json:"repo_asana_project,omitempty"`   // Per-repo Asana project GID mapping
-	RepoUseContainers  map[string]bool        `json:"repo_use_containers,omitempty"`  // Per-repo container mode setting
 	ContainerImage     string                 `json:"container_image,omitempty"`      // Container image for containerized sessions
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
@@ -131,9 +130,6 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoAsanaProject == nil {
 		c.RepoAsanaProject = make(map[string]string)
-	}
-	if c.RepoUseContainers == nil {
-		c.RepoUseContainers = make(map[string]bool)
 	}
 	if c.Workspaces == nil {
 		c.Workspaces = []Workspace{}
@@ -411,29 +407,7 @@ func (c *Config) HasAsanaProject(repoPath string) bool {
 	return c.GetAsanaProject(repoPath) != ""
 }
 
-// GetUseContainers returns whether container mode is enabled for a repo
-func (c *Config) GetUseContainers(repoPath string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.RepoUseContainers == nil {
-		return false
-	}
-	return c.RepoUseContainers[repoPath]
-}
 
-// SetUseContainers sets whether container mode is enabled for a repo
-func (c *Config) SetUseContainers(repoPath string, enabled bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.RepoUseContainers == nil {
-		c.RepoUseContainers = make(map[string]bool)
-	}
-	if enabled {
-		c.RepoUseContainers[repoPath] = true
-	} else {
-		delete(c.RepoUseContainers, repoPath)
-	}
-}
 
 // GetContainerImage returns the container image name, defaulting to "plural-claude"
 func (c *Config) GetContainerImage() string {

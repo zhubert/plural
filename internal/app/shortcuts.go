@@ -434,7 +434,7 @@ func shortcutSearch(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutNewSession(m *Model) (tea.Model, tea.Cmd) {
-	m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+	m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported()))
 	return m, nil
 }
 
@@ -448,7 +448,7 @@ func shortcutDeleteSession(m *Model) (tea.Model, tea.Cmd) {
 func shortcutForkSession(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
-	m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
+	m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath, sess.Containerized, process.ContainersSupported()))
 	return m, nil
 }
 
@@ -626,20 +626,16 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	var repoPath string
 	var squashEnabled bool
-	var useContainers bool
 	var asanaProject string
 	if m.activeSession != nil {
 		repoPath = m.activeSession.RepoPath
 		squashEnabled = m.config.GetSquashOnMerge(repoPath)
-		useContainers = m.config.GetUseContainers(repoPath)
 		asanaProject = m.config.GetAsanaProject(repoPath)
 	}
 	m.modal.Show(ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
 		squashEnabled,
-		useContainers,
-		process.ContainersSupported(),
 		repoPath,
 		asanaProject,
 	))
@@ -886,7 +882,7 @@ func shortcutWorkspaces(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutBroadcast(m *Model) (tea.Model, tea.Cmd) {
 	repos := m.config.GetRepos()
-	m.modal.Show(ui.NewBroadcastState(repos))
+	m.modal.Show(ui.NewBroadcastState(repos, process.ContainersSupported()))
 	return m, nil
 }
 

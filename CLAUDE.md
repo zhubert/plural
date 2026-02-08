@@ -498,13 +498,12 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, eliminating the MCP permission system entirely for containerized sessions.
 
 **Config** (`internal/config/config.go`):
-- `RepoUseContainers map[string]bool`: Per-repo toggle for container mode
 - `ContainerImage string`: Container image name (default: `"plural-claude"`)
-- `GetUseContainers`/`SetUseContainers`: Follow `GetSquashOnMerge` pattern
 - `GetContainerImage`/`SetContainerImage`: Image name with default
 
 **Session** (`internal/config/session.go`):
-- `Containerized bool`: Set at creation time, immutable. Determines whether the session runs in a container.
+- `Containerized bool`: Set at creation time via New Session modal checkbox, immutable. Determines whether the session runs in a container.
+- Forked sessions inherit the parent's `Containerized` flag.
 
 **ProcessManager** (`internal/claude/process_manager.go`):
 - `ProcessConfig.Containerized`/`ContainerImage`: Passed from Runner
@@ -520,7 +519,9 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - `Stop()`: Skips socket server and MCP config cleanup when containerized
 
 **UI**:
-- Settings modal (`,`): Container toggle checkbox between squash and asana fields (focus index 3)
+- New Session modal (`n`): Container checkbox (focus index 3, only on Apple Silicon)
+- Fork Session modal (`f`): Container checkbox (focus index 2, defaults to parent's state)
+- Broadcast modal (`Ctrl+B`): Container checkbox (focus index 3, only on Apple Silicon)
 - Header: `[CONTAINER]` indicator in green when viewing a containerized session
 
 **Containerfile** (repo root):
@@ -537,8 +538,7 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 
 **Platform gating** (`internal/process/process.go`):
 - `ContainersSupported()`: Returns true only on `darwin/arm64` (Apple Silicon)
-- Settings modal hides container checkbox on unsupported platforms
-- Session creation guards: `Containerized` flag only set when `ContainersSupported()` is true
+- New Session modal hides container checkbox on unsupported platforms
 - Warning displayed near checkbox: containers are defense in depth, not a complete security boundary
 
 **Known limitations (prototype)**:
