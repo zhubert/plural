@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -63,6 +64,8 @@ type ProcessConfig struct {
 	AllowedTools      []string
 	MCPConfigPath     string
 	ForkFromSessionID string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
+	Containerized     bool   // When true, wraps Claude CLI in a container
+	ContainerImage    string // Container image name (e.g., "plural-claude")
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -208,16 +211,24 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		}
 	}
 
-	// Add MCP config and permission prompt tool
-	args = append(args,
-		"--mcp-config", config.MCPConfigPath,
-		"--permission-prompt-tool", "mcp__plural__permission",
-		"--append-system-prompt", OptionsSystemPrompt,
-	)
+	if config.Containerized {
+		// Container IS the sandbox — skip MCP permission system entirely
+		args = append(args,
+			"--dangerously-skip-permissions",
+			"--append-system-prompt", OptionsSystemPrompt,
+		)
+	} else {
+		// Add MCP config and permission prompt tool
+		args = append(args,
+			"--mcp-config", config.MCPConfigPath,
+			"--permission-prompt-tool", "mcp__plural__permission",
+			"--append-system-prompt", OptionsSystemPrompt,
+		)
 
-	// Add pre-allowed tools
-	for _, tool := range config.AllowedTools {
-		args = append(args, "--allowedTools", tool)
+		// Add pre-allowed tools
+		for _, tool := range config.AllowedTools {
+			args = append(args, "--allowedTools", tool)
+		}
 	}
 
 	return args
@@ -243,10 +254,17 @@ func (pm *ProcessManager) Start() error {
 		pm.log.Debug("forking session from parent", "parentSessionID", pm.config.ForkFromSessionID)
 	}
 
-	pm.log.Debug("starting process", "command", "claude "+strings.Join(args, " "))
-
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = pm.config.WorkingDir
+	var cmd *exec.Cmd
+	if pm.config.Containerized {
+		containerArgs := buildContainerRunArgs(pm.config, args)
+		pm.log.Debug("starting containerized process", "command", "container "+strings.Join(containerArgs, " "))
+		cmd = exec.Command("container", containerArgs...)
+		// Don't set cmd.Dir — the container's -w flag handles the working directory
+	} else {
+		pm.log.Debug("starting process", "command", "claude "+strings.Join(args, " "))
+		cmd = exec.Command("claude", args...)
+		cmd.Dir = pm.config.WorkingDir
+	}
 
 	// Get stdin pipe for writing messages
 	stdin, err := cmd.StdinPipe()
@@ -359,6 +377,16 @@ func (pm *ProcessManager) Stop() {
 		case <-time.After(2 * time.Second):
 			pm.log.Debug("force killing process")
 			cmd.Process.Kill()
+		}
+	}
+
+	// Defense-in-depth: force remove the container if we were running in container mode
+	if pm.config.Containerized {
+		containerName := "plural-" + pm.config.SessionID
+		pm.log.Debug("removing container", "name", containerName)
+		rmCmd := exec.Command("container", "rm", "-f", containerName)
+		if err := rmCmd.Run(); err != nil {
+			pm.log.Debug("container rm failed (may already be removed)", "error", err)
 		}
 	}
 
@@ -700,6 +728,30 @@ func (pm *ProcessManager) handleExit(err error) {
 	if pm.callbacks.OnFatalError != nil {
 		pm.callbacks.OnFatalError(exitErr)
 	}
+}
+
+// buildContainerRunArgs constructs the arguments for `container run` that wraps
+// the Claude CLI process inside an Apple container.
+func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) []string {
+	homeDir, _ := os.UserHomeDir()
+
+	containerName := "plural-" + config.SessionID
+	image := config.ContainerImage
+	if image == "" {
+		image = "plural-claude"
+	}
+
+	args := []string{
+		"run", "-i", "--rm",
+		"--name", containerName,
+		"-v", config.WorkingDir + ":/workspace",
+		"-v", homeDir + "/.claude:/root/.claude:ro",
+		"-w", "/workspace",
+		image,
+		"claude",
+	}
+	args = append(args, claudeArgs...)
+	return args
 }
 
 // cleanupLocked cleans up process resources. Must be called with mu held.

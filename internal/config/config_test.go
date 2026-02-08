@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -2016,5 +2017,181 @@ func TestConfig_ClearOrphanedParentIDs_EmptyList(t *testing.T) {
 	a := cfg.GetSession("a")
 	if a.ParentID != "parent" {
 		t.Errorf("ParentID should be unchanged when no deletions, got %q", a.ParentID)
+	}
+}
+
+func TestConfig_UseContainers(t *testing.T) {
+	cfg := &Config{
+		Repos:             []string{"/path/to/repo1", "/path/to/repo2"},
+		Sessions:          []Session{},
+		RepoUseContainers: make(map[string]bool),
+	}
+
+	// Initially should return false for all repos
+	if cfg.GetUseContainers("/path/to/repo1") {
+		t.Error("GetUseContainers should return false initially")
+	}
+
+	// Enable for repo1
+	cfg.SetUseContainers("/path/to/repo1", true)
+
+	if !cfg.GetUseContainers("/path/to/repo1") {
+		t.Error("GetUseContainers should return true after enabling")
+	}
+
+	// repo2 should still be false
+	if cfg.GetUseContainers("/path/to/repo2") {
+		t.Error("GetUseContainers should return false for repo2")
+	}
+
+	// Disable for repo1
+	cfg.SetUseContainers("/path/to/repo1", false)
+
+	if cfg.GetUseContainers("/path/to/repo1") {
+		t.Error("GetUseContainers should return false after disabling")
+	}
+
+	// Map entry should be cleaned up
+	if _, exists := cfg.RepoUseContainers["/path/to/repo1"]; exists {
+		t.Error("RepoUseContainers entry should be removed when disabled")
+	}
+}
+
+func TestConfig_UseContainers_NilMap(t *testing.T) {
+	cfg := &Config{
+		Repos:             []string{"/path/to/repo"},
+		Sessions:          []Session{},
+		RepoUseContainers: nil, // Start with nil map
+	}
+
+	// GetUseContainers should handle nil map gracefully
+	if cfg.GetUseContainers("/path/to/repo") {
+		t.Error("GetUseContainers should return false for nil map")
+	}
+
+	// SetUseContainers should initialize the map
+	cfg.SetUseContainers("/path/to/repo", true)
+
+	if cfg.RepoUseContainers == nil {
+		t.Error("RepoUseContainers should be initialized after SetUseContainers")
+	}
+
+	if !cfg.GetUseContainers("/path/to/repo") {
+		t.Error("GetUseContainers should return true after setting")
+	}
+}
+
+func TestConfig_ContainerImage(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{"/path/to/repo"},
+		Sessions: []Session{},
+	}
+
+	// Default should be "plural-claude"
+	if got := cfg.GetContainerImage(); got != "plural-claude" {
+		t.Errorf("GetContainerImage default = %q, want 'plural-claude'", got)
+	}
+
+	// Set custom image
+	cfg.SetContainerImage("my-custom-image")
+
+	if got := cfg.GetContainerImage(); got != "my-custom-image" {
+		t.Errorf("GetContainerImage = %q, want 'my-custom-image'", got)
+	}
+
+	// Set empty string should revert to default
+	cfg.SetContainerImage("")
+
+	if got := cfg.GetContainerImage(); got != "plural-claude" {
+		t.Errorf("GetContainerImage after clearing = %q, want 'plural-claude'", got)
+	}
+}
+
+func TestConfig_UseContainers_Persistence(t *testing.T) {
+	// Create a temp directory for test config
+	tmpDir, err := os.MkdirTemp("", "plural-container-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	// Create config with container settings
+	cfg := &Config{
+		Repos:             []string{"/path/to/repo"},
+		Sessions:          []Session{},
+		RepoUseContainers: make(map[string]bool),
+		ContainerImage:    "my-image",
+		filePath:          configPath,
+	}
+
+	cfg.SetUseContainers("/path/to/repo", true)
+
+	// Save the config
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Read and verify JSON structure
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal config: %v", err)
+	}
+
+	if !loaded.RepoUseContainers["/path/to/repo"] {
+		t.Error("RepoUseContainers should be persisted")
+	}
+
+	if loaded.ContainerImage != "my-image" {
+		t.Errorf("ContainerImage = %q, want 'my-image'", loaded.ContainerImage)
+	}
+}
+
+func TestSession_Containerized(t *testing.T) {
+	// Test that Containerized field round-trips through JSON
+	sess := Session{
+		ID:            "test-id",
+		RepoPath:      "/repo",
+		WorkTree:      "/wt",
+		Branch:        "main",
+		Containerized: true,
+	}
+
+	data, err := json.Marshal(sess)
+	if err != nil {
+		t.Fatalf("Failed to marshal session: %v", err)
+	}
+
+	var loaded Session
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal session: %v", err)
+	}
+
+	if !loaded.Containerized {
+		t.Error("Containerized should be true after round-trip")
+	}
+
+	// Test omitempty: false value should not be in JSON
+	sess2 := Session{
+		ID:            "test-id-2",
+		RepoPath:      "/repo",
+		WorkTree:      "/wt",
+		Branch:        "main",
+		Containerized: false,
+	}
+
+	data2, err := json.Marshal(sess2)
+	if err != nil {
+		t.Fatalf("Failed to marshal session: %v", err)
+	}
+
+	if strings.Contains(string(data2), "containerized") {
+		t.Error("Containerized=false should be omitted from JSON (omitempty)")
 	}
 }

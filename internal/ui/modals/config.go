@@ -321,8 +321,9 @@ type SettingsState struct {
 	AsanaProjectInput    textinput.Model
 	NotificationsEnabled bool
 	SquashOnMerge        bool   // Per-repo setting: squash commits when merging to main
+	UseContainers        bool   // Per-repo setting: run sessions in containers
 	RepoPath             string // Current repo path (for per-repo settings)
-	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash, 3 = asana project
+	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash, 3 = containers, 4 = asana project
 }
 
 func (*SettingsState) modalState() {}
@@ -403,6 +404,30 @@ func (s *SettingsState) Render() string {
 		squashView := squashCheckboxStyle.Render(squashCheckbox + " " + squashDesc)
 		repoSections = append(repoSections, squashLabel+"\n"+squashView)
 
+		// Container mode checkbox
+		containerLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Run sessions in containers (this repo):")
+
+		containerCheckbox := "[ ]"
+		if s.UseContainers {
+			containerCheckbox = "[x]"
+		}
+		containerCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 3 {
+			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+		}
+		containerDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Run Claude CLI inside Apple containers with --dangerously-skip-permissions")
+		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
+		repoSections = append(repoSections, containerLabel+"\n"+containerView)
+
 		// Asana project GID
 		asanaLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
@@ -416,7 +441,7 @@ func (s *SettingsState) Render() string {
 			Render("Links this repo to an Asana project for task import")
 
 		asanaInputStyle := lipgloss.NewStyle()
-		if s.Focus == 3 {
+		if s.Focus == 4 {
 			asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			asanaInputStyle = asanaInputStyle.PaddingLeft(2)
@@ -436,10 +461,10 @@ func (s *SettingsState) Render() string {
 }
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	// Determine number of focusable fields (4 if repo selected, 2 otherwise)
+	// Determine number of focusable fields (5 if repo selected, 2 otherwise)
 	numFields := 2
 	if s.RepoPath != "" {
-		numFields = 4
+		numFields = 5
 	}
 
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
@@ -453,11 +478,13 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			s.updateInputFocus()
 			return s, nil
 		case keys.Space:
-			// Toggle checkbox when focused on notifications or squash
+			// Toggle checkbox when focused on notifications, squash, or containers
 			if s.Focus == 1 {
 				s.NotificationsEnabled = !s.NotificationsEnabled
 			} else if s.Focus == 2 && s.RepoPath != "" {
 				s.SquashOnMerge = !s.SquashOnMerge
+			} else if s.Focus == 3 && s.RepoPath != "" {
+				s.UseContainers = !s.UseContainers
 			}
 			return s, nil
 		}
@@ -471,7 +498,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	}
 
 	// Handle text input updates when focused on Asana project GID
-	if s.Focus == 3 {
+	if s.Focus == 4 {
 		var cmd tea.Cmd
 		s.AsanaProjectInput, cmd = s.AsanaProjectInput.Update(msg)
 		return s, cmd
@@ -485,7 +512,7 @@ func (s *SettingsState) updateInputFocus() {
 	if s.Focus == 0 {
 		s.BranchPrefixInput.Focus()
 		s.AsanaProjectInput.Blur()
-	} else if s.Focus == 3 {
+	} else if s.Focus == 4 {
 		s.AsanaProjectInput.Focus()
 		s.BranchPrefixInput.Blur()
 	} else {
@@ -509,6 +536,11 @@ func (s *SettingsState) GetSquashOnMerge() bool {
 	return s.SquashOnMerge
 }
 
+// GetUseContainers returns whether container mode is enabled
+func (s *SettingsState) GetUseContainers() bool {
+	return s.UseContainers
+}
+
 // GetRepoPath returns the repo path for per-repo settings
 func (s *SettingsState) GetRepoPath() string {
 	return s.RepoPath
@@ -522,7 +554,7 @@ func (s *SettingsState) GetAsanaProject() string {
 // NewSettingsState creates a new SettingsState with the current settings values.
 // repoPath should be set to the current session's repo path for per-repo settings,
 // or empty string if no session is selected.
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, repoPath string, asanaProject string) *SettingsState {
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, useContainers bool, repoPath string, asanaProject string) *SettingsState {
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
@@ -541,6 +573,7 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squ
 		AsanaProjectInput:    asanaInput,
 		NotificationsEnabled: notificationsEnabled,
 		SquashOnMerge:        squashOnMerge,
+		UseContainers:        useContainers,
 		RepoPath:             repoPath,
 		Focus:                0,
 	}

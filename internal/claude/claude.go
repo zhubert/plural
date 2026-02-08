@@ -215,6 +215,10 @@ type Runner struct {
 
 	// External MCP servers to include in config
 	mcpServers []MCPServer
+
+	// Container mode: when true, skip MCP and run inside a container
+	containerized  bool
+	containerImage string
 }
 
 // New creates a new Claude runner for a session
@@ -301,6 +305,16 @@ func (r *Runner) SetForkFromSession(parentSessionID string) {
 	defer r.mu.Unlock()
 	r.forkFromSessionID = parentSessionID
 	r.log.Debug("set fork from session", "parentSessionID", parentSessionID)
+}
+
+// SetContainerized configures the runner to run inside a container.
+// When containerized, the MCP permission system is skipped entirely.
+func (r *Runner) SetContainerized(containerized bool, image string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.containerized = containerized
+	r.containerImage = image
+	r.log.Debug("set containerized mode", "containerized", containerized, "image", image)
 }
 
 // PermissionRequestChan returns the channel for receiving permission requests.
@@ -556,6 +570,8 @@ func (r *Runner) ensureProcessRunning() error {
 		AllowedTools:      make([]string, len(r.allowedTools)),
 		MCPConfigPath:     r.mcpConfigPath,
 		ForkFromSessionID: r.forkFromSessionID,
+		Containerized:     r.containerized,
+		ContainerImage:    r.containerImage,
 	}
 	copy(config.AllowedTools, r.allowedTools)
 
@@ -1123,10 +1139,13 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		r.mu.Unlock()
 
 		// Ensure MCP server is running (persistent across Send calls)
-		if err := r.ensureServerRunning(); err != nil {
-			ch <- ResponseChunk{Error: err, Done: true}
-			close(ch)
-			return
+		// Skip for containerized sessions — the container IS the sandbox
+		if !r.containerized {
+			if err := r.ensureServerRunning(); err != nil {
+				ch <- ResponseChunk{Error: err, Done: true}
+				close(ch)
+				return
+			}
 		}
 
 		// Set up the response channel for routing BEFORE starting the process.
@@ -1258,23 +1277,26 @@ func (r *Runner) Stop() {
 		// PermissionRequestChan() and QuestionRequestChan() check this flag
 		r.stopped = true
 
-		// Close socket server if running
-		if r.socketServer != nil {
-			r.log.Debug("closing persistent socket server")
-			r.socketServer.Close()
-			r.socketServer = nil
-		}
-
-		// Remove MCP config file and log any errors
-		if r.mcpConfigPath != "" {
-			r.log.Debug("removing MCP config file", "path", r.mcpConfigPath)
-			if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
-				r.log.Warn("failed to remove MCP config file", "path", r.mcpConfigPath, "error", err)
+		// Skip MCP cleanup for containerized sessions — no socket server or MCP config
+		if !r.containerized {
+			// Close socket server if running
+			if r.socketServer != nil {
+				r.log.Debug("closing persistent socket server")
+				r.socketServer.Close()
+				r.socketServer = nil
 			}
-			r.mcpConfigPath = ""
-		}
 
-		r.serverRunning = false
+			// Remove MCP config file and log any errors
+			if r.mcpConfigPath != "" {
+				r.log.Debug("removing MCP config file", "path", r.mcpConfigPath)
+				if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
+					r.log.Warn("failed to remove MCP config file", "path", r.mcpConfigPath, "error", err)
+				}
+				r.mcpConfigPath = ""
+			}
+
+			r.serverRunning = false
+		}
 
 		// Close MCP channels to unblock any waiting goroutines
 		if r.mcp != nil {

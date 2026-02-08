@@ -949,3 +949,227 @@ func TestProcessManager_GoroutineExitOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestBuildCommandArgs_Containerized_NewSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "container-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read", "Write", "Bash"},
+		Containerized:  true,
+		ContainerImage: "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// New session should use --session-id
+	if !containsArg(args, "--session-id") {
+		t.Error("Should have --session-id flag")
+	}
+	if got := getArgValue(args, "--session-id"); got != "container-session-uuid" {
+		t.Errorf("--session-id = %q, want 'container-session-uuid'", got)
+	}
+
+	// Containerized: must have --dangerously-skip-permissions
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized session must have --dangerously-skip-permissions")
+	}
+
+	// Must NOT have MCP-related flags
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized session must not have --mcp-config")
+	}
+	if containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized session must not have --permission-prompt-tool")
+	}
+	if containsArg(args, "--allowedTools") {
+		t.Error("Containerized session must not have --allowedTools")
+	}
+
+	// Must still have --append-system-prompt
+	if !containsArg(args, "--append-system-prompt") {
+		t.Error("Containerized session should still have --append-system-prompt")
+	}
+}
+
+func TestBuildCommandArgs_Containerized_ResumedSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "container-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: true,
+		MCPConfigPath:  "/tmp/mcp.json",
+		Containerized:  true,
+		ContainerImage: "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Resumed session should use --resume
+	if !containsArg(args, "--resume") {
+		t.Error("Should have --resume flag")
+	}
+	if got := getArgValue(args, "--resume"); got != "container-session-uuid" {
+		t.Errorf("--resume = %q, want 'container-session-uuid'", got)
+	}
+
+	// Containerized: must have --dangerously-skip-permissions
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized resumed session must have --dangerously-skip-permissions")
+	}
+
+	// Must NOT have MCP-related flags
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized resumed session must not have --mcp-config")
+	}
+	if containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized resumed session must not have --permission-prompt-tool")
+	}
+}
+
+func TestBuildCommandArgs_Containerized_ForkedSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:         "child-session-uuid",
+		WorkingDir:        "/tmp/worktree",
+		SessionStarted:    false,
+		MCPConfigPath:     "/tmp/mcp.json",
+		ForkFromSessionID: "parent-session-uuid",
+		Containerized:     true,
+		ContainerImage:    "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Forked session should have fork-related flags
+	if !containsArg(args, "--resume") {
+		t.Error("Forked session should have --resume flag")
+	}
+	if !containsArg(args, "--fork-session") {
+		t.Error("Forked session should have --fork-session flag")
+	}
+	if !containsArg(args, "--session-id") {
+		t.Error("Forked session should have --session-id flag")
+	}
+
+	// Containerized: must have --dangerously-skip-permissions
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized forked session must have --dangerously-skip-permissions")
+	}
+
+	// Must NOT have MCP-related flags
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized forked session must not have --mcp-config")
+	}
+}
+
+func TestBuildCommandArgs_NonContainerized_Unchanged(t *testing.T) {
+	// Regression test: non-containerized config should still have MCP flags
+	config := ProcessConfig{
+		SessionID:      "normal-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read", "Write"},
+		Containerized:  false, // explicitly not containerized
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Must have MCP-related flags
+	if !containsArg(args, "--mcp-config") {
+		t.Error("Non-containerized session must have --mcp-config")
+	}
+	if !containsArg(args, "--permission-prompt-tool") {
+		t.Error("Non-containerized session must have --permission-prompt-tool")
+	}
+
+	// Must have --allowedTools
+	if !containsArg(args, "--allowedTools") {
+		t.Error("Non-containerized session must have --allowedTools")
+	}
+
+	// Must NOT have --dangerously-skip-permissions
+	if containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Non-containerized session must not have --dangerously-skip-permissions")
+	}
+}
+
+func TestBuildContainerRunArgs(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-session-123",
+		WorkingDir:     "/path/to/worktree",
+		ContainerImage: "plural-claude",
+	}
+
+	claudeArgs := []string{"--print", "--session-id", "test-session-123", "--dangerously-skip-permissions"}
+
+	args := buildContainerRunArgs(config, claudeArgs)
+
+	// Verify basic container run structure
+	if args[0] != "run" {
+		t.Errorf("First arg should be 'run', got %q", args[0])
+	}
+	if !containsArg(args, "-i") {
+		t.Error("Should have -i flag for interactive stdin")
+	}
+	if !containsArg(args, "--rm") {
+		t.Error("Should have --rm flag for auto-cleanup")
+	}
+
+	// Verify container name
+	if got := getArgValue(args, "--name"); got != "plural-test-session-123" {
+		t.Errorf("Container name = %q, want 'plural-test-session-123'", got)
+	}
+
+	// Verify working directory mount
+	foundWorkspaceMount := false
+	for _, arg := range args {
+		if arg == "/path/to/worktree:/workspace" {
+			foundWorkspaceMount = true
+			break
+		}
+	}
+	if !foundWorkspaceMount {
+		t.Error("Should mount worktree to /workspace")
+	}
+
+	// Verify -w /workspace
+	if got := getArgValue(args, "-w"); got != "/workspace" {
+		t.Errorf("Working directory = %q, want '/workspace'", got)
+	}
+
+	// Verify image name appears before claude command
+	foundImage := false
+	for i, arg := range args {
+		if arg == "plural-claude" {
+			// Next arg should be "claude"
+			if i+1 < len(args) && args[i+1] == "claude" {
+				foundImage = true
+			}
+			break
+		}
+	}
+	if !foundImage {
+		t.Error("Should have image name followed by 'claude'")
+	}
+
+	// Verify claude args are appended
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Claude args should be appended to container run args")
+	}
+}
+
+func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-session",
+		WorkingDir:     "/tmp",
+		ContainerImage: "", // Empty should default to "plural-claude"
+	}
+
+	args := buildContainerRunArgs(config, []string{"--print"})
+
+	// Check that "plural-claude" is in the args (default image)
+	if !containsArg(args, "plural-claude") {
+		t.Error("Empty ContainerImage should default to 'plural-claude'")
+	}
+}
+

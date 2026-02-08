@@ -258,6 +258,12 @@ func (m *MockRunner) SetForkFromSession(parentSessionID string) {
 	// No-op for mock
 }
 
+// SetContainerized implements RunnerInterface.
+// In mock, this is a no-op since we don't spawn real processes.
+func (m *MockRunner) SetContainerized(containerized bool, image string) {
+	// No-op for mock
+}
+
 // PermissionRequestChan implements RunnerInterface.
 func (m *MockRunner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	m.mu.RLock()

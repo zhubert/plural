@@ -760,11 +760,18 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		t.Errorf("Expected focus 2, got %d", state.Focus)
 	}
 
-	// Focus 3: Asana project GID
+	// Focus 3: containers
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 3 {
 		t.Errorf("Expected focus 3, got %d", state.Focus)
+	}
+
+	// Focus 4: Asana project GID
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.SettingsState)
+	if state.Focus != 4 {
+		t.Errorf("Expected focus 4, got %d", state.Focus)
 	}
 
 	// Focus 0: wrap around to branch prefix

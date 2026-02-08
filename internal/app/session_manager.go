@@ -325,6 +325,12 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 		runner.SetAllowedTools(allowedTools)
 	}
 
+	// Configure container mode if enabled for this session
+	if sess.Containerized {
+		runner.SetContainerized(true, sm.config.GetContainerImage())
+		log.Debug("containerized session, skipping MCP servers")
+	}
+
 	// Load MCP servers for this session's repo
 	mcpServers := sm.config.GetMCPServersForRepo(sess.RepoPath)
 	if len(mcpServers) > 0 {

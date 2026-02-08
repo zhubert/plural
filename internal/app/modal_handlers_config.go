@@ -355,6 +355,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		// Save per-repo settings if a repo is selected
 		if repoPath := state.GetRepoPath(); repoPath != "" {
 			m.config.SetSquashOnMerge(repoPath, state.GetSquashOnMerge())
+			m.config.SetUseContainers(repoPath, state.GetUseContainers())
 			m.config.SetAsanaProject(repoPath, state.GetAsanaProject())
 		}
 		if err := m.config.Save(); err != nil {

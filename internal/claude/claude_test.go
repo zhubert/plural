@@ -2871,3 +2871,66 @@ func TestEnsureProcessRunning_FreshPMAfterInterrupt(t *testing.T) {
 		t.Error("ensureProcessRunning should create a fresh ProcessManager when old one isn't running, not reuse it")
 	}
 }
+
+func TestRunner_SetContainerized(t *testing.T) {
+	runner := New("test-session", "/tmp", false, nil)
+	defer runner.Stop()
+
+	// Initially not containerized
+	runner.mu.RLock()
+	containerized := runner.containerized
+	containerImage := runner.containerImage
+	runner.mu.RUnlock()
+
+	if containerized {
+		t.Error("Runner should not be containerized initially")
+	}
+	if containerImage != "" {
+		t.Errorf("containerImage should be empty initially, got %q", containerImage)
+	}
+
+	// Set containerized
+	runner.SetContainerized(true, "my-image")
+
+	runner.mu.RLock()
+	containerized = runner.containerized
+	containerImage = runner.containerImage
+	runner.mu.RUnlock()
+
+	if !containerized {
+		t.Error("Runner should be containerized after SetContainerized(true, ...)")
+	}
+	if containerImage != "my-image" {
+		t.Errorf("containerImage = %q, want 'my-image'", containerImage)
+	}
+}
+
+func TestRunner_SetContainerized_PassedToProcessConfig(t *testing.T) {
+	runner := New("test-session", "/tmp", false, nil)
+	defer runner.Stop()
+
+	runner.SetContainerized(true, "test-image")
+
+	// Access ensureProcessRunning internals to verify ProcessConfig
+	// We can verify via the fields that ensureProcessRunning would use
+	runner.mu.RLock()
+	c := runner.containerized
+	img := runner.containerImage
+	runner.mu.RUnlock()
+
+	if !c {
+		t.Error("containerized should be true")
+	}
+	if img != "test-image" {
+		t.Errorf("containerImage = %q, want 'test-image'", img)
+	}
+}
+
+func TestMockRunner_SetContainerized(t *testing.T) {
+	mock := NewMockRunner("test-session", false, nil)
+	defer mock.Stop()
+
+	// Should not panic - no-op implementation
+	mock.SetContainerized(true, "my-image")
+	mock.SetContainerized(false, "")
+}

@@ -206,6 +206,10 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			return m, nil
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
+		// Set containerized flag if container mode is enabled for this repo
+		if m.config.GetUseContainers(repoPath) {
+			sess.Containerized = true
+		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 			sess.WorkspaceID = activeWS
@@ -357,6 +361,10 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
+		// Set containerized flag if container mode is enabled for this repo
+		if m.config.GetUseContainers(state.RepoPath) {
+			sess.Containerized = true
+		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 			sess.WorkspaceID = activeWS
@@ -609,6 +617,11 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 
 			// Set the broadcast group ID
 			sess.BroadcastGroupID = groupID
+
+			// Set containerized flag if container mode is enabled for this repo
+			if m.config.GetUseContainers(repoPath) {
+				sess.Containerized = true
+			}
 
 			mu.Lock()
 			createdSessions = append(createdSessions, sess)

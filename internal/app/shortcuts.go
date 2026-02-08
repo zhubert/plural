@@ -625,16 +625,19 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	var repoPath string
 	var squashEnabled bool
+	var useContainers bool
 	var asanaProject string
 	if m.activeSession != nil {
 		repoPath = m.activeSession.RepoPath
 		squashEnabled = m.config.GetSquashOnMerge(repoPath)
+		useContainers = m.config.GetUseContainers(repoPath)
 		asanaProject = m.config.GetAsanaProject(repoPath)
 	}
 	m.modal.Show(ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
 		squashEnabled,
+		useContainers,
 		repoPath,
 		asanaProject,
 	))

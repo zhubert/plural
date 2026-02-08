@@ -121,7 +121,7 @@ internal/
 
 ### Data Storage
 
-- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, plugins, theme, branch prefix
+- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, plugins, theme, branch prefix, container settings
 - `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
 
 ### Key Patterns
@@ -492,6 +492,41 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 - Cannot end preview if changes were made in main during preview (must commit/stash first)
 - Only one preview can be active at a time across all sessions
 - Preview state persists across app restarts (stored in config)
+
+### Container Mode (Apple Containers)
+
+Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, eliminating the MCP permission system entirely for containerized sessions.
+
+**Config** (`internal/config/config.go`):
+- `RepoUseContainers map[string]bool`: Per-repo toggle for container mode
+- `ContainerImage string`: Container image name (default: `"plural-claude"`)
+- `GetUseContainers`/`SetUseContainers`: Follow `GetSquashOnMerge` pattern
+- `GetContainerImage`/`SetContainerImage`: Image name with default
+
+**Session** (`internal/config/session.go`):
+- `Containerized bool`: Set at creation time, immutable. Determines whether the session runs in a container.
+
+**ProcessManager** (`internal/claude/process_manager.go`):
+- `ProcessConfig.Containerized`/`ContainerImage`: Passed from Runner
+- `BuildCommandArgs()`: When containerized, replaces MCP/permission/allowedTools block with just `--dangerously-skip-permissions`
+- `Start()`: When containerized, builds command as `container run -i --rm ...` wrapping `claude`
+- `Stop()`: Runs `container rm -f` as defense-in-depth cleanup
+- `buildContainerRunArgs()`: Constructs container run arguments with worktree mount, auth mount, working directory
+
+**Runner** (`internal/claude/claude.go`):
+- `SetContainerized(bool, string)`: Stores container mode and image
+- `SendContent()`: Skips `ensureServerRunning()` (MCP) when containerized
+- `ensureProcessRunning()`: Passes container fields to `ProcessConfig`
+- `Stop()`: Skips socket server and MCP config cleanup when containerized
+
+**UI**:
+- Settings modal (`,`): Container toggle checkbox between squash and asana fields (focus index 3)
+- Header: `[CONTAINER]` indicator in green when viewing a containerized session
+
+**Known limitations (prototype)**:
+- No Containerfile provided — user must supply their own image with `claude` CLI installed
+- External MCP servers not supported in container mode
+- Container orphan cleanup (`plural clean`) deferred to follow-up
 
 ### Claude Process Management
 
