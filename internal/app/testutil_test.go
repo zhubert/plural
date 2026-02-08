@@ -219,6 +219,19 @@ func simulateQuestionRequest(m *Model, sessionID string, questions []mcp.Questio
 	return result.(*Model)
 }
 
+// simulatePlanApprovalRequest injects a PlanApprovalRequestMsg into the model.
+func simulatePlanApprovalRequest(m *Model, sessionID string, plan string, allowedPrompts []mcp.AllowedPrompt) *Model {
+	msg := PlanApprovalRequestMsg{
+		SessionID: sessionID,
+		Request: mcp.PlanApprovalRequest{
+			Plan:           plan,
+			AllowedPrompts: allowedPrompts,
+		},
+	}
+	result, _ := m.Update(msg)
+	return result.(*Model)
+}
+
 // =============================================================================
 // Response Building Helpers
 // =============================================================================
