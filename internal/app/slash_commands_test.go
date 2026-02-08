@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -45,7 +46,7 @@ func TestHandleHelpCommand(t *testing.T) {
 	// Check that the response contains expected commands
 	expected := []string{"/cost", "/help", "/mcp", "Plural Slash Commands"}
 	for _, exp := range expected {
-		if !containsString(result.Response, exp) {
+		if !strings.Contains(result.Response, exp) {
 			t.Errorf("handleHelpCommand response should contain %q", exp)
 		}
 	}
@@ -75,18 +76,6 @@ func TestHandlePluginsCommand(t *testing.T) {
 	}
 }
 
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
 
 func TestGetSlashCommands(t *testing.T) {
 	commands := getSlashCommands()
@@ -124,7 +113,7 @@ func TestHandleCostCommand_NoSession(t *testing.T) {
 		t.Error("handleCostCommand should return Handled=true")
 	}
 
-	if !containsString(result.Response, "No active session") {
+	if !strings.Contains(result.Response, "No active session") {
 		t.Error("Response should mention no active session")
 	}
 }
@@ -357,7 +346,7 @@ func TestHandleSlashCommand_Dispatcher(t *testing.T) {
 			if result.Action != tt.wantAction {
 				t.Errorf("handleSlashCommand(%q).Action = %v, want %v", tt.input, result.Action, tt.wantAction)
 			}
-			if tt.wantResponse != "" && !containsString(result.Response, tt.wantResponse) {
+			if tt.wantResponse != "" && !strings.Contains(result.Response, tt.wantResponse) {
 				t.Errorf("handleSlashCommand(%q).Response should contain %q, got %q", tt.input, tt.wantResponse, result.Response)
 			}
 		})
