@@ -29,17 +29,23 @@ func (s *ContainerBuildState) Render() string {
 		Foreground(ColorText).
 		Width(55).
 		MarginBottom(1).
-		Render("The container image '" + s.Image + "' was not found. Build it by running this command from the Plural repo root:")
-
-	buildCmd := "container build -t " + s.Image + " ."
+		Render("The container image '" + s.Image + "' was not found. Run these commands to set up containers:")
 
 	cmdStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(ColorPrimary).
 		Background(lipgloss.Color("#1a1a2e")).
-		Padding(0, 1).
-		MarginBottom(1)
-	cmdView := cmdStyle.Render(buildCmd)
+		Padding(0, 1)
+
+	stepLabelStyle := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1)
+
+	step1Label := stepLabelStyle.Render("1. Install Apple's container CLI:")
+	step1Cmd := cmdStyle.Render("brew install container")
+
+	step2Label := stepLabelStyle.Render("2. Build the image (from Plural repo root):")
+	step2Cmd := cmdStyle.MarginBottom(1).Render("container build -t " + s.Image + " .")
 
 	var statusView string
 	if s.Copied {
@@ -51,7 +57,7 @@ func (s *ContainerBuildState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	parts := []string{title, message, cmdView}
+	parts := []string{title, message, step1Label, step1Cmd, step2Label, step2Cmd}
 	if statusView != "" {
 		parts = append(parts, statusView)
 	}
@@ -64,9 +70,9 @@ func (s *ContainerBuildState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	return s, nil
 }
 
-// GetBuildCommand returns the build command string for clipboard copying.
+// GetBuildCommand returns the setup commands for clipboard copying.
 func (s *ContainerBuildState) GetBuildCommand() string {
-	return "container build -t " + s.Image + " ."
+	return "brew install container && container build -t " + s.Image + " ."
 }
 
 // NewContainerBuildState creates a new ContainerBuildState.

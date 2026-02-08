@@ -702,7 +702,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 
 	if containerImageMissing {
 		image := m.config.GetContainerImage()
-		cmds = append(cmds, m.ShowFlashWarning("Image '"+image+"' not found — run: container build -t "+image+" ."))
+		cmds = append(cmds, m.ShowFlashWarning("Image '"+image+"' not found — run: brew install container && container build -t "+image+" ."))
 	}
 
 	// Send prompt to each created session

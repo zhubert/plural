@@ -14,7 +14,7 @@ func TestContainerBuildState_Title(t *testing.T) {
 
 func TestContainerBuildState_GetBuildCommand(t *testing.T) {
 	s := NewContainerBuildState("plural-claude")
-	expected := "container build -t plural-claude ."
+	expected := "brew install container && container build -t plural-claude ."
 	if cmd := s.GetBuildCommand(); cmd != expected {
 		t.Errorf("Expected build command %q, got %q", expected, cmd)
 	}
@@ -22,18 +22,27 @@ func TestContainerBuildState_GetBuildCommand(t *testing.T) {
 
 func TestContainerBuildState_GetBuildCommand_CustomImage(t *testing.T) {
 	s := NewContainerBuildState("my-image")
-	expected := "container build -t my-image ."
+	expected := "brew install container && container build -t my-image ."
 	if cmd := s.GetBuildCommand(); cmd != expected {
 		t.Errorf("Expected build command %q, got %q", expected, cmd)
 	}
 }
 
-func TestContainerBuildState_Render_ShowsCommand(t *testing.T) {
+func TestContainerBuildState_Render_ShowsBuildCommand(t *testing.T) {
 	s := NewContainerBuildState("plural-claude")
 	rendered := s.Render()
 
 	if !strings.Contains(rendered, "container build -t plural-claude .") {
 		t.Error("Rendered output should contain the build command")
+	}
+}
+
+func TestContainerBuildState_Render_ShowsBrewInstall(t *testing.T) {
+	s := NewContainerBuildState("plural-claude")
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "brew install container") {
+		t.Error("Rendered output should contain the brew install command")
 	}
 }
 
