@@ -1930,3 +1930,79 @@ func TestConfig_EnsureInitialized_Workspaces(t *testing.T) {
 		t.Error("Workspaces should be initialized")
 	}
 }
+
+func TestConfig_ClearOrphanedParentIDs(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "child-1", ParentID: "parent-1"},
+			{ID: "child-2", ParentID: "parent-2"},
+			{ID: "child-3", ParentID: "parent-1"},
+			{ID: "orphan", ParentID: ""},
+			{ID: "unrelated", ParentID: "still-exists"},
+		},
+	}
+
+	cfg.ClearOrphanedParentIDs([]string{"parent-1"})
+
+	// child-1 and child-3 had ParentID=parent-1, should be cleared
+	sess1 := cfg.GetSession("child-1")
+	if sess1.ParentID != "" {
+		t.Errorf("child-1 ParentID should be cleared, got %q", sess1.ParentID)
+	}
+	sess3 := cfg.GetSession("child-3")
+	if sess3.ParentID != "" {
+		t.Errorf("child-3 ParentID should be cleared, got %q", sess3.ParentID)
+	}
+
+	// child-2 had ParentID=parent-2, should be unchanged
+	sess2 := cfg.GetSession("child-2")
+	if sess2.ParentID != "parent-2" {
+		t.Errorf("child-2 ParentID should be unchanged, got %q", sess2.ParentID)
+	}
+
+	// unrelated had ParentID=still-exists, should be unchanged
+	unrelated := cfg.GetSession("unrelated")
+	if unrelated.ParentID != "still-exists" {
+		t.Errorf("unrelated ParentID should be unchanged, got %q", unrelated.ParentID)
+	}
+}
+
+func TestConfig_ClearOrphanedParentIDs_MultipleDeleted(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "a", ParentID: "del-1"},
+			{ID: "b", ParentID: "del-2"},
+			{ID: "c", ParentID: "keep"},
+		},
+	}
+
+	cfg.ClearOrphanedParentIDs([]string{"del-1", "del-2"})
+
+	a := cfg.GetSession("a")
+	if a.ParentID != "" {
+		t.Errorf("a ParentID should be cleared, got %q", a.ParentID)
+	}
+	b := cfg.GetSession("b")
+	if b.ParentID != "" {
+		t.Errorf("b ParentID should be cleared, got %q", b.ParentID)
+	}
+	c := cfg.GetSession("c")
+	if c.ParentID != "keep" {
+		t.Errorf("c ParentID should be unchanged, got %q", c.ParentID)
+	}
+}
+
+func TestConfig_ClearOrphanedParentIDs_EmptyList(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "a", ParentID: "parent"},
+		},
+	}
+
+	cfg.ClearOrphanedParentIDs([]string{})
+
+	a := cfg.GetSession("a")
+	if a.ParentID != "parent" {
+		t.Errorf("ParentID should be unchanged when no deletions, got %q", a.ParentID)
+	}
+}

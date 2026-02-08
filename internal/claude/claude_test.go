@@ -1080,8 +1080,8 @@ func TestFormatToolInput(t *testing.T) {
 	}{
 		{"/path/to/file.go", true, 0, "file.go"},
 		{"/path/to/file.go", false, 0, "/path/to/file.go"},
-		{"very long string that needs truncation", false, 10, "very long ..."},
-		{"/path/to/file.go", true, 5, "file...."},
+		{"very long string that needs truncation", false, 10, "very lo..."},
+		{"/path/to/file.go", true, 5, "fi..."},
 		{"short", false, 100, "short"},
 	}
 
@@ -1101,8 +1101,8 @@ func TestTruncateString(t *testing.T) {
 	}{
 		{"hello", 10, "hello"},
 		{"hello", 5, "hello"},
-		{"hello world", 5, "hello..."},
-		{"hello", 0, "hello"}, // 0 means no limit
+		{"hello world", 8, "hello..."},  // 8 chars: "hello" + "..."
+		{"hello world", 5, "he..."},     // 5 chars: "he" + "..."
 		{"", 10, ""},
 	}
 
@@ -1488,11 +1488,12 @@ func TestTruncateString_EdgeCases(t *testing.T) {
 		maxLen   int
 		expected string
 	}{
-		{"abc", 3, "abc"},    // Exactly at limit
-		{"abcd", 3, "abc..."}, // One over limit
-		{"ab", 3, "ab"},       // Under limit
-		{"a", 1, "a"},         // Single char at limit
-		{"ab", 1, "a..."},     // Single char limit with longer string
+		{"abc", 3, "abc"},   // Exactly at limit
+		{"abcd", 3, "abc"},  // One over limit, maxLen<=3 means no room for ellipsis
+		{"ab", 3, "ab"},     // Under limit
+		{"a", 1, "a"},       // Single char at limit
+		{"ab", 1, "a"},      // maxLen<=3, just truncate
+		{"abcde", 4, "a..."}, // maxLen=4, room for 1 char + "..."
 	}
 
 	for _, tt := range tests {

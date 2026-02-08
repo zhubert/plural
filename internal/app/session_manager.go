@@ -258,22 +258,9 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 	}
 	sm.mu.RUnlock()
 
-	// Slow path: acquire write lock and double-check before creating
-	sm.mu.Lock()
-
-	// Double-check: another goroutine may have created the runner while we waited for the lock
-	if runner, exists := sm.runners[sess.ID]; exists {
-		sm.mu.Unlock()
-		log.Debug("reusing existing runner (created by another goroutine)")
-		return runner
-	}
-
-	log.Debug("creating new runner")
-
+	// Load messages from disk BEFORE acquiring write lock to avoid blocking
+	// all runner lookups during disk I/O.
 	var initialMsgs []claude.Message
-
-	// Load saved messages from disk (unless skipped for demos/tests)
-	// Note: This is done while holding the lock to ensure only one goroutine loads messages
 	if !sm.skipMessageLoad {
 		savedMsgs, err := config.LoadSessionMessages(sess.ID)
 		if err != nil {
@@ -290,6 +277,19 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 	} else {
 		log.Debug("skipping message load (demo/test mode)")
 	}
+
+	// Slow path: acquire write lock and double-check before creating
+	sm.mu.Lock()
+
+	// Double-check: another goroutine may have created the runner while we
+	// loaded messages or waited for the lock
+	if runner, exists := sm.runners[sess.ID]; exists {
+		sm.mu.Unlock()
+		log.Debug("reusing existing runner (created by another goroutine)")
+		return runner
+	}
+
+	log.Debug("creating new runner")
 
 	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
 	sm.runners[sess.ID] = runner

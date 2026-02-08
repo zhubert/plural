@@ -297,3 +297,34 @@ func TestParseStreamMessage_StreamEventTextDeltaUnaffected(t *testing.T) {
 		t.Errorf("expected 'Hello', got %q", chunks[0].Content)
 	}
 }
+
+func TestTruncateString_IncludesEllipsis(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{"short string unchanged", "hi", 10, "hi"},
+		{"exact length unchanged", "hello", 5, "hello"},
+		{"truncated with ellipsis", "hello world", 8, "hello..."},
+		{"very short maxLen", "hello", 2, "he"},
+		{"maxLen 3", "hello", 3, "hel"},
+		{"maxLen 4", "hello", 4, "h..."},
+		{"empty string", "", 5, ""},
+		{"zero maxLen means no limit", "hello", 0, "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncateString(tt.input, tt.maxLen)
+			if got != tt.want {
+				t.Errorf("truncateString(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+			}
+			// Verify output never exceeds maxLen (when maxLen > 0)
+			if tt.maxLen > 0 && len(got) > tt.maxLen {
+				t.Errorf("output length %d exceeds maxLen %d", len(got), tt.maxLen)
+			}
+		})
+	}
+}

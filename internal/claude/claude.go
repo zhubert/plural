@@ -330,10 +330,9 @@ func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 		return
 	}
 
-	// Use non-blocking send to avoid deadlock if channel is closed between check and send
-	select {
-	case ch <- resp:
-	default:
+	// Use safeSendChannel to protect against send-on-closed-channel panic.
+	// Between the RUnlock above and the send below, Stop() could close the channel.
+	if !safeSendChannel(ch, resp) {
 		r.log.Debug("SendPermissionResponse channel full or closed, ignoring")
 	}
 }
@@ -365,10 +364,8 @@ func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 		return
 	}
 
-	// Use non-blocking send to avoid deadlock if channel is closed between check and send
-	select {
-	case ch <- resp:
-	default:
+	// Use safeSendChannel to protect against send-on-closed-channel panic.
+	if !safeSendChannel(ch, resp) {
 		r.log.Debug("SendQuestionResponse channel full or closed, ignoring")
 	}
 }
@@ -400,10 +397,8 @@ func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 		return
 	}
 
-	// Use non-blocking send to avoid deadlock if channel is closed between check and send
-	select {
-	case ch <- resp:
-	default:
+	// Use safeSendChannel to protect against send-on-closed-channel panic.
+	if !safeSendChannel(ch, resp) {
 		r.log.Debug("SendPlanApprovalResponse channel full or closed, ignoring")
 	}
 }
@@ -953,7 +948,6 @@ func (r *Runner) handleStreamEventTokens(event *streamEvent, ch chan ResponseChu
 	}
 
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	// If this is a message_start with a new message ID, handle API call transitions
 	if messageID != "" && messageID != r.tokens.LastMessageID {
@@ -968,10 +962,15 @@ func (r *Runner) handleStreamEventTokens(event *streamEvent, ch chan ResponseChu
 	// Update the current message's token count
 	r.tokens.LastMessageTokens = outputTokens
 
-	// Calculate total and emit stats
+	// Calculate total and check channel state under lock
 	currentTotal := r.tokens.CurrentTotal()
+	canSend := ch != nil && !r.responseChan.Closed
 
-	if ch != nil && !r.responseChan.Closed {
+	// Release lock BEFORE sending to avoid holding it during the 10s timeout
+	// in sendChunkWithTimeout, which would block all runner operations.
+	r.mu.Unlock()
+
+	if canSend {
 		r.sendChunkWithTimeout(ch, ResponseChunk{
 			Type: ChunkTypeStreamStats,
 			Stats: &StreamStats{
@@ -1290,4 +1289,22 @@ func (r *Runner) Stop() {
 
 		r.log.Info("runner stopped")
 	})
+}
+
+// safeSendChannel attempts a non-blocking send on a channel, recovering from
+// panics caused by sending on a closed channel. This is needed because between
+// checking the stopped flag (under RLock) and actually sending (after RUnlock),
+// Stop() could close the channel. Returns true if the send succeeded.
+func safeSendChannel[T any](ch chan T, value T) (sent bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			sent = false
+		}
+	}()
+	select {
+	case ch <- value:
+		return true
+	default:
+		return false
+	}
 }
