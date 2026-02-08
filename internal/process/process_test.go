@@ -124,6 +124,15 @@ func TestContainersSupported(t *testing.T) {
 	}
 }
 
+func TestContainerImageExists_NoContainerCLI(t *testing.T) {
+	// With container CLI unavailable, should return false
+	t.Setenv("PATH", "/nonexistent")
+
+	if ContainerImageExists("plural-claude") {
+		t.Error("Expected false when container CLI not found")
+	}
+}
+
 func TestOrphanedContainer_Fields(t *testing.T) {
 	c := OrphanedContainer{
 		Name: "plural-abc123",

@@ -16,6 +16,16 @@ func ContainersSupported() bool {
 	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
 }
 
+// ContainerImageExists checks if a container image exists locally.
+// Returns false if the container CLI is not available or the image is not found.
+func ContainerImageExists(image string) bool {
+	if _, err := exec.LookPath("container"); err != nil {
+		return false
+	}
+	cmd := exec.Command("container", "image", "inspect", image)
+	return cmd.Run() == nil
+}
+
 // ClaudeProcess represents a running Claude CLI process found on the system.
 type ClaudeProcess struct {
 	PID     int    // Process ID

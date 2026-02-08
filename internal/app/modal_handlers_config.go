@@ -10,6 +10,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -353,10 +354,19 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		// Save per-repo settings if a repo is selected
+		var cmds []tea.Cmd
 		if repoPath := state.GetRepoPath(); repoPath != "" {
 			m.config.SetSquashOnMerge(repoPath, state.GetSquashOnMerge())
 			m.config.SetUseContainers(repoPath, state.GetUseContainers())
 			m.config.SetAsanaProject(repoPath, state.GetAsanaProject())
+
+			// Warn if enabling containers but image doesn't exist
+			if state.GetUseContainers() {
+				image := m.config.GetContainerImage()
+				if !process.ContainerImageExists(image) {
+					cmds = append(cmds, m.ShowFlashWarning("Container image '"+image+"' not found. Build with: container build -t "+image+" ."))
+				}
+			}
 		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)
@@ -364,7 +374,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 			return m, nil
 		}
 		m.modal.Hide()
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
 	// Forward other keys to modal for text input handling
 	modal, cmd := m.modal.Update(msg)

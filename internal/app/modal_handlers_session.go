@@ -208,8 +208,14 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
 		// Set containerized flag if container mode is enabled for this repo and host supports it
+		var cmds []tea.Cmd
 		if m.config.GetUseContainers(repoPath) && process.ContainersSupported() {
-			sess.Containerized = true
+			image := m.config.GetContainerImage()
+			if process.ContainerImageExists(image) {
+				sess.Containerized = true
+			} else {
+				cmds = append(cmds, m.ShowFlashWarning("Container image '"+image+"' not found — session created without container"))
+			}
 		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
@@ -225,7 +231,7 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
 		m.modal.Hide()
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
 	// Forward other keys (tab, shift+tab, up, down, etc.) to modal for handling
 	modal, cmd := m.modal.Update(msg)
@@ -363,8 +369,14 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
 		// Set containerized flag if container mode is enabled for this repo and host supports it
+		var containerImageMissing bool
 		if m.config.GetUseContainers(state.RepoPath) && process.ContainersSupported() {
-			sess.Containerized = true
+			image := m.config.GetContainerImage()
+			if process.ContainerImageExists(image) {
+				sess.Containerized = true
+			} else {
+				containerImageMissing = true
+			}
 		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
@@ -383,9 +395,13 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		m.selectSession(sess)
 		m.modal.Hide()
 
-		// Show warning if message copy failed (after modal is hidden)
+		// Show warnings after modal is hidden
 		if messageCopyFailed {
 			return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
+		}
+		if containerImageMissing {
+			image := m.config.GetContainerImage()
+			return m, m.ShowFlashWarning("Container image '" + image + "' not found — session created without container")
 		}
 		return m, nil
 	}
@@ -594,6 +610,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	var mu sync.Mutex
 	var createdSessions []*config.Session
 	var failedRepos []string
+	var containerImageMissing bool
 
 	// Create sessions in parallel
 	var wg sync.WaitGroup
@@ -621,7 +638,14 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 
 			// Set containerized flag if container mode is enabled for this repo and host supports it
 			if m.config.GetUseContainers(repoPath) && process.ContainersSupported() {
-				sess.Containerized = true
+				image := m.config.GetContainerImage()
+				if process.ContainerImageExists(image) {
+					sess.Containerized = true
+				} else {
+					mu.Lock()
+					containerImageMissing = true
+					mu.Unlock()
+				}
 			}
 
 			mu.Lock()
@@ -670,6 +694,11 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 
 	// Collect all commands for parallel execution
 	var cmds []tea.Cmd
+
+	if containerImageMissing {
+		image := m.config.GetContainerImage()
+		cmds = append(cmds, m.ShowFlashWarning("Container image '"+image+"' not found — sessions created without container"))
+	}
 
 	// Send prompt to each created session
 	for _, sess := range createdSessions {

@@ -20,7 +20,7 @@ var skipConfirm bool
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Remove all sessions, logs, and orphaned worktrees",
+	Short: "Remove all sessions, logs, orphaned worktrees, and containers",
 	Long: `Clears all session data, removes log files, prunes orphaned worktrees,
 kills any orphaned Claude processes, and removes orphaned containers.
 
