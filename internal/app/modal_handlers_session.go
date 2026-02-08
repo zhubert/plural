@@ -208,13 +208,13 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
 		// Set containerized flag if container mode is enabled for this repo and host supports it
-		var cmds []tea.Cmd
+		var containerImageMissing bool
 		if m.config.GetUseContainers(repoPath) && process.ContainersSupported() {
 			image := m.config.GetContainerImage()
 			if process.ContainerImageExists(image) {
 				sess.Containerized = true
 			} else {
-				cmds = append(cmds, m.ShowFlashWarning("Container image '"+image+"' not found — session created without container"))
+				containerImageMissing = true
 			}
 		}
 		// Auto-assign to active workspace
@@ -230,8 +230,12 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
-		m.modal.Hide()
-		return m, tea.Batch(cmds...)
+		if containerImageMissing {
+			m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
+		} else {
+			m.modal.Hide()
+		}
+		return m, nil
 	}
 	// Forward other keys (tab, shift+tab, up, down, etc.) to modal for handling
 	modal, cmd := m.modal.Update(msg)
@@ -393,16 +397,17 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
-		m.modal.Hide()
 
-		// Show warnings after modal is hidden
+		// Show warnings after session is created
 		if messageCopyFailed {
+			m.modal.Hide()
 			return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
 		}
 		if containerImageMissing {
-			image := m.config.GetContainerImage()
-			return m, m.ShowFlashWarning("Container image '" + image + "' not found — session created without container")
+			m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
+			return m, nil
 		}
+		m.modal.Hide()
 		return m, nil
 	}
 	// Forward other keys (tab, shift+tab, space, up, down, etc.) to modal for handling
@@ -697,7 +702,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 
 	if containerImageMissing {
 		image := m.config.GetContainerImage()
-		cmds = append(cmds, m.ShowFlashWarning("Container image '"+image+"' not found — sessions created without container"))
+		cmds = append(cmds, m.ShowFlashWarning("Image '"+image+"' not found — run: container build -t "+image+" ."))
 	}
 
 	// Send prompt to each created session

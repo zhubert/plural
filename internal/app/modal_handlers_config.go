@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
@@ -354,17 +355,18 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		// Save per-repo settings if a repo is selected
-		var cmds []tea.Cmd
+		var containerImageMissing bool
+		var containerImage string
 		if repoPath := state.GetRepoPath(); repoPath != "" {
 			m.config.SetSquashOnMerge(repoPath, state.GetSquashOnMerge())
 			m.config.SetUseContainers(repoPath, state.GetUseContainers())
 			m.config.SetAsanaProject(repoPath, state.GetAsanaProject())
 
-			// Warn if enabling containers but image doesn't exist
+			// Check if enabling containers but image doesn't exist
 			if state.GetUseContainers() {
-				image := m.config.GetContainerImage()
-				if !process.ContainerImageExists(image) {
-					cmds = append(cmds, m.ShowFlashWarning("Container image '"+image+"' not found. Build with: container build -t "+image+" ."))
+				containerImage = m.config.GetContainerImage()
+				if !process.ContainerImageExists(containerImage) {
+					containerImageMissing = true
 				}
 			}
 		}
@@ -373,11 +375,33 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
+		if containerImageMissing {
+			// Show build instructions modal instead of dismissing
+			m.modal.Show(ui.NewContainerBuildState(containerImage))
+			return m, nil
+		}
 		m.modal.Hide()
-		return m, tea.Batch(cmds...)
+		return m, nil
 	}
 	// Forward other keys to modal for text input handling
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleContainerBuildModal handles key events for the Container Build modal.
+func (m *Model) handleContainerBuildModal(key string, _ tea.KeyPressMsg, state *ui.ContainerBuildState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		if err := clipboard.WriteText(state.GetBuildCommand()); err != nil {
+			logger.Get().Error("failed to copy to clipboard", "error", err)
+			return m, m.ShowFlashError("Failed to copy to clipboard")
+		}
+		state.Copied = true
+		return m, nil
+	}
+	return m, nil
 }

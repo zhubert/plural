@@ -59,6 +59,7 @@ type (
 	NewWorkspaceState        = modals.NewWorkspaceState
 	BulkActionState          = modals.BulkActionState
 	BulkAction               = modals.BulkAction
+	ContainerBuildState      = modals.ContainerBuildState
 )
 
 // Re-export broadcast action constants
@@ -107,6 +108,7 @@ var (
 	NewWorkspaceListState      = modals.NewWorkspaceListState
 	NewNewWorkspaceState       = modals.NewNewWorkspaceState
 	NewRenameWorkspaceState    = modals.NewRenameWorkspaceState
+	NewContainerBuildState     = modals.NewContainerBuildState
 	NewBulkActionState         = modals.NewBulkActionState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
