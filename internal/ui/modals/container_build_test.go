@@ -92,3 +92,52 @@ func TestContainerBuildState_Render_ShowsCopiedMessage(t *testing.T) {
 		t.Error("Rendered output should show 'Copied to clipboard' after copy")
 	}
 }
+
+func TestValidateContainerImage(t *testing.T) {
+	tests := []struct {
+		name  string
+		image string
+		valid bool
+	}{
+		{"valid simple name", "plural-claude", true},
+		{"valid with dots", "my.image.name", true},
+		{"valid with underscores", "my_image", true},
+		{"valid with tag", "plural-claude:latest", true},
+		{"valid with namespace", "registry/image:v1", true},
+		{"valid uppercase", "MyImage", true},
+		{"empty string", "", false},
+		{"shell injection semicolon", "image; rm -rf /", false},
+		{"shell injection backtick", "image`whoami`", false},
+		{"shell injection dollar", "image$(whoami)", false},
+		{"shell injection pipe", "image|cat /etc/passwd", false},
+		{"starts with hyphen", "-image", false},
+		{"starts with dot", ".image", false},
+		{"spaces", "my image", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ValidateContainerImage(tt.image); got != tt.valid {
+				t.Errorf("ValidateContainerImage(%q) = %v, want %v", tt.image, got, tt.valid)
+			}
+		})
+	}
+}
+
+func TestNewContainerBuildState_SanitizesInvalidImage(t *testing.T) {
+	s := NewContainerBuildState("; rm -rf /")
+	if s.Image != "plural-claude" {
+		t.Errorf("Invalid image name should be replaced with default, got %q", s.Image)
+	}
+}
+
+func TestGetBuildCommand_SanitizesInvalidImage(t *testing.T) {
+	s := &ContainerBuildState{Image: "; rm -rf /"}
+	cmd := s.GetBuildCommand()
+	if strings.Contains(cmd, "rm -rf") {
+		t.Error("GetBuildCommand should not include shell injection in output")
+	}
+	if !strings.Contains(cmd, "plural-claude") {
+		t.Error("GetBuildCommand should fall back to default image for invalid names")
+	}
+}

@@ -1,9 +1,15 @@
 package modals
 
 import (
+	"regexp"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
+
+// validContainerImage matches valid container image names: lowercase alphanumeric,
+// dots, hyphens, underscores, slashes (for namespaced images), and colons (for tags).
+var validContainerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._\-/:]*$`)
 
 // ContainerBuildState shows the user how to build the container image.
 type ContainerBuildState struct {
@@ -74,12 +80,26 @@ func (s *ContainerBuildState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 }
 
 // GetBuildCommand returns the setup commands for clipboard copying.
+// The image name is validated before inclusion to prevent shell injection.
 func (s *ContainerBuildState) GetBuildCommand() string {
-	return "brew install container && container system start && container build -t " + s.Image + " ."
+	image := s.Image
+	if !validContainerImage.MatchString(image) {
+		image = "plural-claude" // fall back to default for invalid names
+	}
+	return "brew install container && container system start && container build -t " + image + " ."
+}
+
+// ValidateContainerImage checks if the given image name is safe.
+func ValidateContainerImage(image string) bool {
+	return validContainerImage.MatchString(image)
 }
 
 // NewContainerBuildState creates a new ContainerBuildState.
+// Invalid image names are replaced with the default to prevent shell injection.
 func NewContainerBuildState(image string) *ContainerBuildState {
+	if !validContainerImage.MatchString(image) {
+		image = "plural-claude"
+	}
 	return &ContainerBuildState{
 		Image: image,
 	}
