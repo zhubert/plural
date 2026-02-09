@@ -397,7 +397,9 @@ func (pm *ProcessManager) Stop() {
 		}
 
 		// Clean up the auth secrets file from the host
-		os.Remove(containerAuthFilePath(pm.config.SessionID))
+		if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+			os.Remove(authFile)
+		}
 	}
 
 	// Wait for goroutines (readOutput, monitorExit) to complete
@@ -715,9 +717,10 @@ func (pm *ProcessManager) handleExit(err error) {
 			}
 			// Clean up auth credentials file on fatal restart failure
 			if pm.config.Containerized {
-				authFile := containerAuthFilePath(pm.config.SessionID)
-				if removeErr := os.Remove(authFile); removeErr == nil {
-					pm.log.Debug("cleaned up auth file on restart failure", "path", authFile)
+				if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+					if removeErr := os.Remove(authFile); removeErr == nil {
+						pm.log.Debug("cleaned up auth file on restart failure", "path", authFile)
+					}
 				}
 			}
 			// Report fatal error
@@ -736,9 +739,10 @@ func (pm *ProcessManager) handleExit(err error) {
 
 	// Clean up auth credentials file that would otherwise persist on disk
 	if pm.config.Containerized {
-		authFile := containerAuthFilePath(pm.config.SessionID)
-		if err := os.Remove(authFile); err == nil {
-			pm.log.Debug("cleaned up auth file on fatal error", "path", authFile)
+		if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+			if err := os.Remove(authFile); err == nil {
+				pm.log.Debug("cleaned up auth file on fatal error", "path", authFile)
+			}
 		}
 	}
 
@@ -791,10 +795,12 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) []string {
 
 // containerAuthDir returns the directory for storing container auth files.
 // Uses ~/.plural/ which is user-private, unlike /tmp which is world-readable.
+// Returns empty string if home directory cannot be determined (credentials
+// will not be written rather than falling back to an insecure location).
 func containerAuthDir() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "/tmp" // fallback
+		return ""
 	}
 	dir := filepath.Join(homeDir, ".plural")
 	os.MkdirAll(dir, 0700)
@@ -802,8 +808,13 @@ func containerAuthDir() string {
 }
 
 // containerAuthFilePath returns the path for a session's container auth file.
+// Returns empty string if the auth directory cannot be determined.
 func containerAuthFilePath(sessionID string) string {
-	return filepath.Join(containerAuthDir(), fmt.Sprintf("plural-auth-%s", sessionID))
+	dir := containerAuthDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, fmt.Sprintf("plural-auth-%s", sessionID))
 }
 
 // writeContainerAuthFile writes credentials to a file in ~/.plural/ with
@@ -833,14 +844,21 @@ func writeContainerAuthFile(sessionID string) string {
 		return ""
 	}
 
-	// Validate credential value has no newlines or shell metacharacters that
-	// could break the entrypoint's source command
+	// Validate credential value has no newlines or single quotes that could
+	// break the entrypoint's source command. Values are single-quoted in the
+	// auth file so shell metacharacters like $ are safe.
 	parts := strings.SplitN(content, "=", 2)
-	if len(parts) == 2 && strings.ContainsAny(parts[1], "\n\r`$\"'\\") {
+	if len(parts) == 2 && strings.ContainsAny(parts[1], "\n\r'") {
 		return ""
 	}
 
+	// Single-quote the value to prevent shell expansion
+	content = parts[0] + "='" + parts[1] + "'"
+
 	path := containerAuthFilePath(sessionID)
+	if path == "" {
+		return ""
+	}
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return ""
 	}

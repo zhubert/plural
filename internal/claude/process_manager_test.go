@@ -1273,3 +1273,62 @@ func TestProcessManager_HandleExit_NoAuthCleanupForNonContainerized(t *testing.T
 	// No auth file assertion needed — just verify non-containerized path doesn't panic
 }
 
+func TestWriteContainerAuthFile_SingleQuotesValue(t *testing.T) {
+	sessionID := "test-single-quote"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	// Set env var with a value containing $ which should be preserved
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-$pecial-key")
+
+	path := writeContainerAuthFile(sessionID)
+	if path == "" {
+		t.Fatal("writeContainerAuthFile should succeed for key with $")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read auth file: %v", err)
+	}
+
+	expected := "ANTHROPIC_API_KEY='sk-ant-$pecial-key'"
+	if string(content) != expected {
+		t.Errorf("auth file content = %q, want %q", string(content), expected)
+	}
+}
+
+func TestWriteContainerAuthFile_RejectsNewlines(t *testing.T) {
+	sessionID := "test-newline-reject"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-key\nINJECTED=bad")
+
+	path := writeContainerAuthFile(sessionID)
+	if path != "" {
+		t.Error("writeContainerAuthFile should reject values with newlines")
+		os.Remove(path)
+	}
+}
+
+func TestWriteContainerAuthFile_RejectsSingleQuotes(t *testing.T) {
+	sessionID := "test-quote-reject"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-key'; echo pwned")
+
+	path := writeContainerAuthFile(sessionID)
+	if path != "" {
+		t.Error("writeContainerAuthFile should reject values with single quotes")
+		os.Remove(path)
+	}
+}
+
+func TestContainerAuthDir_ReturnsUserPrivateDir(t *testing.T) {
+	dir := containerAuthDir()
+	if dir == "" {
+		t.Skip("home directory not available")
+	}
+	if dir == "/tmp" {
+		t.Error("containerAuthDir should not return /tmp")
+	}
+}
+
