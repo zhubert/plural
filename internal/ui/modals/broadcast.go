@@ -24,14 +24,15 @@ type RepoItem struct {
 
 // BroadcastState is the state for the broadcast modal
 type BroadcastState struct {
-	Repos               []RepoItem
-	SelectedIndex       int              // Currently highlighted repo
-	NameInput           textinput.Model  // Session name input (optional)
-	PromptInput         textarea.Model   // Multi-line prompt input
-	UseContainers       bool             // Whether to run sessions in containers
-	ContainersSupported bool             // Whether the host supports Apple containers (darwin/arm64)
-	Focus               int              // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
-	ScrollOffset        int              // For scrolling the repo list
+	Repos                  []RepoItem
+	SelectedIndex          int              // Currently highlighted repo
+	NameInput              textinput.Model  // Session name input (optional)
+	PromptInput            textarea.Model   // Multi-line prompt input
+	UseContainers          bool             // Whether to run sessions in containers
+	ContainersSupported    bool             // Whether the host supports Apple containers (darwin/arm64)
+	ContainerAuthAvailable bool             // Whether API key credentials are available for container mode
+	Focus                  int              // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
+	ScrollOffset           int              // For scrolling the repo list
 }
 
 func (*BroadcastState) modalState() {}
@@ -129,6 +130,16 @@ func (s *BroadcastState) Render() string {
 		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		parts = append(parts, containerLabel, containerView)
+
+		if s.UseContainers && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Requires ANTHROPIC_API_KEY (set env var or add to macOS keychain)")
+			parts = append(parts, authWarning)
+		}
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -341,7 +352,8 @@ func (s *BroadcastState) GetUseContainers() bool {
 
 // NewBroadcastState creates a new BroadcastState.
 // containersSupported indicates whether the host supports Apple containers (darwin/arm64).
-func NewBroadcastState(repoPaths []string, containersSupported bool) *BroadcastState {
+// containerAuthAvailable indicates whether API key credentials exist for container mode.
+func NewBroadcastState(repoPaths []string, containersSupported bool, containerAuthAvailable bool) *BroadcastState {
 	repos := make([]RepoItem, len(repoPaths))
 	for i, path := range repoPaths {
 		repos[i] = RepoItem{
@@ -367,13 +379,14 @@ func NewBroadcastState(repoPaths []string, containersSupported bool) *BroadcastS
 	ApplyTextareaStyles(&promptInput)
 
 	return &BroadcastState{
-		Repos:               repos,
-		SelectedIndex:       0,
-		NameInput:           nameInput,
-		PromptInput:         promptInput,
-		ContainersSupported: containersSupported,
-		Focus:               0, // Start focused on repo list
-		ScrollOffset:        0,
+		Repos:                  repos,
+		SelectedIndex:          0,
+		NameInput:              nameInput,
+		PromptInput:            promptInput,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0, // Start focused on repo list
+		ScrollOffset:           0,
 	}
 }
 

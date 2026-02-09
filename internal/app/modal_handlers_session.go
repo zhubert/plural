@@ -29,7 +29,7 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 	switch key {
 	case keys.Escape:
 		if state.ReturnToNewSession {
-			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported()))
+			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 			return m, nil
 		}
 		m.modal.Hide()
@@ -62,7 +62,7 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			return m, nil
 		}
 		if state.ReturnToNewSession {
-			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported()))
+			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 			return m, nil
 		}
 		m.modal.Hide()
@@ -143,7 +143,7 @@ func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string, retu
 	}
 
 	if returnToNewSession {
-		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported()))
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 	} else {
 		m.modal.Hide()
 	}
@@ -237,9 +237,13 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		if state.GetBaseIndex() == 1 {
 			basePoint = session.BasePointHead
 		}
-		// Check container image BEFORE creating the session to avoid running
+		// Check container auth and image BEFORE creating the session to avoid running
 		// without sandboxing when the user expects container protection
 		if state.GetUseContainers() {
+			if !claude.ContainerAuthAvailable() {
+				m.modal.SetError("Container mode requires an API key: set ANTHROPIC_API_KEY or add 'anthropic_api_key' to macOS keychain")
+				return m, nil
+			}
 			image := m.config.GetContainerImage()
 			if !process.ContainerImageExists(image) {
 				m.modal.Show(ui.NewContainerBuildState(image))
@@ -371,9 +375,13 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
-		// Check container image BEFORE creating the session to avoid running
+		// Check container auth and image BEFORE creating the session to avoid running
 		// without sandboxing when the user expects container protection
 		if state.GetUseContainers() {
+			if !claude.ContainerAuthAvailable() {
+				m.modal.SetError("Container mode requires an API key: set ANTHROPIC_API_KEY or add 'anthropic_api_key' to macOS keychain")
+				return m, nil
+			}
 			image := m.config.GetContainerImage()
 			if !process.ContainerImageExists(image) {
 				m.modal.Show(ui.NewContainerBuildState(image))
@@ -533,7 +541,7 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 	switch key {
 	case keys.Escape:
 		// Go back to the new session modal
-		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported()))
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, nil
 	case keys.Enter:
 		repoPath := state.GetRepoPath()
@@ -550,7 +558,7 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 		logger.Get().Info("repository deleted successfully", "path", repoPath)
 
 		// Return to new session modal with updated repo list
-		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported()))
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, nil
 	}
 	return m, nil
@@ -623,9 +631,13 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 			}
 		}
 
-		// Check container image BEFORE creating sessions to avoid running
+		// Check container auth and image BEFORE creating sessions to avoid running
 		// without sandboxing when the user expects container protection
 		if state.GetUseContainers() {
+			if !claude.ContainerAuthAvailable() {
+				m.modal.SetError("Container mode requires an API key: set ANTHROPIC_API_KEY or add 'anthropic_api_key' to macOS keychain")
+				return m, nil
+			}
 			image := m.config.GetContainerImage()
 			if !process.ContainerImageExists(image) {
 				m.modal.Show(ui.NewContainerBuildState(image))

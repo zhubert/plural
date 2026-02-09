@@ -60,7 +60,7 @@ func TestSettingsState_Render_NoContainerSection(t *testing.T) {
 }
 
 func TestNewSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
-	s := NewNewSessionState([]string{"/repo"}, true)
+	s := NewNewSessionState([]string{"/repo"}, true, false)
 
 	if s.numFields() != 4 {
 		t.Errorf("Expected 4 fields with containers supported, got %d", s.numFields())
@@ -81,7 +81,7 @@ func TestNewSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
 }
 
 func TestNewSessionState_ContainerCheckbox_WhenUnsupported(t *testing.T) {
-	s := NewNewSessionState([]string{"/repo"}, false)
+	s := NewNewSessionState([]string{"/repo"}, false, false)
 
 	if s.numFields() != 3 {
 		t.Errorf("Expected 3 fields with containers unsupported, got %d", s.numFields())
@@ -95,7 +95,7 @@ func TestNewSessionState_ContainerCheckbox_WhenUnsupported(t *testing.T) {
 }
 
 func TestNewSessionState_ContainerCheckbox_Render(t *testing.T) {
-	s := NewNewSessionState([]string{"/repo"}, true)
+	s := NewNewSessionState([]string{"/repo"}, true, false)
 	rendered := s.Render()
 
 	if !strings.Contains(rendered, "Run in container") {
@@ -107,7 +107,7 @@ func TestNewSessionState_ContainerCheckbox_Render(t *testing.T) {
 }
 
 func TestNewSessionState_GetUseContainers(t *testing.T) {
-	s := NewNewSessionState([]string{"/repo"}, true)
+	s := NewNewSessionState([]string{"/repo"}, true, false)
 
 	if s.GetUseContainers() {
 		t.Error("GetUseContainers should return false initially")
@@ -120,7 +120,7 @@ func TestNewSessionState_GetUseContainers(t *testing.T) {
 }
 
 func TestForkSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
 
 	if s.numFields() != 3 {
 		t.Errorf("Expected 3 fields with containers supported, got %d", s.numFields())
@@ -135,7 +135,7 @@ func TestForkSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
 }
 
 func TestForkSessionState_ContainerCheckbox_WhenUnsupported(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, false)
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, false, false)
 
 	if s.numFields() != 2 {
 		t.Errorf("Expected 2 fields with containers unsupported, got %d", s.numFields())
@@ -148,20 +148,20 @@ func TestForkSessionState_ContainerCheckbox_WhenUnsupported(t *testing.T) {
 }
 
 func TestForkSessionState_InheritsParentContainerized(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", true, true)
+	s := NewForkSessionState("parent", "parent-id", "/repo", true, true, false)
 
 	if !s.UseContainers {
 		t.Error("Fork should default to parent's containerized state (true)")
 	}
 
-	s2 := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+	s2 := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
 	if s2.UseContainers {
 		t.Error("Fork should default to parent's containerized state (false)")
 	}
 }
 
 func TestForkSessionState_ContainerCheckbox_Render(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
 	rendered := s.Render()
 
 	if !strings.Contains(rendered, "Run in container") {
@@ -170,7 +170,7 @@ func TestForkSessionState_ContainerCheckbox_Render(t *testing.T) {
 }
 
 func TestForkSessionState_UpDownNavigation_CyclesToContainerCheckbox(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
 
 	// Start at focus 0
 	if s.Focus != 0 {
@@ -203,7 +203,7 @@ func TestForkSessionState_UpDownNavigation_CyclesToContainerCheckbox(t *testing.
 }
 
 func TestForkSessionState_UpDownNavigation_WithoutContainers(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, false)
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, false, false)
 
 	// Only 2 fields: toggle between 0 and 1
 	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -218,7 +218,7 @@ func TestForkSessionState_UpDownNavigation_WithoutContainers(t *testing.T) {
 }
 
 func TestForkSessionState_HelpText_ContainerFocused(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
 	s.Focus = 2
 
 	help := s.Help()
@@ -228,7 +228,7 @@ func TestForkSessionState_HelpText_ContainerFocused(t *testing.T) {
 }
 
 func TestBroadcastState_ContainerCheckbox_WhenSupported(t *testing.T) {
-	s := NewBroadcastState([]string{"/repo"}, true)
+	s := NewBroadcastState([]string{"/repo"}, true, false)
 
 	if !s.ContainersSupported {
 		t.Error("ContainersSupported should be true")
@@ -247,7 +247,7 @@ func TestBroadcastState_ContainerCheckbox_WhenSupported(t *testing.T) {
 }
 
 func TestBroadcastState_ContainerCheckbox_WhenUnsupported(t *testing.T) {
-	s := NewBroadcastState([]string{"/repo"}, false)
+	s := NewBroadcastState([]string{"/repo"}, false, false)
 
 	rendered := s.Render()
 	if strings.Contains(rendered, "Run in containers") {
@@ -256,10 +256,78 @@ func TestBroadcastState_ContainerCheckbox_WhenUnsupported(t *testing.T) {
 }
 
 func TestBroadcastState_ContainerCheckbox_Render(t *testing.T) {
-	s := NewBroadcastState([]string{"/repo"}, true)
+	s := NewBroadcastState([]string{"/repo"}, true, false)
 	rendered := s.Render()
 
 	if !strings.Contains(rendered, "Run in containers") {
 		t.Error("Container checkbox should appear when supported")
+	}
+}
+
+func TestNewSessionState_AuthWarning_WhenNoAuth(t *testing.T) {
+	s := NewNewSessionState([]string{"/repo"}, true, false)
+	s.UseContainers = true
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should appear when containers checked and no auth")
+	}
+}
+
+func TestNewSessionState_AuthWarning_WhenAuthAvailable(t *testing.T) {
+	s := NewNewSessionState([]string{"/repo"}, true, true)
+	s.UseContainers = true
+	rendered := s.Render()
+
+	if strings.Contains(rendered, "Requires ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should not appear when auth is available")
+	}
+}
+
+func TestNewSessionState_AuthWarning_WhenContainersNotChecked(t *testing.T) {
+	s := NewNewSessionState([]string{"/repo"}, true, false)
+	// UseContainers is false by default
+	rendered := s.Render()
+
+	if strings.Contains(rendered, "Requires ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should not appear when containers not checked")
+	}
+}
+
+func TestForkSessionState_AuthWarning_WhenNoAuth(t *testing.T) {
+	s := NewForkSessionState("parent", "parent-id", "/repo", true, true, false)
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should appear when containers checked and no auth (inherited from parent)")
+	}
+}
+
+func TestForkSessionState_AuthWarning_WhenAuthAvailable(t *testing.T) {
+	s := NewForkSessionState("parent", "parent-id", "/repo", true, true, true)
+	rendered := s.Render()
+
+	if strings.Contains(rendered, "Requires ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should not appear when auth is available")
+	}
+}
+
+func TestBroadcastState_AuthWarning_WhenNoAuth(t *testing.T) {
+	s := NewBroadcastState([]string{"/repo"}, true, false)
+	s.UseContainers = true
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should appear when containers checked and no auth")
+	}
+}
+
+func TestBroadcastState_AuthWarning_WhenAuthAvailable(t *testing.T) {
+	s := NewBroadcastState([]string{"/repo"}, true, true)
+	s.UseContainers = true
+	rendered := s.Render()
+
+	if strings.Contains(rendered, "Requires ANTHROPIC_API_KEY") {
+		t.Error("Auth warning should not appear when auth is available")
 	}
 }

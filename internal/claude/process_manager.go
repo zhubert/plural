@@ -3,7 +3,6 @@ package claude
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -252,6 +251,11 @@ func (pm *ProcessManager) Start() error {
 
 	pm.log.Info("starting process")
 	startTime := time.Now()
+
+	// Container mode requires an API key (OAuth tokens rotate and would become invalid)
+	if pm.config.Containerized && !ContainerAuthAvailable() {
+		return fmt.Errorf("container mode requires an API key: set ANTHROPIC_API_KEY or add 'anthropic_api_key' to macOS keychain")
+	}
 
 	// Build command arguments
 	args := BuildCommandArgs(pm.config)
@@ -817,16 +821,31 @@ func containerAuthFilePath(sessionID string) string {
 	return filepath.Join(dir, fmt.Sprintf("plural-auth-%s", sessionID))
 }
 
-// writeContainerAuthFile writes credentials to a file in ~/.plural/ with
+// ContainerAuthAvailable checks whether API key credentials are available for
+// container mode. Returns true if ANTHROPIC_API_KEY is set in the environment
+// or if the "anthropic_api_key" entry exists in the macOS keychain.
+func ContainerAuthAvailable() bool {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return true
+	}
+	if readKeychainPassword("anthropic_api_key") != "" {
+		return true
+	}
+	return false
+}
+
+// writeContainerAuthFile writes an API key to a file in ~/.plural/ with
 // restricted permissions (0600) and returns the file path. The entrypoint
-// script reads this file and exports the appropriate env var.
+// script reads this file and exports ANTHROPIC_API_KEY.
 //
-// File format: ENV_VAR_NAME=value
+// File format: ANTHROPIC_API_KEY='value'
 //
-// Credential priority:
-//  1. ANTHROPIC_API_KEY from environment (explicit user override, API billing)
-//  2. OAuth access token from "Claude Code-credentials" keychain (subscription billing)
-//  3. API key from "anthropic_api_key" keychain entry (API billing)
+// Credential sources (in priority order):
+//  1. ANTHROPIC_API_KEY from environment
+//  2. "anthropic_api_key" macOS keychain entry
+//
+// OAuth tokens are not supported because they get rotated by the native CLI,
+// which would invalidate the container's copy and cause 401 errors.
 //
 // Returns empty string if no credentials are available.
 func writeContainerAuthFile(sessionID string) string {
@@ -834,8 +853,6 @@ func writeContainerAuthFile(sessionID string) string {
 
 	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
 		content = "ANTHROPIC_API_KEY=" + apiKey
-	} else if oauthToken := readOAuthAccessToken(); oauthToken != "" {
-		content = "CLAUDE_CODE_OAUTH_TOKEN=" + oauthToken
 	} else if apiKey := readKeychainPassword("anthropic_api_key"); apiKey != "" {
 		content = "ANTHROPIC_API_KEY=" + apiKey
 	}
@@ -863,26 +880,6 @@ func writeContainerAuthFile(sessionID string) string {
 		return ""
 	}
 	return path
-}
-
-// readOAuthAccessToken extracts the OAuth access token from the
-// "Claude Code-credentials" macOS keychain entry. This is used for
-// subscription billing (Claude Pro/Team/Enterprise).
-func readOAuthAccessToken() string {
-	credsJSON := readKeychainPassword("Claude Code-credentials")
-	if credsJSON == "" {
-		return ""
-	}
-
-	var creds struct {
-		ClaudeAiOauth struct {
-			AccessToken string `json:"accessToken"`
-		} `json:"claudeAiOauth"`
-	}
-	if err := json.Unmarshal([]byte(credsJSON), &creds); err != nil {
-		return ""
-	}
-	return creds.ClaudeAiOauth.AccessToken
 }
 
 // readKeychainPassword reads a password from the macOS keychain.

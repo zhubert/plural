@@ -497,6 +497,8 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 
 Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, eliminating the MCP permission system entirely for containerized sessions.
 
+**API Key Requirement**: Container mode requires `ANTHROPIC_API_KEY` (set as env var or stored in macOS keychain as `anthropic_api_key`). OAuth tokens are not supported because they get rotated by the native CLI, which would invalidate the container's copy. The UI shows a warning when the container checkbox is checked without available credentials, and session creation is blocked.
+
 **Config** (`internal/config/config.go`):
 - `ContainerImage string`: Container image name (default: `"plural-claude"`)
 - `GetContainerImage`/`SetContainerImage`: Image name with default
@@ -508,9 +510,11 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 **ProcessManager** (`internal/claude/process_manager.go`):
 - `ProcessConfig.Containerized`/`ContainerImage`: Passed from Runner
 - `BuildCommandArgs()`: When containerized, replaces MCP/permission/allowedTools block with just `--dangerously-skip-permissions`
-- `Start()`: When containerized, builds command as `container run -i --rm ...` wrapping `claude`
+- `Start()`: When containerized, checks `ContainerAuthAvailable()` first, then builds command as `container run -i --rm ...` wrapping `claude`
 - `Stop()`: Runs `container rm -f` as defense-in-depth cleanup
+- `ContainerAuthAvailable()`: Checks if API key credentials exist (env var or keychain)
 - `buildContainerRunArgs()`: Constructs container run arguments with worktree mount, auth mount, working directory
+- `writeContainerAuthFile()`: Writes API key to temp file for container mount (env var or keychain, no OAuth)
 
 **Runner** (`internal/claude/claude.go`):
 - `SetContainerized(bool, string)`: Stores container mode and image
@@ -519,10 +523,11 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - `Stop()`: Skips socket server and MCP config cleanup when containerized
 
 **UI**:
-- New Session modal (`n`): Container checkbox (focus index 3, only on Apple Silicon)
-- Fork Session modal (`f`): Container checkbox (focus index 2, defaults to parent's state)
-- Broadcast modal (`Ctrl+B`): Container checkbox (focus index 3, only on Apple Silicon)
+- New Session modal (`n`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
+- Fork Session modal (`f`): Container checkbox (focus index 2, defaults to parent's state), auth warning when no API key
+- Broadcast modal (`Ctrl+B`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
 - Header: `[CONTAINER]` indicator in green when viewing a containerized session
+- Modal constructors accept `containerAuthAvailable bool` parameter for auth state
 
 **Containerfile** (repo root):
 - Builds the default `plural-claude` image using `node:22-slim` base

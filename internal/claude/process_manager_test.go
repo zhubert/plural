@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1330,5 +1331,100 @@ func TestContainerAuthDir_ReturnsUserPrivateDir(t *testing.T) {
 	if dir == "/tmp" {
 		t.Error("containerAuthDir should not return /tmp")
 	}
+}
+
+func TestContainerAuthAvailable_WithEnvVar(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+
+	if !ContainerAuthAvailable() {
+		t.Error("ContainerAuthAvailable should return true when ANTHROPIC_API_KEY is set")
+	}
+}
+
+func TestContainerAuthAvailable_WithoutCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	// On macOS this might still return true if there's a keychain entry,
+	// but with empty env var and no keychain it should return false.
+	// We can't fully test the keychain path in CI, but we can verify
+	// the function doesn't panic.
+	_ = ContainerAuthAvailable()
+}
+
+func TestWriteContainerAuthFile_NoOAuthPath(t *testing.T) {
+	sessionID := "test-no-oauth"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	// Clear env var to test that OAuth is not used as fallback
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	// With no env var and no keychain entry, should return empty
+	// (OAuth was removed as a credential source)
+	path := writeContainerAuthFile(sessionID)
+
+	// On macOS with a keychain entry for "anthropic_api_key" this would succeed,
+	// but the key point is that OAuth tokens are never used
+	if path != "" {
+		// Verify the content uses ANTHROPIC_API_KEY, never CLAUDE_CODE_OAUTH_TOKEN
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("failed to read auth file: %v", err)
+		}
+		if strings.Contains(string(content), "CLAUDE_CODE_OAUTH_TOKEN") {
+			t.Error("writeContainerAuthFile should never write CLAUDE_CODE_OAUTH_TOKEN")
+		}
+		if !strings.Contains(string(content), "ANTHROPIC_API_KEY") {
+			t.Error("writeContainerAuthFile should only write ANTHROPIC_API_KEY")
+		}
+	}
+}
+
+func TestProcessManager_Start_FailsWithoutAuthForContainerized(t *testing.T) {
+	// Clear API key env var
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:    "test-no-auth",
+		WorkingDir:   t.TempDir(),
+		Containerized: true,
+		ContainerImage: "plural-claude",
+	}, ProcessCallbacks{}, log)
+
+	err := pm.Start()
+	if err == nil {
+		pm.Stop()
+		// On macOS with a keychain entry this might succeed
+		// We can only reliably test this on systems without keychain
+		t.Log("Start succeeded - likely has keychain credentials")
+		return
+	}
+
+	if !strings.Contains(err.Error(), "container mode requires an API key") {
+		t.Errorf("expected auth error, got: %v", err)
+	}
+}
+
+func TestProcessManager_Start_AllowsNonContainerizedWithoutAuth(t *testing.T) {
+	// Clear API key env var
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-non-container",
+		WorkingDir:    t.TempDir(),
+		Containerized: false,
+	}, ProcessCallbacks{}, log)
+
+	// Start will fail because "claude" binary doesn't exist in test,
+	// but it should NOT fail with an auth error
+	err := pm.Start()
+	if err != nil && strings.Contains(err.Error(), "container mode requires an API key") {
+		t.Error("non-containerized sessions should not require API key auth")
+	}
+	// Clean up if it somehow started
+	pm.Stop()
 }
 

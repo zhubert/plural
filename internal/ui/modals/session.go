@@ -12,14 +12,15 @@ import (
 // =============================================================================
 
 type NewSessionState struct {
-	RepoOptions         []string
-	RepoIndex           int
-	BaseOptions         []string // Options for base branch selection
-	BaseIndex           int      // Selected base option index
-	BranchInput         textinput.Model
-	UseContainers       bool // Whether to run this session in a container
-	ContainersSupported bool // Whether the host supports Apple containers (darwin/arm64)
-	Focus               int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported)
+	RepoOptions            []string
+	RepoIndex              int
+	BaseOptions            []string // Options for base branch selection
+	BaseIndex              int      // Selected base option index
+	BranchInput            textinput.Model
+	UseContainers          bool // Whether to run this session in a container
+	ContainersSupported    bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
+	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported)
 }
 
 func (*NewSessionState) modalState() {}
@@ -113,6 +114,16 @@ func (s *NewSessionState) Render() string {
 			Render("Warning: Containers provide defense in depth but are not a complete security boundary.")
 
 		parts = append(parts, containerLabel, containerView, containerWarning)
+
+		if s.UseContainers && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Requires ANTHROPIC_API_KEY (set env var or add to macOS keychain)")
+			parts = append(parts, authWarning)
+		}
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -218,7 +229,8 @@ func (s *NewSessionState) GetUseContainers() bool {
 
 // NewNewSessionState creates a new NewSessionState with proper initialization.
 // containersSupported indicates whether the host supports Apple containers (darwin/arm64).
-func NewNewSessionState(repos []string, containersSupported bool) *NewSessionState {
+// containerAuthAvailable indicates whether API key credentials exist for container mode.
+func NewNewSessionState(repos []string, containersSupported bool, containerAuthAvailable bool) *NewSessionState {
 	branchInput := textinput.New()
 	branchInput.Placeholder = "optional branch name (leave empty for auto)"
 	branchInput.CharLimit = BranchNameCharLimit
@@ -231,10 +243,11 @@ func NewNewSessionState(repos []string, containersSupported bool) *NewSessionSta
 			"From current local branch",
 			"From remote default branch (latest)",
 		},
-		BaseIndex:           0,
-		BranchInput:         branchInput,
-		ContainersSupported: containersSupported,
-		Focus:               0,
+		BaseIndex:              0,
+		BranchInput:            branchInput,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0,
 	}
 }
 
@@ -243,14 +256,15 @@ func NewNewSessionState(repos []string, containersSupported bool) *NewSessionSta
 // =============================================================================
 
 type ForkSessionState struct {
-	ParentSessionName   string
-	ParentSessionID     string
-	RepoPath            string
-	BranchInput         textinput.Model
-	CopyMessages        bool // Whether to copy conversation history
-	UseContainers       bool // Whether to run this session in a container
-	ContainersSupported bool // Whether the host supports Apple containers (darwin/arm64)
-	Focus               int  // 0=copy messages toggle, 1=branch input, 2=containers (if supported)
+	ParentSessionName      string
+	ParentSessionID        string
+	RepoPath               string
+	BranchInput            textinput.Model
+	CopyMessages           bool // Whether to copy conversation history
+	UseContainers          bool // Whether to run this session in a container
+	ContainersSupported    bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
+	Focus                  int  // 0=copy messages toggle, 1=branch input, 2=containers (if supported)
 }
 
 func (*ForkSessionState) modalState() {}
@@ -337,6 +351,16 @@ func (s *ForkSessionState) Render() string {
 		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		parts = append(parts, containerLabel, containerView)
+
+		if s.UseContainers && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Requires ANTHROPIC_API_KEY (set env var or add to macOS keychain)")
+			parts = append(parts, authWarning)
+		}
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -425,21 +449,23 @@ func (s *ForkSessionState) GetUseContainers() bool {
 // NewForkSessionState creates a new ForkSessionState.
 // parentContainerized is the parent session's container status (used as default for the checkbox).
 // containersSupported indicates whether the host supports Apple containers (darwin/arm64).
-func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, parentContainerized bool, containersSupported bool) *ForkSessionState {
+// containerAuthAvailable indicates whether API key credentials exist for container mode.
+func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, parentContainerized bool, containersSupported bool, containerAuthAvailable bool) *ForkSessionState {
 	branchInput := textinput.New()
 	branchInput.Placeholder = "optional branch name (leave empty for auto)"
 	branchInput.CharLimit = BranchNameCharLimit
 	branchInput.SetWidth(ModalInputWidth)
 
 	return &ForkSessionState{
-		ParentSessionName:   parentSessionName,
-		ParentSessionID:     parentSessionID,
-		RepoPath:            repoPath,
-		BranchInput:         branchInput,
-		CopyMessages:        true, // Default to copying messages
-		UseContainers:       parentContainerized,
-		ContainersSupported: containersSupported,
-		Focus:               0,
+		ParentSessionName:      parentSessionName,
+		ParentSessionID:        parentSessionID,
+		RepoPath:               repoPath,
+		BranchInput:            branchInput,
+		CopyMessages:           true, // Default to copying messages
+		UseContainers:          parentContainerized,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0,
 	}
 }
 

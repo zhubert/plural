@@ -182,7 +182,7 @@ func TestAddRepoState_Help(t *testing.T) {
 
 func TestNewNewSessionState(t *testing.T) {
 	repos := []string{"/repo1", "/repo2"}
-	state := NewNewSessionState(repos, false)
+	state := NewNewSessionState(repos, false, false)
 
 	if len(state.RepoOptions) != 2 {
 		t.Errorf("Expected 2 repos, got %d", len(state.RepoOptions))
@@ -203,7 +203,7 @@ func TestNewNewSessionState(t *testing.T) {
 
 func TestNewSessionState_GetSelectedRepo(t *testing.T) {
 	repos := []string{"/repo1", "/repo2", "/repo3"}
-	state := NewNewSessionState(repos, false)
+	state := NewNewSessionState(repos, false, false)
 
 	// First repo selected
 	if state.GetSelectedRepo() != "/repo1" {
@@ -217,13 +217,13 @@ func TestNewSessionState_GetSelectedRepo(t *testing.T) {
 	}
 
 	// Empty repos
-	state = NewNewSessionState([]string{}, false)
+	state = NewNewSessionState([]string{}, false, false)
 	if state.GetSelectedRepo() != "" {
 		t.Errorf("Expected empty string for no repos, got %q", state.GetSelectedRepo())
 	}
 
 	// Out of bounds index
-	state = NewNewSessionState(repos, false)
+	state = NewNewSessionState(repos, false, false)
 	state.RepoIndex = 10
 	if state.GetSelectedRepo() != "" {
 		t.Errorf("Expected empty string for out of bounds, got %q", state.GetSelectedRepo())
@@ -231,7 +231,7 @@ func TestNewSessionState_GetSelectedRepo(t *testing.T) {
 }
 
 func TestNewSessionState_GetBranchName(t *testing.T) {
-	state := NewNewSessionState([]string{"/repo"}, false)
+	state := NewNewSessionState([]string{"/repo"}, false, false)
 
 	// Initially empty
 	if state.GetBranchName() != "" {
@@ -247,14 +247,14 @@ func TestNewSessionState_GetBranchName(t *testing.T) {
 
 func TestNewSessionState_Render(t *testing.T) {
 	// With repos
-	state := NewNewSessionState([]string{"/repo1", "/repo2"}, false)
+	state := NewNewSessionState([]string{"/repo1", "/repo2"}, false, false)
 	render := state.Render()
 	if render == "" {
 		t.Error("Render should not be empty")
 	}
 
 	// Without repos
-	state = NewNewSessionState([]string{}, false)
+	state = NewNewSessionState([]string{}, false, false)
 	render = state.Render()
 	if render == "" {
 		t.Error("Render without repos should not be empty")
@@ -263,7 +263,7 @@ func TestNewSessionState_Render(t *testing.T) {
 
 func TestNewSessionState_Help(t *testing.T) {
 	// With repos, focused on repo list - should show add and delete hints
-	state := NewNewSessionState([]string{"/repo1", "/repo2"}, false)
+	state := NewNewSessionState([]string{"/repo1", "/repo2"}, false, false)
 	state.Focus = 0
 	help := state.Help()
 	if help != "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create" {
@@ -271,7 +271,7 @@ func TestNewSessionState_Help(t *testing.T) {
 	}
 
 	// Without repos, focused on repo list - should show add hint
-	state = NewNewSessionState([]string{}, false)
+	state = NewNewSessionState([]string{}, false, false)
 	state.Focus = 0
 	help = state.Help()
 	if help != "a: add repo  Esc: cancel" {
@@ -279,7 +279,7 @@ func TestNewSessionState_Help(t *testing.T) {
 	}
 
 	// With repos, focused on base selection - should not show delete hint
-	state = NewNewSessionState([]string{"/repo1"}, false)
+	state = NewNewSessionState([]string{"/repo1"}, false, false)
 	state.Focus = 1
 	help = state.Help()
 	if help != "up/down: select  Tab: next field  Enter: create" {
@@ -287,7 +287,7 @@ func TestNewSessionState_Help(t *testing.T) {
 	}
 
 	// With repos, focused on branch input - should not show delete hint
-	state = NewNewSessionState([]string{"/repo1"}, false)
+	state = NewNewSessionState([]string{"/repo1"}, false, false)
 	state.Focus = 2
 	help = state.Help()
 	if help != "up/down: select  Tab: next field  Enter: create" {
