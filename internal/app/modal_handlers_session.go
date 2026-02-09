@@ -237,6 +237,15 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		if state.GetBaseIndex() == 1 {
 			basePoint = session.BasePointHead
 		}
+		// Check container image BEFORE creating the session to avoid running
+		// without sandboxing when the user expects container protection
+		if state.GetUseContainers() {
+			image := m.config.GetContainerImage()
+			if !process.ContainerImageExists(image) {
+				m.modal.Show(ui.NewContainerBuildState(image))
+				return m, nil
+			}
+		}
 		logger.Get().Debug("creating new session", "repo", repoPath, "branch", branchName, "prefix", branchPrefix, "basePoint", basePoint)
 		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
 		if err != nil {
@@ -246,14 +255,8 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
 		// Set containerized flag if user checked the container checkbox
-		var containerImageMissing bool
 		if state.GetUseContainers() {
-			image := m.config.GetContainerImage()
-			if process.ContainerImageExists(image) {
-				sess.Containerized = true
-			} else {
-				containerImageMissing = true
-			}
+			sess.Containerized = true
 		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
@@ -268,11 +271,7 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
-		if containerImageMissing {
-			m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
-		} else {
-			m.modal.Hide()
-		}
+		m.modal.Hide()
 		return m, nil
 	}
 	// Forward other keys (tab, shift+tab, up, down, etc.) to modal for handling
@@ -372,6 +371,16 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
+		// Check container image BEFORE creating the session to avoid running
+		// without sandboxing when the user expects container protection
+		if state.GetUseContainers() {
+			image := m.config.GetContainerImage()
+			if !process.ContainerImageExists(image) {
+				m.modal.Show(ui.NewContainerBuildState(image))
+				return m, nil
+			}
+		}
+
 		// Get parent session to fork from its branch
 		parentSess := m.config.GetSession(state.ParentSessionID)
 		if parentSess == nil {
@@ -411,14 +420,8 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
 		// Set containerized flag if user checked the container checkbox
-		var containerImageMissing bool
 		if state.GetUseContainers() {
-			image := m.config.GetContainerImage()
-			if process.ContainerImageExists(image) {
-				sess.Containerized = true
-			} else {
-				containerImageMissing = true
-			}
+			sess.Containerized = true
 		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
@@ -440,10 +443,6 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		if messageCopyFailed {
 			m.modal.Hide()
 			return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
-		}
-		if containerImageMissing {
-			m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
-			return m, nil
 		}
 		m.modal.Hide()
 		return m, nil
@@ -641,6 +640,17 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	log := logger.Get()
 	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
 
+	// Check container image BEFORE creating sessions to avoid running
+	// without sandboxing when the user expects container protection
+	var containerImageMissing bool
+	if useContainers {
+		image := m.config.GetContainerImage()
+		if !process.ContainerImageExists(image) {
+			containerImageMissing = true
+			useContainers = false
+		}
+	}
+
 	// Generate a broadcast group ID for this batch
 	groupID := uuid.New().String()
 	branchPrefix := m.config.GetDefaultBranchPrefix()
@@ -677,12 +687,9 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 			// Set the broadcast group ID
 			sess.BroadcastGroupID = groupID
 
-			// Set containerized flag if user checked the container checkbox
+			// Set containerized flag (image existence already verified above)
 			if useContainers {
-				image := m.config.GetContainerImage()
-				if process.ContainerImageExists(image) {
-					sess.Containerized = true
-				}
+				sess.Containerized = true
 			}
 
 			mu.Lock()
@@ -769,6 +776,11 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	}
 
 	cmds = append(cmds, m.ShowFlashSuccess(msg))
+
+	// Warn if container image was missing
+	if containerImageMissing {
+		cmds = append(cmds, m.ShowFlashWarning("Container image not found — sessions created without container sandboxing"))
+	}
 
 	return m, tea.Batch(cmds...)
 }
