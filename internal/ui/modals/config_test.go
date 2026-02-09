@@ -169,6 +169,64 @@ func TestForkSessionState_ContainerCheckbox_Render(t *testing.T) {
 	}
 }
 
+func TestForkSessionState_UpDownNavigation_CyclesToContainerCheckbox(t *testing.T) {
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+
+	// Start at focus 0
+	if s.Focus != 0 {
+		t.Fatalf("Expected focus 0, got %d", s.Focus)
+	}
+
+	// Press down should go to focus 1
+	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if s.Focus != 1 {
+		t.Errorf("After Down from 0, expected focus 1, got %d", s.Focus)
+	}
+
+	// Press down should go to focus 2 (container checkbox)
+	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if s.Focus != 2 {
+		t.Errorf("After Down from 1, expected focus 2 (container checkbox), got %d", s.Focus)
+	}
+
+	// Press down should wrap to focus 0
+	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if s.Focus != 0 {
+		t.Errorf("After Down from 2, expected focus 0 (wrap), got %d", s.Focus)
+	}
+
+	// Press up should go to focus 2
+	s.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	if s.Focus != 2 {
+		t.Errorf("After Up from 0, expected focus 2 (wrap), got %d", s.Focus)
+	}
+}
+
+func TestForkSessionState_UpDownNavigation_WithoutContainers(t *testing.T) {
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, false)
+
+	// Only 2 fields: toggle between 0 and 1
+	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if s.Focus != 1 {
+		t.Errorf("After Down from 0, expected focus 1, got %d", s.Focus)
+	}
+
+	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	if s.Focus != 0 {
+		t.Errorf("After Down from 1, expected focus 0 (wrap), got %d", s.Focus)
+	}
+}
+
+func TestForkSessionState_HelpText_ContainerFocused(t *testing.T) {
+	s := NewForkSessionState("parent", "parent-id", "/repo", false, true)
+	s.Focus = 2
+
+	help := s.Help()
+	if !strings.Contains(help, "Space: toggle") {
+		t.Errorf("Help at container focus should mention Space: toggle, got %q", help)
+	}
+}
+
 func TestBroadcastState_ContainerCheckbox_WhenSupported(t *testing.T) {
 	s := NewBroadcastState([]string{"/repo"}, true)
 

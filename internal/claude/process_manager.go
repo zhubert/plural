@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -395,8 +397,7 @@ func (pm *ProcessManager) Stop() {
 		}
 
 		// Clean up the auth secrets file from the host
-		authFile := fmt.Sprintf("/tmp/plural-auth-%s", pm.config.SessionID)
-		os.Remove(authFile)
+		os.Remove(containerAuthFilePath(pm.config.SessionID))
 	}
 
 	// Wait for goroutines (readOutput, monitorExit) to complete
@@ -714,7 +715,7 @@ func (pm *ProcessManager) handleExit(err error) {
 			}
 			// Clean up auth credentials file on fatal restart failure
 			if pm.config.Containerized {
-				authFile := fmt.Sprintf("/tmp/plural-auth-%s", pm.config.SessionID)
+				authFile := containerAuthFilePath(pm.config.SessionID)
 				if removeErr := os.Remove(authFile); removeErr == nil {
 					pm.log.Debug("cleaned up auth file on restart failure", "path", authFile)
 				}
@@ -735,7 +736,7 @@ func (pm *ProcessManager) handleExit(err error) {
 
 	// Clean up auth credentials file that would otherwise persist on disk
 	if pm.config.Containerized {
-		authFile := fmt.Sprintf("/tmp/plural-auth-%s", pm.config.SessionID)
+		authFile := containerAuthFilePath(pm.config.SessionID)
 		if err := os.Remove(authFile); err == nil {
 			pm.log.Debug("cleaned up auth file on fatal error", "path", authFile)
 		}
@@ -788,7 +789,24 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) []string {
 	return args
 }
 
-// writeContainerAuthFile writes credentials to a temporary file with
+// containerAuthDir returns the directory for storing container auth files.
+// Uses ~/.plural/ which is user-private, unlike /tmp which is world-readable.
+func containerAuthDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "/tmp" // fallback
+	}
+	dir := filepath.Join(homeDir, ".plural")
+	os.MkdirAll(dir, 0700)
+	return dir
+}
+
+// containerAuthFilePath returns the path for a session's container auth file.
+func containerAuthFilePath(sessionID string) string {
+	return filepath.Join(containerAuthDir(), fmt.Sprintf("plural-auth-%s", sessionID))
+}
+
+// writeContainerAuthFile writes credentials to a file in ~/.plural/ with
 // restricted permissions (0600) and returns the file path. The entrypoint
 // script reads this file and exports the appropriate env var.
 //
@@ -815,7 +833,14 @@ func writeContainerAuthFile(sessionID string) string {
 		return ""
 	}
 
-	path := fmt.Sprintf("/tmp/plural-auth-%s", sessionID)
+	// Validate credential value has no newlines or shell metacharacters that
+	// could break the entrypoint's source command
+	parts := strings.SplitN(content, "=", 2)
+	if len(parts) == 2 && strings.ContainsAny(parts[1], "\n\r`$\"'\\") {
+		return ""
+	}
+
+	path := containerAuthFilePath(sessionID)
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		return ""
 	}
@@ -843,8 +868,11 @@ func readOAuthAccessToken() string {
 }
 
 // readKeychainPassword reads a password from the macOS keychain.
-// Returns empty string if not found or on error.
+// Returns empty string if not found, on error, or on non-macOS platforms.
 func readKeychainPassword(service string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
 	out, err := exec.Command("security", "find-generic-password", "-s", service, "-w").Output()
 	if err != nil {
 		return ""

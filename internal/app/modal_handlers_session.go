@@ -623,6 +623,16 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 			}
 		}
 
+		// Check container image BEFORE creating sessions to avoid running
+		// without sandboxing when the user expects container protection
+		if state.GetUseContainers() {
+			image := m.config.GetContainerImage()
+			if !process.ContainerImageExists(image) {
+				m.modal.Show(ui.NewContainerBuildState(image))
+				return m, nil
+			}
+		}
+
 		m.modal.Hide()
 		return m.createBroadcastSessions(selectedRepos, prompt, sessionName, state.GetUseContainers())
 	}
@@ -639,17 +649,6 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string, useContainers bool) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
-
-	// Check container image BEFORE creating sessions to avoid running
-	// without sandboxing when the user expects container protection
-	var containerImageMissing bool
-	if useContainers {
-		image := m.config.GetContainerImage()
-		if !process.ContainerImageExists(image) {
-			containerImageMissing = true
-			useContainers = false
-		}
-	}
 
 	// Generate a broadcast group ID for this batch
 	groupID := uuid.New().String()
@@ -776,11 +775,6 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	}
 
 	cmds = append(cmds, m.ShowFlashSuccess(msg))
-
-	// Warn if container image was missing
-	if containerImageMissing {
-		cmds = append(cmds, m.ShowFlashWarning("Container image not found — sessions created without container sandboxing"))
-	}
 
 	return m, tea.Batch(cmds...)
 }

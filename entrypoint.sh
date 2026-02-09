@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+
 # Copy only needed config from host into writable location so Claude CLI
 # can write debug logs, todos, and session data. The host dir is mounted
 # read-only at .claude-host to prevent container writes from reaching the host.

@@ -258,6 +258,9 @@ func (*ForkSessionState) modalState() {}
 func (s *ForkSessionState) Title() string { return "Fork Session" }
 
 func (s *ForkSessionState) Help() string {
+	if s.Focus == 2 && s.ContainersSupported {
+		return "Space: toggle  Tab: next field  Enter: create fork  Esc: cancel"
+	}
 	return "Tab: switch field  Space: toggle  Enter: create fork  Esc: cancel"
 }
 
@@ -372,14 +375,14 @@ func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.UseContainers = !s.UseContainers
 			}
 			return s, nil
-		case keys.Up, keys.Down, "j", "k":
-			// Toggle focus between options
+		case keys.Up, "k":
 			oldFocus := s.Focus
-			if s.Focus == 0 {
-				s.Focus = 1
-			} else {
-				s.Focus = 0
-			}
+			s.Focus = (s.Focus - 1 + numFields) % numFields
+			s.updateForkInputFocus(oldFocus)
+			return s, nil
+		case keys.Down, "j":
+			oldFocus := s.Focus
+			s.Focus = (s.Focus + 1) % numFields
 			s.updateForkInputFocus(oldFocus)
 			return s, nil
 		}

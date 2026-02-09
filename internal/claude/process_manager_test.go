@@ -1191,7 +1191,7 @@ func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
 func TestProcessManager_HandleExit_CleansUpAuthFileOnFatalError(t *testing.T) {
 	// Create a temporary auth file to simulate what writeContainerAuthFile creates
 	sessionID := "test-auth-cleanup"
-	authFile := fmt.Sprintf("/tmp/plural-auth-%s", sessionID)
+	authFile := containerAuthFilePath(sessionID)
 	if err := os.WriteFile(authFile, []byte("ANTHROPIC_API_KEY=test-key"), 0600); err != nil {
 		t.Fatalf("failed to create test auth file: %v", err)
 	}
