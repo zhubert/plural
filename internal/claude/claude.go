@@ -1122,6 +1122,12 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-chan ResponseChunk {
 	ch := make(chan ResponseChunk, 100) // Buffered to avoid blocking response reader
 
+	// Read container mode flag under lock before starting the goroutine to
+	// avoid a data race (containerized is set once during init via SetContainerized)
+	r.mu.RLock()
+	isContainerized := r.containerized
+	r.mu.RUnlock()
+
 	go func() {
 		sendStartTime := time.Now()
 
@@ -1140,7 +1146,7 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 
 		// Ensure MCP server is running (persistent across Send calls)
 		// Skip for containerized sessions — the container IS the sandbox
-		if !r.containerized {
+		if !isContainerized {
 			if err := r.ensureServerRunning(); err != nil {
 				ch <- ResponseChunk{Error: err, Done: true}
 				close(ch)
