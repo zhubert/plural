@@ -2,8 +2,10 @@ package claude
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1184,5 +1186,90 @@ func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
 	if !containsArg(args, "plural-claude") {
 		t.Error("Empty ContainerImage should default to 'plural-claude'")
 	}
+}
+
+func TestProcessManager_HandleExit_CleansUpAuthFileOnFatalError(t *testing.T) {
+	// Create a temporary auth file to simulate what writeContainerAuthFile creates
+	sessionID := "test-auth-cleanup"
+	authFile := fmt.Sprintf("/tmp/plural-auth-%s", sessionID)
+	if err := os.WriteFile(authFile, []byte("ANTHROPIC_API_KEY=test-key"), 0600); err != nil {
+		t.Fatalf("failed to create test auth file: %v", err)
+	}
+	defer os.Remove(authFile) // cleanup in case test fails
+
+	// Verify the file exists
+	if _, err := os.Stat(authFile); os.IsNotExist(err) {
+		t.Fatal("test auth file should exist before test")
+	}
+
+	var fatalErrorCalled bool
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     sessionID,
+		WorkingDir:    "/tmp",
+		Containerized: true,
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderr string) bool {
+			return true // allow restart
+		},
+		OnFatalError: func(err error) {
+			fatalErrorCalled = true
+		},
+	}, pmTestLogger())
+
+	// Set restart attempts to max so handleExit takes the fatal error path
+	pm.mu.Lock()
+	pm.running = true
+	pm.restartAttempts = MaxProcessRestartAttempts
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone) // simulate stderr already drained
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	// Call handleExit which should take the max-restarts-exceeded path
+	pm.handleExit(fmt.Errorf("process crashed"))
+
+	// Verify the fatal error callback was called
+	if !fatalErrorCalled {
+		t.Error("OnFatalError callback should have been called")
+	}
+
+	// Verify the auth file was cleaned up
+	if _, err := os.Stat(authFile); !os.IsNotExist(err) {
+		t.Error("auth file should have been cleaned up on fatal error")
+	}
+}
+
+func TestProcessManager_HandleExit_NoAuthCleanupForNonContainerized(t *testing.T) {
+	// Create a temporary auth file (shouldn't exist for non-containerized, but test the path)
+	sessionID := "test-no-auth-cleanup"
+
+	var fatalErrorCalled bool
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     sessionID,
+		WorkingDir:    "/tmp",
+		Containerized: false, // NOT containerized
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderr string) bool {
+			return true
+		},
+		OnFatalError: func(err error) {
+			fatalErrorCalled = true
+		},
+	}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.running = true
+	pm.restartAttempts = MaxProcessRestartAttempts
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone)
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	pm.handleExit(fmt.Errorf("process crashed"))
+
+	if !fatalErrorCalled {
+		t.Error("OnFatalError callback should have been called")
+	}
+	// No auth file assertion needed — just verify non-containerized path doesn't panic
 }
 

@@ -712,6 +712,13 @@ func (pm *ProcessManager) handleExit(err error) {
 			if pm.callbacks.OnRestartFailed != nil {
 				pm.callbacks.OnRestartFailed(err)
 			}
+			// Clean up auth credentials file on fatal restart failure
+			if pm.config.Containerized {
+				authFile := fmt.Sprintf("/tmp/plural-auth-%s", pm.config.SessionID)
+				if removeErr := os.Remove(authFile); removeErr == nil {
+					pm.log.Debug("cleaned up auth file on restart failure", "path", authFile)
+				}
+			}
 			// Report fatal error
 			exitErr := fmt.Errorf("process crashed and restart failed: %v", err)
 			if pm.callbacks.OnFatalError != nil {
@@ -725,6 +732,15 @@ func (pm *ProcessManager) handleExit(err error) {
 
 	// Max restarts exceeded - report fatal error
 	pm.log.Error("max restart attempts exceeded", "maxAttempts", MaxProcessRestartAttempts)
+
+	// Clean up auth credentials file that would otherwise persist on disk
+	if pm.config.Containerized {
+		authFile := fmt.Sprintf("/tmp/plural-auth-%s", pm.config.SessionID)
+		if err := os.Remove(authFile); err == nil {
+			pm.log.Debug("cleaned up auth file on fatal error", "path", authFile)
+		}
+	}
+
 	var exitErr error
 	if stderrContent != "" {
 		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %s", MaxProcessRestartAttempts, stderrContent)
