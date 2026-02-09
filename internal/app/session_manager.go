@@ -328,22 +328,22 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 	// Configure container mode if enabled for this session
 	if sess.Containerized {
 		runner.SetContainerized(true, sm.config.GetContainerImage())
-		log.Debug("containerized session, skipping MCP servers")
-	}
-
-	// Load MCP servers for this session's repo
-	mcpServers := sm.config.GetMCPServersForRepo(sess.RepoPath)
-	if len(mcpServers) > 0 {
-		log.Debug("loaded MCP servers", "count", len(mcpServers), "repo", sess.RepoPath)
-		var servers []claude.MCPServer
-		for _, s := range mcpServers {
-			servers = append(servers, claude.MCPServer{
-				Name:    s.Name,
-				Command: s.Command,
-				Args:    s.Args,
-			})
+		log.Debug("containerized session, MCP servers not used in container mode")
+	} else {
+		// Load MCP servers for this session's repo (only for non-containerized sessions)
+		mcpServers := sm.config.GetMCPServersForRepo(sess.RepoPath)
+		if len(mcpServers) > 0 {
+			log.Debug("loaded MCP servers", "count", len(mcpServers), "repo", sess.RepoPath)
+			var servers []claude.MCPServer
+			for _, s := range mcpServers {
+				servers = append(servers, claude.MCPServer{
+					Name:    s.Name,
+					Command: s.Command,
+					Args:    s.Args,
+				})
+			}
+			runner.SetMCPServers(servers)
 		}
-		runner.SetMCPServers(servers)
 	}
 
 	return runner
