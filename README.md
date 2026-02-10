@@ -34,20 +34,6 @@ brew tap zhubert/tap
 brew install plural
 ```
 
-### Nix / Devbox
-
-```bash
-# Run directly without installing
-nix run github:zhubert/plural
-
-# Install to your profile
-nix profile install github:zhubert/plural
-
-# Or add to devbox
-devbox add github:zhubert/plural
-devbox global add github:zhubert/plural
-```
-
 ### From Source
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
@@ -149,10 +135,6 @@ plural demo run <name>  # Run demo scenario
 ### Data Storage
 
 Configuration and session history are stored in `~/.plural/`.
-
-### Troubleshooting
-
-**Devbox/Nix upgrade fails**: Use `devbox global rm` then `devbox global add` as a workaround, or use Homebrew which handles upgrades correctly.
 
 ---
 

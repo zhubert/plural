@@ -3,7 +3,7 @@
 # Release script for Plural
 # Usage: ./scripts/release.sh <patch|minor|major> [--dry-run]
 #
-# This script automates the release process for Homebrew and Nix distribution.
+# This script automates the release process for Homebrew distribution.
 # It automatically determines the next version based on the latest git tag.
 #
 # Examples:
@@ -89,9 +89,6 @@ echo -e "Current version: ${YELLOW}${LATEST_TAG}${NC}"
 echo -e "New version:     ${GREEN}${VERSION}${NC} (${BUMP_TYPE} bump)"
 echo ""
 
-# Strip the 'v' prefix for flake.nix (uses "0.0.5" not "v0.0.5")
-VERSION_NUMBER="${VERSION#v}"
-
 echo -e "${GREEN}Preparing release ${VERSION}${NC}"
 if [ "$DRY_RUN" = true ]; then
     echo -e "${YELLOW}(Dry run mode - no changes will be pushed)${NC}"
@@ -150,42 +147,9 @@ echo "  Tag $VERSION: available"
 echo ""
 echo -e "${GREEN}Prerequisites check passed${NC}"
 
-# Step 1: Update version in flake.nix
+# Step 1: Tag the release
 echo ""
-echo "Step 1: Updating version in flake.nix to ${VERSION_NUMBER}..."
-
-# Use sed to update the version line in flake.nix
-sed -i '' "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\";/version = \"${VERSION_NUMBER}\";/" flake.nix
-
-# Verify the change was made
-if ! grep -q "version = \"${VERSION_NUMBER}\";" flake.nix; then
-    echo -e "${RED}Error: Failed to update version in flake.nix${NC}"
-    git checkout flake.nix
-    exit 1
-fi
-echo "  Updated version"
-
-# Step 2: Update vendorHash in flake.nix
-echo ""
-echo "Step 2: Updating vendorHash in flake.nix..."
-
-if ! "$SCRIPT_DIR/update-vendor-hash.sh"; then
-    echo -e "${RED}Error: Failed to update vendorHash${NC}"
-    git checkout flake.nix
-    exit 1
-fi
-
-# Step 3: Commit the version change
-echo ""
-echo "Step 3: Committing version change..."
-
-git add flake.nix
-git commit -m "Bump version to ${VERSION}"
-echo "  Committed"
-
-# Step 4: Tag the release
-echo ""
-echo "Step 4: Creating tag ${VERSION}..."
+echo "Step 1: Creating tag ${VERSION}..."
 
 git tag "$VERSION"
 echo "  Tagged"
@@ -193,14 +157,13 @@ echo "  Tagged"
 if [ "$DRY_RUN" = true ]; then
     # Dry run: run goreleaser snapshot and then undo changes
     echo ""
-    echo "Step 5: Running goreleaser (snapshot mode)..."
+    echo "Step 2: Running goreleaser (snapshot mode)..."
     goreleaser release --snapshot --clean
 
     echo ""
     echo -e "${YELLOW}Dry run complete. Reverting changes...${NC}"
     git tag -d "$VERSION"
-    git reset --hard HEAD~1
-    echo "  Reverted commit and tag"
+    echo "  Reverted tag"
 
     echo ""
     echo -e "${GREEN}Dry run completed successfully!${NC}"
@@ -208,14 +171,13 @@ if [ "$DRY_RUN" = true ]; then
 else
     # Actual release
     echo ""
-    echo "Step 5: Pushing commit and tag to origin..."
+    echo "Step 2: Pushing tag to origin..."
 
-    git push origin main
     git push origin "$VERSION"
     echo "  Pushed"
 
     echo ""
-    echo "Step 6: Running goreleaser..."
+    echo "Step 3: Running goreleaser..."
 
     goreleaser release --clean
 
@@ -225,5 +187,4 @@ else
     echo "Next steps:"
     echo "  - Verify the GitHub release: https://github.com/zhubert/plural/releases/tag/${VERSION}"
     echo "  - Test Homebrew installation: brew upgrade plural"
-    echo "  - Test Nix installation: nix run github:zhubert/plural"
 fi
