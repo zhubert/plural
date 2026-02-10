@@ -12,5 +12,5 @@ clean:
 
 demo: build
 	./plural demo cast overview -o overview.cast
-	agg overview.cast demo.gif --cols 120 --rows 40 --line-height 1.2 --font-family "MonaspiceAr Nerd Font Mono"
-	@echo "Generated demo.gif"
+	agg overview.cast docs/demo.gif --cols 120 --rows 40 --line-height 1.2 --font-family "MonaspiceAr Nerd Font Mono"
+	@echo "Generated docs/demo.gif"

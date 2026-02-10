@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'index.html'
-      - 'logo.svg'
-      - 'demo.gif'
+      - 'docs/index.html'
+      - 'docs/logo.svg'
+      - 'docs/demo.gif'
 
 permissions:
   pages: write
@@ -26,13 +26,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            index.html
-            logo.svg
-            demo.gif
+            docs/index.html
+            docs/logo.svg
+            docs/demo.gif
           sparse-checkout-cone-mode: false
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: 'docs'
       - id: deployment
         uses: actions/deploy-pages@v4
