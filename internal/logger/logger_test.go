@@ -436,18 +436,38 @@ func TestConcurrent_InitAndGet(t *testing.T) {
 
 func TestMCPLogPath(t *testing.T) {
 	sessionID := "test-session-123"
-	expected := "/tmp/plural-mcp-test-session-123.log"
 
-	if got := MCPLogPath(sessionID); got != expected {
-		t.Errorf("MCPLogPath(%q) = %q, want %q", sessionID, got, expected)
+	got, err := MCPLogPath(sessionID)
+	if err != nil {
+		t.Fatalf("MCPLogPath(%q) returned error: %v", sessionID, err)
+	}
+
+	// Should contain the session ID in the filename
+	if !strings.Contains(got, "mcp-test-session-123.log") {
+		t.Errorf("MCPLogPath(%q) = %q, should contain 'mcp-test-session-123.log'", sessionID, got)
+	}
+
+	// Should be in ~/.plural/logs directory
+	if !strings.Contains(got, ".plural/logs") {
+		t.Errorf("MCPLogPath(%q) = %q, should be in .plural/logs directory", sessionID, got)
 	}
 }
 
 func TestStreamLogPath(t *testing.T) {
 	sessionID := "test-session-456"
-	expected := "/tmp/plural-stream-test-session-456.log"
 
-	if got := StreamLogPath(sessionID); got != expected {
-		t.Errorf("StreamLogPath(%q) = %q, want %q", sessionID, got, expected)
+	got, err := StreamLogPath(sessionID)
+	if err != nil {
+		t.Fatalf("StreamLogPath(%q) returned error: %v", sessionID, err)
+	}
+
+	// Should contain the session ID in the filename
+	if !strings.Contains(got, "stream-test-session-456.log") {
+		t.Errorf("StreamLogPath(%q) = %q, should contain 'stream-test-session-456.log'", sessionID, got)
+	}
+
+	// Should be in ~/.plural/logs directory
+	if !strings.Contains(got, ".plural/logs") {
+		t.Errorf("StreamLogPath(%q) = %q, should be in .plural/logs directory", sessionID, got)
 	}
 }

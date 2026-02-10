@@ -17,29 +17,33 @@ func GetLogFiles(currentSessionID string) []LogFile {
 	files := []LogFile{}
 
 	// Main debug log
-	if _, err := os.Stat(logger.DefaultLogPath); err == nil {
-		files = append(files, LogFile{
-			Name: "Debug Log",
-			Path: logger.DefaultLogPath,
-		})
+	if defaultPath, err := logger.DefaultLogPath(); err == nil {
+		if _, err := os.Stat(defaultPath); err == nil {
+			files = append(files, LogFile{
+				Name: "Debug Log",
+				Path: defaultPath,
+			})
+		}
 	}
 
 	// Session-specific logs for current session only
 	if currentSessionID != "" {
-		mcpPath := logger.MCPLogPath(currentSessionID)
-		if _, err := os.Stat(mcpPath); err == nil {
-			files = append(files, LogFile{
-				Name: fmt.Sprintf("MCP (%s)", truncateSessionID(currentSessionID)),
-				Path: mcpPath,
-			})
+		if mcpPath, err := logger.MCPLogPath(currentSessionID); err == nil {
+			if _, err := os.Stat(mcpPath); err == nil {
+				files = append(files, LogFile{
+					Name: fmt.Sprintf("MCP (%s)", truncateSessionID(currentSessionID)),
+					Path: mcpPath,
+				})
+			}
 		}
 
-		streamPath := logger.StreamLogPath(currentSessionID)
-		if _, err := os.Stat(streamPath); err == nil {
-			files = append(files, LogFile{
-				Name: fmt.Sprintf("Stream (%s)", truncateSessionID(currentSessionID)),
-				Path: streamPath,
-			})
+		if streamPath, err := logger.StreamLogPath(currentSessionID); err == nil {
+			if _, err := os.Stat(streamPath); err == nil {
+				files = append(files, LogFile{
+					Name: fmt.Sprintf("Stream (%s)", truncateSessionID(currentSessionID)),
+					Path: streamPath,
+				})
+			}
 		}
 	}
 

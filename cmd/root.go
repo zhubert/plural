@@ -34,7 +34,7 @@ on the same codebase.`,
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug logging (verbose output to /tmp/plural-debug.log)")
+	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug logging (verbose output to ~/.plural/logs/plural.log)")
 }
 
 func initConfig() {

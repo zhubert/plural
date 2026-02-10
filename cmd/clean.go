@@ -107,7 +107,7 @@ func runCleanWithReader(input io.Reader) error {
 			fmt.Printf("      %s\n", c.Name)
 		}
 	}
-	fmt.Println("  - All log files in /tmp/plural-*")
+	fmt.Println("  - All log files in ~/.plural/logs")
 
 	// Confirm unless --yes flag is set
 	if !skipConfirm {
