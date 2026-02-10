@@ -100,7 +100,7 @@ const (
 )
 
 // DefaultTheme is the default theme name
-const DefaultTheme = ThemeDarkPurple
+const DefaultTheme = ThemeTokyoNight
 
 // BuiltinThemes contains all built-in themes
 var BuiltinThemes = map[ThemeName]Theme{
