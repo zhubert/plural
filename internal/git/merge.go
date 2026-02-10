@@ -232,7 +232,8 @@ func (s *GitService) AbortMerge(ctx context.Context, repoPath string) error {
 // worktreePath is where Claude made changes - we commit any uncommitted changes first
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
 // If issueRef is provided, appropriate link text will be added to the PR body based on the source.
-func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, commitMsg string, issueRef *config.IssueRef) <-chan Result {
+// baseBranch is the branch this PR should be compared against (typically the session's BaseBranch).
+func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, baseBranch, commitMsg string, issueRef *config.IssueRef) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -264,7 +265,7 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 
 		// Generate PR title and body with Claude
 		ch <- Result{Output: "\nGenerating PR description with Claude...\n"}
-		prTitle, prBody, err := s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, issueRef)
+		prTitle, prBody, err := s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, baseBranch, issueRef)
 		var ghArgs []string
 		if err != nil {
 			log.Warn("Claude PR generation failed, using --fill", "error", err)
