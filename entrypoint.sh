@@ -20,6 +20,15 @@ done
 # Copy plugins config
 [ -d "$HOST_DIR/plugins" ] && cp -r "$HOST_DIR/plugins" "$DEST_DIR/plugins" 2>/dev/null
 
+# Setup gopls plugin (after host plugins copy to avoid overwriting)
+# Only create if gopls binary exists and plugin config doesn't already exist
+if command -v gopls >/dev/null 2>&1 && [ ! -f "$DEST_DIR/plugins/gopls/plugin.json" ]; then
+    mkdir -p "$DEST_DIR/plugins/gopls"
+    cat > "$DEST_DIR/plugins/gopls/plugin.json" <<'EOF'
+{"command": "gopls", "args": ["serve"], "extensionToLanguage": {".go": "go"}}
+EOF
+fi
+
 # Read auth credentials from mounted secrets file (not passed via -e to
 # avoid exposing the key in `ps` output on the host).
 # File format: ANTHROPIC_API_KEY='value' or CLAUDE_CODE_OAUTH_TOKEN='value'
