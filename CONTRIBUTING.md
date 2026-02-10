@@ -109,9 +109,9 @@ brew tap zhubert/tap
 brew install plural
 ```
 
-**Nix/Devbox:**
+**From source:**
 ```bash
-nix run github:zhubert/plural
+go run .
 ```
 
 ## License
