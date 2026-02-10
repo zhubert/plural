@@ -49,28 +49,33 @@ func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branc
 			ID:     fmt.Sprintf("%d", issueNumber),
 		}
 	}
-	return s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, issueRef)
+	return s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, "", issueRef)
 }
 
 // GeneratePRTitleAndBodyWithIssueRef uses Claude to generate a PR title and body from the branch changes.
 // If issueRef is provided, it will add appropriate link text based on the source:
 //   - GitHub: adds "Fixes #{number}" to auto-close the issue
 //   - Asana: no auto-close support (Asana doesn't use commit message keywords)
-func (s *GitService) GeneratePRTitleAndBodyWithIssueRef(ctx context.Context, repoPath, branch string, issueRef *config.IssueRef) (title, body string, err error) {
+// baseBranch is the branch this PR will be compared against (typically the session's BaseBranch or main).
+func (s *GitService) GeneratePRTitleAndBodyWithIssueRef(ctx context.Context, repoPath, branch, baseBranch string, issueRef *config.IssueRef) (title, body string, err error) {
 	log := logger.WithComponent("git")
-	log.Info("generating PR title and body with Claude", "branch", branch, "issueRef", issueRef)
+	log.Info("generating PR title and body with Claude", "branch", branch, "baseBranch", baseBranch, "issueRef", issueRef)
 
-	defaultBranch := s.GetDefaultBranch(ctx, repoPath)
+	// If baseBranch is empty, fall back to default branch
+	if baseBranch == "" {
+		baseBranch = s.GetDefaultBranch(ctx, repoPath)
+		log.Debug("baseBranch empty, using default", "defaultBranch", baseBranch)
+	}
 
 	// Get the commit log for this branch
-	commitLog, err := s.executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", defaultBranch, branch), "--oneline")
+	commitLog, err := s.executor.Output(ctx, repoPath, "git", "log", fmt.Sprintf("%s..%s", baseBranch, branch), "--oneline")
 	if err != nil {
 		log.Error("failed to get commit log", "error", err, "branch", branch)
 		return "", "", fmt.Errorf("failed to get commit log: %w", err)
 	}
 
 	// Get the diff from base branch (use --no-ext-diff to ensure output goes to stdout)
-	diffOutput, err := s.executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", defaultBranch, branch))
+	diffOutput, err := s.executor.Output(ctx, repoPath, "git", "diff", "--no-ext-diff", fmt.Sprintf("%s...%s", baseBranch, branch))
 	if err != nil {
 		log.Error("failed to get diff", "error", err, "branch", branch)
 		return "", "", fmt.Errorf("failed to get diff: %w", err)

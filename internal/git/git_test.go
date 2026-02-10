@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	pexec "github.com/zhubert/plural/internal/exec"
 )
 
 // svc creates a new GitService for testing
@@ -290,7 +292,7 @@ func TestCreatePR_NoGh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := svc.CreatePR(ctx, repoPath, repoPath, "test-branch", "", nil)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "test-branch", "", "", nil)
 
 	var hadError bool
 	for result := range ch {
@@ -597,7 +599,7 @@ func TestCreatePR_WithProvidedCommitMessage(t *testing.T) {
 	defer cancel()
 
 	// CreatePR will fail without a real remote, but we can verify it tries
-	ch := svc.CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "Custom PR commit", nil)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "", "Custom PR commit", nil)
 
 	// Drain channel - expect an error since no remote
 	for range ch {
@@ -724,7 +726,7 @@ func TestCreatePR_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := svc.CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", nil)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", "", nil)
 
 	// Drain channel - should not hang
 	for range ch {
@@ -2496,5 +2498,138 @@ func TestIsMergeInProgress_InvalidPath(t *testing.T) {
 
 	if inProgress {
 		t.Error("Expected no merge in progress for invalid path")
+	}
+}
+
+func TestGeneratePRTitleAndBodyWithBaseBranch(t *testing.T) {
+	// Create mock executor for testing
+	mockExec := pexec.NewMockExecutor(nil)
+	svc := NewGitServiceWithExecutor(mockExec)
+
+	// Mock git log to return commits
+	mockExec.AddPrefixMatch("git", []string{"log", "feature-base..feature-branch", "--oneline"}, pexec.MockResponse{
+		Stdout: []byte("abc123 Add feature Y\n"),
+	})
+
+	// Mock git diff to return a simple diff
+	mockExec.AddPrefixMatch("git", []string{"diff", "--no-ext-diff", "feature-base...feature-branch"}, pexec.MockResponse{
+		Stdout: []byte(`diff --git a/file.txt b/file.txt
+index 1234567..abcdefg 100644
+--- a/file.txt
++++ b/file.txt
+@@ -1,1 +1,2 @@
+ existing line
++new line from feature Y
+`),
+	})
+
+	// Mock Claude response
+	claudeResponse := `---TITLE---
+Add feature Y
+
+---BODY---
+## Summary
+This PR adds feature Y to the codebase.
+
+## Changes
+- Added new line to file.txt
+
+## Test plan
+- Verify the new line appears in file.txt
+`
+	mockExec.AddPrefixMatch("claude", []string{"--print", "-p"}, pexec.MockResponse{
+		Stdout: []byte(claudeResponse),
+	})
+
+	ctx := context.Background()
+	title, body, err := svc.GeneratePRTitleAndBodyWithIssueRef(ctx, "/test/repo", "feature-branch", "feature-base", nil)
+
+	if err != nil {
+		t.Fatalf("GeneratePRTitleAndBodyWithIssueRef failed: %v", err)
+	}
+
+	if title != "Add feature Y" {
+		t.Errorf("Expected title 'Add feature Y', got '%s'", title)
+	}
+
+	if !strings.Contains(body, "feature Y") {
+		t.Errorf("Expected body to contain 'feature Y', got: %s", body)
+	}
+
+	// Verify that the git log and diff commands used the baseBranch parameter
+	calls := mockExec.GetCalls()
+
+	var foundLogWithBase, foundDiffWithBase bool
+	for _, call := range calls {
+		if call.Name == "git" && len(call.Args) > 1 {
+			if call.Args[0] == "log" && len(call.Args) > 1 && call.Args[1] == "feature-base..feature-branch" {
+				foundLogWithBase = true
+			}
+			if call.Args[0] == "diff" && len(call.Args) > 2 && call.Args[2] == "feature-base...feature-branch" {
+				foundDiffWithBase = true
+			}
+		}
+	}
+
+	if !foundLogWithBase {
+		t.Error("Expected git log command to use baseBranch 'feature-base'")
+	}
+
+	if !foundDiffWithBase {
+		t.Error("Expected git diff command to use baseBranch 'feature-base'")
+	}
+}
+
+func TestGeneratePRTitleAndBodyWithEmptyBaseBranch(t *testing.T) {
+	// Create mock executor for testing
+	mockExec := pexec.NewMockExecutor(nil)
+	svc := NewGitServiceWithExecutor(mockExec)
+
+	// Mock GetDefaultBranch
+	mockExec.AddPrefixMatch("git", []string{"symbolic-ref", "refs/remotes/origin/HEAD"}, pexec.MockResponse{
+		Stdout: []byte("refs/remotes/origin/main\n"),
+	})
+
+	// Mock git log with main as base
+	mockExec.AddPrefixMatch("git", []string{"log", "main..feature-branch", "--oneline"}, pexec.MockResponse{
+		Stdout: []byte("abc123 Add feature\n"),
+	})
+
+	// Mock git diff
+	mockExec.AddPrefixMatch("git", []string{"diff", "--no-ext-diff", "main...feature-branch"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/file.txt b/file.txt\n"),
+	})
+
+	// Mock Claude response
+	mockExec.AddPrefixMatch("claude", []string{"--print", "-p"}, pexec.MockResponse{
+		Stdout: []byte("---TITLE---\nAdd feature\n---BODY---\nTest PR"),
+	})
+
+	ctx := context.Background()
+	// Pass empty string for baseBranch - should fall back to default branch
+	title, _, err := svc.GeneratePRTitleAndBodyWithIssueRef(ctx, "/test/repo", "feature-branch", "", nil)
+
+	if err != nil {
+		t.Fatalf("GeneratePRTitleAndBodyWithIssueRef failed: %v", err)
+	}
+
+	if title != "Add feature" {
+		t.Errorf("Expected title 'Add feature', got '%s'", title)
+	}
+
+	// Verify that it fell back to using main
+	calls := mockExec.GetCalls()
+
+	var foundLogWithMain bool
+	for _, call := range calls {
+		if call.Name == "git" && len(call.Args) > 1 && call.Args[0] == "log" {
+			if strings.Contains(call.Args[1], "main") {
+				foundLogWithMain = true
+			}
+		}
+	}
+
+	if !foundLogWithMain {
+		t.Error("Expected to fall back to default branch 'main' when baseBranch is empty")
 	}
 }

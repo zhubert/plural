@@ -101,7 +101,7 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		case MergeTypePR:
 			log.Info("creating PR (no uncommitted changes)")
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, "", sess.GetIssueRef()), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef()), cancel, MergeTypePR)
 		case MergeTypePush:
 			log.Info("pushing updates (no uncommitted changes)")
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
@@ -194,7 +194,7 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		case MergeTypePR:
 			log.Info("creating PR with user-edited commit message")
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg, sess.GetIssueRef()), cancel, MergeTypePR)
+			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, commitMsg, sess.GetIssueRef()), cancel, MergeTypePR)
 		case MergeTypePush:
 			log.Info("pushing updates with user-edited commit message")
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
