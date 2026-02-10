@@ -2,8 +2,11 @@ package claude
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -947,5 +950,570 @@ func TestProcessManager_GoroutineExitOnContextCancel(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Error("WaitGroup.Wait() blocked after goroutine exit")
 	}
+}
+
+func TestBuildCommandArgs_Containerized_NewSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "container-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read", "Write", "Bash"},
+		Containerized:  true,
+		ContainerImage: "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// New session should use --session-id
+	if !containsArg(args, "--session-id") {
+		t.Error("Should have --session-id flag")
+	}
+	if got := getArgValue(args, "--session-id"); got != "container-session-uuid" {
+		t.Errorf("--session-id = %q, want 'container-session-uuid'", got)
+	}
+
+	// Containerized: must have --dangerously-skip-permissions
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized session must have --dangerously-skip-permissions")
+	}
+
+	// Must NOT have MCP-related flags
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized session must not have --mcp-config")
+	}
+	if containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized session must not have --permission-prompt-tool")
+	}
+	if containsArg(args, "--allowedTools") {
+		t.Error("Containerized session must not have --allowedTools")
+	}
+
+	// Must still have --append-system-prompt
+	if !containsArg(args, "--append-system-prompt") {
+		t.Error("Containerized session should still have --append-system-prompt")
+	}
+}
+
+func TestBuildCommandArgs_Containerized_ResumedSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "container-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: true,
+		MCPConfigPath:  "/tmp/mcp.json",
+		Containerized:  true,
+		ContainerImage: "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Containerized sessions always use --session-id (never --resume) because
+	// each container run is a fresh environment with no prior session data
+	if containsArg(args, "--resume") {
+		t.Error("Containerized session must not use --resume (no session data persists across container runs)")
+	}
+	if got := getArgValue(args, "--session-id"); got != "container-session-uuid" {
+		t.Errorf("--session-id = %q, want 'container-session-uuid'", got)
+	}
+
+	// Containerized: must have --dangerously-skip-permissions
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized resumed session must have --dangerously-skip-permissions")
+	}
+
+	// Must NOT have MCP-related flags
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized resumed session must not have --mcp-config")
+	}
+	if containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized resumed session must not have --permission-prompt-tool")
+	}
+}
+
+func TestBuildCommandArgs_Containerized_ForkedSession(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:         "child-session-uuid",
+		WorkingDir:        "/tmp/worktree",
+		SessionStarted:    false,
+		MCPConfigPath:     "/tmp/mcp.json",
+		ForkFromSessionID: "parent-session-uuid",
+		Containerized:     true,
+		ContainerImage:    "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Containerized forked sessions must NOT use --resume/--fork-session because
+	// the parent session data doesn't exist inside the container.
+	// Instead, it should be treated as a new session with --session-id.
+	if containsArg(args, "--resume") {
+		t.Error("Containerized forked session must not have --resume (parent data not in container)")
+	}
+	if containsArg(args, "--fork-session") {
+		t.Error("Containerized forked session must not have --fork-session (parent data not in container)")
+	}
+	if !containsArg(args, "--session-id") {
+		t.Error("Containerized forked session should have --session-id")
+	}
+
+	// Verify it uses our session ID, not the parent's
+	for i, arg := range args {
+		if arg == "--session-id" && i+1 < len(args) {
+			if args[i+1] != "child-session-uuid" {
+				t.Errorf("Expected --session-id child-session-uuid, got %s", args[i+1])
+			}
+			break
+		}
+	}
+
+	// Containerized: must have --dangerously-skip-permissions
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized forked session must have --dangerously-skip-permissions")
+	}
+
+	// Must NOT have MCP-related flags
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized forked session must not have --mcp-config")
+	}
+}
+
+func TestBuildCommandArgs_NonContainerized_Unchanged(t *testing.T) {
+	// Regression test: non-containerized config should still have MCP flags
+	config := ProcessConfig{
+		SessionID:      "normal-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read", "Write"},
+		Containerized:  false, // explicitly not containerized
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Must have MCP-related flags
+	if !containsArg(args, "--mcp-config") {
+		t.Error("Non-containerized session must have --mcp-config")
+	}
+	if !containsArg(args, "--permission-prompt-tool") {
+		t.Error("Non-containerized session must have --permission-prompt-tool")
+	}
+
+	// Must have --allowedTools
+	if !containsArg(args, "--allowedTools") {
+		t.Error("Non-containerized session must have --allowedTools")
+	}
+
+	// Must NOT have --dangerously-skip-permissions
+	if containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Non-containerized session must not have --dangerously-skip-permissions")
+	}
+}
+
+func TestBuildContainerRunArgs(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-session-123",
+		WorkingDir:     "/path/to/worktree",
+		ContainerImage: "plural-claude",
+	}
+
+	claudeArgs := []string{"--print", "--session-id", "test-session-123", "--dangerously-skip-permissions"}
+
+	result := buildContainerRunArgs(config, claudeArgs)
+	args := result.Args
+
+	// Verify basic container run structure
+	if args[0] != "run" {
+		t.Errorf("First arg should be 'run', got %q", args[0])
+	}
+	if !containsArg(args, "-i") {
+		t.Error("Should have -i flag for interactive stdin")
+	}
+	if !containsArg(args, "--rm") {
+		t.Error("Should have --rm flag for auto-cleanup")
+	}
+
+	// Verify container name
+	if got := getArgValue(args, "--name"); got != "plural-test-session-123" {
+		t.Errorf("Container name = %q, want 'plural-test-session-123'", got)
+	}
+
+	// Verify working directory mount
+	foundWorkspaceMount := false
+	for _, arg := range args {
+		if arg == "/path/to/worktree:/workspace" {
+			foundWorkspaceMount = true
+			break
+		}
+	}
+	if !foundWorkspaceMount {
+		t.Error("Should mount worktree to /workspace")
+	}
+
+	// Verify -w /workspace
+	if got := getArgValue(args, "-w"); got != "/workspace" {
+		t.Errorf("Working directory = %q, want '/workspace'", got)
+	}
+
+	// Verify image name appears before claude args (entrypoint handles running claude)
+	foundImage := false
+	for i, arg := range args {
+		if arg == "plural-claude" {
+			// Next arg should be a claude flag (entrypoint invokes claude)
+			if i+1 < len(args) && args[i+1] == "--print" {
+				foundImage = true
+			}
+			break
+		}
+	}
+	if !foundImage {
+		t.Error("Should have image name followed by claude args")
+	}
+
+	// Verify claude args are appended
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Claude args should be appended to container run args")
+	}
+}
+
+func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-session",
+		WorkingDir:     "/tmp",
+		ContainerImage: "", // Empty should default to "plural-claude"
+	}
+
+	result := buildContainerRunArgs(config, []string{"--print"})
+
+	// Check that "plural-claude" is in the args (default image)
+	if !containsArg(result.Args, "plural-claude") {
+		t.Error("Empty ContainerImage should default to 'plural-claude'")
+	}
+}
+
+func TestBuildContainerRunArgs_ReportsAuthSource(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	config := ProcessConfig{
+		SessionID:      "test-auth-source",
+		WorkingDir:     "/tmp",
+		ContainerImage: "plural-claude",
+	}
+	defer os.Remove(containerAuthFilePath(config.SessionID))
+
+	result := buildContainerRunArgs(config, []string{"--print"})
+	if result.AuthSource == "" {
+		t.Error("AuthSource should be set when credentials are available")
+	}
+	if result.AuthSource != "ANTHROPIC_API_KEY env var" {
+		t.Errorf("AuthSource = %q, want %q", result.AuthSource, "ANTHROPIC_API_KEY env var")
+	}
+}
+
+func TestProcessManager_HandleExit_CleansUpAuthFileOnFatalError(t *testing.T) {
+	// Create a temporary auth file to simulate what writeContainerAuthFile creates
+	sessionID := "test-auth-cleanup"
+	authFile := containerAuthFilePath(sessionID)
+	if err := os.WriteFile(authFile, []byte("ANTHROPIC_API_KEY=test-key"), 0600); err != nil {
+		t.Fatalf("failed to create test auth file: %v", err)
+	}
+	defer os.Remove(authFile) // cleanup in case test fails
+
+	// Verify the file exists
+	if _, err := os.Stat(authFile); os.IsNotExist(err) {
+		t.Fatal("test auth file should exist before test")
+	}
+
+	var fatalErrorCalled bool
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     sessionID,
+		WorkingDir:    "/tmp",
+		Containerized: true,
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderr string) bool {
+			return true // allow restart
+		},
+		OnFatalError: func(err error) {
+			fatalErrorCalled = true
+		},
+	}, pmTestLogger())
+
+	// Set restart attempts to max so handleExit takes the fatal error path
+	pm.mu.Lock()
+	pm.running = true
+	pm.restartAttempts = MaxProcessRestartAttempts
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone) // simulate stderr already drained
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	// Call handleExit which should take the max-restarts-exceeded path
+	pm.handleExit(fmt.Errorf("process crashed"))
+
+	// Verify the fatal error callback was called
+	if !fatalErrorCalled {
+		t.Error("OnFatalError callback should have been called")
+	}
+
+	// Verify the auth file was cleaned up
+	if _, err := os.Stat(authFile); !os.IsNotExist(err) {
+		t.Error("auth file should have been cleaned up on fatal error")
+	}
+}
+
+func TestProcessManager_HandleExit_NoAuthCleanupForNonContainerized(t *testing.T) {
+	// Create a temporary auth file (shouldn't exist for non-containerized, but test the path)
+	sessionID := "test-no-auth-cleanup"
+
+	var fatalErrorCalled bool
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     sessionID,
+		WorkingDir:    "/tmp",
+		Containerized: false, // NOT containerized
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderr string) bool {
+			return true
+		},
+		OnFatalError: func(err error) {
+			fatalErrorCalled = true
+		},
+	}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.running = true
+	pm.restartAttempts = MaxProcessRestartAttempts
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone)
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	pm.handleExit(fmt.Errorf("process crashed"))
+
+	if !fatalErrorCalled {
+		t.Error("OnFatalError callback should have been called")
+	}
+	// No auth file assertion needed — just verify non-containerized path doesn't panic
+}
+
+func TestWriteContainerAuthFile_SingleQuotesValue(t *testing.T) {
+	sessionID := "test-single-quote"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	// Set env var with a value containing $ which should be preserved
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-$pecial-key")
+
+	result := writeContainerAuthFile(sessionID)
+	if result.Path == "" {
+		t.Fatal("writeContainerAuthFile should succeed for key with $")
+	}
+
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatalf("failed to read auth file: %v", err)
+	}
+
+	expected := "ANTHROPIC_API_KEY='sk-ant-$pecial-key'"
+	if string(content) != expected {
+		t.Errorf("auth file content = %q, want %q", string(content), expected)
+	}
+	if result.Source != "ANTHROPIC_API_KEY env var" {
+		t.Errorf("source = %q, want %q", result.Source, "ANTHROPIC_API_KEY env var")
+	}
+}
+
+func TestWriteContainerAuthFile_RejectsNewlines(t *testing.T) {
+	sessionID := "test-newline-reject"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-key\nINJECTED=bad")
+
+	result := writeContainerAuthFile(sessionID)
+	if result.Path != "" {
+		t.Error("writeContainerAuthFile should reject values with newlines")
+		os.Remove(result.Path)
+	}
+}
+
+func TestWriteContainerAuthFile_RejectsSingleQuotes(t *testing.T) {
+	sessionID := "test-quote-reject"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-key'; echo pwned")
+
+	result := writeContainerAuthFile(sessionID)
+	if result.Path != "" {
+		t.Error("writeContainerAuthFile should reject values with single quotes")
+		os.Remove(result.Path)
+	}
+}
+
+func TestContainerAuthDir_ReturnsUserPrivateDir(t *testing.T) {
+	dir := containerAuthDir()
+	if dir == "" {
+		t.Skip("home directory not available")
+	}
+	if dir == "/tmp" {
+		t.Error("containerAuthDir should not return /tmp")
+	}
+}
+
+func TestContainerAuthAvailable_WithAPIKey(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	if !ContainerAuthAvailable() {
+		t.Error("ContainerAuthAvailable should return true when ANTHROPIC_API_KEY is set")
+	}
+}
+
+func TestContainerAuthAvailable_WithOAuthToken(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-test-token")
+
+	if !ContainerAuthAvailable() {
+		t.Error("ContainerAuthAvailable should return true when CLAUDE_CODE_OAUTH_TOKEN is set")
+	}
+}
+
+func TestContainerAuthAvailable_WithoutCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	// On macOS this might still return true if there's a keychain entry,
+	// but with empty env vars and no keychain it should return false.
+	// We can't fully test the keychain path in CI, but we can verify
+	// the function doesn't panic.
+	_ = ContainerAuthAvailable()
+}
+
+func TestWriteContainerAuthFile_APIKeyPriority(t *testing.T) {
+	sessionID := "test-api-key-priority"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	// When both are set, ANTHROPIC_API_KEY takes priority
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test-key")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-test-token")
+
+	result := writeContainerAuthFile(sessionID)
+	if result.Path == "" {
+		t.Fatal("expected auth file to be written")
+	}
+
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatalf("failed to read auth file: %v", err)
+	}
+	if !strings.Contains(string(content), "ANTHROPIC_API_KEY=") {
+		t.Error("should use ANTHROPIC_API_KEY when both are set")
+	}
+	if result.Source != "ANTHROPIC_API_KEY env var" {
+		t.Errorf("source = %q, want %q", result.Source, "ANTHROPIC_API_KEY env var")
+	}
+}
+
+func TestWriteContainerAuthFile_OAuthTokenFallback(t *testing.T) {
+	sessionID := "test-oauth-fallback"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	// When only CLAUDE_CODE_OAUTH_TOKEN is set, it should be written as CLAUDE_CODE_OAUTH_TOKEN
+	// (Claude CLI recognizes this environment variable directly)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-test-token")
+
+	result := writeContainerAuthFile(sessionID)
+	if result.Path == "" {
+		// On macOS with keychain entry for anthropic_api_key, that takes priority
+		// over CLAUDE_CODE_OAUTH_TOKEN. Skip if keychain returned a result first.
+		t.Skip("keychain may have returned a result before CLAUDE_CODE_OAUTH_TOKEN")
+	}
+
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatalf("failed to read auth file: %v", err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "CLAUDE_CODE_OAUTH_TOKEN=") {
+		t.Errorf("expected CLAUDE_CODE_OAUTH_TOKEN in auth file, got: %s", contentStr)
+	}
+	if result.Source != "CLAUDE_CODE_OAUTH_TOKEN env var" {
+		t.Errorf("source = %q, want %q", result.Source, "CLAUDE_CODE_OAUTH_TOKEN env var")
+	}
+}
+
+func TestWriteContainerAuthFile_NoShortLivedOAuth(t *testing.T) {
+	sessionID := "test-no-short-lived"
+	defer os.Remove(containerAuthFilePath(sessionID))
+
+	// With no env vars and no keychain entry, should return empty.
+	// The short-lived OAuth token from ~/.claude/.credentials.json
+	// is intentionally NOT read.
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	result := writeContainerAuthFile(sessionID)
+
+	// On macOS with a keychain entry for "anthropic_api_key" this would succeed,
+	// but the key point is that short-lived OAuth tokens are never extracted
+	if result.Path != "" {
+		content, err := os.ReadFile(result.Path)
+		if err != nil {
+			t.Fatalf("failed to read auth file: %v", err)
+		}
+		// Should be ANTHROPIC_API_KEY (from keychain), never a raw accessToken
+		if !strings.Contains(string(content), "ANTHROPIC_API_KEY=") {
+			t.Errorf("unexpected auth file content: %s", string(content))
+		}
+	}
+}
+
+func TestProcessManager_Start_FailsWithoutAuthForContainerized(t *testing.T) {
+	// Clear all credential env vars
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:      "test-no-auth",
+		WorkingDir:     t.TempDir(),
+		Containerized:  true,
+		ContainerImage: "plural-claude",
+	}, ProcessCallbacks{}, log)
+
+	err := pm.Start()
+	if err == nil {
+		pm.Stop()
+		// On macOS with a keychain entry this might succeed
+		// We can only reliably test this on systems without keychain
+		t.Log("Start succeeded - likely has keychain credentials")
+		return
+	}
+
+	if !strings.Contains(err.Error(), "container mode requires authentication") {
+		t.Errorf("expected auth error, got: %v", err)
+	}
+}
+
+func TestProcessManager_Start_AllowsNonContainerizedWithoutAuth(t *testing.T) {
+	// Clear all credential env vars
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-non-container",
+		WorkingDir:    t.TempDir(),
+		Containerized: false,
+	}, ProcessCallbacks{}, log)
+
+	// Start will fail because "claude" binary doesn't exist in test,
+	// but it should NOT fail with an auth error
+	err := pm.Start()
+	if err != nil && strings.Contains(err.Error(), "container mode requires authentication") {
+		t.Error("non-containerized sessions should not require auth")
+	}
+	// Clean up if it somehow started
+	pm.Stop()
 }
 

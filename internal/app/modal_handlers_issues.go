@@ -388,6 +388,8 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 
 		// Set parent ID to track fork relationship
 		sess.ParentID = parentSession.ID
+		// Inherit containerized flag from parent
+		sess.Containerized = parentSession.Containerized
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 			sess.WorkspaceID = activeWS

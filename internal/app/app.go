@@ -951,6 +951,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	m.header.SetBaseBranch(result.BaseBranch)
 	// Show preview indicator if this session is being previewed
 	m.header.SetPreviewActive(m.config.GetPreviewSessionID() == sess.ID)
+	// Show container indicator if this session is containerized
+	m.header.SetContainerActive(sess.Containerized)
 	if result.DiffStats != nil {
 		m.header.SetDiffStats(&ui.DiffStats{
 			FilesChanged: result.DiffStats.FilesChanged,

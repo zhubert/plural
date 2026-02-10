@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
@@ -369,4 +370,21 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// handleContainerBuildModal handles key events for the Container Build modal.
+func (m *Model) handleContainerBuildModal(key string, _ tea.KeyPressMsg, state *ui.ContainerBuildState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		if err := clipboard.WriteText(state.GetBuildCommand()); err != nil {
+			logger.Get().Error("failed to copy to clipboard", "error", err)
+			return m, m.ShowFlashError("Failed to copy to clipboard")
+		}
+		state.Copied = true
+		return m, nil
+	}
+	return m, nil
 }

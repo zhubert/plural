@@ -24,12 +24,15 @@ type RepoItem struct {
 
 // BroadcastState is the state for the broadcast modal
 type BroadcastState struct {
-	Repos         []RepoItem
-	SelectedIndex int              // Currently highlighted repo
-	NameInput     textinput.Model  // Session name input (optional)
-	PromptInput   textarea.Model   // Multi-line prompt input
-	Focus         int              // 0=repo list, 1=name input, 2=prompt textarea
-	ScrollOffset  int              // For scrolling the repo list
+	Repos                  []RepoItem
+	SelectedIndex          int              // Currently highlighted repo
+	NameInput              textinput.Model  // Session name input (optional)
+	PromptInput            textarea.Model   // Multi-line prompt input
+	UseContainers          bool             // Whether to run sessions in containers
+	ContainersSupported    bool             // Whether the host supports Apple containers (darwin/arm64)
+	ContainerAuthAvailable bool             // Whether API key credentials are available for container mode
+	Focus                  int              // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
+	ScrollOffset           int              // For scrolling the repo list
 }
 
 func (*BroadcastState) modalState() {}
@@ -100,19 +103,49 @@ func (s *BroadcastState) Render() string {
 	}
 	promptView := promptStyle.Render(s.PromptInput.View())
 
-	help := ModalHelpStyle.Render(s.Help())
+	parts := []string{title, repoLabel, countLabel, repoList, nameLabel, nameView, promptLabel, promptView}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		repoLabel,
-		countLabel,
-		repoList,
-		nameLabel,
-		nameView,
-		promptLabel,
-		promptView,
-		help,
-	)
+	// Container mode checkbox (only on Apple Silicon)
+	if s.ContainersSupported {
+		containerLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Run in containers:")
+
+		containerCheckbox := "[ ]"
+		if s.UseContainers {
+			containerCheckbox = "[x]"
+		}
+		containerCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 3 {
+			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+		}
+		containerDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Run Claude CLI inside Apple containers with --dangerously-skip-permissions")
+		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
+
+		parts = append(parts, containerLabel, containerView)
+
+		if s.UseContainers && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var")
+			parts = append(parts, authWarning)
+		}
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+	parts = append(parts, help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (s *BroadcastState) renderRepoList() string {
@@ -233,13 +266,31 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			// Prompt textarea focused
 			switch key {
 			case keys.Tab:
-				s.Focus = 0
+				if s.ContainersSupported {
+					s.Focus = 3
+				} else {
+					s.Focus = 0
+				}
 				s.PromptInput.Blur()
 				return s, nil
 			case keys.ShiftTab:
 				s.Focus = 1
 				s.PromptInput.Blur()
 				s.NameInput.Focus()
+				return s, nil
+			}
+		case 3:
+			// Container checkbox focused (only when supported)
+			switch key {
+			case keys.Space:
+				s.UseContainers = !s.UseContainers
+				return s, nil
+			case keys.Tab:
+				s.Focus = 0
+				return s, nil
+			case keys.ShiftTab:
+				s.Focus = 2
+				s.PromptInput.Focus()
 				return s, nil
 			}
 		}
@@ -294,8 +345,15 @@ func (s *BroadcastState) GetPrompt() string {
 	return s.PromptInput.Value()
 }
 
-// NewBroadcastState creates a new BroadcastState
-func NewBroadcastState(repoPaths []string) *BroadcastState {
+// GetUseContainers returns whether container mode is selected
+func (s *BroadcastState) GetUseContainers() bool {
+	return s.UseContainers
+}
+
+// NewBroadcastState creates a new BroadcastState.
+// containersSupported indicates whether the host supports Apple containers (darwin/arm64).
+// containerAuthAvailable indicates whether API key credentials exist for container mode.
+func NewBroadcastState(repoPaths []string, containersSupported bool, containerAuthAvailable bool) *BroadcastState {
 	repos := make([]RepoItem, len(repoPaths))
 	for i, path := range repoPaths {
 		repos[i] = RepoItem{
@@ -321,12 +379,14 @@ func NewBroadcastState(repoPaths []string) *BroadcastState {
 	ApplyTextareaStyles(&promptInput)
 
 	return &BroadcastState{
-		Repos:         repos,
-		SelectedIndex: 0,
-		NameInput:     nameInput,
-		PromptInput:   promptInput,
-		Focus:         0, // Start focused on repo list
-		ScrollOffset:  0,
+		Repos:                  repos,
+		SelectedIndex:          0,
+		NameInput:              nameInput,
+		PromptInput:            promptInput,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0, // Start focused on repo list
+		ScrollOffset:           0,
 	}
 }
 

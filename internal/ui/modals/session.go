@@ -12,12 +12,15 @@ import (
 // =============================================================================
 
 type NewSessionState struct {
-	RepoOptions []string
-	RepoIndex   int
-	BaseOptions []string // Options for base branch selection
-	BaseIndex   int      // Selected base option index
-	BranchInput textinput.Model
-	Focus       int // 0=repo list, 1=base selection, 2=branch input
+	RepoOptions            []string
+	RepoIndex              int
+	BaseOptions            []string // Options for base branch selection
+	BaseIndex              int      // Selected base option index
+	BranchInput            textinput.Model
+	UseContainers          bool // Whether to run this session in a container
+	ContainersSupported    bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
+	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported)
 }
 
 func (*NewSessionState) modalState() {}
@@ -30,6 +33,9 @@ func (s *NewSessionState) Help() string {
 	}
 	if s.Focus == 0 && len(s.RepoOptions) > 0 {
 		return "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create"
+	}
+	if s.Focus == 3 && s.ContainersSupported {
+		return "Space: toggle  Tab: next field  Enter: create"
 	}
 	return "up/down: select  Tab: next field  Enter: create"
 }
@@ -74,12 +80,69 @@ func (s *NewSessionState) Render() string {
 	}
 	branchView := branchInputStyle.Render(s.BranchInput.View())
 
-	help := ModalHelpStyle.Render(s.Help())
+	parts := []string{title, repoLabel, repoList, baseLabel, baseList, branchLabel, branchView}
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoList, baseLabel, baseList, branchLabel, branchView, help)
+	// Container mode checkbox (only on Apple Silicon)
+	if s.ContainersSupported {
+		containerLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Run in container:")
+
+		containerCheckbox := "[ ]"
+		if s.UseContainers {
+			containerCheckbox = "[x]"
+		}
+		containerCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 3 {
+			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+		}
+		containerDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Run Claude CLI inside an Apple container with --dangerously-skip-permissions")
+		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
+
+		containerWarning := lipgloss.NewStyle().
+			Foreground(ColorWarning).
+			Italic(true).
+			Width(50).
+			PaddingLeft(2).
+			Render("Warning: Containers provide defense in depth but are not a complete security boundary.")
+
+		parts = append(parts, containerLabel, containerView, containerWarning)
+
+		if s.UseContainers && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var")
+			parts = append(parts, authWarning)
+		}
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+	parts = append(parts, help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// numFields returns the number of focusable fields.
+func (s *NewSessionState) numFields() int {
+	if s.ContainersSupported {
+		return 4 // repo list, base selection, branch input, containers
+	}
+	return 3 // repo list, base selection, branch input
 }
 
 func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	numFields := s.numFields()
+
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case keys.Up, "k":
@@ -105,27 +168,18 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				}
 			}
 		case keys.Tab:
-			switch s.Focus {
-			case 0:
-				s.Focus = 1
-			case 1:
-				s.Focus = 2
-				s.BranchInput.Focus()
-			case 2:
-				s.Focus = 0
-				s.BranchInput.Blur()
-			}
+			oldFocus := s.Focus
+			s.Focus = (s.Focus + 1) % numFields
+			s.updateInputFocus(oldFocus)
 			return s, nil
 		case keys.ShiftTab:
-			switch s.Focus {
-			case 2:
-				s.Focus = 1
-				s.BranchInput.Blur()
-			case 1:
-				s.Focus = 0
-			case 0:
-				s.Focus = 2
-				s.BranchInput.Focus()
+			oldFocus := s.Focus
+			s.Focus = (s.Focus - 1 + numFields) % numFields
+			s.updateInputFocus(oldFocus)
+			return s, nil
+		case keys.Space:
+			if s.Focus == 3 && s.ContainersSupported {
+				s.UseContainers = !s.UseContainers
 			}
 			return s, nil
 		}
@@ -139,6 +193,15 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	}
 
 	return s, nil
+}
+
+// updateInputFocus manages focus state for text inputs based on current Focus index.
+func (s *NewSessionState) updateInputFocus(oldFocus int) {
+	if s.Focus == 2 {
+		s.BranchInput.Focus()
+	} else if oldFocus == 2 {
+		s.BranchInput.Blur()
+	}
 }
 
 // GetSelectedRepo returns the selected repository path
@@ -159,23 +222,32 @@ func (s *NewSessionState) GetBaseIndex() int {
 	return s.BaseIndex
 }
 
-// NewNewSessionState creates a new NewSessionState with proper initialization
-func NewNewSessionState(repos []string) *NewSessionState {
+// GetUseContainers returns whether container mode is selected
+func (s *NewSessionState) GetUseContainers() bool {
+	return s.UseContainers
+}
+
+// NewNewSessionState creates a new NewSessionState with proper initialization.
+// containersSupported indicates whether the host supports Apple containers (darwin/arm64).
+// containerAuthAvailable indicates whether API key credentials exist for container mode.
+func NewNewSessionState(repos []string, containersSupported bool, containerAuthAvailable bool) *NewSessionState {
 	branchInput := textinput.New()
 	branchInput.Placeholder = "optional branch name (leave empty for auto)"
 	branchInput.CharLimit = BranchNameCharLimit
 	branchInput.SetWidth(ModalInputWidth)
 
 	return &NewSessionState{
-		RepoOptions: repos,
-		RepoIndex:   0,
+		RepoOptions:         repos,
+		RepoIndex:           0,
 		BaseOptions: []string{
 			"From current local branch",
 			"From remote default branch (latest)",
 		},
-		BaseIndex:   0,
-		BranchInput: branchInput,
-		Focus:       0,
+		BaseIndex:              0,
+		BranchInput:            branchInput,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0,
 	}
 }
 
@@ -184,12 +256,15 @@ func NewNewSessionState(repos []string) *NewSessionState {
 // =============================================================================
 
 type ForkSessionState struct {
-	ParentSessionName string
-	ParentSessionID   string
-	RepoPath          string
-	BranchInput       textinput.Model
-	CopyMessages      bool // Whether to copy conversation history
-	Focus             int  // 0=copy messages toggle, 1=branch input
+	ParentSessionName      string
+	ParentSessionID        string
+	RepoPath               string
+	BranchInput            textinput.Model
+	CopyMessages           bool // Whether to copy conversation history
+	UseContainers          bool // Whether to run this session in a container
+	ContainersSupported    bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
+	Focus                  int  // 0=copy messages toggle, 1=branch input, 2=containers (if supported)
 }
 
 func (*ForkSessionState) modalState() {}
@@ -197,6 +272,9 @@ func (*ForkSessionState) modalState() {}
 func (s *ForkSessionState) Title() string { return "Fork Session" }
 
 func (s *ForkSessionState) Help() string {
+	if s.Focus == 2 && s.ContainersSupported {
+		return "Space: toggle  Tab: next field  Enter: create fork  Esc: cancel"
+	}
 	return "Tab: switch field  Space: toggle  Enter: create fork  Esc: cancel"
 }
 
@@ -246,52 +324,90 @@ func (s *ForkSessionState) Render() string {
 	}
 	branchView := branchInputStyle.Render(s.BranchInput.View())
 
-	help := ModalHelpStyle.Render(s.Help())
+	parts := []string{title, parentLabel, parentName, copyLabel, copyOption, branchLabel, branchView}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		title,
-		parentLabel,
-		parentName,
-		copyLabel,
-		copyOption,
-		branchLabel,
-		branchView,
-		help,
-	)
+	// Container mode checkbox (only on Apple Silicon)
+	if s.ContainersSupported {
+		containerLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Run in container:")
+
+		containerCheckbox := "[ ]"
+		if s.UseContainers {
+			containerCheckbox = "[x]"
+		}
+		containerCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 2 {
+			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+		}
+		containerDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Run Claude CLI inside an Apple container with --dangerously-skip-permissions")
+		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
+
+		parts = append(parts, containerLabel, containerView)
+
+		if s.UseContainers && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(50).
+				PaddingLeft(2).
+				Render("Requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var")
+			parts = append(parts, authWarning)
+		}
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+	parts = append(parts, help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// numFields returns the number of focusable fields.
+func (s *ForkSessionState) numFields() int {
+	if s.ContainersSupported {
+		return 3 // copy messages, branch input, containers
+	}
+	return 2 // copy messages, branch input
 }
 
 func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	numFields := s.numFields()
+
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case keys.Tab:
-			if s.Focus == 0 {
-				s.Focus = 1
-				s.BranchInput.Focus()
-			} else {
-				s.Focus = 0
-				s.BranchInput.Blur()
-			}
+			oldFocus := s.Focus
+			s.Focus = (s.Focus + 1) % numFields
+			s.updateForkInputFocus(oldFocus)
 			return s, nil
 		case keys.ShiftTab:
-			if s.Focus == 1 {
-				s.Focus = 0
-				s.BranchInput.Blur()
-			}
+			oldFocus := s.Focus
+			s.Focus = (s.Focus - 1 + numFields) % numFields
+			s.updateForkInputFocus(oldFocus)
 			return s, nil
 		case keys.Space:
 			if s.Focus == 0 {
 				s.CopyMessages = !s.CopyMessages
+			} else if s.Focus == 2 && s.ContainersSupported {
+				s.UseContainers = !s.UseContainers
 			}
 			return s, nil
-		case keys.Up, keys.Down, "j", "k":
-			// Toggle focus between options
-			if s.Focus == 0 {
-				s.Focus = 1
-				s.BranchInput.Focus()
-			} else {
-				s.Focus = 0
-				s.BranchInput.Blur()
-			}
+		case keys.Up, "k":
+			oldFocus := s.Focus
+			s.Focus = (s.Focus - 1 + numFields) % numFields
+			s.updateForkInputFocus(oldFocus)
+			return s, nil
+		case keys.Down, "j":
+			oldFocus := s.Focus
+			s.Focus = (s.Focus + 1) % numFields
+			s.updateForkInputFocus(oldFocus)
 			return s, nil
 		}
 	}
@@ -306,6 +422,15 @@ func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	return s, nil
 }
 
+// updateForkInputFocus manages focus state for text inputs based on current Focus index.
+func (s *ForkSessionState) updateForkInputFocus(oldFocus int) {
+	if s.Focus == 1 {
+		s.BranchInput.Focus()
+	} else if oldFocus == 1 {
+		s.BranchInput.Blur()
+	}
+}
+
 // GetBranchName returns the custom branch name
 func (s *ForkSessionState) GetBranchName() string {
 	return s.BranchInput.Value()
@@ -316,20 +441,31 @@ func (s *ForkSessionState) ShouldCopyMessages() bool {
 	return s.CopyMessages
 }
 
-// NewForkSessionState creates a new ForkSessionState
-func NewForkSessionState(parentSessionName, parentSessionID, repoPath string) *ForkSessionState {
+// GetUseContainers returns whether container mode is selected
+func (s *ForkSessionState) GetUseContainers() bool {
+	return s.UseContainers
+}
+
+// NewForkSessionState creates a new ForkSessionState.
+// parentContainerized is the parent session's container status (used as default for the checkbox).
+// containersSupported indicates whether the host supports Apple containers (darwin/arm64).
+// containerAuthAvailable indicates whether API key credentials exist for container mode.
+func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, parentContainerized bool, containersSupported bool, containerAuthAvailable bool) *ForkSessionState {
 	branchInput := textinput.New()
 	branchInput.Placeholder = "optional branch name (leave empty for auto)"
 	branchInput.CharLimit = BranchNameCharLimit
 	branchInput.SetWidth(ModalInputWidth)
 
 	return &ForkSessionState{
-		ParentSessionName: parentSessionName,
-		ParentSessionID:   parentSessionID,
-		RepoPath:          repoPath,
-		BranchInput:       branchInput,
-		CopyMessages:      true, // Default to copying messages
-		Focus:             0,
+		ParentSessionName:      parentSessionName,
+		ParentSessionID:        parentSessionID,
+		RepoPath:               repoPath,
+		BranchInput:            branchInput,
+		CopyMessages:           true, // Default to copying messages
+		UseContainers:          parentContainerized,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0,
 	}
 }
 

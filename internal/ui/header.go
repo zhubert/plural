@@ -16,12 +16,13 @@ type DiffStats struct {
 
 // Header represents the top header bar
 type Header struct {
-	width         int
-	sessionName   string
-	baseBranch    string
-	diffStats     *DiffStats
-	previewActive bool
-	workspaceName string
+	width           int
+	sessionName     string
+	baseBranch      string
+	diffStats       *DiffStats
+	previewActive   bool
+	containerActive bool
+	workspaceName   string
 }
 
 // NewHeader creates a new header
@@ -54,6 +55,11 @@ func (h *Header) SetPreviewActive(active bool) {
 	h.previewActive = active
 }
 
+// SetContainerActive sets whether the current session is containerized
+func (h *Header) SetContainerActive(active bool) {
+	h.containerActive = active
+}
+
 // SetWorkspaceName sets the workspace name to display
 func (h *Header) SetWorkspaceName(name string) {
 	h.workspaceName = name
@@ -63,7 +69,7 @@ func (h *Header) SetWorkspaceName(name string) {
 type headerRegion struct {
 	start int
 	end   int
-	style string // "normal", "muted", "added", "deleted", "preview"
+	style string // "normal", "muted", "added", "deleted", "preview", "container"
 }
 
 // View renders the header
@@ -79,6 +85,14 @@ func (h *Header) View() string {
 	var regions []headerRegion
 
 	if h.sessionName != "" {
+		// Add container indicator if active
+		if h.containerActive {
+			containerStart := len(rightText)
+			rightText += "[CONTAINER] "
+			containerEnd := len(rightText)
+			regions = append(regions, headerRegion{start: containerStart, end: containerEnd, style: "container"})
+		}
+
 		// Add preview indicator if active
 		if h.previewActive {
 			previewStart := len(rightText)
@@ -169,7 +183,8 @@ func (h *Header) renderGradient(content string, regions []headerRegion) string {
 	mutedColor := lipgloss.Color(theme.TextMuted)
 	addedColor := lipgloss.Color(theme.DiffAdded)
 	deletedColor := lipgloss.Color(theme.DiffRemoved)
-	previewColor := lipgloss.Color(theme.Warning) // Use warning color (amber/yellow) for preview indicator
+	previewColor := lipgloss.Color(theme.Warning)   // Use warning color (amber/yellow) for preview indicator
+	containerColor := lipgloss.Color(theme.Success) // Use success color (green) for container indicator
 
 	// Helper to get the style for a given position
 	getStyleForPos := func(pos int) string {
@@ -212,6 +227,8 @@ func (h *Header) renderGradient(content string, regions []headerRegion) string {
 			style = style.Foreground(deletedColor)
 		case "preview":
 			style = style.Foreground(previewColor).Bold(true)
+		case "container":
+			style = style.Foreground(containerColor).Bold(true)
 		default:
 			style = style.Foreground(textColor)
 		}
