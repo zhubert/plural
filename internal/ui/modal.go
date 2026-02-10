@@ -198,7 +198,13 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 		content += "\n" + StatusErrorStyle.Render(m.error)
 	}
 
-	modal := ModalStyle.Render(content)
+	// Use preferred width if the modal implements ModalWithPreferredWidth
+	style := ModalStyle
+	if modalWithWidth, ok := m.State.(modals.ModalWithPreferredWidth); ok {
+		style = style.Width(modalWithWidth.PreferredWidth())
+	}
+
+	modal := style.Render(content)
 
 	return lipgloss.Place(
 		screenWidth, screenHeight,
@@ -226,6 +232,7 @@ func initModalStyles() {
 		ModalInputWidth,
 		ModalInputCharLimit,
 		ModalWidth,
+		ModalWidthWide,
 	)
 }
 
