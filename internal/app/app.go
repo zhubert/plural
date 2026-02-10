@@ -927,6 +927,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	if m.activeSession != nil {
 		previousSessionID = m.activeSession.ID
 		previousInput = m.chat.GetInput()
+		// Flush any buffered streaming content before switching sessions
+		m.chat.FlushStreamingBuffer()
 		previousStreaming = m.chat.GetStreaming()
 	}
 

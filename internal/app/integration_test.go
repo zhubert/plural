@@ -109,6 +109,9 @@ func TestFullFlow_MultipleChunks(t *testing.T) {
 		m = simulateClaudeResponse(m, sessionID, textChunk(chunk))
 	}
 
+	// Flush buffer before verifying (chunks are batched now)
+	m.chat.FlushStreamingBuffer()
+
 	// Verify content accumulated
 	streaming := m.chat.GetStreaming()
 	for _, chunk := range chunks {
@@ -413,6 +416,9 @@ func TestSessionSwitch_PreservesStreamingContent(t *testing.T) {
 
 	// Simulate partial streaming (no done chunk)
 	m = simulateClaudeResponse(m, sessionA, textChunk("Partial response..."))
+
+	// Flush buffer before checking content
+	m.chat.FlushStreamingBuffer()
 
 	// Get streaming content
 	streamingBefore := m.chat.GetStreaming()
@@ -1026,6 +1032,7 @@ func TestGitResult_StreamingOutput(t *testing.T) {
 
 	// Simulate merge output streaming
 	m = simulateMergeResult(m, sessionID, "Checking out main...\n", nil, false, nil, "")
+	m.chat.FlushStreamingBuffer()
 
 	// Verify output is appended to chat
 	streaming := m.chat.GetStreaming()
@@ -1035,6 +1042,7 @@ func TestGitResult_StreamingOutput(t *testing.T) {
 
 	// More output
 	m = simulateMergeResult(m, sessionID, "Merging feature-branch...\n", nil, false, nil, "")
+	m.chat.FlushStreamingBuffer()
 
 	streaming = m.chat.GetStreaming()
 	if !strings.Contains(streaming, "Merging feature-branch") {
@@ -1055,6 +1063,7 @@ func TestGitResult_ErrorHandling(t *testing.T) {
 
 	// Simulate an error
 	m = simulateMergeResult(m, sessionID, "", errors.New("merge failed: branch diverged"), true, nil, "")
+	m.chat.FlushStreamingBuffer()
 
 	// Verify error is shown in chat
 	streaming := m.chat.GetStreaming()

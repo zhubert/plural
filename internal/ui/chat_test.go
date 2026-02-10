@@ -987,6 +987,7 @@ func TestChat_Streaming(t *testing.T) {
 
 	// Append streaming content
 	chat.AppendStreaming("Hello")
+	chat.FlushStreamingBuffer()
 	if chat.GetStreaming() != "Hello" {
 		t.Errorf("Expected streaming 'Hello', got %q", chat.GetStreaming())
 	}
@@ -996,6 +997,7 @@ func TestChat_Streaming(t *testing.T) {
 	}
 
 	chat.AppendStreaming(" world")
+	chat.FlushStreamingBuffer()
 	if chat.GetStreaming() != "Hello world" {
 		t.Errorf("Expected 'Hello world', got %q", chat.GetStreaming())
 	}
@@ -1164,6 +1166,7 @@ func TestChat_ToolUseRollupResetOnFinishStreaming(t *testing.T) {
 	chat.AppendStreaming("Merging branch...\n")
 	chat.AppendStreaming("Checking out main...\n")
 	chat.AppendStreaming("Already up to date.\n")
+	chat.FlushStreamingBuffer()
 
 	// The streaming content should NOT have extra newlines inserted
 	streaming := chat.GetStreaming()
@@ -1444,6 +1447,7 @@ func TestChat_ToolUseFlushBlankLineBeforeToolUses(t *testing.T) {
 
 	// Now more text arrives - this triggers flushToolUseRollup
 	chat.AppendStreaming("Found it!")
+	chat.FlushStreamingBuffer()
 
 	streaming := chat.GetStreaming()
 

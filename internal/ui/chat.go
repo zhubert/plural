@@ -100,6 +100,10 @@ type Chat struct {
 
 	// Subagent indicator
 	subagentModel string // Active subagent model (empty when no subagent active)
+
+	// Streaming chunk batching - buffers small chunks to reduce rendering overhead
+	streamingBuffer strings.Builder // Accumulates chunks between renders
+	bufferDirty     bool             // Whether buffer has content that needs flushing
 }
 
 // NewChat creates a new chat panel
@@ -313,12 +317,39 @@ func (c *Chat) ClearSession() {
 }
 
 // AppendStreaming appends content to the current streaming response
-func (c *Chat) AppendStreaming(content string) {
-	// When text content arrives, flush any pending tool uses to streaming first
-	// (flushToolUseRollup adds a trailing newline for visual separation)
+func (c *Chat) AppendStreaming(content string) bool {
+	// Track if this is the first chunk (to start the buffer tick)
+	firstChunk := !c.bufferDirty && c.streaming == ""
+
+	// When text content arrives, flush buffered text FIRST, then flush any pending tool uses
+	// This ensures tool uses appear between buffered text chunks in correct order
+	c.FlushStreamingBuffer()
 	c.flushToolUseRollup()
 
-	c.streaming += content
+	// Buffer the new content instead of immediately rendering
+	// This reduces rendering overhead from thousands of tiny chunks to ~20 renders/sec
+	c.streamingBuffer.WriteString(content)
+	c.bufferDirty = true
+
+	// Return true if we should start the buffer tick
+	return firstChunk
+}
+
+// FlushStreamingBuffer moves buffered content to streaming and triggers a render
+func (c *Chat) FlushStreamingBuffer() {
+	if !c.bufferDirty {
+		return
+	}
+
+	// Move buffer content to streaming
+	buffered := c.streamingBuffer.String()
+	if buffered != "" {
+		c.streaming += buffered
+		c.streamingBuffer.Reset()
+	}
+	c.bufferDirty = false
+
+	// Now render once with all accumulated content
 	c.updateContent()
 }
 
@@ -461,6 +492,9 @@ func formatToolUseLine(item ToolUseItem) string {
 
 // FinishStreaming completes the streaming and adds to messages
 func (c *Chat) FinishStreaming() {
+	// Flush any buffered content before finishing
+	c.FlushStreamingBuffer()
+
 	// Flush any remaining tool uses before finishing
 	c.flushToolUseRollup()
 
@@ -1466,6 +1500,13 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 				c.SelectionClear()
 				c.selection.FlashFrame = -1
 			}
+		}
+		return c, tea.Batch(cmds...)
+
+	case StreamingBufferTickMsg:
+		cmd := c.handleStreamingBufferTick()
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		return c, tea.Batch(cmds...)
 	}

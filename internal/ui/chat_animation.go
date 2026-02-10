@@ -20,6 +20,9 @@ type CompletionFlashTickMsg time.Time
 // SelectionFlashTickMsg is sent to animate the selection copy flash
 type SelectionFlashTickMsg time.Time
 
+// StreamingBufferTickMsg is sent to flush buffered streaming chunks
+type StreamingBufferTickMsg time.Time
+
 // thinkingVerbs are playful status messages that cycle while waiting for Claude
 var thinkingVerbs = []string{
 	"Thinking",
@@ -75,6 +78,13 @@ func CompletionFlashTick() tea.Cmd {
 func SelectionFlashTick() tea.Cmd {
 	return tea.Tick(150*time.Millisecond, func(t time.Time) tea.Msg {
 		return SelectionFlashTickMsg(t)
+	})
+}
+
+// StreamingBufferTick returns a command that sends a streaming buffer flush tick
+func StreamingBufferTick() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return StreamingBufferTickMsg(t)
 	})
 }
 
@@ -384,6 +394,23 @@ func (c *Chat) handleCompletionFlashTick() tea.Cmd {
 	c.updateContent()
 	if c.spinner.FlashFrame >= 0 {
 		return CompletionFlashTick()
+	}
+	return nil
+}
+
+// handleStreamingBufferTick handles periodic flushing of buffered streaming chunks
+func (c *Chat) handleStreamingBufferTick() tea.Cmd {
+	// Only continue ticking if we're actively streaming
+	if c.streaming == "" && !c.bufferDirty {
+		return nil
+	}
+
+	// Flush any buffered content
+	c.FlushStreamingBuffer()
+
+	// Continue ticking while streaming
+	if c.streaming != "" || c.bufferDirty {
+		return StreamingBufferTick()
 	}
 	return nil
 }

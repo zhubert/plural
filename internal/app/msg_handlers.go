@@ -143,6 +143,8 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 		state.SetWaitStartTime(time.Time{})
 	}
 
+	var extraCmds []tea.Cmd
+
 	if isActiveSession {
 		m.chat.SetWaiting(false)
 		// Handle different chunk types
@@ -154,7 +156,10 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 			// Tool completed, mark the tool use as complete by ID with result info
 			m.chat.MarkToolUseComplete(chunk.ToolUseID, chunk.ResultInfo)
 		case claude.ChunkTypeText:
-			m.chat.AppendStreaming(chunk.Content)
+			// Start streaming buffer tick on first chunk
+			if m.chat.AppendStreaming(chunk.Content) {
+				extraCmds = append(extraCmds, ui.StreamingBufferTick())
+			}
 		case claude.ChunkTypeTodoUpdate:
 			// Update the todo list display
 			if chunk.TodoList != nil {
@@ -178,7 +183,10 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 		default:
 			// For backwards compatibility, treat unknown types as text
 			if chunk.Content != "" {
-				m.chat.AppendStreaming(chunk.Content)
+				// Start streaming buffer tick on first chunk
+				if m.chat.AppendStreaming(chunk.Content) {
+					extraCmds = append(extraCmds, ui.StreamingBufferTick())
+				}
 			}
 		}
 	} else {
@@ -186,8 +194,9 @@ func (m *Model) handleClaudeStreaming(sessionID string, chunk claude.ResponseChu
 		m.handleNonActiveSessionStreaming(sessionID, chunk)
 	}
 
-	// Continue listening for more chunks from this session
-	return m, tea.Batch(m.sessionListeners(sessionID, runner, nil)...)
+	// Continue listening for more chunks from this session, plus any extra commands
+	allCmds := append(m.sessionListeners(sessionID, runner, nil), extraCmds...)
+	return m, tea.Batch(allCmds...)
 }
 
 // handleNonActiveSessionStreaming handles streaming content for non-active sessions.
