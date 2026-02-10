@@ -4,7 +4,7 @@
 
 Run multiple Claude sessions on the same codebase—each in its own git branch. When Claude offers different approaches, fork the session and try them all in parallel. Switch freely. Merge the winner.
 
-![Plural demo](demo.gif)
+![Plural demo](docs/demo.gif)
 
 ## Why Plural?
 
