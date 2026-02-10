@@ -2,6 +2,7 @@
 package process
 
 import (
+	"fmt"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -9,6 +10,21 @@ import (
 
 	"github.com/zhubert/plural/internal/logger"
 )
+
+// ContainersSupported returns true if the host can run Apple containers (darwin/arm64).
+func ContainersSupported() bool {
+	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
+}
+
+// ContainerImageExists checks if a container image exists locally.
+// Returns false if the container CLI is not available or the image is not found.
+func ContainerImageExists(image string) bool {
+	if _, err := exec.LookPath("container"); err != nil {
+		return false
+	}
+	cmd := exec.Command("container", "image", "inspect", image)
+	return cmd.Run() == nil
+}
 
 // ClaudeProcess represents a running Claude CLI process found on the system.
 type ClaudeProcess struct {
@@ -163,4 +179,70 @@ func CleanupOrphanedProcesses(knownSessionIDs map[string]bool) (int, error) {
 	}
 
 	return killed, nil
+}
+
+// OrphanedContainer represents a container found on the system that doesn't match any known session.
+type OrphanedContainer struct {
+	Name string // Container name (e.g., "plural-abc123")
+}
+
+// FindOrphanedContainers finds containers named plural-* whose session ID is not in knownSessionIDs.
+// Returns an empty list (not an error) if the container CLI is not available.
+func FindOrphanedContainers(knownSessionIDs map[string]bool) ([]OrphanedContainer, error) {
+	log := logger.WithComponent("process")
+
+	// Check if container CLI is available
+	if _, err := exec.LookPath("container"); err != nil {
+		log.Debug("container CLI not found, skipping container orphan check")
+		return nil, nil
+	}
+
+	cmd := exec.Command("container", "ls", "-a", "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list containers: %w", err)
+	}
+
+	var orphans []OrphanedContainer
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, name := range lines {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if !strings.HasPrefix(name, "plural-") {
+			continue
+		}
+		sessionID := strings.TrimPrefix(name, "plural-")
+		if !knownSessionIDs[sessionID] {
+			orphans = append(orphans, OrphanedContainer{Name: name})
+			log.Info("found orphaned container", "name", name, "sessionID", sessionID)
+		}
+	}
+
+	log.Debug("found orphaned containers", "count", len(orphans))
+	return orphans, nil
+}
+
+// CleanupOrphanedContainers removes all containers named plural-* that don't match known session IDs.
+// Returns the number of containers removed.
+func CleanupOrphanedContainers(knownSessionIDs map[string]bool) (int, error) {
+	orphans, err := FindOrphanedContainers(knownSessionIDs)
+	if err != nil {
+		return 0, err
+	}
+
+	log := logger.WithComponent("process")
+	removed := 0
+	for _, container := range orphans {
+		log.Info("removing orphaned container", "name", container.Name)
+		cmd := exec.Command("container", "rm", "-f", container.Name)
+		if err := cmd.Run(); err != nil {
+			log.Error("failed to remove container", "name", container.Name, "error", err)
+			continue
+		}
+		removed++
+	}
+
+	return removed, nil
 }

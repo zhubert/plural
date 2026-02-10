@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -63,6 +66,8 @@ type ProcessConfig struct {
 	AllowedTools      []string
 	MCPConfigPath     string
 	ForkFromSessionID string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
+	Containerized     bool   // When true, wraps Claude CLI in a container
+	ContainerImage    string // Container image name (e.g., "plural-claude")
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -172,8 +177,10 @@ func NewProcessManager(config ProcessConfig, callbacks ProcessCallbacks, log *sl
 // This is exported for testing purposes to verify correct argument construction.
 func BuildCommandArgs(config ProcessConfig) []string {
 	var args []string
-	if config.SessionStarted {
+	if config.SessionStarted && !config.Containerized {
 		// Session already started - resume our own session
+		// (Skip resume in container mode: each container run is a fresh environment
+		// with no prior session data, so --resume would fail with "No conversation found")
 		args = []string{
 			"--print",
 			"--output-format", "stream-json",
@@ -182,10 +189,12 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--verbose",
 			"--resume", config.SessionID,
 		}
-	} else if config.ForkFromSessionID != "" {
+	} else if config.ForkFromSessionID != "" && !config.Containerized {
 		// Forked session - resume parent and fork to inherit conversation history
 		// We must pass --session-id to ensure Claude uses our UUID for the forked session,
 		// otherwise Claude generates its own ID and we can't resume later.
+		// Skip in container mode: each container is a fresh environment with no parent
+		// session data, so --resume would fail with "No conversation found".
 		args = []string{
 			"--print",
 			"--output-format", "stream-json",
@@ -208,16 +217,24 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		}
 	}
 
-	// Add MCP config and permission prompt tool
-	args = append(args,
-		"--mcp-config", config.MCPConfigPath,
-		"--permission-prompt-tool", "mcp__plural__permission",
-		"--append-system-prompt", OptionsSystemPrompt,
-	)
+	if config.Containerized {
+		// Container IS the sandbox — skip MCP permission system entirely
+		args = append(args,
+			"--dangerously-skip-permissions",
+			"--append-system-prompt", OptionsSystemPrompt,
+		)
+	} else {
+		// Add MCP config and permission prompt tool
+		args = append(args,
+			"--mcp-config", config.MCPConfigPath,
+			"--permission-prompt-tool", "mcp__plural__permission",
+			"--append-system-prompt", OptionsSystemPrompt,
+		)
 
-	// Add pre-allowed tools
-	for _, tool := range config.AllowedTools {
-		args = append(args, "--allowedTools", tool)
+		// Add pre-allowed tools
+		for _, tool := range config.AllowedTools {
+			args = append(args, "--allowedTools", tool)
+		}
 	}
 
 	return args
@@ -235,6 +252,11 @@ func (pm *ProcessManager) Start() error {
 	pm.log.Info("starting process")
 	startTime := time.Now()
 
+	// Container mode requires credentials (short-lived OAuth tokens rotate and would become invalid)
+	if pm.config.Containerized && !ContainerAuthAvailable() {
+		return fmt.Errorf("container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
+	}
+
 	// Build command arguments
 	args := BuildCommandArgs(pm.config)
 
@@ -243,10 +265,22 @@ func (pm *ProcessManager) Start() error {
 		pm.log.Debug("forking session from parent", "parentSessionID", pm.config.ForkFromSessionID)
 	}
 
-	pm.log.Debug("starting process", "command", "claude "+strings.Join(args, " "))
-
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = pm.config.WorkingDir
+	var cmd *exec.Cmd
+	if pm.config.Containerized {
+		result := buildContainerRunArgs(pm.config, args)
+		if result.AuthSource != "" {
+			pm.log.Info("container auth credential source", "source", result.AuthSource)
+		} else {
+			pm.log.Warn("no auth credentials found for container")
+		}
+		pm.log.Debug("starting containerized process", "command", "container "+strings.Join(result.Args, " "))
+		cmd = exec.Command("container", result.Args...)
+		// Don't set cmd.Dir — the container's -w flag handles the working directory
+	} else {
+		pm.log.Debug("starting process", "command", "claude "+strings.Join(args, " "))
+		cmd = exec.Command("claude", args...)
+		cmd.Dir = pm.config.WorkingDir
+	}
 
 	// Get stdin pipe for writing messages
 	stdin, err := cmd.StdinPipe()
@@ -359,6 +393,21 @@ func (pm *ProcessManager) Stop() {
 		case <-time.After(2 * time.Second):
 			pm.log.Debug("force killing process")
 			cmd.Process.Kill()
+		}
+	}
+
+	// Defense-in-depth: force remove the container if we were running in container mode
+	if pm.config.Containerized {
+		containerName := "plural-" + pm.config.SessionID
+		pm.log.Debug("removing container", "name", containerName)
+		rmCmd := exec.Command("container", "rm", "-f", containerName)
+		if err := rmCmd.Run(); err != nil {
+			pm.log.Debug("container rm failed (may already be removed)", "error", err)
+		}
+
+		// Clean up the auth secrets file from the host
+		if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+			os.Remove(authFile)
 		}
 	}
 
@@ -675,6 +724,14 @@ func (pm *ProcessManager) handleExit(err error) {
 			if pm.callbacks.OnRestartFailed != nil {
 				pm.callbacks.OnRestartFailed(err)
 			}
+			// Clean up auth credentials file on fatal restart failure
+			if pm.config.Containerized {
+				if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+					if removeErr := os.Remove(authFile); removeErr == nil {
+						pm.log.Debug("cleaned up auth file on restart failure", "path", authFile)
+					}
+				}
+			}
 			// Report fatal error
 			exitErr := fmt.Errorf("process crashed and restart failed: %v", err)
 			if pm.callbacks.OnFatalError != nil {
@@ -688,6 +745,16 @@ func (pm *ProcessManager) handleExit(err error) {
 
 	// Max restarts exceeded - report fatal error
 	pm.log.Error("max restart attempts exceeded", "maxAttempts", MaxProcessRestartAttempts)
+
+	// Clean up auth credentials file that would otherwise persist on disk
+	if pm.config.Containerized {
+		if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+			if err := os.Remove(authFile); err == nil {
+				pm.log.Debug("cleaned up auth file on fatal error", "path", authFile)
+			}
+		}
+	}
+
 	var exitErr error
 	if stderrContent != "" {
 		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %s", MaxProcessRestartAttempts, stderrContent)
@@ -700,6 +767,165 @@ func (pm *ProcessManager) handleExit(err error) {
 	if pm.callbacks.OnFatalError != nil {
 		pm.callbacks.OnFatalError(exitErr)
 	}
+}
+
+// containerRunResult holds the result of building container run arguments.
+type containerRunResult struct {
+	Args       []string // Arguments for `container run`
+	AuthSource string   // Credential source used (empty if none)
+}
+
+// buildContainerRunArgs constructs the arguments for `container run` that wraps
+// the Claude CLI process inside an Apple container.
+func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerRunResult {
+	homeDir, _ := os.UserHomeDir()
+
+	containerName := "plural-" + config.SessionID
+	image := config.ContainerImage
+	if image == "" {
+		image = "plural-claude"
+	}
+
+	args := []string{
+		"run", "-i", "--rm",
+		"--name", containerName,
+		"-v", config.WorkingDir + ":/workspace",
+		"-v", homeDir + "/.claude:/home/claude/.claude-host:ro",
+		"-w", "/workspace",
+	}
+
+	// Mount auth credentials file into the container.
+	// On macOS, Claude Code stores auth in the system keychain which isn't
+	// accessible inside a Linux container. We write the key to a temp file
+	// (0600 permissions) and mount it read-only, rather than passing via -e
+	// which would expose the key in `ps` output.
+	auth := writeContainerAuthFile(config.SessionID)
+	if auth.Path != "" {
+		args = append(args, "-v", auth.Path+":/home/claude/.auth:ro")
+	}
+
+	args = append(args, image)
+	args = append(args, claudeArgs...)
+	return containerRunResult{Args: args, AuthSource: auth.Source}
+}
+
+// containerAuthDir returns the directory for storing container auth files.
+// Uses ~/.plural/ which is user-private, unlike /tmp which is world-readable.
+// Returns empty string if home directory cannot be determined (credentials
+// will not be written rather than falling back to an insecure location).
+func containerAuthDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(homeDir, ".plural")
+	os.MkdirAll(dir, 0700)
+	return dir
+}
+
+// containerAuthFilePath returns the path for a session's container auth file.
+// Returns empty string if the auth directory cannot be determined.
+func containerAuthFilePath(sessionID string) string {
+	dir := containerAuthDir()
+	if dir == "" {
+		return ""
+	}
+	return filepath.Join(dir, fmt.Sprintf("plural-auth-%s", sessionID))
+}
+
+// ContainerAuthAvailable checks whether credentials are available for
+// container mode. Returns true if any of the following are set:
+//   - ANTHROPIC_API_KEY environment variable
+//   - CLAUDE_CODE_OAUTH_TOKEN environment variable (long-lived token from "claude setup-token")
+//   - "anthropic_api_key" macOS keychain entry
+func ContainerAuthAvailable() bool {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return true
+	}
+	if os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" {
+		return true
+	}
+	if readKeychainPassword("anthropic_api_key") != "" {
+		return true
+	}
+	return false
+}
+
+// containerAuthResult holds the result of writing a container auth file.
+type containerAuthResult struct {
+	Path   string // File path, empty if no credentials available
+	Source string // Credential source description for logging
+}
+
+// writeContainerAuthFile writes credentials to a file in ~/.plural/ with
+// restricted permissions (0600) and returns the file path and source.
+// The entrypoint script reads this file and exports the variable.
+//
+// File format: ENV_VAR_NAME='value'
+//
+// Credential sources (in priority order):
+//  1. ANTHROPIC_API_KEY from environment
+//  2. CLAUDE_CODE_OAUTH_TOKEN from environment (long-lived token from "claude setup-token")
+//  3. "anthropic_api_key" macOS keychain entry
+//
+// Note: The short-lived OAuth access token from the macOS keychain (rotated
+// every ~8-12 hours by the native CLI) is NOT supported — it would become
+// invalid inside the container. Use "claude setup-token" to generate a
+// long-lived CLAUDE_CODE_OAUTH_TOKEN instead.
+//
+// Returns empty path if no credentials are available.
+func writeContainerAuthFile(sessionID string) containerAuthResult {
+	var content string
+	var source string
+
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		content = "ANTHROPIC_API_KEY=" + apiKey
+		source = "ANTHROPIC_API_KEY env var"
+	} else if oauthToken := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); oauthToken != "" {
+		// Claude CLI recognizes CLAUDE_CODE_OAUTH_TOKEN directly as an environment variable
+		content = "CLAUDE_CODE_OAUTH_TOKEN=" + oauthToken
+		source = "CLAUDE_CODE_OAUTH_TOKEN env var"
+	} else if apiKey := readKeychainPassword("anthropic_api_key"); apiKey != "" {
+		content = "ANTHROPIC_API_KEY=" + apiKey
+		source = "macOS keychain (anthropic_api_key)"
+	}
+
+	if content == "" {
+		return containerAuthResult{}
+	}
+
+	// Validate credential value has no newlines or single quotes that could
+	// break the entrypoint's source command. Values are single-quoted in the
+	// auth file so shell metacharacters like $ are safe.
+	parts := strings.SplitN(content, "=", 2)
+	if len(parts) == 2 && strings.ContainsAny(parts[1], "\n\r'") {
+		return containerAuthResult{}
+	}
+
+	// Single-quote the value to prevent shell expansion
+	content = parts[0] + "='" + parts[1] + "'"
+
+	path := containerAuthFilePath(sessionID)
+	if path == "" {
+		return containerAuthResult{}
+	}
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		return containerAuthResult{}
+	}
+	return containerAuthResult{Path: path, Source: source}
+}
+
+// readKeychainPassword reads a password from the macOS keychain.
+// Returns empty string if not found, on error, or on non-macOS platforms.
+func readKeychainPassword(service string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	out, err := exec.Command("security", "find-generic-password", "-s", service, "-w").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // cleanupLocked cleans up process resources. Must be called with mu held.

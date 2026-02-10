@@ -33,6 +33,7 @@ type Session struct {
 	IssueRef         *IssueRef `json:"issue_ref,omitempty"`          // Generic issue/task reference (GitHub, Asana, etc.)
 	BroadcastGroupID string    `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
 	WorkspaceID      string    `json:"workspace_id,omitempty"`       // Workspace this session belongs to
+	Containerized    bool      `json:"containerized,omitempty"`      // Whether this session runs inside a container
 }
 
 // GetIssueRef returns the IssueRef for this session, converting from legacy IssueNumber if needed.

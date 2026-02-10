@@ -3,7 +3,13 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
+	pexec "github.com/zhubert/plural/internal/exec"
+
+	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -256,8 +262,16 @@ func TestNewSessionModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus on branch input (2) after second tab, got %d", state.Focus)
 	}
 
-	// Tab back to repo list (Focus == 0)
-	m = sendKey(m, "tab")
+	// Tab through remaining fields to wrap back to repo list (Focus == 0)
+	// If containers are supported, there's an extra field (focus 3) before wrapping
+	if state.ContainersSupported {
+		m = sendKey(m, "tab") // Focus 3: containers
+		state = m.modal.State.(*ui.NewSessionState)
+		if state.Focus != 3 {
+			t.Errorf("Expected focus on containers (3) after third tab, got %d", state.Focus)
+		}
+	}
+	m = sendKey(m, "tab") // Wrap to 0
 	state = m.modal.State.(*ui.NewSessionState)
 
 	if state.Focus != 0 {
@@ -458,12 +472,20 @@ func TestForkSessionModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus 1 after tab, got %d", state.Focus)
 	}
 
-	// Tab back to checkbox
-	m = sendKey(m, "tab")
+	// Tab through remaining fields to wrap back to checkbox
+	// If containers are supported, there's an extra field (focus 2) before wrapping
+	if state.ContainersSupported {
+		m = sendKey(m, "tab") // Focus 2: containers
+		state = m.modal.State.(*ui.ForkSessionState)
+		if state.Focus != 2 {
+			t.Errorf("Expected focus on containers (2) after second tab, got %d", state.Focus)
+		}
+	}
+	m = sendKey(m, "tab") // Wrap to 0
 	state = m.modal.State.(*ui.ForkSessionState)
 
 	if state.Focus != 0 {
-		t.Errorf("Expected focus 0 after second tab, got %d", state.Focus)
+		t.Errorf("Expected focus 0 after full tab cycle, got %d", state.Focus)
 	}
 }
 
@@ -1974,5 +1996,146 @@ func TestNewSessionModal_HelpShowsAddRepo(t *testing.T) {
 	help := state.Help()
 	if !strings.Contains(help, "a: add repo") {
 		t.Errorf("Help should contain 'a: add repo', got %q", help)
+	}
+}
+
+// =============================================================================
+// Explore Options - Container Inheritance Tests
+// =============================================================================
+
+func TestCreateParallelSessions_InheritsContainerizedFlag(t *testing.T) {
+	// Set up config with a containerized parent session
+	cfg := testConfig()
+	cfg.Sessions = []config.Session{
+		{
+			ID:            "parent-containerized",
+			RepoPath:      "/test/repo1",
+			WorkTree:      "/test/worktree-parent",
+			Branch:        "feature-branch",
+			Name:          "repo1/parent",
+			CreatedAt:     time.Now(),
+			Started:       true,
+			Containerized: true,
+		},
+	}
+
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select the containerized session (sets activeSession + claudeRunner)
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+	if !m.activeSession.Containerized {
+		t.Fatal("Parent session should be containerized")
+	}
+
+	// Set up mock executor for git and session services
+	mockExec := pexec.NewMockExecutor(nil)
+	// Mock git worktree add (used by CreateFromBranch)
+	mockExec.AddPrefixMatch("git", []string{"worktree", "add"}, pexec.MockResponse{
+		Stdout: []byte("Preparing worktree\n"),
+	})
+	// Mock claude branch name generation (used by GenerateBranchNamesFromOptions)
+	mockExec.AddPrefixMatch("claude", []string{"--print"}, pexec.MockResponse{
+		Stdout: []byte("1. option-one-branch\n2. option-two-branch\n"),
+	})
+
+	mockGitService := git.NewGitServiceWithExecutor(mockExec)
+	mockSessionService := session.NewSessionServiceWithExecutor(mockExec)
+	m.SetGitService(mockGitService)
+	m.SetSessionService(mockSessionService)
+
+	// Call createParallelSessions with test options
+	options := []ui.OptionItem{
+		{Number: 1, Text: "First option"},
+		{Number: 2, Text: "Second option"},
+	}
+	m.createParallelSessions(options)
+
+	// Verify child sessions inherited Containerized=true
+	var childSessions []config.Session
+	for _, s := range m.config.Sessions {
+		if s.ParentID == "parent-containerized" {
+			childSessions = append(childSessions, s)
+		}
+	}
+
+	if len(childSessions) == 0 {
+		t.Fatal("Expected child sessions to be created")
+	}
+
+	for _, child := range childSessions {
+		if !child.Containerized {
+			t.Errorf("Child session %s should inherit Containerized=true from parent, got false", child.ID)
+		}
+	}
+}
+
+func TestCreateParallelSessions_NonContainerizedParent(t *testing.T) {
+	// Set up config with a non-containerized parent session
+	cfg := testConfig()
+	cfg.Sessions = []config.Session{
+		{
+			ID:            "parent-normal",
+			RepoPath:      "/test/repo1",
+			WorkTree:      "/test/worktree-parent",
+			Branch:        "feature-branch",
+			Name:          "repo1/parent",
+			CreatedAt:     time.Now(),
+			Started:       true,
+			Containerized: false,
+		},
+	}
+
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select the non-containerized session
+	m = sendKey(m, "enter")
+	if m.activeSession == nil {
+		t.Fatal("Expected active session")
+	}
+	if m.activeSession.Containerized {
+		t.Fatal("Parent session should not be containerized")
+	}
+
+	// Set up mock executor
+	mockExec := pexec.NewMockExecutor(nil)
+	mockExec.AddPrefixMatch("git", []string{"worktree", "add"}, pexec.MockResponse{
+		Stdout: []byte("Preparing worktree\n"),
+	})
+	mockExec.AddPrefixMatch("claude", []string{"--print"}, pexec.MockResponse{
+		Stdout: []byte("1. option-one-branch\n"),
+	})
+
+	mockGitService := git.NewGitServiceWithExecutor(mockExec)
+	mockSessionService := session.NewSessionServiceWithExecutor(mockExec)
+	m.SetGitService(mockGitService)
+	m.SetSessionService(mockSessionService)
+
+	// Call createParallelSessions
+	options := []ui.OptionItem{
+		{Number: 1, Text: "First option"},
+	}
+	m.createParallelSessions(options)
+
+	// Verify child sessions have Containerized=false
+	var childSessions []config.Session
+	for _, s := range m.config.Sessions {
+		if s.ParentID == "parent-normal" {
+			childSessions = append(childSessions, s)
+		}
+	}
+
+	if len(childSessions) == 0 {
+		t.Fatal("Expected child sessions to be created")
+	}
+
+	for _, child := range childSessions {
+		if child.Containerized {
+			t.Errorf("Child session %s should not be containerized when parent is not, got true", child.ID)
+		}
 	}
 }

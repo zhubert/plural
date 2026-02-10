@@ -7,7 +7,7 @@ import (
 
 func TestNewBroadcastState(t *testing.T) {
 	repos := []string{"/path/to/repo1", "/path/to/repo2", "/another/repo3"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Check initial state
 	if len(state.Repos) != 3 {
@@ -44,14 +44,14 @@ func TestNewBroadcastState(t *testing.T) {
 }
 
 func TestBroadcastState_Title(t *testing.T) {
-	state := NewBroadcastState([]string{"/repo"})
+	state := NewBroadcastState([]string{"/repo"}, false, false)
 	if state.Title() != "Broadcast to Repositories" {
 		t.Errorf("unexpected title: %s", state.Title())
 	}
 }
 
 func TestBroadcastState_Help(t *testing.T) {
-	state := NewBroadcastState([]string{"/repo"})
+	state := NewBroadcastState([]string{"/repo"}, false, false)
 
 	// Help when focused on repos
 	state.Focus = 0
@@ -77,7 +77,7 @@ func TestBroadcastState_Help(t *testing.T) {
 
 func TestBroadcastState_ToggleSelection(t *testing.T) {
 	repos := []string{"/repo1", "/repo2"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Check initial state
 	if state.Repos[0].Selected {
@@ -99,7 +99,7 @@ func TestBroadcastState_ToggleSelection(t *testing.T) {
 
 func TestBroadcastState_SelectAll(t *testing.T) {
 	repos := []string{"/repo1", "/repo2", "/repo3"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Manually select all (simulating 'a' key)
 	for i := range state.Repos {
@@ -119,7 +119,7 @@ func TestBroadcastState_SelectAll(t *testing.T) {
 
 func TestBroadcastState_SelectNone(t *testing.T) {
 	repos := []string{"/repo1", "/repo2", "/repo3"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Select all first
 	for i := range state.Repos {
@@ -143,7 +143,7 @@ func TestBroadcastState_SelectNone(t *testing.T) {
 }
 
 func TestBroadcastState_FocusToggle(t *testing.T) {
-	state := NewBroadcastState([]string{"/repo"})
+	state := NewBroadcastState([]string{"/repo"}, false, false)
 
 	// Initial focus is on repos (0)
 	if state.Focus != 0 {
@@ -171,7 +171,7 @@ func TestBroadcastState_FocusToggle(t *testing.T) {
 
 func TestBroadcastState_GetSelectedRepos(t *testing.T) {
 	repos := []string{"/repo1", "/repo2", "/repo3"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Select first and third
 	state.Repos[0].Selected = true
@@ -193,7 +193,7 @@ func TestBroadcastState_GetSelectedRepos(t *testing.T) {
 }
 
 func TestBroadcastState_GetName(t *testing.T) {
-	state := NewBroadcastState([]string{"/repo"})
+	state := NewBroadcastState([]string{"/repo"}, false, false)
 
 	// Initial name is empty
 	if state.GetName() != "" {
@@ -209,7 +209,7 @@ func TestBroadcastState_GetName(t *testing.T) {
 }
 
 func TestBroadcastState_GetPrompt(t *testing.T) {
-	state := NewBroadcastState([]string{"/repo"})
+	state := NewBroadcastState([]string{"/repo"}, false, false)
 
 	// Initial prompt is empty
 	if state.GetPrompt() != "" {
@@ -228,7 +228,7 @@ func TestBroadcastState_Render(t *testing.T) {
 	initTestStyles()
 
 	repos := []string{"/repo1", "/repo2"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Select first repo
 	state.Repos[0].Selected = true
@@ -255,7 +255,7 @@ func TestBroadcastState_Render(t *testing.T) {
 }
 
 func TestBroadcastState_EmptyRepos(t *testing.T) {
-	state := NewBroadcastState([]string{})
+	state := NewBroadcastState([]string{}, false, false)
 
 	if len(state.Repos) != 0 {
 		t.Errorf("expected 0 repos, got %d", len(state.Repos))
@@ -279,7 +279,7 @@ func TestBroadcastState_ScrollOffset(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		repos[i] = "/repo" + string(rune('0'+i))
 	}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Initial scroll offset is 0
 	if state.ScrollOffset != 0 {
@@ -301,7 +301,7 @@ func TestBroadcastState_ScrollOffset(t *testing.T) {
 
 func TestBroadcastState_Navigation(t *testing.T) {
 	repos := []string{"/repo1", "/repo2", "/repo3"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Test down navigation
 	state.SelectedIndex = 1
@@ -329,7 +329,7 @@ func TestBroadcastState_Navigation(t *testing.T) {
 
 func TestBroadcastState_GetSelectedCount(t *testing.T) {
 	repos := []string{"/repo1", "/repo2", "/repo3", "/repo4"}
-	state := NewBroadcastState(repos)
+	state := NewBroadcastState(repos, false, false)
 
 	// Initially zero
 	if state.GetSelectedCount() != 0 {
@@ -355,7 +355,7 @@ func TestBroadcastState_GetSelectedCount(t *testing.T) {
 }
 
 func TestBroadcastState_ModalStateInterface(t *testing.T) {
-	state := NewBroadcastState([]string{"/repo"})
+	state := NewBroadcastState([]string{"/repo"}, false, false)
 
 	// Verify it implements ModalState interface
 	var _ ModalState = state

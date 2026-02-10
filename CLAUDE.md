@@ -26,7 +26,7 @@ go test ./...            # Test
 
 # CLI commands and flags
 ./plural help            # Show help
-./plural clean           # Clear sessions, logs, and orphaned worktrees (prompts for confirmation)
+./plural clean           # Clear sessions, logs, orphaned worktrees, and containers (prompts for confirmation)
 ./plural clean -y        # Clear without confirmation prompt
 ./plural demo list       # List available demo scenarios
 ./plural --debug         # Enable debug logging
@@ -121,7 +121,7 @@ internal/
 
 ### Data Storage
 
-- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, plugins, theme, branch prefix
+- `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, plugins, theme, branch prefix, container settings
 - `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
 
 ### Key Patterns
@@ -492,6 +492,62 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 - Cannot end preview if changes were made in main during preview (must commit/stash first)
 - Only one preview can be active at a time across all sessions
 - Preview state persists across app restarts (stored in config)
+
+### Container Mode (Apple Containers)
+
+Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, eliminating the MCP permission system entirely for containerized sessions.
+
+**Authentication Requirement**: Container mode requires one of: `ANTHROPIC_API_KEY` (env var or macOS keychain `anthropic_api_key`), or `CLAUDE_CODE_OAUTH_TOKEN` (long-lived token from `claude setup-token`, ~1 year lifetime). The short-lived OAuth access token from the macOS keychain is NOT supported because it rotates every ~8-12 hours and would become invalid inside the container. The UI shows a warning when the container checkbox is checked without available credentials, and session creation is blocked.
+
+**Config** (`internal/config/config.go`):
+- `ContainerImage string`: Container image name (default: `"plural-claude"`)
+- `GetContainerImage`/`SetContainerImage`: Image name with default
+
+**Session** (`internal/config/session.go`):
+- `Containerized bool`: Set at creation time via New Session modal checkbox, immutable. Determines whether the session runs in a container.
+- Forked sessions inherit the parent's `Containerized` flag.
+
+**ProcessManager** (`internal/claude/process_manager.go`):
+- `ProcessConfig.Containerized`/`ContainerImage`: Passed from Runner
+- `BuildCommandArgs()`: When containerized, replaces MCP/permission/allowedTools block with just `--dangerously-skip-permissions`
+- `Start()`: When containerized, checks `ContainerAuthAvailable()` first, then builds command as `container run -i --rm ...` wrapping `claude`
+- `Stop()`: Runs `container rm -f` as defense-in-depth cleanup
+- `ContainerAuthAvailable()`: Checks if credentials exist (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or keychain)
+- `buildContainerRunArgs()`: Constructs container run arguments with worktree mount, auth mount, working directory
+- `writeContainerAuthFile()`: Writes credentials to temp file for container mount (API key, OAuth token, or keychain)
+
+**Runner** (`internal/claude/claude.go`):
+- `SetContainerized(bool, string)`: Stores container mode and image
+- `SendContent()`: Skips `ensureServerRunning()` (MCP) when containerized
+- `ensureProcessRunning()`: Passes container fields to `ProcessConfig`
+- `Stop()`: Skips socket server and MCP config cleanup when containerized
+
+**UI**:
+- New Session modal (`n`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
+- Fork Session modal (`f`): Container checkbox (focus index 2, defaults to parent's state), auth warning when no API key
+- Broadcast modal (`Ctrl+B`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
+- Header: `[CONTAINER]` indicator in green when viewing a containerized session
+- Modal constructors accept `containerAuthAvailable bool` parameter for auth state
+
+**Containerfile** (repo root):
+- Builds the default `plural-claude` image using `node:22-slim` base
+- Installs git and Claude CLI via npm
+- Build: `container build -t plural-claude .`
+
+**Container orphan cleanup** (`internal/process/process.go`):
+- `OrphanedContainer` struct: `Name string` (e.g., `plural-abc123`)
+- `FindOrphanedContainers()`: Runs `container ls -a --format '{{.Names}}'`, filters `plural-*`, compares against known sessions
+- `CleanupOrphanedContainers()`: Calls find, then `container rm -f` for each orphan
+- Returns empty list (no error) if `container` CLI is not installed
+- Integrated into `cmd/clean.go` as a 4th parallel cleanup goroutine
+
+**Platform gating** (`internal/process/process.go`):
+- `ContainersSupported()`: Returns true only on `darwin/arm64` (Apple Silicon)
+- New Session modal hides container checkbox on unsupported platforms
+- Warning displayed near checkbox: containers are defense in depth, not a complete security boundary
+
+**Known limitations (prototype)**:
+- External MCP servers not supported in container mode
 
 ### Claude Process Management
 

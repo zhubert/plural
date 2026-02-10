@@ -416,7 +416,7 @@ func (s *SettingsState) Render() string {
 			Render("Links this repo to an Asana project for task import")
 
 		asanaInputStyle := lipgloss.NewStyle()
-		if s.Focus == 3 {
+		if s.Focus == s.asanaFocusIndex() {
 			asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			asanaInputStyle = asanaInputStyle.PaddingLeft(2)
@@ -435,12 +435,21 @@ func (s *SettingsState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	// Determine number of focusable fields (4 if repo selected, 2 otherwise)
-	numFields := 2
-	if s.RepoPath != "" {
-		numFields = 4
+// numFields returns the number of focusable fields in the settings modal.
+func (s *SettingsState) numFields() int {
+	if s.RepoPath == "" {
+		return 2 // branch prefix, notifications
 	}
+	return 4 // branch prefix, notifications, squash, asana
+}
+
+// asanaFocusIndex returns the focus index for the Asana project field.
+func (s *SettingsState) asanaFocusIndex() int {
+	return 3
+}
+
+func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	numFields := s.numFields()
 
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
@@ -471,7 +480,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	}
 
 	// Handle text input updates when focused on Asana project GID
-	if s.Focus == 3 {
+	if s.Focus == s.asanaFocusIndex() {
 		var cmd tea.Cmd
 		s.AsanaProjectInput, cmd = s.AsanaProjectInput.Update(msg)
 		return s, cmd
@@ -485,7 +494,7 @@ func (s *SettingsState) updateInputFocus() {
 	if s.Focus == 0 {
 		s.BranchPrefixInput.Focus()
 		s.AsanaProjectInput.Blur()
-	} else if s.Focus == 3 {
+	} else if s.Focus == s.asanaFocusIndex() {
 		s.AsanaProjectInput.Focus()
 		s.BranchPrefixInput.Blur()
 	} else {

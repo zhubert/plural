@@ -9,10 +9,12 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -433,7 +435,7 @@ func shortcutSearch(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutNewSession(m *Model) (tea.Model, tea.Cmd) {
-	m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+	m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 	return m, nil
 }
 
@@ -447,7 +449,7 @@ func shortcutDeleteSession(m *Model) (tea.Model, tea.Cmd) {
 func shortcutForkSession(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
-	m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath))
+	m.modal.Show(ui.NewForkSessionState(displayName, sess.ID, sess.RepoPath, sess.Containerized, process.ContainersSupported(), claude.ContainerAuthAvailable()))
 	return m, nil
 }
 
@@ -881,7 +883,7 @@ func shortcutWorkspaces(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutBroadcast(m *Model) (tea.Model, tea.Cmd) {
 	repos := m.config.GetRepos()
-	m.modal.Show(ui.NewBroadcastState(repos))
+	m.modal.Show(ui.NewBroadcastState(repos, process.ContainersSupported(), claude.ContainerAuthAvailable()))
 	return m, nil
 }
 

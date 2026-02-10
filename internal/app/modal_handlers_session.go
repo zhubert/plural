@@ -12,6 +12,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -28,7 +29,7 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 	switch key {
 	case keys.Escape:
 		if state.ReturnToNewSession {
-			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 			return m, nil
 		}
 		m.modal.Hide()
@@ -61,7 +62,7 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			return m, nil
 		}
 		if state.ReturnToNewSession {
-			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 			return m, nil
 		}
 		m.modal.Hide()
@@ -142,7 +143,7 @@ func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string, retu
 	}
 
 	if returnToNewSession {
-		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 	} else {
 		m.modal.Hide()
 	}
@@ -236,6 +237,19 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		if state.GetBaseIndex() == 1 {
 			basePoint = session.BasePointHead
 		}
+		// Check container auth and image BEFORE creating the session to avoid running
+		// without sandboxing when the user expects container protection
+		if state.GetUseContainers() {
+			if !claude.ContainerAuthAvailable() {
+				m.modal.SetError("Container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
+				return m, nil
+			}
+			image := m.config.GetContainerImage()
+			if !process.ContainerImageExists(image) {
+				m.modal.Show(ui.NewContainerBuildState(image))
+				return m, nil
+			}
+		}
 		logger.Get().Debug("creating new session", "repo", repoPath, "branch", branchName, "prefix", branchPrefix, "basePoint", basePoint)
 		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
 		if err != nil {
@@ -244,6 +258,10 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			return m, nil
 		}
 		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
+		// Set containerized flag if user checked the container checkbox
+		if state.GetUseContainers() {
+			sess.Containerized = true
+		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 			sess.WorkspaceID = activeWS
@@ -357,6 +375,20 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
+		// Check container auth and image BEFORE creating the session to avoid running
+		// without sandboxing when the user expects container protection
+		if state.GetUseContainers() {
+			if !claude.ContainerAuthAvailable() {
+				m.modal.SetError("Container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
+				return m, nil
+			}
+			image := m.config.GetContainerImage()
+			if !process.ContainerImageExists(image) {
+				m.modal.Show(ui.NewContainerBuildState(image))
+				return m, nil
+			}
+		}
+
 		// Get parent session to fork from its branch
 		parentSess := m.config.GetSession(state.ParentSessionID)
 		if parentSess == nil {
@@ -395,6 +427,10 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 
 		// Set parent ID to track fork relationship
 		sess.ParentID = state.ParentSessionID
+		// Set containerized flag if user checked the container checkbox
+		if state.GetUseContainers() {
+			sess.Containerized = true
+		}
 		// Auto-assign to active workspace
 		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 			sess.WorkspaceID = activeWS
@@ -410,12 +446,13 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.sidebar.SelectSession(sess.ID)
 		m.selectSession(sess)
-		m.modal.Hide()
 
-		// Show warning if message copy failed (after modal is hidden)
+		// Show warnings after session is created
 		if messageCopyFailed {
+			m.modal.Hide()
 			return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
 		}
+		m.modal.Hide()
 		return m, nil
 	}
 	// Forward other keys (tab, shift+tab, space, up, down, etc.) to modal for handling
@@ -504,7 +541,7 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 	switch key {
 	case keys.Escape:
 		// Go back to the new session modal
-		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, nil
 	case keys.Enter:
 		repoPath := state.GetRepoPath()
@@ -521,7 +558,7 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 		logger.Get().Info("repository deleted successfully", "path", repoPath)
 
 		// Return to new session modal with updated repo list
-		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos()))
+		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, nil
 	}
 	return m, nil
@@ -594,8 +631,22 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 			}
 		}
 
+		// Check container auth and image BEFORE creating sessions to avoid running
+		// without sandboxing when the user expects container protection
+		if state.GetUseContainers() {
+			if !claude.ContainerAuthAvailable() {
+				m.modal.SetError("Container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
+				return m, nil
+			}
+			image := m.config.GetContainerImage()
+			if !process.ContainerImageExists(image) {
+				m.modal.Show(ui.NewContainerBuildState(image))
+				return m, nil
+			}
+		}
+
 		m.modal.Hide()
-		return m.createBroadcastSessions(selectedRepos, prompt, sessionName)
+		return m.createBroadcastSessions(selectedRepos, prompt, sessionName, state.GetUseContainers())
 	}
 
 	// Forward other keys to modal for navigation/selection
@@ -607,7 +658,7 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 // createBroadcastSessions creates sessions for each selected repo and sends the prompt to each.
 // If sessionName is provided (non-empty), it will be used as the branch name for all sessions.
 // Sessions are created in parallel for better performance with many repos.
-func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string) (tea.Model, tea.Cmd) {
+func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string, useContainers bool) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
 
@@ -623,7 +674,6 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	var mu sync.Mutex
 	var createdSessions []*config.Session
 	var failedRepos []string
-
 	// Create sessions in parallel
 	var wg sync.WaitGroup
 	for _, repoPath := range repoPaths {
@@ -647,6 +697,11 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 
 			// Set the broadcast group ID
 			sess.BroadcastGroupID = groupID
+
+			// Set containerized flag (image existence already verified above)
+			if useContainers {
+				sess.Containerized = true
+			}
 
 			mu.Lock()
 			createdSessions = append(createdSessions, sess)
