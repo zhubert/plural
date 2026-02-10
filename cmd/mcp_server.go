@@ -30,7 +30,9 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	// Extract session ID from socket path (e.g., /tmp/plural-<session-id>.sock)
 	sessionID := extractSessionID(socketPath)
 	if sessionID != "" {
-		if err := logger.Init(logger.MCPLogPath(sessionID)); err != nil {
+		if logPath, err := logger.MCPLogPath(sessionID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get MCP log path: %v\n", err)
+		} else if err := logger.Init(logPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 		}
 	}

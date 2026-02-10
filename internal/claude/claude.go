@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -235,10 +236,20 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 	copy(allowedTools, DefaultAllowedTools)
 
 	// Open stream log file for raw Claude messages
-	streamLogPath := logger.StreamLogPath(sessionID)
-	streamLogFile, err := os.OpenFile(streamLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		log.Warn("failed to open stream log file", "path", streamLogPath, "error", err)
+	var streamLogFile *os.File
+	if streamLogPath, err := logger.StreamLogPath(sessionID); err != nil {
+		log.Warn("failed to get stream log path", "error", err)
+	} else {
+		// Ensure the directory exists
+		dir := filepath.Dir(streamLogPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			log.Warn("failed to create stream log directory", "path", dir, "error", err)
+		} else {
+			streamLogFile, err = os.OpenFile(streamLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				log.Warn("failed to open stream log file", "path", streamLogPath, "error", err)
+			}
+		}
 	}
 
 	r := &Runner{

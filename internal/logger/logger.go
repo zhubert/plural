@@ -17,17 +17,40 @@ var (
 	initDone bool
 )
 
-// DefaultLogPath is the default log file for the main process
-const DefaultLogPath = "/tmp/plural-debug.log"
+// logsDir returns the path to the logs directory (~/.plural/logs)
+func logsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".plural", "logs"), nil
+}
+
+// DefaultLogPath returns the default log file path for the main process
+func DefaultLogPath() (string, error) {
+	dir, err := logsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "plural.log"), nil
+}
 
 // MCPLogPath returns the log path for an MCP session
-func MCPLogPath(sessionID string) string {
-	return fmt.Sprintf("/tmp/plural-mcp-%s.log", sessionID)
+func MCPLogPath(sessionID string) (string, error) {
+	dir, err := logsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, fmt.Sprintf("mcp-%s.log", sessionID)), nil
 }
 
 // StreamLogPath returns the log path for Claude stream messages
-func StreamLogPath(sessionID string) string {
-	return fmt.Sprintf("/tmp/plural-stream-%s.log", sessionID)
+func StreamLogPath(sessionID string) (string, error) {
+	dir, err := logsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, fmt.Sprintf("stream-%s.log", sessionID)), nil
 }
 
 // SetDebug enables or disables debug level logging
@@ -48,6 +71,12 @@ func Init(path string) error {
 
 	if initDone {
 		return nil
+	}
+
+	// Ensure the directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create log directory %s: %w", dir, err)
 	}
 
 	logPath = path
@@ -71,10 +100,23 @@ func ensureInit() {
 		return
 	}
 
-	logPath = DefaultLogPath
-	f, err := os.OpenFile(DefaultLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	defaultPath, err := DefaultLogPath()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", DefaultLogPath, err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to get default log path: %v\n", err)
+		return
+	}
+
+	// Ensure the logs directory exists
+	dir := filepath.Dir(defaultPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to create log directory %s: %v\n", dir, err)
+		return
+	}
+
+	logPath = defaultPath
+	f, err := os.OpenFile(defaultPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to open log file %s: %v\n", defaultPath, err)
 		return
 	}
 	logFile = f
@@ -82,7 +124,7 @@ func ensureInit() {
 	root = slog.New(handler)
 	initDone = true
 
-	root.Info("logger initialized", "path", DefaultLogPath)
+	root.Info("logger initialized", "path", defaultPath)
 }
 
 // Get returns the root logger instance.
@@ -167,19 +209,29 @@ func Reset() {
 	levelVar = new(slog.LevelVar)
 }
 
-// ClearLogs removes all plural log files from /tmp
+// ClearLogs removes all plural log files from ~/.plural/logs
 func ClearLogs() (int, error) {
 	count := 0
 
-	// Remove main debug log
-	if err := os.Remove(DefaultLogPath); err == nil {
+	dir, err := logsDir()
+	if err != nil {
+		return 0, err
+	}
+
+	// Remove main log
+	defaultPath, err := DefaultLogPath()
+	if err != nil {
+		return count, err
+	}
+	if err := os.Remove(defaultPath); err == nil {
 		count++
 	} else if !os.IsNotExist(err) {
 		return count, err
 	}
 
 	// Remove MCP session logs using glob pattern
-	mcpLogs, err := filepath.Glob("/tmp/plural-mcp-*.log")
+	mcpPattern := filepath.Join(dir, "mcp-*.log")
+	mcpLogs, err := filepath.Glob(mcpPattern)
 	if err != nil {
 		return count, err
 	}
@@ -193,7 +245,8 @@ func ClearLogs() (int, error) {
 	}
 
 	// Remove stream session logs using glob pattern
-	streamLogs, err := filepath.Glob("/tmp/plural-stream-*.log")
+	streamPattern := filepath.Join(dir, "stream-*.log")
+	streamLogs, err := filepath.Glob(streamPattern)
 	if err != nil {
 		return count, err
 	}

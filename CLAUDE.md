@@ -36,9 +36,9 @@ go test ./...            # Test
 ## Debug Logs
 
 ```bash
-tail -f /tmp/plural-debug.log      # Main app logs
-tail -f /tmp/plural-mcp-*.log      # MCP permission logs (per-session)
-tail -f /tmp/plural-stream-*.log   # Raw Claude stream messages (per-session, pretty-printed JSON)
+tail -f ~/.plural/logs/plural.log      # Main app logs
+tail -f ~/.plural/logs/mcp-*.log       # MCP permission logs (per-session)
+tail -f ~/.plural/logs/stream-*.log    # Raw Claude stream messages (per-session, pretty-printed JSON)
 ```
 
 Log levels: Debug, Info, Warn, Error. Default shows Info+. Use `--debug` for verbose output.
@@ -123,6 +123,7 @@ internal/
 
 - `~/.plural/config.json` - Repos, sessions, allowed tools, MCP servers, plugins, theme, branch prefix, container settings
 - `~/.plural/sessions/<session-id>.json` - Conversation history (last 10,000 lines)
+- `~/.plural/logs/` - Debug logs, MCP logs, and stream logs
 
 ### Key Patterns
 
@@ -428,9 +429,9 @@ The log viewer (`ctrl-l`) provides an in-chat overlay for viewing Plural's log f
 - `GetLogFiles(sessionID)`: Discovers available log files
 
 **Log files displayed**:
-- Main debug log (`/tmp/plural-debug.log`)
-- MCP logs (`/tmp/plural-mcp-*.log`) - per-session permission server logs
-- Stream logs (`/tmp/plural-stream-*.log`) - raw Claude stream messages
+- Main debug log (`~/.plural/logs/plural.log`)
+- MCP logs (`~/.plural/logs/mcp-*.log`) - per-session permission server logs
+- Stream logs (`~/.plural/logs/stream-*.log`) - raw Claude stream messages
 
 **Keybindings in log viewer**:
 - `←/→` or `h/l`: Navigate between log files
