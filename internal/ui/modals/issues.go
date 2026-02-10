@@ -151,8 +151,10 @@ func (s *ImportIssuesState) Render() string {
 			maxTitleLen = availableWidth - 15
 		}
 
-		if len(titleText) > maxTitleLen && maxTitleLen > 3 {
-			titleText = titleText[:maxTitleLen-3] + "..."
+		// Use rune-based truncation to safely handle multi-byte Unicode characters
+		titleRunes := []rune(titleText)
+		if len(titleRunes) > maxTitleLen && maxTitleLen > 3 {
+			titleText = string(titleRunes[:maxTitleLen-3]) + "..."
 		}
 
 		// Format depends on source: GitHub uses "#123", Asana just shows title

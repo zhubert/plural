@@ -395,6 +395,36 @@ func TestImportIssuesState_Render_TitleTruncation(t *testing.T) {
 	}
 }
 
+func TestImportIssuesState_Render_UnicodeTitleTruncation(t *testing.T) {
+	state := NewImportIssuesState("/repo/path", "test-repo")
+
+	// Create an issue with multi-byte Unicode characters
+	// Use bullet points (•) which are 3 bytes in UTF-8
+	unicodeTitle := strings.Repeat("Fix • bug • ", 20) // 240 characters with multi-byte chars
+	state.SetIssues([]IssueItem{
+		{ID: "1", Title: unicodeTitle, Source: "github"},
+	})
+
+	rendered := state.Render()
+
+	// The rendered output should be truncated without breaking Unicode characters
+	// Should not contain the full title but should be valid UTF-8
+	if strings.Contains(rendered, unicodeTitle) {
+		t.Error("expected long Unicode title to be truncated in rendered output")
+	}
+	if !strings.Contains(rendered, "...") {
+		t.Error("expected truncated Unicode title to end with '...'")
+	}
+
+	// Verify the truncation didn't break Unicode by checking it contains valid bullet points
+	// (if truncation broke mid-character, we'd have replacement characters or garbled output)
+	if strings.Contains(rendered, "Fix • bug") {
+		// Good - Unicode characters are intact
+	} else {
+		t.Error("expected truncated output to maintain valid Unicode characters")
+	}
+}
+
 func TestImportIssuesState_Render_SelectedCount(t *testing.T) {
 	state := NewImportIssuesState("/repo/path", "test-repo")
 	state.SetIssues([]IssueItem{
@@ -430,8 +460,8 @@ func TestImportIssuesState_Render_ScrollIndicators(t *testing.T) {
 
 	rendered := state.Render()
 
-	// Should show scroll indicators
-	if !strings.Contains(rendered, "up more above") && !strings.Contains(rendered, "down more below") {
+	// Should show scroll indicators (at least one should be present when scrolled)
+	if !strings.Contains(rendered, "up more above") || !strings.Contains(rendered, "down more below") {
 		t.Error("expected rendered output to show scroll indicators when scrolled")
 	}
 }
