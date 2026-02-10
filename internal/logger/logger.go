@@ -213,13 +213,14 @@ func Reset() {
 func ClearLogs() (int, error) {
 	count := 0
 
-	dir, err := logsDir()
+	// Get default log path and derive directory from it
+	defaultPath, err := DefaultLogPath()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get logs directory: %w", err)
+		return 0, fmt.Errorf("failed to get default log path: %w", err)
 	}
+	dir := filepath.Dir(defaultPath)
 
 	// Remove main log
-	defaultPath := filepath.Join(dir, "plural.log")
 	if err := os.Remove(defaultPath); err == nil {
 		count++
 	} else if !os.IsNotExist(err) {
