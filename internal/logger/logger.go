@@ -215,14 +215,11 @@ func ClearLogs() (int, error) {
 
 	dir, err := logsDir()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get logs directory: %w", err)
 	}
 
 	// Remove main log
-	defaultPath, err := DefaultLogPath()
-	if err != nil {
-		return count, err
-	}
+	defaultPath := filepath.Join(dir, "plural.log")
 	if err := os.Remove(defaultPath); err == nil {
 		count++
 	} else if !os.IsNotExist(err) {
