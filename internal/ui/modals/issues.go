@@ -29,6 +29,12 @@ type ImportIssuesState struct {
 
 func (*ImportIssuesState) modalState() {}
 
+// PreferredWidth returns the preferred width for this modal.
+// Import issues modal uses a wider width to show more of the issue titles.
+func (s *ImportIssuesState) PreferredWidth() int {
+	return ModalWidthWide
+}
+
 func (s *ImportIssuesState) Title() string {
 	switch s.Source {
 	case "asana":
@@ -128,10 +134,25 @@ func (s *ImportIssuesState) Render() string {
 			checkbox = "[x]"
 		}
 
-		// Truncate long titles
+		// Calculate available width for title based on modal width
+		// ModalWidthWide (120) - padding (4) - prefix (2) - checkbox (4) - issue # (varies) = available for title
+		// For GitHub: "  > [x] #123: " = 2 + 1 + 4 + 1 + up to 5 for issue # + 2 = ~15 chars overhead
+		// For Asana: "  > [x] " = 2 + 1 + 4 + 1 = 8 chars overhead
+		modalWidth := s.PreferredWidth()
+		availableWidth := modalWidth - 4 // Account for modal padding/borders
+
+		// Truncate long titles based on available width
 		titleText := issue.Title
-		if len(titleText) > 45 {
-			titleText = titleText[:42] + "..."
+		var maxTitleLen int
+		if issue.Source == "asana" {
+			maxTitleLen = availableWidth - 8 // "  > [x] "
+		} else {
+			// Account for issue number (estimate ~7 chars for "#12345: ")
+			maxTitleLen = availableWidth - 15
+		}
+
+		if len(titleText) > maxTitleLen && maxTitleLen > 3 {
+			titleText = titleText[:maxTitleLen-3] + "..."
 		}
 
 		// Format depends on source: GitHub uses "#123", Asana just shows title

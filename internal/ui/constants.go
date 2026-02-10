@@ -124,6 +124,11 @@ const (
 	// 80 characters matches DefaultWrapWidth and traditional terminal width.
 	ModalWidth = 80
 
+	// ModalWidthWide is a wider width for modals that need more horizontal space.
+	// 120 characters provides better readability for complex content like issue lists
+	// with longer titles, while still fitting on most modern terminals.
+	ModalWidthWide = 120
+
 	// ModalInputCharLimit is the maximum characters for modal text inputs.
 	// 256 characters is sufficient for session names, branch names, and paths.
 	ModalInputCharLimit = 256

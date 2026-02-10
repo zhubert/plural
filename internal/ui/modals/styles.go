@@ -26,6 +26,7 @@ var (
 	ModalInputWidth     int
 	ModalInputCharLimit int
 	ModalWidth          int
+	ModalWidthWide      int
 )
 
 // Modal visibility limits - maximum items shown at once before scrolling
@@ -54,7 +55,7 @@ var (
 func SetStyles(
 	modalTitle, modalHelp, sidebarItem, sidebarSelected, statusError lipgloss.Style,
 	primary, secondary, text, textMuted, textInverse, user, warning color.Color,
-	inputWidth, inputCharLimit, modalWidth int,
+	inputWidth, inputCharLimit, modalWidth, modalWidthWide int,
 ) {
 	ModalTitleStyle = modalTitle
 	ModalHelpStyle = modalHelp
@@ -73,6 +74,7 @@ func SetStyles(
 	ModalInputWidth = inputWidth
 	ModalInputCharLimit = inputCharLimit
 	ModalWidth = modalWidth
+	ModalWidthWide = modalWidthWide
 }
 
 // ModalConstants holds all the constant values needed by modals

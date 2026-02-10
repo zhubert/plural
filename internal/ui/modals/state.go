@@ -18,6 +18,13 @@ type ModalState interface {
 	Update(msg tea.Msg) (ModalState, tea.Cmd)
 }
 
+// ModalWithPreferredWidth is an optional interface that modals can implement
+// to specify a custom width. If not implemented, the default ModalWidth is used.
+type ModalWithPreferredWidth interface {
+	ModalState
+	PreferredWidth() int
+}
+
 // MCPServerDisplay represents an MCP server for display in the modal
 type MCPServerDisplay struct {
 	Name     string
