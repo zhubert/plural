@@ -42,7 +42,7 @@ func (s *WelcomeState) Render() string {
 
 	shortcuts := lipgloss.NewStyle().
 		Foreground(ColorText).
-		Render("  r   Add a git repository\n  n   Create a new session\n  Tab Switch between sidebar and chat")
+		Render("  a   Add a git repository\n  n   Create a new session\n  Tab Switch between sidebar and chat")
 
 	issuesLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
