@@ -208,9 +208,18 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 
 	// Use preferred width if the modal implements ModalWithPreferredWidth
 	style := ModalStyle
+	width := ModalWidth
 	if modalWithWidth, ok := m.State.(modals.ModalWithPreferredWidth); ok {
-		style = style.Width(modalWithWidth.PreferredWidth())
+		width = modalWithWidth.PreferredWidth()
 	}
+
+	// Clamp width to fit within the screen (account for border + padding overhead)
+	// ModalStyle has Border (1 left + 1 right = 2) + Padding(1, 2) (2 left + 2 right = 4) = 6 total
+	const modalHorizontalOverhead = 6
+	if maxWidth := screenWidth - modalHorizontalOverhead; width > maxWidth {
+		width = maxWidth
+	}
+	style = style.Width(width)
 
 	modal := style.Render(content)
 

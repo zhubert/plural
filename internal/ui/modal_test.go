@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 func TestNewModal(t *testing.T) {
@@ -96,6 +99,54 @@ func TestModal_View(t *testing.T) {
 	view = modal.View(80, 24)
 	if view == "" {
 		t.Error("View should return non-empty string with error")
+	}
+}
+
+func TestModal_View_WidthClamping(t *testing.T) {
+	modal := NewModal()
+
+	// Use ImportIssuesState which implements ModalWithPreferredWidth (120 chars)
+	state := NewImportIssuesState("/repo/path", "test-repo")
+	state.SetIssues([]IssueItem{
+		{ID: "1", Title: "Test issue", Source: "github"},
+	})
+	modal.Show(state)
+
+	// With a wide screen, modal should render fine
+	view := modal.View(200, 40)
+	if view == "" {
+		t.Error("View should render with wide screen")
+	}
+
+	// With a narrow screen (e.g., 100 chars), the modal should still render
+	// without exceeding the screen width. The modal has 6 chars horizontal
+	// overhead (2 border + 4 padding), so at 100 chars screen the content
+	// width should be clamped to 94.
+	view = modal.View(100, 40)
+	if view == "" {
+		t.Error("View should render with narrow screen")
+	}
+	// Check that no line exceeds the screen width
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		// Use lipgloss.Width for visual width (handles ANSI codes)
+		lineWidth := lipgloss.Width(line)
+		if lineWidth > 100 {
+			t.Errorf("line %d exceeds screen width: visual width %d > screen width 100", i, lineWidth)
+		}
+	}
+
+	// With a very narrow screen, should still render (clamped to minimum)
+	view = modal.View(50, 40)
+	if view == "" {
+		t.Error("View should render with very narrow screen")
+	}
+	lines = strings.Split(view, "\n")
+	for i, line := range lines {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth > 50 {
+			t.Errorf("line %d exceeds screen width: visual width %d > screen width 50", i, lineWidth)
+		}
 	}
 }
 
