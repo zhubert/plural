@@ -222,6 +222,15 @@ func NewChangelogState(entries []ChangelogEntry) *ChangelogState {
 // SettingsState - State for the Settings modal
 // =============================================================================
 
+// AsanaProjectOption represents a selectable Asana project.
+type AsanaProjectOption struct {
+	GID  string
+	Name string
+}
+
+// AsanaProjectMaxVisible is the max number of projects shown in the scrollable list.
+const AsanaProjectMaxVisible = 5
+
 type SettingsState struct {
 	// Theme selection (focus 0)
 	Themes             []string // Theme keys
@@ -230,15 +239,22 @@ type SettingsState struct {
 	OriginalTheme      string // To detect if theme changed
 
 	BranchPrefixInput    textinput.Model
-	AsanaProjectInput    textinput.Model
 	NotificationsEnabled bool
 	AsanaPATSet          bool // Whether ASANA_PAT env var is set
 	Focus                int  // 0 = theme, 1 = branch prefix, 2 = notifications, 3 = repo selector, [4 = asana if PAT set]
 
 	// Multi-repo support
-	Repos            []string          // All registered repos
-	SelectedRepoIndex int              // Currently displayed repo
-	AsanaProjects    map[string]string // Per-repo Asana GIDs (accumulated across switches)
+	Repos             []string          // All registered repos
+	SelectedRepoIndex int               // Currently displayed repo
+	AsanaSelectedGIDs map[string]string  // Per-repo selected Asana project GIDs
+
+	// Asana project selector (replaces text input)
+	AsanaProjectOptions []AsanaProjectOption // All fetched projects (cached for modal lifetime)
+	AsanaSearchInput    textinput.Model      // Search/filter text input
+	AsanaCursorIndex    int                  // Cursor position in filtered list
+	AsanaScrollOffset   int                  // Scroll offset for filtered list
+	AsanaLoading        bool                 // Whether projects are being fetched
+	AsanaLoadError      string               // Error message from fetch
 }
 
 func (*SettingsState) modalState() {}
@@ -253,6 +269,9 @@ func (s *SettingsState) Help() string {
 	}
 	if s.Focus == 3 && len(s.Repos) > 0 {
 		return "Tab: next field  Left/Right: switch repo  Enter: save  Esc: cancel"
+	}
+	if s.Focus == s.asanaFocusIndex() && s.AsanaPATSet {
+		return "Tab: next field  Up/Down: navigate  Enter: select  Esc: cancel"
 	}
 	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
 }
@@ -328,9 +347,9 @@ func (s *SettingsState) Render() string {
 		Render("Notify when Claude finishes while app is in background")
 	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
 
-	// Per-repo settings (shown when repos exist)
+	// Per-repo settings (shown when repos exist and there's something to configure)
 	var repoSections []string
-	if len(s.Repos) > 0 {
+	if len(s.Repos) > 0 && s.AsanaPATSet {
 		// Section header
 		sectionHeader := lipgloss.NewStyle().
 			Foreground(ColorSecondary).
@@ -358,28 +377,28 @@ func (s *SettingsState) Render() string {
 		selectorView := selectorStyle.Render(leftArrow + " " + repoDisplay + " " + rightArrow)
 		repoSections = append(repoSections, sectionHeader+"\n"+selectorView)
 
-		// Asana project GID (only shown when ASANA_PAT is set)
-		if s.AsanaPATSet {
-			asanaLabel := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				MarginTop(1).
-				Render("Asana project GID:")
+		// Asana project selector
+		asanaLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Asana project:")
 
-			asanaDesc := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Italic(true).
-				Width(ModalWidthWide - 10).
-				Render("Links this repo to an Asana project for task import")
+		asanaDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(ModalWidthWide - 10).
+			Render("Links this repo to an Asana project for task import")
 
-			asanaInputStyle := lipgloss.NewStyle()
-			if s.Focus == s.asanaFocusIndex() {
-				asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-			} else {
-				asanaInputStyle = asanaInputStyle.PaddingLeft(2)
-			}
-			asanaView := asanaInputStyle.Render(s.AsanaProjectInput.View())
-			repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+		asanaContent := s.renderAsanaSelector()
+
+		asanaStyle := lipgloss.NewStyle()
+		if s.Focus == s.asanaFocusIndex() {
+			asanaStyle = asanaStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			asanaStyle = asanaStyle.PaddingLeft(2)
 		}
+		asanaView := asanaStyle.Render(asanaContent)
+		repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -392,15 +411,113 @@ func (s *SettingsState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
+// renderAsanaSelector renders the Asana project search and selection UI.
+func (s *SettingsState) renderAsanaSelector() string {
+	if s.AsanaLoading {
+		return lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render("Fetching Asana projects...")
+	}
+
+	if s.AsanaLoadError != "" {
+		return lipgloss.NewStyle().
+			Foreground(ColorWarning).
+			Render(s.AsanaLoadError)
+	}
+
+	var parts []string
+
+	// Show current selection
+	repo := s.selectedRepoPath()
+	currentGID := s.AsanaSelectedGIDs[repo]
+	currentLabel := "(none)"
+	for _, opt := range s.AsanaProjectOptions {
+		if opt.GID == currentGID {
+			currentLabel = opt.Name
+			break
+		}
+	}
+	currentLine := lipgloss.NewStyle().
+		Foreground(ColorText).
+		Render("Current: " + currentLabel)
+	parts = append(parts, currentLine)
+
+	// Search input
+	searchLabel := lipgloss.NewStyle().Foreground(ColorTextMuted).Render("Search: ")
+	parts = append(parts, searchLabel+s.AsanaSearchInput.View())
+
+	// Filtered list
+	filtered := s.getFilteredAsanaProjects()
+	if len(filtered) == 0 {
+		msg := "No projects match your search."
+		if len(s.AsanaProjectOptions) == 0 {
+			msg = "No projects available."
+		}
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render(msg))
+	} else {
+		startIdx := s.AsanaScrollOffset
+		endIdx := startIdx + AsanaProjectMaxVisible
+		if endIdx > len(filtered) {
+			endIdx = len(filtered)
+		}
+
+		var listContent string
+
+		if startIdx > 0 {
+			listContent += lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Render("  ^ more above") + "\n"
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			opt := filtered[i]
+			style := SidebarItemStyle
+			prefix := "  "
+			if i == s.AsanaCursorIndex {
+				style = SidebarSelectedStyle
+				prefix = "> "
+			}
+			listContent += style.Render(prefix+opt.Name) + "\n"
+		}
+
+		if endIdx < len(filtered) {
+			listContent += lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Render("  v more below")
+		}
+
+		parts = append(parts, listContent)
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+// getFilteredAsanaProjects returns projects matching the current search query.
+func (s *SettingsState) getFilteredAsanaProjects() []AsanaProjectOption {
+	query := strings.ToLower(s.AsanaSearchInput.Value())
+	if query == "" {
+		return s.AsanaProjectOptions
+	}
+
+	var filtered []AsanaProjectOption
+	for _, opt := range s.AsanaProjectOptions {
+		if strings.Contains(strings.ToLower(opt.Name), query) {
+			filtered = append(filtered, opt)
+		}
+	}
+	return filtered
+}
+
 // numFields returns the number of focusable fields in the settings modal.
 func (s *SettingsState) numFields() int {
-	if len(s.Repos) == 0 {
+	if len(s.Repos) == 0 || !s.AsanaPATSet {
 		return 3 // theme, branch prefix, notifications
 	}
-	if s.AsanaPATSet {
-		return 5 // theme, branch prefix, notifications, repo selector, asana
-	}
-	return 4 // theme, branch prefix, notifications, repo selector
+	return 5 // theme, branch prefix, notifications, repo selector, asana
 }
 
 // asanaFocusIndex returns the focus index for the Asana project field.
@@ -417,22 +534,17 @@ func (s *SettingsState) selectedRepoPath() string {
 	return s.Repos[s.SelectedRepoIndex]
 }
 
-// flushCurrentToMaps saves the currently displayed per-repo values to the maps.
+// flushCurrentToMaps is a no-op for the new selector-based flow.
+// Selections are stored immediately on Enter.
 func (s *SettingsState) flushCurrentToMaps() {
-	repo := s.selectedRepoPath()
-	if repo == "" {
-		return
-	}
-	s.AsanaProjects[repo] = s.AsanaProjectInput.Value()
+	// No-op: AsanaSelectedGIDs is updated directly on selection
 }
 
-// loadRepoValues loads per-repo values from the maps into the displayed fields.
+// loadRepoValues resets the search and cursor when switching repos.
 func (s *SettingsState) loadRepoValues() {
-	repo := s.selectedRepoPath()
-	if repo == "" {
-		return
-	}
-	s.AsanaProjectInput.SetValue(s.AsanaProjects[repo])
+	s.AsanaSearchInput.SetValue("")
+	s.AsanaCursorIndex = 0
+	s.AsanaScrollOffset = 0
 }
 
 // switchRepo saves current values, changes index, loads new values.
@@ -452,8 +564,16 @@ func (s *SettingsState) switchRepo(delta int) {
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	numFields := s.numFields()
 
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
+	keyMsg, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return s, nil
+	}
+
+	key := keyMsg.String()
+
+	// When focused on Asana selector, handle search + list navigation
+	if s.AsanaPATSet && s.Focus == s.asanaFocusIndex() {
+		switch key {
 		case keys.Tab:
 			s.Focus = (s.Focus + 1) % numFields
 			s.updateInputFocus()
@@ -462,33 +582,72 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			s.Focus = (s.Focus - 1 + numFields) % numFields
 			s.updateInputFocus()
 			return s, nil
-		case keys.Space:
-			if s.Focus == 2 {
-				s.NotificationsEnabled = !s.NotificationsEnabled
+		case keys.Up:
+			s.asanaNavigate(-1)
+			return s, nil
+		case keys.Down:
+			s.asanaNavigate(1)
+			return s, nil
+		case keys.Enter:
+			// Select the highlighted project
+			filtered := s.getFilteredAsanaProjects()
+			if s.AsanaCursorIndex < len(filtered) {
+				selected := filtered[s.AsanaCursorIndex]
+				repo := s.selectedRepoPath()
+				if repo != "" {
+					s.AsanaSelectedGIDs[repo] = selected.GID
+				}
 			}
 			return s, nil
-		case keys.Left, "h":
-			if s.Focus == 0 && len(s.Themes) > 0 {
-				if s.SelectedThemeIndex > 0 {
-					s.SelectedThemeIndex--
-				}
-				return s, nil
+		default:
+			// Send all other keys to search input
+			var cmd tea.Cmd
+			oldQuery := s.AsanaSearchInput.Value()
+			s.AsanaSearchInput, cmd = s.AsanaSearchInput.Update(msg)
+			newQuery := s.AsanaSearchInput.Value()
+			if newQuery != oldQuery {
+				s.AsanaCursorIndex = 0
+				s.AsanaScrollOffset = 0
 			}
-			if s.Focus == 3 && len(s.Repos) > 0 {
-				s.switchRepo(-1)
-				return s, nil
+			return s, cmd
+		}
+	}
+
+	switch key {
+	case keys.Tab:
+		s.Focus = (s.Focus + 1) % numFields
+		s.updateInputFocus()
+		return s, nil
+	case keys.ShiftTab:
+		s.Focus = (s.Focus - 1 + numFields) % numFields
+		s.updateInputFocus()
+		return s, nil
+	case keys.Space:
+		if s.Focus == 2 {
+			s.NotificationsEnabled = !s.NotificationsEnabled
+		}
+		return s, nil
+	case keys.Left, "h":
+		if s.Focus == 0 && len(s.Themes) > 0 {
+			if s.SelectedThemeIndex > 0 {
+				s.SelectedThemeIndex--
 			}
-		case keys.Right, "l":
-			if s.Focus == 0 && len(s.Themes) > 0 {
-				if s.SelectedThemeIndex < len(s.Themes)-1 {
-					s.SelectedThemeIndex++
-				}
-				return s, nil
+			return s, nil
+		}
+		if s.Focus == 3 && len(s.Repos) > 0 {
+			s.switchRepo(-1)
+			return s, nil
+		}
+	case keys.Right, "l":
+		if s.Focus == 0 && len(s.Themes) > 0 {
+			if s.SelectedThemeIndex < len(s.Themes)-1 {
+				s.SelectedThemeIndex++
 			}
-			if s.Focus == 3 && len(s.Repos) > 0 {
-				s.switchRepo(1)
-				return s, nil
-			}
+			return s, nil
+		}
+		if s.Focus == 3 && len(s.Repos) > 0 {
+			s.switchRepo(1)
+			return s, nil
 		}
 	}
 
@@ -499,27 +658,46 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		return s, cmd
 	}
 
-	// Handle text input updates when focused on Asana project GID
-	if s.AsanaPATSet && s.Focus == s.asanaFocusIndex() {
-		var cmd tea.Cmd
-		s.AsanaProjectInput, cmd = s.AsanaProjectInput.Update(msg)
-		return s, cmd
+	return s, nil
+}
+
+// asanaNavigate moves the cursor up or down in the filtered project list.
+func (s *SettingsState) asanaNavigate(delta int) {
+	filtered := s.getFilteredAsanaProjects()
+	if len(filtered) == 0 {
+		return
 	}
 
-	return s, nil
+	newIndex := s.AsanaCursorIndex + delta
+	if newIndex < 0 {
+		newIndex = 0
+	}
+	if newIndex >= len(filtered) {
+		newIndex = len(filtered) - 1
+	}
+
+	s.AsanaCursorIndex = newIndex
+
+	// Adjust scroll offset
+	if s.AsanaCursorIndex < s.AsanaScrollOffset {
+		s.AsanaScrollOffset = s.AsanaCursorIndex
+	}
+	if s.AsanaCursorIndex >= s.AsanaScrollOffset+AsanaProjectMaxVisible {
+		s.AsanaScrollOffset = s.AsanaCursorIndex - AsanaProjectMaxVisible + 1
+	}
 }
 
 // updateInputFocus manages focus state for text inputs based on current Focus index.
 func (s *SettingsState) updateInputFocus() {
 	if s.Focus == 1 {
 		s.BranchPrefixInput.Focus()
-		s.AsanaProjectInput.Blur()
+		s.AsanaSearchInput.Blur()
 	} else if s.Focus == s.asanaFocusIndex() {
-		s.AsanaProjectInput.Focus()
+		s.AsanaSearchInput.Focus()
 		s.BranchPrefixInput.Blur()
 	} else {
 		s.BranchPrefixInput.Blur()
-		s.AsanaProjectInput.Blur()
+		s.AsanaSearchInput.Blur()
 	}
 }
 
@@ -538,9 +716,10 @@ func (s *SettingsState) GetRepoPath() string {
 	return s.selectedRepoPath()
 }
 
-// GetAsanaProject returns the Asana project GID value for the currently displayed repo.
+// GetAsanaProject returns the Asana project GID for the currently selected repo.
 func (s *SettingsState) GetAsanaProject() string {
-	return s.AsanaProjectInput.Value()
+	repo := s.selectedRepoPath()
+	return s.AsanaSelectedGIDs[repo]
 }
 
 // GetSelectedTheme returns the selected theme key.
@@ -556,23 +735,32 @@ func (s *SettingsState) ThemeChanged() bool {
 	return s.GetSelectedTheme() != s.OriginalTheme
 }
 
-// GetAllAsanaProjects flushes the current display values and returns a copy of all per-repo Asana projects.
+// GetAllAsanaProjects returns a copy of all per-repo Asana project GIDs.
 func (s *SettingsState) GetAllAsanaProjects() map[string]string {
 	s.flushCurrentToMaps()
-	result := make(map[string]string, len(s.AsanaProjects))
-	for k, v := range s.AsanaProjects {
+	result := make(map[string]string, len(s.AsanaSelectedGIDs))
+	for k, v := range s.AsanaSelectedGIDs {
 		result[k] = v
 	}
 	return result
 }
 
+// SetAsanaProjects populates the project options and clears the loading state.
+func (s *SettingsState) SetAsanaProjects(options []AsanaProjectOption) {
+	s.AsanaProjectOptions = options
+	s.AsanaLoading = false
+	s.AsanaLoadError = ""
+	s.AsanaCursorIndex = 0
+	s.AsanaScrollOffset = 0
+}
+
+// SetAsanaProjectsError sets the error state and clears loading.
+func (s *SettingsState) SetAsanaProjectsError(errMsg string) {
+	s.AsanaLoading = false
+	s.AsanaLoadError = errMsg
+}
+
 // NewSettingsState creates a new SettingsState with the current settings values.
-// themes and themeDisplayNames are parallel slices of theme keys and display names.
-// currentTheme is the currently active theme key.
-// repos is the list of all registered repos. asanaProjects maps repo paths to Asana
-// project GIDs. defaultRepoIndex is the initially selected repo (e.g., the active
-// session's repo), clamped to valid range. asanaPATSet indicates whether ASANA_PAT
-// env var is set (controls visibility of the Asana project GID field).
 func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme string,
 	currentBranchPrefix string, notificationsEnabled bool, repos []string,
 	asanaProjects map[string]string,
@@ -604,17 +792,10 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		ap[k] = v
 	}
 
-	// Set up the initial Asana input for the default repo
-	var initialAsana string
-	if len(repos) > 0 && defaultRepoIndex < len(repos) {
-		initialAsana = ap[repos[defaultRepoIndex]]
-	}
-
-	asanaInput := textinput.New()
-	asanaInput.Placeholder = "e.g., 1234567890123 (leave empty to disable)"
-	asanaInput.CharLimit = BranchPrefixCharLimit
-	asanaInput.SetWidth(ModalWidthWide - 10)
-	asanaInput.SetValue(initialAsana)
+	searchInput := textinput.New()
+	searchInput.Placeholder = "Type to filter projects..."
+	searchInput.CharLimit = 100
+	searchInput.SetWidth(ModalWidthWide - 14)
 
 	return &SettingsState{
 		Themes:               themes,
@@ -622,12 +803,13 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		SelectedThemeIndex:   selectedThemeIndex,
 		OriginalTheme:        currentTheme,
 		BranchPrefixInput:    prefixInput,
-		AsanaProjectInput:    asanaInput,
 		NotificationsEnabled: notificationsEnabled,
 		AsanaPATSet:          asanaPATSet,
 		Focus:                0,
 		Repos:                repos,
 		SelectedRepoIndex:    defaultRepoIndex,
-		AsanaProjects:        ap,
+		AsanaSelectedGIDs:    ap,
+		AsanaSearchInput:     searchInput,
+		AsanaLoading:         asanaPATSet,
 	}
 }
