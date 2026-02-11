@@ -737,12 +737,11 @@ func TestSettingsModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus 1 after tab, got %d", state.Focus)
 	}
 
-	// Tab back to branch prefix (only 2 fields when no repo)
+	// Config has repos (no ASANA_PAT), so 4 fields: prefix, notif, repo selector, squash
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
-
-	if state.Focus != 0 {
-		t.Errorf("Expected focus 0 after second tab, got %d", state.Focus)
+	if state.Focus != 2 {
+		t.Errorf("Expected focus 2 after third tab, got %d", state.Focus)
 	}
 }
 
@@ -758,9 +757,9 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 	m = sendKey(m, ",")
 	state := m.modal.State.(*ui.SettingsState)
 
-	// Verify we have a repo path (enables per-repo fields)
-	if state.RepoPath == "" {
-		t.Fatal("Expected RepoPath to be set when session is active")
+	// Verify we have repos (enables per-repo fields)
+	if len(state.Repos) == 0 {
+		t.Fatal("Expected Repos to be populated when session is active")
 	}
 
 	// Focus 0: branch prefix
@@ -775,21 +774,15 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		t.Errorf("Expected focus 1, got %d", state.Focus)
 	}
 
-	// Focus 2: squash on merge
+	// Focus 2: repo selector
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 2 {
 		t.Errorf("Expected focus 2, got %d", state.Focus)
 	}
 
-	// Focus 3: Asana project GID
-	m = sendKey(m, "tab")
-	state = m.modal.State.(*ui.SettingsState)
-	if state.Focus != 3 {
-		t.Errorf("Expected focus 3, got %d", state.Focus)
-	}
-
-	// Focus 0: wrap around to branch prefix
+	// Without ASANA_PAT, no asana field - wrap around to branch prefix
+	// (3 fields: prefix, notifications, repo selector)
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 0 {

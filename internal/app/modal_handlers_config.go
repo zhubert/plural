@@ -211,7 +211,11 @@ func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.Them
 		selectedTheme := ui.GetSelectedThemeAsThemeName(state)
 		ui.SetTheme(selectedTheme)
 		m.config.SetTheme(string(selectedTheme))
-		m.config.Save()
+		if err := m.config.Save(); err != nil {
+			logger.Get().Error("failed to save theme", "error", err)
+			m.modal.Hide()
+			return m, m.ShowFlashError("Failed to save theme")
+		}
 		m.chat.RefreshStyles()
 		m.modal.Hide()
 		return m, nil
@@ -353,10 +357,9 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
-		// Save per-repo settings if a repo is selected
-		if repoPath := state.GetRepoPath(); repoPath != "" {
-			m.config.SetSquashOnMerge(repoPath, state.GetSquashOnMerge())
-			m.config.SetAsanaProject(repoPath, state.GetAsanaProject())
+		// Save per-repo settings for all repos
+		for repo, gid := range state.GetAllAsanaProjects() {
+			m.config.SetAsanaProject(repo, gid)
 		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)

@@ -92,7 +92,9 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 		if !sess.Started {
 			m.config.MarkSessionStarted(sess.ID)
 			sess.Started = true
-			m.config.Save()
+			if err := m.config.Save(); err != nil {
+				logger.WithSession(sess.ID).Error("failed to save config after marking session started", "error", err)
+			}
 		}
 		// Save messages for this session
 		m.sessionMgr.SaveRunnerMessages(sessionID, runner)

@@ -307,7 +307,9 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 
 			m.config.RemoveSession(sess.ID)
 			m.config.ClearOrphanedParentIDs([]string{sess.ID})
-			m.config.Save()
+			if err := m.config.Save(); err != nil {
+				logger.WithSession(sess.ID).Error("failed to save config after session deletion", "error", err)
+			}
 			config.DeleteSessionMessages(sess.ID)
 			m.sidebar.SetSessions(m.getFilteredSessions())
 			// Clean up runner and all per-session state via SessionManager

@@ -1,6 +1,7 @@
 package modals
 
 import (
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -320,9 +321,13 @@ type SettingsState struct {
 	BranchPrefixInput    textinput.Model
 	AsanaProjectInput    textinput.Model
 	NotificationsEnabled bool
-	SquashOnMerge        bool   // Per-repo setting: squash commits when merging to main
-	RepoPath             string // Current repo path (for per-repo settings)
-	Focus                int    // 0 = branch prefix, 1 = notifications, 2 = squash, 3 = asana project
+	AsanaPATSet          bool // Whether ASANA_PAT env var is set
+	Focus                int  // 0 = branch prefix, 1 = notifications, 2 = repo selector, [3 = asana if PAT set]
+
+	// Multi-repo support
+	Repos            []string          // All registered repos
+	SelectedRepoIndex int              // Currently displayed repo
+	AsanaProjects    map[string]string // Per-repo Asana GIDs (accumulated across switches)
 }
 
 func (*SettingsState) modalState() {}
@@ -330,6 +335,9 @@ func (*SettingsState) modalState() {}
 func (s *SettingsState) Title() string { return "Settings" }
 
 func (s *SettingsState) Help() string {
+	if s.Focus == 2 && len(s.Repos) > 0 {
+		return "Tab: next field  Left/Right: switch repo  Enter: save  Esc: cancel"
+	}
 	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
 }
 
@@ -377,52 +385,58 @@ func (s *SettingsState) Render() string {
 		Render("Notify when Claude finishes while app is in background")
 	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
 
-	// Per-repo settings (only shown when a repo is selected)
+	// Per-repo settings (shown when repos exist)
 	var repoSections []string
-	if s.RepoPath != "" {
-		// Squash on merge checkbox
-		squashLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
+	if len(s.Repos) > 0 {
+		// Section header
+		sectionHeader := lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true).
 			MarginTop(1).
-			Render("Squash commits on merge (this repo):")
+			Render("Per-repo settings:")
 
-		squashCheckbox := "[ ]"
-		if s.SquashOnMerge {
-			squashCheckbox = "[x]"
-		}
-		squashCheckboxStyle := lipgloss.NewStyle()
+		// Repo selector
+		repoName := filepath.Base(s.selectedRepoPath())
+		selectorStyle := lipgloss.NewStyle()
 		if s.Focus == 2 {
-			squashCheckboxStyle = squashCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			selectorStyle = selectorStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
-			squashCheckboxStyle = squashCheckboxStyle.PaddingLeft(2)
+			selectorStyle = selectorStyle.PaddingLeft(2)
 		}
-		squashDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Render("Combine all commits into one when merging to main")
-		squashView := squashCheckboxStyle.Render(squashCheckbox + " " + squashDesc)
-		repoSections = append(repoSections, squashLabel+"\n"+squashView)
-
-		// Asana project GID
-		asanaLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Asana project GID (this repo):")
-
-		asanaDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Links this repo to an Asana project for task import")
-
-		asanaInputStyle := lipgloss.NewStyle()
-		if s.Focus == s.asanaFocusIndex() {
-			asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			asanaInputStyle = asanaInputStyle.PaddingLeft(2)
+		leftArrow := " "
+		rightArrow := " "
+		if s.SelectedRepoIndex > 0 {
+			leftArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render("<")
 		}
-		asanaView := asanaInputStyle.Render(s.AsanaProjectInput.View())
-		repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+		if s.SelectedRepoIndex < len(s.Repos)-1 {
+			rightArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render(">")
+		}
+		repoDisplay := lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(repoName)
+		selectorView := selectorStyle.Render(leftArrow + " " + repoDisplay + " " + rightArrow)
+		repoSections = append(repoSections, sectionHeader+"\n"+selectorView)
+
+		// Asana project GID (only shown when ASANA_PAT is set)
+		if s.AsanaPATSet {
+			asanaLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Asana project GID:")
+
+			asanaDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(50).
+				Render("Links this repo to an Asana project for task import")
+
+			asanaInputStyle := lipgloss.NewStyle()
+			if s.Focus == s.asanaFocusIndex() {
+				asanaInputStyle = asanaInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				asanaInputStyle = asanaInputStyle.PaddingLeft(2)
+			}
+			asanaView := asanaInputStyle.Render(s.AsanaProjectInput.View())
+			repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+		}
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -437,15 +451,59 @@ func (s *SettingsState) Render() string {
 
 // numFields returns the number of focusable fields in the settings modal.
 func (s *SettingsState) numFields() int {
-	if s.RepoPath == "" {
+	if len(s.Repos) == 0 {
 		return 2 // branch prefix, notifications
 	}
-	return 4 // branch prefix, notifications, squash, asana
+	if s.AsanaPATSet {
+		return 4 // branch prefix, notifications, repo selector, asana
+	}
+	return 3 // branch prefix, notifications, repo selector
 }
 
 // asanaFocusIndex returns the focus index for the Asana project field.
+// Only meaningful when AsanaPATSet is true.
 func (s *SettingsState) asanaFocusIndex() int {
 	return 3
+}
+
+// selectedRepoPath returns the path of the currently selected repo.
+func (s *SettingsState) selectedRepoPath() string {
+	if len(s.Repos) == 0 || s.SelectedRepoIndex >= len(s.Repos) {
+		return ""
+	}
+	return s.Repos[s.SelectedRepoIndex]
+}
+
+// flushCurrentToMaps saves the currently displayed per-repo values to the maps.
+func (s *SettingsState) flushCurrentToMaps() {
+	repo := s.selectedRepoPath()
+	if repo == "" {
+		return
+	}
+	s.AsanaProjects[repo] = s.AsanaProjectInput.Value()
+}
+
+// loadRepoValues loads per-repo values from the maps into the displayed fields.
+func (s *SettingsState) loadRepoValues() {
+	repo := s.selectedRepoPath()
+	if repo == "" {
+		return
+	}
+	s.AsanaProjectInput.SetValue(s.AsanaProjects[repo])
+}
+
+// switchRepo saves current values, changes index, loads new values.
+func (s *SettingsState) switchRepo(delta int) {
+	if len(s.Repos) == 0 {
+		return
+	}
+	newIndex := s.SelectedRepoIndex + delta
+	if newIndex < 0 || newIndex >= len(s.Repos) {
+		return // clamp at bounds
+	}
+	s.flushCurrentToMaps()
+	s.SelectedRepoIndex = newIndex
+	s.loadRepoValues()
 }
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
@@ -462,13 +520,20 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			s.updateInputFocus()
 			return s, nil
 		case keys.Space:
-			// Toggle checkbox when focused on notifications or squash
 			if s.Focus == 1 {
 				s.NotificationsEnabled = !s.NotificationsEnabled
-			} else if s.Focus == 2 && s.RepoPath != "" {
-				s.SquashOnMerge = !s.SquashOnMerge
 			}
 			return s, nil
+		case keys.Left, "h":
+			if s.Focus == 2 && len(s.Repos) > 0 {
+				s.switchRepo(-1)
+				return s, nil
+			}
+		case keys.Right, "l":
+			if s.Focus == 2 && len(s.Repos) > 0 {
+				s.switchRepo(1)
+				return s, nil
+			}
 		}
 	}
 
@@ -480,7 +545,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	}
 
 	// Handle text input updates when focused on Asana project GID
-	if s.Focus == s.asanaFocusIndex() {
+	if s.AsanaPATSet && s.Focus == s.asanaFocusIndex() {
 		var cmd tea.Cmd
 		s.AsanaProjectInput, cmd = s.AsanaProjectInput.Update(msg)
 		return s, cmd
@@ -513,25 +578,35 @@ func (s *SettingsState) GetNotificationsEnabled() bool {
 	return s.NotificationsEnabled
 }
 
-// GetSquashOnMerge returns whether squash-on-merge is enabled
-func (s *SettingsState) GetSquashOnMerge() bool {
-	return s.SquashOnMerge
-}
-
-// GetRepoPath returns the repo path for per-repo settings
+// GetRepoPath returns the currently selected repo path (for backward compat).
 func (s *SettingsState) GetRepoPath() string {
-	return s.RepoPath
+	return s.selectedRepoPath()
 }
 
-// GetAsanaProject returns the Asana project GID value
+// GetAsanaProject returns the Asana project GID value for the currently displayed repo.
 func (s *SettingsState) GetAsanaProject() string {
 	return s.AsanaProjectInput.Value()
 }
 
+// GetAllAsanaProjects flushes the current display values and returns a copy of all per-repo Asana projects.
+func (s *SettingsState) GetAllAsanaProjects() map[string]string {
+	s.flushCurrentToMaps()
+	result := make(map[string]string, len(s.AsanaProjects))
+	for k, v := range s.AsanaProjects {
+		result[k] = v
+	}
+	return result
+}
+
 // NewSettingsState creates a new SettingsState with the current settings values.
-// repoPath should be set to the current session's repo path for per-repo settings,
-// or empty string if no session is selected.
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squashOnMerge bool, repoPath string, asanaProject string) *SettingsState {
+// repos is the list of all registered repos. asanaProjects maps repo paths to Asana
+// project GIDs. defaultRepoIndex is the initially selected repo (e.g., the active
+// session's repo), clamped to valid range. asanaPATSet indicates whether ASANA_PAT
+// env var is set (controls visibility of the Asana project GID field).
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, repos []string,
+	asanaProjects map[string]string,
+	defaultRepoIndex int, asanaPATSet bool) *SettingsState {
+
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
@@ -539,18 +614,37 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, squ
 	prefixInput.SetValue(currentBranchPrefix)
 	prefixInput.Focus()
 
+	// Clamp default repo index
+	if defaultRepoIndex < 0 || (len(repos) > 0 && defaultRepoIndex >= len(repos)) {
+		defaultRepoIndex = 0
+	}
+
+	// Copy map to avoid mutating caller's data
+	ap := make(map[string]string, len(asanaProjects))
+	for k, v := range asanaProjects {
+		ap[k] = v
+	}
+
+	// Set up the initial Asana input for the default repo
+	var initialAsana string
+	if len(repos) > 0 && defaultRepoIndex < len(repos) {
+		initialAsana = ap[repos[defaultRepoIndex]]
+	}
+
 	asanaInput := textinput.New()
 	asanaInput.Placeholder = "e.g., 1234567890123 (leave empty to disable)"
 	asanaInput.CharLimit = BranchPrefixCharLimit
 	asanaInput.SetWidth(ModalInputWidth)
-	asanaInput.SetValue(asanaProject)
+	asanaInput.SetValue(initialAsana)
 
 	return &SettingsState{
 		BranchPrefixInput:    prefixInput,
 		AsanaProjectInput:    asanaInput,
 		NotificationsEnabled: notificationsEnabled,
-		SquashOnMerge:        squashOnMerge,
-		RepoPath:             repoPath,
+		AsanaPATSet:          asanaPATSet,
 		Focus:                0,
+		Repos:                repos,
+		SelectedRepoIndex:    defaultRepoIndex,
+		AsanaProjects:        ap,
 	}
 }
