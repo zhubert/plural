@@ -15,7 +15,9 @@ func (m *Model) handleWelcomeModal(key string, msg tea.KeyPressMsg, state *ui.We
 	case keys.Enter, keys.Escape:
 		// Mark welcome as shown and save
 		m.config.MarkWelcomeShown()
-		m.config.Save()
+		if err := m.config.Save(); err != nil {
+			logger.Get().Warn("failed to save welcome-shown flag", "error", err)
+		}
 		m.modal.Hide()
 		// Check if we should also show changelog
 		return m.handleStartupModals()
@@ -29,7 +31,9 @@ func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.
 	case keys.Enter, keys.Escape:
 		// Update last seen version and save
 		m.config.SetLastSeenVersion(m.version)
-		m.config.Save()
+		if err := m.config.Save(); err != nil {
+			logger.Get().Warn("failed to save last-seen version", "error", err)
+		}
 		m.modal.Hide()
 		return m, nil
 	case keys.Up, "k", keys.Down, "j":

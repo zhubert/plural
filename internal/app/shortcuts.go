@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -626,20 +627,32 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
-	var repoPath string
-	var squashEnabled bool
-	var asanaProject string
-	if m.activeSession != nil {
-		repoPath = m.activeSession.RepoPath
-		squashEnabled = m.config.GetSquashOnMerge(repoPath)
-		asanaProject = m.config.GetAsanaProject(repoPath)
+	repos := m.config.GetRepos()
+
+	// Build map of all repos' Asana project GIDs
+	asanaProjects := make(map[string]string, len(repos))
+	for _, repo := range repos {
+		asanaProjects[repo] = m.config.GetAsanaProject(repo)
 	}
+
+	// Default to the active session's repo if one exists
+	defaultRepoIndex := 0
+	if m.activeSession != nil {
+		for i, repo := range repos {
+			if repo == m.activeSession.RepoPath {
+				defaultRepoIndex = i
+				break
+			}
+		}
+	}
+
 	m.modal.Show(ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
-		squashEnabled,
-		repoPath,
-		asanaProject,
+		repos,
+		asanaProjects,
+		defaultRepoIndex,
+		os.Getenv("ASANA_PAT") != "",
 	))
 	return m, nil
 }

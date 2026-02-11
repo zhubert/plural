@@ -417,7 +417,9 @@ func (sm *SessionManager) AddAllowedTool(sessionID string, tool string) {
 	}
 
 	sm.config.AddRepoAllowedTool(sess.RepoPath, tool)
-	sm.config.Save()
+	if err := sm.config.Save(); err != nil {
+		logger.WithSession(sessionID).Error("failed to save config after adding allowed tool", "error", err, "tool", tool)
+	}
 
 	sm.mu.RLock()
 	runner, exists := sm.runners[sessionID]

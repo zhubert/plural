@@ -249,7 +249,9 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 	// Mark the session as merged
 	if m.pendingConflict.SessionID != "" {
 		m.config.MarkSessionMerged(m.pendingConflict.SessionID)
-		m.config.Save()
+		if err := m.config.Save(); err != nil {
+			logger.Get().Error("failed to save config after conflict resolution", "error", err)
+		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		logger.WithSession(m.pendingConflict.SessionID).Info("marked session as merged after conflict resolution")
 	}
