@@ -52,7 +52,7 @@ func ContainerImageExists(image string) bool {
 func containerSystemRunning() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "container", "system", "info")
+	cmd := exec.CommandContext(ctx, "container", "system", "status")
 	return cmd.Run() == nil
 }
 
@@ -258,38 +258,8 @@ type OrphanedContainer struct {
 	Name string // Container name (e.g., "plural-abc123")
 }
 
-// ListContainerNames returns a list of all container names.
-// Supports both Docker/Podman (Go template format) and Apple container CLI (JSON format).
+// ListContainerNames returns a list of all container names using the Apple container CLI.
 func ListContainerNames() ([]string, error) {
-	log := logger.WithComponent("process")
-
-	// Try Docker/Podman format first (Go templates)
-	cmd := exec.Command("container", "ls", "-a", "--format", "{{.Names}}")
-	output, err := cmd.Output()
-	if err == nil {
-		// Success with template format
-		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		var names []string
-		for _, line := range lines {
-			if name := strings.TrimSpace(line); name != "" {
-				names = append(names, name)
-			}
-		}
-		return names, nil
-	}
-
-	// Check if it's exit code 64 (invalid format) - try JSON format for Apple container CLI
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 64 {
-		log.Debug("template format not supported, trying JSON format")
-		return listContainerNamesJSON()
-	}
-
-	// Some other error
-	return nil, err
-}
-
-// listContainerNamesJSON uses JSON format to list container names (Apple container CLI).
-func listContainerNamesJSON() ([]string, error) {
 	cmd := exec.Command("container", "ls", "-a", "--format", "json")
 	output, err := cmd.Output()
 	if err != nil {

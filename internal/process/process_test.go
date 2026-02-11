@@ -249,9 +249,8 @@ func TestFindOrphanedContainers_NoContainerCLI(t *testing.T) {
 }
 
 func TestListContainerNamesJSON(t *testing.T) {
-	// NOTE: This test duplicates the parsing logic from listContainerNamesJSON
-	// rather than testing the function directly, because listContainerNamesJSON
-	// depends on exec.Command. If the implementation changes, this test may need updating.
+	// NOTE: This test duplicates the JSON parsing logic from ListContainerNames
+	// rather than testing the function directly, because it depends on exec.Command.
 	tests := []struct {
 		name     string
 		json     string
