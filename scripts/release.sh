@@ -160,6 +160,9 @@ if [ "$DRY_RUN" = true ]; then
     # Dry run: run goreleaser snapshot and then undo changes
     echo ""
     echo "Step 2: Running goreleaser (snapshot mode)..."
+
+    # Extract GitHub token from gh CLI and export for goreleaser
+    export GITHUB_TOKEN=$(gh auth token)
     goreleaser release --snapshot --clean
 
     echo ""
@@ -181,6 +184,8 @@ else
     echo ""
     echo "Step 3: Running goreleaser..."
 
+    # Extract GitHub token from gh CLI and export for goreleaser
+    export GITHUB_TOKEN=$(gh auth token)
     goreleaser release --clean
 
     echo ""

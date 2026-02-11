@@ -48,7 +48,7 @@ brews:
   - repository:
       owner: zhubert
       name: homebrew-tap
-      # Token auto-detected from gh CLI authentication
+      # Token provided via GITHUB_TOKEN env var (extracted from gh CLI in release.sh)
     directory: Formula
     homepage: "https://github.com/zhubert/plural"
     description: "TUI for managing multiple concurrent Claude Code sessions"
