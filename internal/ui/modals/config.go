@@ -219,110 +219,21 @@ func NewChangelogState(entries []ChangelogEntry) *ChangelogState {
 }
 
 // =============================================================================
-// ThemeState - State for the Theme picker modal
-// =============================================================================
-
-// ThemeName type and related functions must be provided by the parent package
-// We use string here and let the parent package handle the conversion
-type ThemeState struct {
-	Themes        []string
-	SelectedIndex int
-	CurrentTheme  string
-	ThemeNames    []string // Display names for themes
-}
-
-func (*ThemeState) modalState() {}
-
-func (s *ThemeState) Title() string { return "Select Theme" }
-
-func (s *ThemeState) Help() string {
-	return "up/down to select, Enter to apply, Esc to cancel"
-}
-
-func (s *ThemeState) Render() string {
-	title := ModalTitleStyle.Render(s.Title())
-
-	var content string
-	for i, themeKey := range s.Themes {
-		style := SidebarItemStyle
-		prefix := "  "
-		suffix := ""
-
-		if i == s.SelectedIndex {
-			style = SidebarSelectedStyle
-			prefix = "> "
-		}
-
-		if themeKey == s.CurrentTheme {
-			suffix = " (current)"
-		}
-
-		displayName := themeKey
-		if i < len(s.ThemeNames) {
-			displayName = s.ThemeNames[i]
-		}
-
-		content += style.Render(prefix+displayName+suffix) + "\n"
-	}
-
-	help := ModalHelpStyle.Render(s.Help())
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, content, help)
-}
-
-func (s *ThemeState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
-		case keys.Up, "k":
-			if s.SelectedIndex > 0 {
-				s.SelectedIndex--
-			}
-		case keys.Down, "j":
-			if s.SelectedIndex < len(s.Themes)-1 {
-				s.SelectedIndex++
-			}
-		}
-	}
-	return s, nil
-}
-
-// GetSelectedTheme returns the selected theme key
-func (s *ThemeState) GetSelectedTheme() string {
-	if len(s.Themes) == 0 || s.SelectedIndex >= len(s.Themes) {
-		return ""
-	}
-	return s.Themes[s.SelectedIndex]
-}
-
-// NewThemeState creates a new ThemeState
-func NewThemeState(themes []string, themeNames []string, currentTheme string) *ThemeState {
-	// Find the index of the current theme
-	selectedIndex := 0
-	for i, t := range themes {
-		if t == currentTheme {
-			selectedIndex = i
-			break
-		}
-	}
-
-	return &ThemeState{
-		Themes:        themes,
-		ThemeNames:    themeNames,
-		SelectedIndex: selectedIndex,
-		CurrentTheme:  currentTheme,
-	}
-}
-
-// =============================================================================
 // SettingsState - State for the Settings modal
 // =============================================================================
 
 type SettingsState struct {
+	// Theme selection (focus 0)
+	Themes             []string // Theme keys
+	ThemeDisplayNames  []string // Display names for themes
+	SelectedThemeIndex int
+	OriginalTheme      string // To detect if theme changed
+
 	BranchPrefixInput    textinput.Model
 	AsanaProjectInput    textinput.Model
 	NotificationsEnabled bool
 	AsanaPATSet          bool // Whether ASANA_PAT env var is set
-	Focus                int  // 0 = branch prefix, 1 = notifications, 2 = repo selector, [3 = asana if PAT set]
+	Focus                int  // 0 = theme, 1 = branch prefix, 2 = notifications, 3 = repo selector, [4 = asana if PAT set]
 
 	// Multi-repo support
 	Repos            []string          // All registered repos
@@ -332,10 +243,15 @@ type SettingsState struct {
 
 func (*SettingsState) modalState() {}
 
+func (s *SettingsState) PreferredWidth() int { return ModalWidthWide }
+
 func (s *SettingsState) Title() string { return "Settings" }
 
 func (s *SettingsState) Help() string {
-	if s.Focus == 2 && len(s.Repos) > 0 {
+	if s.Focus == 0 {
+		return "Tab: next field  Left/Right: change theme  Enter: save  Esc: cancel"
+	}
+	if s.Focus == 3 && len(s.Repos) > 0 {
 		return "Tab: next field  Left/Right: switch repo  Enter: save  Esc: cancel"
 	}
 	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
@@ -344,19 +260,46 @@ func (s *SettingsState) Help() string {
 func (s *SettingsState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
+	// Theme selector
+	themeLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Render("Theme:")
+
+	themeSelectorStyle := lipgloss.NewStyle()
+	if s.Focus == 0 {
+		themeSelectorStyle = themeSelectorStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		themeSelectorStyle = themeSelectorStyle.PaddingLeft(2)
+	}
+	leftArrowTheme := " "
+	rightArrowTheme := " "
+	if s.SelectedThemeIndex > 0 {
+		leftArrowTheme = lipgloss.NewStyle().Foreground(ColorPrimary).Render("<")
+	}
+	if s.SelectedThemeIndex < len(s.Themes)-1 {
+		rightArrowTheme = lipgloss.NewStyle().Foreground(ColorPrimary).Render(">")
+	}
+	themeName := ""
+	if s.SelectedThemeIndex < len(s.ThemeDisplayNames) {
+		themeName = s.ThemeDisplayNames[s.SelectedThemeIndex]
+	}
+	themeDisplay := lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(themeName)
+	themeView := themeSelectorStyle.Render(leftArrowTheme + " " + themeDisplay + " " + rightArrowTheme)
+
 	// Branch prefix field
 	prefixLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
+		MarginTop(1).
 		Render("Default branch prefix:")
 
 	prefixDesc := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		Italic(true).
-		Width(50).
+		Width(70).
 		Render("Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")")
 
 	prefixInputStyle := lipgloss.NewStyle()
-	if s.Focus == 0 {
+	if s.Focus == 1 {
 		prefixInputStyle = prefixInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 	} else {
 		prefixInputStyle = prefixInputStyle.PaddingLeft(2)
@@ -374,7 +317,7 @@ func (s *SettingsState) Render() string {
 		notifCheckbox = "[x]"
 	}
 	notifCheckboxStyle := lipgloss.NewStyle()
-	if s.Focus == 1 {
+	if s.Focus == 2 {
 		notifCheckboxStyle = notifCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 	} else {
 		notifCheckboxStyle = notifCheckboxStyle.PaddingLeft(2)
@@ -398,7 +341,7 @@ func (s *SettingsState) Render() string {
 		// Repo selector
 		repoName := filepath.Base(s.selectedRepoPath())
 		selectorStyle := lipgloss.NewStyle()
-		if s.Focus == 2 {
+		if s.Focus == 3 {
 			selectorStyle = selectorStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			selectorStyle = selectorStyle.PaddingLeft(2)
@@ -425,7 +368,7 @@ func (s *SettingsState) Render() string {
 			asanaDesc := lipgloss.NewStyle().
 				Foreground(ColorTextMuted).
 				Italic(true).
-				Width(50).
+				Width(70).
 				Render("Links this repo to an Asana project for task import")
 
 			asanaInputStyle := lipgloss.NewStyle()
@@ -441,7 +384,7 @@ func (s *SettingsState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	parts := []string{title, prefixLabel, prefixDesc, prefixView, notifLabel, notifView}
+	parts := []string{title, themeLabel, themeView, prefixLabel, prefixDesc, prefixView, notifLabel, notifView}
 	for _, section := range repoSections {
 		parts = append(parts, section)
 	}
@@ -452,18 +395,18 @@ func (s *SettingsState) Render() string {
 // numFields returns the number of focusable fields in the settings modal.
 func (s *SettingsState) numFields() int {
 	if len(s.Repos) == 0 {
-		return 2 // branch prefix, notifications
+		return 3 // theme, branch prefix, notifications
 	}
 	if s.AsanaPATSet {
-		return 4 // branch prefix, notifications, repo selector, asana
+		return 5 // theme, branch prefix, notifications, repo selector, asana
 	}
-	return 3 // branch prefix, notifications, repo selector
+	return 4 // theme, branch prefix, notifications, repo selector
 }
 
 // asanaFocusIndex returns the focus index for the Asana project field.
 // Only meaningful when AsanaPATSet is true.
 func (s *SettingsState) asanaFocusIndex() int {
-	return 3
+	return 4
 }
 
 // selectedRepoPath returns the path of the currently selected repo.
@@ -520,17 +463,29 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			s.updateInputFocus()
 			return s, nil
 		case keys.Space:
-			if s.Focus == 1 {
+			if s.Focus == 2 {
 				s.NotificationsEnabled = !s.NotificationsEnabled
 			}
 			return s, nil
 		case keys.Left, "h":
-			if s.Focus == 2 && len(s.Repos) > 0 {
+			if s.Focus == 0 && len(s.Themes) > 0 {
+				if s.SelectedThemeIndex > 0 {
+					s.SelectedThemeIndex--
+				}
+				return s, nil
+			}
+			if s.Focus == 3 && len(s.Repos) > 0 {
 				s.switchRepo(-1)
 				return s, nil
 			}
 		case keys.Right, "l":
-			if s.Focus == 2 && len(s.Repos) > 0 {
+			if s.Focus == 0 && len(s.Themes) > 0 {
+				if s.SelectedThemeIndex < len(s.Themes)-1 {
+					s.SelectedThemeIndex++
+				}
+				return s, nil
+			}
+			if s.Focus == 3 && len(s.Repos) > 0 {
 				s.switchRepo(1)
 				return s, nil
 			}
@@ -538,7 +493,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	}
 
 	// Handle text input updates when focused on branch prefix
-	if s.Focus == 0 {
+	if s.Focus == 1 {
 		var cmd tea.Cmd
 		s.BranchPrefixInput, cmd = s.BranchPrefixInput.Update(msg)
 		return s, cmd
@@ -556,7 +511,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 
 // updateInputFocus manages focus state for text inputs based on current Focus index.
 func (s *SettingsState) updateInputFocus() {
-	if s.Focus == 0 {
+	if s.Focus == 1 {
 		s.BranchPrefixInput.Focus()
 		s.AsanaProjectInput.Blur()
 	} else if s.Focus == s.asanaFocusIndex() {
@@ -588,6 +543,19 @@ func (s *SettingsState) GetAsanaProject() string {
 	return s.AsanaProjectInput.Value()
 }
 
+// GetSelectedTheme returns the selected theme key.
+func (s *SettingsState) GetSelectedTheme() string {
+	if len(s.Themes) == 0 || s.SelectedThemeIndex >= len(s.Themes) {
+		return ""
+	}
+	return s.Themes[s.SelectedThemeIndex]
+}
+
+// ThemeChanged returns true if the selected theme differs from the original.
+func (s *SettingsState) ThemeChanged() bool {
+	return s.GetSelectedTheme() != s.OriginalTheme
+}
+
 // GetAllAsanaProjects flushes the current display values and returns a copy of all per-repo Asana projects.
 func (s *SettingsState) GetAllAsanaProjects() map[string]string {
 	s.flushCurrentToMaps()
@@ -599,20 +567,31 @@ func (s *SettingsState) GetAllAsanaProjects() map[string]string {
 }
 
 // NewSettingsState creates a new SettingsState with the current settings values.
+// themes and themeDisplayNames are parallel slices of theme keys and display names.
+// currentTheme is the currently active theme key.
 // repos is the list of all registered repos. asanaProjects maps repo paths to Asana
 // project GIDs. defaultRepoIndex is the initially selected repo (e.g., the active
 // session's repo), clamped to valid range. asanaPATSet indicates whether ASANA_PAT
 // env var is set (controls visibility of the Asana project GID field).
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, repos []string,
+func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme string,
+	currentBranchPrefix string, notificationsEnabled bool, repos []string,
 	asanaProjects map[string]string,
 	defaultRepoIndex int, asanaPATSet bool) *SettingsState {
+
+	// Find the index of the current theme
+	selectedThemeIndex := 0
+	for i, t := range themes {
+		if t == currentTheme {
+			selectedThemeIndex = i
+			break
+		}
+	}
 
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
 	prefixInput.SetWidth(ModalInputWidth)
 	prefixInput.SetValue(currentBranchPrefix)
-	prefixInput.Focus()
 
 	// Clamp default repo index
 	if defaultRepoIndex < 0 || (len(repos) > 0 && defaultRepoIndex >= len(repos)) {
@@ -638,6 +617,10 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, rep
 	asanaInput.SetValue(initialAsana)
 
 	return &SettingsState{
+		Themes:               themes,
+		ThemeDisplayNames:    themeDisplayNames,
+		SelectedThemeIndex:   selectedThemeIndex,
+		OriginalTheme:        currentTheme,
 		BranchPrefixInput:    prefixInput,
 		AsanaProjectInput:    asanaInput,
 		NotificationsEnabled: notificationsEnabled,

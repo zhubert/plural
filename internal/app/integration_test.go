@@ -1321,27 +1321,6 @@ func TestModal_ConfirmDeleteNavigation(t *testing.T) {
 	}
 }
 
-func TestModal_ThemeSelector(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	m = sendKey(m, "t")
-
-	if !m.modal.IsVisible() {
-		t.Error("Theme modal should be visible")
-	}
-
-	_, ok := m.modal.State.(*ui.ThemeState)
-	if !ok {
-		t.Fatalf("Expected ThemeState, got %T", m.modal.State)
-	}
-
-	m = sendKey(m, "esc")
-	if m.modal.IsVisible() {
-		t.Error("Theme modal should be closed")
-	}
-}
-
 func TestModal_MCPServers(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
@@ -1674,10 +1653,10 @@ func TestFlow_OpenAndCloseMultipleModals(t *testing.T) {
 		t.Error("Modal should be closed")
 	}
 
-	// Open and close theme modal
-	m = sendKey(m, "t")
+	// Open and close settings modal
+	m = sendKey(m, ",")
 	if !m.modal.IsVisible() {
-		t.Error("Theme modal should be open")
+		t.Error("Settings modal should be open")
 	}
 	m = sendKey(m, "esc")
 	if m.modal.IsVisible() {
