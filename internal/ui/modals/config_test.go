@@ -724,6 +724,35 @@ func TestSettingsState_Render_AsanaCurrentNone(t *testing.T) {
 	}
 }
 
+func TestSettingsState_IsAsanaFocused(t *testing.T) {
+	s := newTestSettingsState("", false,
+		[]string{"/repo/a"},
+		map[string]string{"/repo/a": ""},
+		0, true)
+
+	// Not focused on Asana
+	s.Focus = 0
+	if s.IsAsanaFocused() {
+		t.Error("Should not be Asana-focused when Focus is 0")
+	}
+
+	// Focused on Asana
+	s.Focus = s.asanaFocusIndex()
+	if !s.IsAsanaFocused() {
+		t.Error("Should be Asana-focused when Focus is asanaFocusIndex")
+	}
+
+	// PAT not set: even at correct focus index, should not be Asana-focused
+	s2 := newTestSettingsState("", false,
+		[]string{"/repo/a"},
+		map[string]string{"/repo/a": ""},
+		0, false)
+	s2.Focus = 4
+	if s2.IsAsanaFocused() {
+		t.Error("Should not be Asana-focused when PAT is not set")
+	}
+}
+
 func TestNewSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
 	s := NewNewSessionState([]string{"/repo"}, true, false)
 

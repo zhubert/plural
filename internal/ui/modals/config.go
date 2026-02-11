@@ -701,6 +701,11 @@ func (s *SettingsState) updateInputFocus() {
 	}
 }
 
+// IsAsanaFocused returns true when the Asana project selector is focused.
+func (s *SettingsState) IsAsanaFocused() bool {
+	return s.AsanaPATSet && s.Focus == s.asanaFocusIndex()
+}
+
 // GetBranchPrefix returns the branch prefix value
 func (s *SettingsState) GetBranchPrefix() string {
 	return s.BranchPrefixInput.Value()
