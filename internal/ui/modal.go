@@ -56,12 +56,11 @@ type (
 	SessionItem              = modals.SessionItem
 	WorkspaceListState       = modals.WorkspaceListState
 	NewWorkspaceState        = modals.NewWorkspaceState
-	BulkActionState          = modals.BulkActionState
-	BulkAction               = modals.BulkAction
-	ContainerBuildState              = modals.ContainerBuildState
-	ContainerCLINotInstalledState    = modals.ContainerCLINotInstalledState
-	ContainerSystemNotRunningState   = modals.ContainerSystemNotRunningState
-	AsanaProjectOption               = modals.AsanaProjectOption
+	BulkActionState        = modals.BulkActionState
+	BulkAction             = modals.BulkAction
+	ContainerBuildState    = modals.ContainerBuildState
+	ContainerCommandState  = modals.ContainerCommandState
+	AsanaProjectOption     = modals.AsanaProjectOption
 )
 
 // Re-export broadcast action constants
@@ -112,8 +111,10 @@ var (
 	NewWorkspaceListState      = modals.NewWorkspaceListState
 	NewNewWorkspaceState       = modals.NewNewWorkspaceState
 	NewRenameWorkspaceState    = modals.NewRenameWorkspaceState
-	NewContainerBuildState     = modals.NewContainerBuildState
-	ValidateContainerImage     = modals.ValidateContainerImage
+	NewContainerBuildState          = modals.NewContainerBuildState
+	NewContainerCLINotInstalledState  = modals.NewContainerCLINotInstalledState
+	NewContainerSystemNotRunningState = modals.NewContainerSystemNotRunningState
+	ValidateContainerImage           = modals.ValidateContainerImage
 	NewBulkActionState         = modals.NewBulkActionState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath

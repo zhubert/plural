@@ -71,10 +71,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSettingsModal(key, msg, s)
 	case *ui.ContainerBuildState:
 		return m.handleContainerBuildModal(key, msg, s)
-	case *ui.ContainerCLINotInstalledState:
-		return m.handleContainerCLINotInstalledModal(key, msg, s)
-	case *ui.ContainerSystemNotRunningState:
-		return m.handleContainerSystemNotRunningModal(key, msg, s)
+	case *ui.ContainerCommandState:
+		return m.handleContainerCommandModal(key, s)
 
 	// Navigation modals (modal_handlers_navigation.go)
 	case *ui.WelcomeState:

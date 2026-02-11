@@ -27,11 +27,11 @@ func (m *Model) checkContainerPrerequisites() bool {
 	)
 
 	if !prereqs.CLIInstalled {
-		m.modal.Show(&ui.ContainerCLINotInstalledState{})
+		m.modal.Show(ui.NewContainerCLINotInstalledState())
 		return false
 	}
 	if !prereqs.SystemRunning {
-		m.modal.Show(&ui.ContainerSystemNotRunningState{})
+		m.modal.Show(ui.NewContainerSystemNotRunningState())
 		return false
 	}
 	if !prereqs.ImageExists {
