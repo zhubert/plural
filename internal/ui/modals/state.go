@@ -25,6 +25,14 @@ type ModalWithPreferredWidth interface {
 	PreferredWidth() int
 }
 
+// ModalWithSize is an optional interface that modals can implement to receive
+// size information before rendering. This allows modals to adjust their content
+// width when the modal is clamped to fit the screen.
+type ModalWithSize interface {
+	ModalState
+	SetSize(width, height int)
+}
+
 // MCPServerDisplay represents an MCP server for display in the modal
 type MCPServerDisplay struct {
 	Name     string

@@ -260,11 +260,35 @@ type SettingsState struct {
 	AsanaScrollOffset   int                  // Scroll offset for filtered list
 	AsanaLoading        bool                 // Whether projects are being fetched
 	AsanaLoadError      string               // Error message from fetch
+
+	// Size tracking
+	availableWidth int // Actual width available after modal is clamped to screen
 }
 
 func (*SettingsState) modalState() {}
 
 func (s *SettingsState) PreferredWidth() int { return ModalWidthWide }
+
+// SetSize updates the available width for rendering content.
+// Called by the modal container before Render() to notify the modal of its actual size.
+func (s *SettingsState) SetSize(width, height int) {
+	s.availableWidth = width
+	// Update text input widths based on actual available width
+	contentWidth := s.contentWidth()
+	s.BranchPrefixInput.SetWidth(contentWidth)
+	s.ContainerImageInput.SetWidth(contentWidth)
+	// Search input is slightly narrower to account for extra padding
+	s.AsanaSearchInput.SetWidth(contentWidth - 4)
+}
+
+// contentWidth returns the width available for content inside the modal.
+// Falls back to ModalWidthWide if availableWidth is not set.
+func (s *SettingsState) contentWidth() int {
+	if s.availableWidth > 0 {
+		return s.availableWidth - 10 // Leave room for padding
+	}
+	return ModalWidthWide - 10
+}
 
 func (s *SettingsState) Title() string { return "Settings" }
 
@@ -319,7 +343,7 @@ func (s *SettingsState) Render() string {
 	prefixDesc := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		Italic(true).
-		Width(ModalWidthWide - 10).
+		Width(s.contentWidth()).
 		Render("Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")")
 
 	prefixInputStyle := lipgloss.NewStyle()
@@ -363,7 +387,7 @@ func (s *SettingsState) Render() string {
 		containerDesc := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			Width(ModalWidthWide - 10).
+			Width(s.contentWidth()).
 			Render("Image name used for container mode sessions")
 
 		containerInputStyle := lipgloss.NewStyle()
@@ -416,7 +440,7 @@ func (s *SettingsState) Render() string {
 		asanaDesc := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			Width(ModalWidthWide - 10).
+			Width(s.contentWidth()).
 			Render("Links this repo to an Asana project for task import")
 
 		asanaContent := s.renderAsanaSelector()
@@ -850,13 +874,13 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
-	prefixInput.SetWidth(ModalWidthWide - 10)
+	prefixInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
 	prefixInput.SetValue(currentBranchPrefix)
 
 	containerImageInput := textinput.New()
 	containerImageInput.Placeholder = "plural-claude"
 	containerImageInput.CharLimit = 100
-	containerImageInput.SetWidth(ModalWidthWide - 10)
+	containerImageInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
 	containerImageInput.SetValue(containerImage)
 
 	// Clamp default repo index
@@ -873,7 +897,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Type to filter projects..."
 	searchInput.CharLimit = 100
-	searchInput.SetWidth(ModalWidthWide - 14)
+	searchInput.SetWidth(ModalWidthWide - 14) // Will be updated by SetSize()
 
 	return &SettingsState{
 		Themes:               themes,
@@ -891,5 +915,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		AsanaSelectedGIDs:    ap,
 		AsanaSearchInput:     searchInput,
 		AsanaLoading:         asanaPATSet,
+		availableWidth:       ModalWidthWide, // Default, will be updated by SetSize()
 	}
 }

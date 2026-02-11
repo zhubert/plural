@@ -208,13 +208,6 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 		return ""
 	}
 
-	content := m.State.Render()
-
-	// Add error if present
-	if m.error != "" {
-		content += "\n" + StatusErrorStyle.Render(m.error)
-	}
-
 	// Use preferred width if the modal implements ModalWithPreferredWidth
 	style := ModalStyle
 	width := ModalWidth
@@ -228,6 +221,19 @@ func (m *Modal) View(screenWidth, screenHeight int) string {
 	if maxWidth := screenWidth - modalHorizontalOverhead; width > maxWidth {
 		width = maxWidth
 	}
+
+	// Notify modal of its actual size before rendering (if it implements ModalWithSize)
+	if modalWithSize, ok := m.State.(modals.ModalWithSize); ok {
+		modalWithSize.SetSize(width, screenHeight)
+	}
+
+	content := m.State.Render()
+
+	// Add error if present
+	if m.error != "" {
+		content += "\n" + StatusErrorStyle.Render(m.error)
+	}
+
 	style = style.Width(width)
 
 	modal := style.Render(content)

@@ -25,6 +25,9 @@ type ImportIssuesState struct {
 	maxVisible    int
 	Source        string // "github" or "asana"
 	ProjectID     string // Asana project GID (only used for Asana)
+
+	// Size tracking
+	availableWidth int // Actual width available after modal is clamped to screen
 }
 
 func (*ImportIssuesState) modalState() {}
@@ -33,6 +36,12 @@ func (*ImportIssuesState) modalState() {}
 // Import issues modal uses a wider width to show more of the issue titles.
 func (s *ImportIssuesState) PreferredWidth() int {
 	return ModalWidthWide
+}
+
+// SetSize updates the available width for rendering content.
+// Called by the modal container before Render() to notify the modal of its actual size.
+func (s *ImportIssuesState) SetSize(width, height int) {
+	s.availableWidth = width
 }
 
 func (s *ImportIssuesState) Title() string {
@@ -134,11 +143,14 @@ func (s *ImportIssuesState) Render() string {
 			checkbox = "[x]"
 		}
 
-		// Calculate available width for title based on modal width
-		// ModalWidthWide (120) - padding (4) - prefix (2) - checkbox (4) - issue # (varies) = available for title
+		// Calculate available width for title based on actual modal width
+		// Account for modal padding/borders (4 chars)
 		// For GitHub: "  > [x] #123: " = 2 + 1 + 4 + 1 + up to 5 for issue # + 2 = ~15 chars overhead
 		// For Asana: "  > [x] " = 2 + 1 + 4 + 1 = 8 chars overhead
-		modalWidth := s.PreferredWidth()
+		modalWidth := s.availableWidth
+		if modalWidth == 0 {
+			modalWidth = s.PreferredWidth() // Fallback if SetSize() wasn't called
+		}
 		availableWidth := modalWidth - 4 // Account for modal padding/borders
 
 		// Truncate long titles based on available width
@@ -253,26 +265,28 @@ func (s *ImportIssuesState) SetError(err string) {
 // NewImportIssuesState creates a new ImportIssuesState in loading state for GitHub issues.
 func NewImportIssuesState(repoPath, repoName string) *ImportIssuesState {
 	return &ImportIssuesState{
-		RepoPath:      repoPath,
-		RepoName:      repoName,
-		Loading:       true,
-		SelectedIndex: 0,
-		ScrollOffset:  0,
-		maxVisible:    IssuesModalMaxVisible,
-		Source:        "github",
+		RepoPath:       repoPath,
+		RepoName:       repoName,
+		Loading:        true,
+		SelectedIndex:  0,
+		ScrollOffset:   0,
+		maxVisible:     IssuesModalMaxVisible,
+		Source:         "github",
+		availableWidth: ModalWidthWide, // Default, will be updated by SetSize()
 	}
 }
 
 // NewImportIssuesStateWithSource creates a new ImportIssuesState for a specific source.
 func NewImportIssuesStateWithSource(repoPath, repoName, source, projectID string) *ImportIssuesState {
 	return &ImportIssuesState{
-		RepoPath:      repoPath,
-		RepoName:      repoName,
-		Loading:       true,
-		SelectedIndex: 0,
-		ScrollOffset:  0,
-		maxVisible:    IssuesModalMaxVisible,
-		Source:        source,
-		ProjectID:     projectID,
+		RepoPath:       repoPath,
+		RepoName:       repoName,
+		Loading:        true,
+		SelectedIndex:  0,
+		ScrollOffset:   0,
+		maxVisible:     IssuesModalMaxVisible,
+		Source:         source,
+		ProjectID:      projectID,
+		availableWidth: ModalWidthWide, // Default, will be updated by SetSize()
 	}
 }
