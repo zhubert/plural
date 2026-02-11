@@ -2,12 +2,14 @@
 package process
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/zhubert/plural/internal/logger"
 )
@@ -23,13 +25,19 @@ func ContainerCLIInstalled() bool {
 	return err == nil
 }
 
+// containerCheckTimeout is the maximum time to wait for container CLI commands.
+const containerCheckTimeout = 5 * time.Second
+
 // ContainerSystemRunning returns true if the container system service is active.
-// Returns false if the CLI is not installed or the system is not running.
+// Returns false if the CLI is not installed, the system is not running, or the
+// check times out (5s deadline to avoid blocking the UI).
 func ContainerSystemRunning() bool {
 	if !ContainerCLIInstalled() {
 		return false
 	}
-	cmd := exec.Command("container", "system", "info")
+	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "container", "system", "info")
 	return cmd.Run() == nil
 }
 
@@ -39,7 +47,9 @@ func ContainerImageExists(image string) bool {
 	if !ContainerCLIInstalled() {
 		return false
 	}
-	cmd := exec.Command("container", "image", "inspect", image)
+	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "container", "image", "inspect", image)
 	return cmd.Run() == nil
 }
 

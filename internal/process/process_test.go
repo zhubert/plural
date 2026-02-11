@@ -169,51 +169,20 @@ func TestCheckContainerPrerequisites_NoCLI(t *testing.T) {
 	}
 }
 
-func TestCheckContainerPrerequisites_AllPass(t *testing.T) {
-	// This tests the logic with a mock auth checker that returns true.
-	// The CLI/system/image checks depend on actual system state, so we only
-	// verify the authChecker is called when all preceding checks pass.
-	called := false
-	authChecker := func() bool {
-		called = true
-		return true
-	}
-
-	// With empty PATH, CLI won't be found so authChecker won't be called
+func TestCheckContainerPrerequisites_AuthCheckerNotCalledWhenCLIMissing(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
-	result := CheckContainerPrerequisites("plural-claude", authChecker)
 
-	if called {
+	authCalled := false
+	result := CheckContainerPrerequisites("plural-claude", func() bool {
+		authCalled = true
+		return true
+	})
+
+	if authCalled {
 		t.Error("authChecker should not be called when CLI is not installed")
 	}
 	if result.AuthAvailable {
 		t.Error("AuthAvailable should be false when short-circuited")
-	}
-}
-
-func TestCheckContainerPrerequisites_ShortCircuits(t *testing.T) {
-	// Verify that auth checker is never called when earlier checks fail
-	tests := []struct {
-		name string
-		path string // PATH to use
-	}{
-		{"no CLI", "/nonexistent"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PATH", tt.path)
-
-			authCalled := false
-			CheckContainerPrerequisites("plural-claude", func() bool {
-				authCalled = true
-				return true
-			})
-
-			if authCalled {
-				t.Error("authChecker should not be called when earlier checks fail")
-			}
-		})
 	}
 }
 
