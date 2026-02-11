@@ -345,6 +345,78 @@ func TestAsanaProvider_FetchProjects_WorkspacesAPIError(t *testing.T) {
 	}
 }
 
+func TestAsanaProvider_FetchProjects_Pagination(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		switch r.URL.Path {
+		case "/workspaces":
+			json.NewEncoder(w).Encode(asanaWorkspacesResponse{
+				Data: []asanaWorkspace{
+					{GID: "ws1", Name: "My Workspace"},
+				},
+			})
+		case "/workspaces/ws1/projects":
+			offset := r.URL.Query().Get("offset")
+			requestCount++
+			if offset == "" {
+				// First page
+				json.NewEncoder(w).Encode(asanaProjectsResponse{
+					Data: []asanaProject{
+						{GID: "p1", Name: "Project 1"},
+						{GID: "p2", Name: "Project 2"},
+					},
+					NextPage: &asanaNextPage{
+						Offset: "page2token",
+					},
+				})
+			} else if offset == "page2token" {
+				// Second page
+				json.NewEncoder(w).Encode(asanaProjectsResponse{
+					Data: []asanaProject{
+						{GID: "p3", Name: "Project 3"},
+					},
+					NextPage: nil, // No more pages
+				})
+			} else {
+				http.Error(w, "unexpected offset", http.StatusBadRequest)
+			}
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	origPAT := os.Getenv(asanaPATEnvVar)
+	defer os.Setenv(asanaPATEnvVar, origPAT)
+	os.Setenv(asanaPATEnvVar, "test-pat")
+
+	p := NewAsanaProviderWithClient(nil, server.Client(), server.URL)
+
+	ctx := context.Background()
+	projects, err := p.FetchProjects(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(projects) != 3 {
+		t.Fatalf("expected 3 projects across 2 pages, got %d", len(projects))
+	}
+	if projects[0].Name != "Project 1" {
+		t.Errorf("expected 'Project 1', got %q", projects[0].Name)
+	}
+	if projects[1].Name != "Project 2" {
+		t.Errorf("expected 'Project 2', got %q", projects[1].Name)
+	}
+	if projects[2].Name != "Project 3" {
+		t.Errorf("expected 'Project 3', got %q", projects[2].Name)
+	}
+	// Should have made 2 requests for projects (page 1 + page 2)
+	if requestCount != 2 {
+		t.Errorf("expected 2 project requests, got %d", requestCount)
+	}
+}
+
 func TestAsanaProvider_FetchProjects_ProjectsAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

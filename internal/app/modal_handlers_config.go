@@ -326,6 +326,13 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.modal.Hide()
 		return m, nil
 	case keys.Enter:
+		// When focused on the Asana project selector, Enter selects a project
+		// rather than saving and closing the modal
+		if state.IsAsanaFocused() {
+			modal, cmd := m.modal.Update(msg)
+			m.modal = modal
+			return m, cmd
+		}
 		// Save all settings
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
