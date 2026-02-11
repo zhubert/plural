@@ -2,6 +2,7 @@
 package process
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -186,6 +187,63 @@ type OrphanedContainer struct {
 	Name string // Container name (e.g., "plural-abc123")
 }
 
+// listContainerNames returns a list of all container names.
+// Supports both Docker/Podman (Go template format) and Apple container CLI (JSON format).
+func listContainerNames() ([]string, error) {
+	log := logger.WithComponent("process")
+
+	// Try Docker/Podman format first (Go templates)
+	cmd := exec.Command("container", "ls", "-a", "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err == nil {
+		// Success with template format
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		var names []string
+		for _, line := range lines {
+			if name := strings.TrimSpace(line); name != "" {
+				names = append(names, name)
+			}
+		}
+		return names, nil
+	}
+
+	// Check if it's exit code 64 (invalid format) - try JSON format for Apple container CLI
+	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 64 {
+		log.Debug("template format not supported, trying JSON format")
+		return listContainerNamesJSON()
+	}
+
+	// Some other error
+	return nil, err
+}
+
+// listContainerNamesJSON uses JSON format to list container names (Apple container CLI).
+func listContainerNamesJSON() ([]string, error) {
+	cmd := exec.Command("container", "ls", "-a", "--format", "json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse JSON array of containers
+	var containers []map[string]interface{}
+	if err := json.Unmarshal(output, &containers); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON output: %w", err)
+	}
+
+	var names []string
+	for _, container := range containers {
+		// Extract ID from configuration.id field
+		if config, ok := container["configuration"].(map[string]interface{}); ok {
+			if id, ok := config["id"].(string); ok && id != "" {
+				names = append(names, id)
+			}
+		}
+	}
+
+	return names, nil
+}
+
 // FindOrphanedContainers finds containers named plural-* whose session ID is not in knownSessionIDs.
 // Returns an empty list (not an error) if the container CLI is not available.
 func FindOrphanedContainers(knownSessionIDs map[string]bool) ([]OrphanedContainer, error) {
@@ -197,16 +255,14 @@ func FindOrphanedContainers(knownSessionIDs map[string]bool) ([]OrphanedContaine
 		return nil, nil
 	}
 
-	cmd := exec.Command("container", "ls", "-a", "--format", "{{.Names}}")
-	output, err := cmd.Output()
+	// Get list of container names
+	names, err := listContainerNames()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
 
 	var orphans []OrphanedContainer
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, name := range lines {
-		name = strings.TrimSpace(name)
+	for _, name := range names {
 		if name == "" {
 			continue
 		}

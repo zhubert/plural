@@ -145,7 +145,7 @@ var ShortcutRegistry = []Shortcut{
 	{
 		Key:             keys.CtrlE,
 		DisplayKey:      "ctrl-e",
-		Description:     "Open terminal in worktree",
+		Description:     "Open terminal (in container if containerized)",
 		Category:        CategoryGit,
 		RequiresSession: true,
 		Handler:         shortcutOpenTerminal,
@@ -484,8 +484,8 @@ func shortcutOpenTerminal(m *Model) (tea.Model, tea.Cmd) {
 	if sess == nil {
 		return m, nil
 	}
-	logger.WithSession(sess.ID).Debug("opening terminal at worktree", "path", sess.WorkTree)
-	return m, openTerminalAtPath(sess.WorkTree)
+	logger.WithSession(sess.ID).Debug("opening terminal for session", "path", sess.WorkTree, "containerized", sess.Containerized)
+	return m, openTerminalForSession(sess)
 }
 
 func shortcutViewChanges(m *Model) (tea.Model, tea.Cmd) {
@@ -795,6 +795,107 @@ func (m *Model) endPreview() (tea.Model, tea.Cmd) {
 // TerminalErrorMsg is sent when opening a terminal fails
 type TerminalErrorMsg struct {
 	Error string
+}
+
+// openTerminalForSession returns a command that opens a terminal for the given session.
+// If the session is containerized, it opens an interactive shell inside the container.
+// Otherwise, it opens a terminal window at the worktree path.
+func openTerminalForSession(sess *config.Session) tea.Cmd {
+	if sess.Containerized {
+		return openTerminalInContainer(sess)
+	}
+	return openTerminalAtPath(sess.WorkTree)
+}
+
+// openTerminalInContainer returns a command that opens a terminal with an interactive
+// shell inside the session's container. The container name follows the pattern "plural-<session-id>".
+func openTerminalInContainer(sess *config.Session) tea.Cmd {
+	return func() tea.Msg {
+		log := logger.WithSession(sess.ID)
+		containerName := "plural-" + sess.ID
+		log.Debug("opening terminal in container", "container", containerName)
+
+		// First, verify the container is actually running
+		checkCmd := exec.Command("container", "list")
+		output, err := checkCmd.Output()
+		if err != nil {
+			errMsg := fmt.Sprintf("Failed to check running containers: %v", err)
+			log.Error("failed to list containers", "error", err)
+			return TerminalErrorMsg{Error: errMsg}
+		}
+
+		// Check if our container is in the list
+		if !strings.Contains(string(output), containerName) {
+			errMsg := fmt.Sprintf("Container not running. Session must be active (send a message first).")
+			log.Debug("container not found in running containers", "container", containerName)
+			return TerminalErrorMsg{Error: errMsg}
+		}
+
+		switch runtime.GOOS {
+		case "darwin":
+			// macOS: use AppleScript to open Terminal.app with container exec command
+			// The container exec command will drop us into the /workspace directory
+			escapedContainer := strings.ReplaceAll(containerName, `\`, `\\`)
+			escapedContainer = strings.ReplaceAll(escapedContainer, `"`, `\"`)
+			script := fmt.Sprintf(`tell application "Terminal"
+	do script "container exec -it %s /bin/sh"
+	activate
+end tell`, escapedContainer)
+			cmd := exec.Command("osascript", "-e", script)
+			log.Debug("running AppleScript to open Terminal with container exec")
+
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				errMsg := fmt.Sprintf("Failed to open terminal in container: %v", err)
+				if len(output) > 0 {
+					errMsg = fmt.Sprintf("Failed to open terminal in container: %s", strings.TrimSpace(string(output)))
+				}
+				log.Error("failed to open terminal in container", "error", errMsg)
+				return TerminalErrorMsg{Error: errMsg}
+			}
+			log.Debug("terminal opened successfully in container")
+			return nil
+
+		case "linux":
+			// Linux: try common terminal emulators with container exec command
+			containerCmd := fmt.Sprintf("container exec -it %s /bin/sh", containerName)
+			terminals := []struct {
+				name string
+				args []string
+			}{
+				{"gnome-terminal", []string{"--", "sh", "-c", containerCmd}},
+				{"konsole", []string{"-e", containerCmd}},
+				{"xfce4-terminal", []string{"-e", containerCmd}},
+				{"xterm", []string{"-e", containerCmd}},
+			}
+
+			var cmd *exec.Cmd
+			for _, term := range terminals {
+				if _, err := exec.LookPath(term.name); err == nil {
+					cmd = exec.Command(term.name, term.args...)
+					break
+				}
+			}
+
+			if cmd == nil {
+				// Fallback: try x-terminal-emulator
+				cmd = exec.Command("x-terminal-emulator", "-e", containerCmd)
+			}
+
+			if err := cmd.Start(); err != nil {
+				errMsg := fmt.Sprintf("Failed to open terminal in container: %v", err)
+				log.Error("failed to open terminal in container", "error", errMsg)
+				return TerminalErrorMsg{Error: errMsg}
+			}
+			log.Debug("terminal opened successfully in container")
+			return nil
+
+		default:
+			errMsg := fmt.Sprintf("Unsupported OS for terminal: %s", runtime.GOOS)
+			log.Error("unsupported OS for terminal", "os", runtime.GOOS)
+			return TerminalErrorMsg{Error: errMsg}
+		}
+	}
 }
 
 // openTerminalAtPath returns a command that opens a new terminal window at the given path.

@@ -97,6 +97,44 @@ When a session's work is ready, merge directly to your main branch or create a G
 
 Preview a session's branch in your main repository so dev servers pick up the changes without merging. The header shows a `[PREVIEW]` indicator while active.
 
+### Container Mode (Sandboxed Execution)
+
+**Apple Silicon only.** Run Claude CLI inside an isolated container for defense-in-depth security. The container serves as the sandbox, eliminating the MCP permission system entirely—Claude can freely use tools within the container without prompting.
+
+**Requirements:**
+- Apple Silicon Mac (arm64)
+- [Apple's lightweight container runtime](https://apple.github.io/container/documentation/):
+  ```bash
+  brew install container
+  ```
+- Authentication via one of:
+  - `ANTHROPIC_API_KEY` environment variable
+  - API key in macOS keychain (`anthropic_api_key`)
+  - Long-lived OAuth token from `claude setup-token`
+
+**How to use:**
+- Check the "Run in container" box when creating a new session
+- Forked sessions inherit their parent's container setting
+- Sessions show a `[CONTAINER]` indicator in the header
+
+**Tradeoffs:**
+- ✅ No permission prompts for tool use
+- ✅ Filesystem isolation from your host
+- ❌ External MCP servers not supported
+- ⚠️ Containers are defense-in-depth, not a complete security boundary
+
+**Building the default image:**
+```bash
+container build -t plural-claude .
+```
+
+The container image includes Node.js, git, and Claude CLI. You can customize the image name in Plural's settings.
+
+**Debugging containerized sessions:**
+- Press `ctrl-e` to open a terminal inside the container (automatically detects containerized sessions)
+- The terminal opens at `/workspace` which is the worktree directory
+- Use this for troubleshooting container issues, inspecting Claude's environment, or running commands manually
+
 ### Rich Chat Features
 
 - **Image pasting**: Share screenshots and diagrams directly with Claude
