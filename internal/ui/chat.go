@@ -957,6 +957,12 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	sb.WriteString(questionStyle.Render(q.Question))
 	sb.WriteString("\n\n")
 
+	// Calculate box width (capped at max width for readability)
+	boxWidth := wrapWidth
+	if boxWidth > OverlayBoxMaxWidth {
+		boxWidth = OverlayBoxMaxWidth
+	}
+
 	// Render options
 	for i, opt := range q.Options {
 		isSelected := i == c.question.SelectedOption
@@ -980,8 +986,54 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 		// Description if present
 		if opt.Description != "" {
 			descStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
-			sb.WriteString(" ")
-			sb.WriteString(descStyle.Render("- " + opt.Description))
+
+			// Calculate how much space is available on the current line
+			// Number indicator: 4 chars ("[1] " or " 1. ")
+			// Label width (visual)
+			// Separator: " - " = 3 chars
+			labelWidth := lipgloss.Width(opt.Label)
+			usedWidth := 4 + labelWidth + 3 // "[1] " + label + " - "
+			availableOnCurrentLine := boxWidth - OverlayBoxPadding - usedWidth
+
+			// If there's enough space (at least 30 chars) for description on same line, use it
+			// Otherwise, put description on next line(s) with indentation
+			if availableOnCurrentLine >= 30 {
+				// Description fits on same line
+				sb.WriteString(" ")
+				sb.WriteString(descStyle.Render("- "))
+
+				// Wrap description to available width
+				wrapped := wrapText(opt.Description, availableOnCurrentLine)
+				lines := strings.Split(wrapped, "\n")
+				for j, line := range lines {
+					if j > 0 {
+						// Indent continuation lines
+						indent := strings.Repeat(" ", usedWidth)
+						sb.WriteString("\n")
+						sb.WriteString(indent)
+					}
+					sb.WriteString(descStyle.Render(line))
+				}
+			} else {
+				// Put description on next line(s)
+				// Indent by number indicator width only (4 chars: "[1] " or " 1. ")
+				indentWidth := 4
+				indent := strings.Repeat(" ", indentWidth)
+
+				// Calculate wrap width for description (full box width minus padding and indent)
+				descWidth := boxWidth - OverlayBoxPadding - indentWidth
+				if descWidth < MinWrapWidth {
+					descWidth = MinWrapWidth
+				}
+
+				wrapped := wrapText(opt.Description, descWidth)
+				lines := strings.Split(wrapped, "\n")
+				for _, line := range lines {
+					sb.WriteString("\n")
+					sb.WriteString(indent)
+					sb.WriteString(descStyle.Render(line))
+				}
+			}
 		}
 		sb.WriteString("\n")
 	}
@@ -1013,11 +1065,7 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	sb.WriteString(hintStyle.Render(" + "))
 	sb.WriteString(keyStyle.Render("enter"))
 
-	// Wrap in a box, capped at max width for readability
-	boxWidth := wrapWidth
-	if boxWidth > OverlayBoxMaxWidth {
-		boxWidth = OverlayBoxMaxWidth
-	}
+	// Wrap in a box with the calculated width
 	return QuestionBoxStyle.Width(boxWidth).Render(sb.String())
 }
 

@@ -4815,3 +4815,79 @@ func TestChat_RenderStreamingStatus_WithSubagent(t *testing.T) {
 		t.Error("Status with subagent should contain 'working'")
 	}
 }
+
+// TestQuestionPrompt_TextWrapping verifies that long option descriptions wrap correctly
+func TestQuestionPrompt_TextWrapping(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Create a question with a very long description that should wrap
+	questions := []mcp.Question{
+		{
+			Question: "How would you like to proceed?",
+			Header:   "Ruby setup",
+			Options: []mcp.QuestionOption{
+				{
+					Label:       "Show me the Gemfile changes only - I'll run bundle update myself",
+					Description: "I'll review the version changes you made and handle the bundle update in my properly configured environment",
+				},
+				{
+					Label:       "Continue",
+					Description: "my environment should work - I have the right Ruby version set up, something else might be wrong. Try alternative approaches to run bundle update",
+				},
+			},
+		},
+	}
+
+	chat.SetPendingQuestion(questions)
+
+	// Render the question prompt with a specific width
+	wrapWidth := 80
+	rendered := chat.renderQuestionPrompt(wrapWidth)
+
+	// Verify the output is not empty
+	if rendered == "" {
+		t.Fatal("Rendered question prompt should not be empty")
+	}
+
+	// Verify that the rendered output contains the question header
+	if !strings.Contains(rendered, "Ruby setup") {
+		t.Error("Rendered output should contain the question header")
+	}
+
+	// Verify that the rendered output contains the question text
+	if !strings.Contains(rendered, "How would you like to proceed?") {
+		t.Error("Rendered output should contain the question text")
+	}
+
+	// Verify that the rendered output contains option labels
+	if !strings.Contains(rendered, "Show me the Gemfile changes only") {
+		t.Error("Rendered output should contain the first option label")
+	}
+	if !strings.Contains(rendered, "Continue") {
+		t.Error("Rendered output should contain the second option label")
+	}
+
+	// Log the rendered output for inspection
+	t.Logf("Rendered output:\n%s", rendered)
+
+	// Verify that descriptions are present (accounting for ANSI codes, check for partial strings)
+	if !strings.Contains(rendered, "review") {
+		t.Error("Rendered output should contain 'review' from the first description")
+	}
+	if !strings.Contains(rendered, "environment should work") && !strings.Contains(rendered, "environment") {
+		t.Error("Rendered output should contain parts of the second description")
+	}
+
+	// Verify no single line exceeds the box max width
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		// Use visual width (accounting for ANSI codes)
+		lineWidth := lipgloss.Width(line)
+		// Allow a small buffer for box borders and padding
+		maxLineWidth := OverlayBoxMaxWidth + 10
+		if lineWidth > maxLineWidth {
+			t.Errorf("Line %d exceeds maximum width: got %d, max %d\nLine: %q", i, lineWidth, maxLineWidth, line)
+		}
+	}
+}
