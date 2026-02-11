@@ -197,7 +197,9 @@ func TestFindOrphanedContainers_NoContainerCLI(t *testing.T) {
 }
 
 func TestListContainerNamesJSON(t *testing.T) {
-	// Test JSON parsing with sample Apple container CLI output
+	// NOTE: This test duplicates the parsing logic from listContainerNamesJSON
+	// rather than testing the function directly, because listContainerNamesJSON
+	// depends on exec.Command. If the implementation changes, this test may need updating.
 	tests := []struct {
 		name     string
 		json     string
@@ -225,13 +227,13 @@ func TestListContainerNamesJSON(t *testing.T) {
 		{
 			name: "empty array",
 			json: `[]`,
-			wantIDs: []string{},
+			wantIDs: nil, // Consistent with actual implementation returning nil for empty
 			wantErr: false,
 		},
 		{
 			name: "missing id field",
 			json: `[{"configuration":{"other":"value"}}]`,
-			wantIDs: []string{},
+			wantIDs: nil,
 			wantErr: false,
 		},
 		{
@@ -244,7 +246,7 @@ func TestListContainerNamesJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Mock the JSON unmarshal by directly testing the logic
+			// Test the JSON parsing logic directly
 			var containers []map[string]interface{}
 			err := json.Unmarshal([]byte(tt.json), &containers)
 
