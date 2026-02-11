@@ -295,7 +295,7 @@ func (s *SettingsState) Render() string {
 	prefixDesc := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		Italic(true).
-		Width(70).
+		Width(ModalWidthWide - 10).
 		Render("Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")")
 
 	prefixInputStyle := lipgloss.NewStyle()
@@ -368,7 +368,7 @@ func (s *SettingsState) Render() string {
 			asanaDesc := lipgloss.NewStyle().
 				Foreground(ColorTextMuted).
 				Italic(true).
-				Width(70).
+				Width(ModalWidthWide - 10).
 				Render("Links this repo to an Asana project for task import")
 
 			asanaInputStyle := lipgloss.NewStyle()
@@ -590,7 +590,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	prefixInput := textinput.New()
 	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
 	prefixInput.CharLimit = BranchPrefixCharLimit
-	prefixInput.SetWidth(ModalInputWidth)
+	prefixInput.SetWidth(ModalWidthWide - 10)
 	prefixInput.SetValue(currentBranchPrefix)
 
 	// Clamp default repo index
@@ -613,7 +613,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	asanaInput := textinput.New()
 	asanaInput.Placeholder = "e.g., 1234567890123 (leave empty to disable)"
 	asanaInput.CharLimit = BranchPrefixCharLimit
-	asanaInput.SetWidth(ModalInputWidth)
+	asanaInput.SetWidth(ModalWidthWide - 10)
 	asanaInput.SetValue(initialAsana)
 
 	return &SettingsState{
