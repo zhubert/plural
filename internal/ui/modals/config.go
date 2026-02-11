@@ -240,8 +240,13 @@ type SettingsState struct {
 
 	BranchPrefixInput    textinput.Model
 	NotificationsEnabled bool
+
+	// Container image (only shown when ContainersSupported)
+	ContainerImageInput textinput.Model
+	ContainersSupported bool // Whether the host supports Apple containers (darwin/arm64)
+
 	AsanaPATSet          bool // Whether ASANA_PAT env var is set
-	Focus                int  // 0 = theme, 1 = branch prefix, 2 = notifications, 3 = repo selector, [4 = asana if PAT set]
+	Focus                int  // 0=theme, 1=branch prefix, 2=notifications, [3=container image if supported], then repo selector, asana
 
 	// Multi-repo support
 	Repos             []string          // All registered repos
@@ -267,7 +272,7 @@ func (s *SettingsState) Help() string {
 	if s.Focus == 0 {
 		return "Tab: next field  Left/Right: change theme  Enter: save  Esc: cancel"
 	}
-	if s.Focus == 3 && len(s.Repos) > 0 {
+	if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 && s.AsanaPATSet {
 		return "Tab: next field  Left/Right: switch repo  Enter: save  Esc: cancel"
 	}
 	if s.Focus == s.asanaFocusIndex() && s.AsanaPATSet {
@@ -347,6 +352,31 @@ func (s *SettingsState) Render() string {
 		Render("Notify when Claude finishes while app is in background")
 	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
 
+	// Container image field (only on Apple Silicon) - collected for later append
+	var containerParts []string
+	if s.ContainersSupported {
+		containerLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Container image:")
+
+		containerDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(ModalWidthWide - 10).
+			Render("Image name used for container mode sessions")
+
+		containerInputStyle := lipgloss.NewStyle()
+		if s.Focus == s.containerImageFocusIndex() {
+			containerInputStyle = containerInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			containerInputStyle = containerInputStyle.PaddingLeft(2)
+		}
+		containerView := containerInputStyle.Render(s.ContainerImageInput.View())
+
+		containerParts = []string{containerLabel, containerDesc, containerView}
+	}
+
 	// Per-repo settings (shown when repos exist and there's something to configure)
 	var repoSections []string
 	if len(s.Repos) > 0 && s.AsanaPATSet {
@@ -360,7 +390,7 @@ func (s *SettingsState) Render() string {
 		// Repo selector
 		repoName := filepath.Base(s.selectedRepoPath())
 		selectorStyle := lipgloss.NewStyle()
-		if s.Focus == 3 {
+		if s.Focus == s.repoSelectorFocusIndex() {
 			selectorStyle = selectorStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			selectorStyle = selectorStyle.PaddingLeft(2)
@@ -404,6 +434,7 @@ func (s *SettingsState) Render() string {
 	help := ModalHelpStyle.Render(s.Help())
 
 	parts := []string{title, themeLabel, themeView, prefixLabel, prefixDesc, prefixView, notifLabel, notifView}
+	parts = append(parts, containerParts...)
 	for _, section := range repoSections {
 		parts = append(parts, section)
 	}
@@ -514,16 +545,35 @@ func (s *SettingsState) getFilteredAsanaProjects() []AsanaProjectOption {
 
 // numFields returns the number of focusable fields in the settings modal.
 func (s *SettingsState) numFields() int {
-	if len(s.Repos) == 0 || !s.AsanaPATSet {
-		return 3 // theme, branch prefix, notifications
+	base := 3 // theme, branch prefix, notifications
+	if s.ContainersSupported {
+		base++ // container image
 	}
-	return 5 // theme, branch prefix, notifications, repo selector, asana
+	if len(s.Repos) > 0 && s.AsanaPATSet {
+		base += 2 // repo selector, asana
+	}
+	return base
+}
+
+// containerImageFocusIndex returns the focus index for the container image field.
+// Only meaningful when ContainersSupported is true.
+func (s *SettingsState) containerImageFocusIndex() int {
+	return 3 // theme=0, branch prefix=1, notifications=2, container image=3
+}
+
+// repoSelectorFocusIndex returns the focus index for the repo selector field.
+func (s *SettingsState) repoSelectorFocusIndex() int {
+	base := 3 // theme, branch prefix, notifications
+	if s.ContainersSupported {
+		base++ // container image shifts it up
+	}
+	return base
 }
 
 // asanaFocusIndex returns the focus index for the Asana project field.
 // Only meaningful when AsanaPATSet is true.
 func (s *SettingsState) asanaFocusIndex() int {
-	return 4
+	return s.repoSelectorFocusIndex() + 1
 }
 
 // selectedRepoPath returns the path of the currently selected repo.
@@ -634,7 +684,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 			return s, nil
 		}
-		if s.Focus == 3 && len(s.Repos) > 0 {
+		if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 && s.AsanaPATSet {
 			s.switchRepo(-1)
 			return s, nil
 		}
@@ -645,7 +695,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 			return s, nil
 		}
-		if s.Focus == 3 && len(s.Repos) > 0 {
+		if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 && s.AsanaPATSet {
 			s.switchRepo(1)
 			return s, nil
 		}
@@ -655,6 +705,13 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if s.Focus == 1 {
 		var cmd tea.Cmd
 		s.BranchPrefixInput, cmd = s.BranchPrefixInput.Update(msg)
+		return s, cmd
+	}
+
+	// Handle text input updates when focused on container image
+	if s.ContainersSupported && s.Focus == s.containerImageFocusIndex() {
+		var cmd tea.Cmd
+		s.ContainerImageInput, cmd = s.ContainerImageInput.Update(msg)
 		return s, cmd
 	}
 
@@ -689,15 +746,19 @@ func (s *SettingsState) asanaNavigate(delta int) {
 
 // updateInputFocus manages focus state for text inputs based on current Focus index.
 func (s *SettingsState) updateInputFocus() {
-	if s.Focus == 1 {
+	// Blur all first
+	s.BranchPrefixInput.Blur()
+	s.ContainerImageInput.Blur()
+	s.AsanaSearchInput.Blur()
+
+	// Focus the active one
+	switch {
+	case s.Focus == 1:
 		s.BranchPrefixInput.Focus()
-		s.AsanaSearchInput.Blur()
-	} else if s.Focus == s.asanaFocusIndex() {
+	case s.ContainersSupported && s.Focus == s.containerImageFocusIndex():
+		s.ContainerImageInput.Focus()
+	case s.AsanaPATSet && s.Focus == s.asanaFocusIndex():
 		s.AsanaSearchInput.Focus()
-		s.BranchPrefixInput.Blur()
-	} else {
-		s.BranchPrefixInput.Blur()
-		s.AsanaSearchInput.Blur()
 	}
 }
 
@@ -725,6 +786,11 @@ func (s *SettingsState) GetRepoPath() string {
 func (s *SettingsState) GetAsanaProject() string {
 	repo := s.selectedRepoPath()
 	return s.AsanaSelectedGIDs[repo]
+}
+
+// GetContainerImage returns the container image name, or empty string if unchanged/empty.
+func (s *SettingsState) GetContainerImage() string {
+	return strings.TrimSpace(s.ContainerImageInput.Value())
 }
 
 // GetSelectedTheme returns the selected theme key.
@@ -769,7 +835,8 @@ func (s *SettingsState) SetAsanaProjectsError(errMsg string) {
 func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme string,
 	currentBranchPrefix string, notificationsEnabled bool, repos []string,
 	asanaProjects map[string]string,
-	defaultRepoIndex int, asanaPATSet bool) *SettingsState {
+	defaultRepoIndex int, asanaPATSet bool,
+	containersSupported bool, containerImage string) *SettingsState {
 
 	// Find the index of the current theme
 	selectedThemeIndex := 0
@@ -785,6 +852,12 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	prefixInput.CharLimit = BranchPrefixCharLimit
 	prefixInput.SetWidth(ModalWidthWide - 10)
 	prefixInput.SetValue(currentBranchPrefix)
+
+	containerImageInput := textinput.New()
+	containerImageInput.Placeholder = "plural-claude"
+	containerImageInput.CharLimit = 100
+	containerImageInput.SetWidth(ModalWidthWide - 10)
+	containerImageInput.SetValue(containerImage)
 
 	// Clamp default repo index
 	if defaultRepoIndex < 0 || (len(repos) > 0 && defaultRepoIndex >= len(repos)) {
@@ -809,6 +882,8 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		OriginalTheme:        currentTheme,
 		BranchPrefixInput:    prefixInput,
 		NotificationsEnabled: notificationsEnabled,
+		ContainerImageInput:  containerImageInput,
+		ContainersSupported:  containersSupported,
 		AsanaPATSet:          asanaPATSet,
 		Focus:                0,
 		Repos:                repos,

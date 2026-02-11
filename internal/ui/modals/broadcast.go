@@ -126,7 +126,7 @@ func (s *BroadcastState) Render() string {
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Width(50).
-			Render("Run Claude CLI inside Apple containers with --dangerously-skip-permissions")
+			Render("Run in sandboxed containers (no permission prompts)")
 		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		parts = append(parts, containerLabel, containerView)
@@ -135,9 +135,9 @@ func (s *BroadcastState) Render() string {
 			authWarning := lipgloss.NewStyle().
 				Foreground(ColorWarning).
 				Bold(true).
-				Width(50).
+				Width(55).
 				PaddingLeft(2).
-				Render("Requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var")
+				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
 	}

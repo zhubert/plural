@@ -12,6 +12,9 @@ import (
 // NewSessionMaxVisibleRepos is the maximum number of repos visible before scrolling
 const NewSessionMaxVisibleRepos = 10
 
+// ContainerAuthHelp is the user-facing message explaining how to set up auth for container mode.
+const ContainerAuthHelp = "Set ANTHROPIC_API_KEY env var, run 'claude setup-token', or add 'anthropic_api_key' to macOS keychain"
+
 // =============================================================================
 // NewSessionState - State for the New Session modal
 // =============================================================================
@@ -109,7 +112,7 @@ func (s *NewSessionState) Render() string {
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Width(50).
-			Render("Run Claude CLI inside an Apple container with --dangerously-skip-permissions")
+			Render("Run in a sandboxed container (no permission prompts)")
 		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		containerWarning := lipgloss.NewStyle().
@@ -125,9 +128,9 @@ func (s *NewSessionState) Render() string {
 			authWarning := lipgloss.NewStyle().
 				Foreground(ColorWarning).
 				Bold(true).
-				Width(50).
+				Width(55).
 				PaddingLeft(2).
-				Render("Requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var")
+				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
 	}
@@ -401,7 +404,7 @@ func (s *ForkSessionState) Render() string {
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Width(50).
-			Render("Run Claude CLI inside an Apple container with --dangerously-skip-permissions")
+			Render("Run in a sandboxed container (no permission prompts)")
 		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		parts = append(parts, containerLabel, containerView)
@@ -410,9 +413,9 @@ func (s *ForkSessionState) Render() string {
 			authWarning := lipgloss.NewStyle().
 				Foreground(ColorWarning).
 				Bold(true).
-				Width(50).
+				Width(55).
 				PaddingLeft(2).
-				Render("Requires ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN env var")
+				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
 	}

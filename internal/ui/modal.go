@@ -58,8 +58,10 @@ type (
 	NewWorkspaceState        = modals.NewWorkspaceState
 	BulkActionState          = modals.BulkActionState
 	BulkAction               = modals.BulkAction
-	ContainerBuildState      = modals.ContainerBuildState
-	AsanaProjectOption       = modals.AsanaProjectOption
+	ContainerBuildState              = modals.ContainerBuildState
+	ContainerCLINotInstalledState    = modals.ContainerCLINotInstalledState
+	ContainerSystemNotRunningState   = modals.ContainerSystemNotRunningState
+	AsanaProjectOption               = modals.AsanaProjectOption
 )
 
 // Re-export broadcast action constants
@@ -67,6 +69,9 @@ const (
 	BroadcastActionSendPrompt = modals.BroadcastActionSendPrompt
 	BroadcastActionCreatePRs  = modals.BroadcastActionCreatePRs
 )
+
+// Re-export container constants
+const ContainerAuthHelp = modals.ContainerAuthHelp
 
 // Re-export bulk action constants
 const (
@@ -108,6 +113,7 @@ var (
 	NewNewWorkspaceState       = modals.NewNewWorkspaceState
 	NewRenameWorkspaceState    = modals.NewRenameWorkspaceState
 	NewContainerBuildState     = modals.NewContainerBuildState
+	ValidateContainerImage     = modals.ValidateContainerImage
 	NewBulkActionState         = modals.NewBulkActionState
 	SessionDisplayName             = modals.SessionDisplayName
 	TruncatePath                   = modals.TruncatePath
@@ -132,11 +138,13 @@ func themeKeysAndNames() ([]string, []string) {
 
 // NewSettingsState creates a new SettingsState with theme data injected automatically.
 func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, repos []string,
-	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool) *SettingsState {
+	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool,
+	containersSupported bool, containerImage string) *SettingsState {
 	themeKeys, themeDisplayNames := themeKeysAndNames()
 	currentTheme := string(CurrentThemeName())
 	return modals.NewSettingsState(themeKeys, themeDisplayNames, currentTheme,
-		currentBranchPrefix, notificationsEnabled, repos, asanaProjects, defaultRepoIndex, asanaPATSet)
+		currentBranchPrefix, notificationsEnabled, repos, asanaProjects, defaultRepoIndex, asanaPATSet,
+		containersSupported, containerImage)
 }
 
 // GetSelectedSettingsTheme returns the selected theme from a SettingsState as a ThemeName.

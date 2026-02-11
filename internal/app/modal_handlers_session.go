@@ -17,6 +17,34 @@ import (
 	"github.com/zhubert/plural/internal/ui"
 )
 
+// checkContainerPrerequisites runs all container prerequisite checks and shows the
+// appropriate modal/error for the first failing check. Returns true only if all
+// prerequisites pass and the caller should proceed with session creation.
+func (m *Model) checkContainerPrerequisites() bool {
+	prereqs := process.CheckContainerPrerequisites(
+		m.config.GetContainerImage(),
+		claude.ContainerAuthAvailable,
+	)
+
+	if !prereqs.CLIInstalled {
+		m.modal.Show(&ui.ContainerCLINotInstalledState{})
+		return false
+	}
+	if !prereqs.SystemRunning {
+		m.modal.Show(&ui.ContainerSystemNotRunningState{})
+		return false
+	}
+	if !prereqs.ImageExists {
+		m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
+		return false
+	}
+	if !prereqs.AuthAvailable {
+		m.modal.SetError("Container mode requires authentication: " + ui.ContainerAuthHelp)
+		return false
+	}
+	return true
+}
+
 // handleAddRepoModal handles key events for the Add Repository modal.
 func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.AddRepoState) (tea.Model, tea.Cmd) {
 	// If showing completion options, forward Enter to the modal to select the option
@@ -237,16 +265,9 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		if state.GetBaseIndex() == 1 {
 			basePoint = session.BasePointHead
 		}
-		// Check container auth and image BEFORE creating the session to avoid running
-		// without sandboxing when the user expects container protection
+		// Check container prerequisites BEFORE creating the session
 		if state.GetUseContainers() {
-			if !claude.ContainerAuthAvailable() {
-				m.modal.SetError("Container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
-				return m, nil
-			}
-			image := m.config.GetContainerImage()
-			if !process.ContainerImageExists(image) {
-				m.modal.Show(ui.NewContainerBuildState(image))
+			if !m.checkContainerPrerequisites() {
 				return m, nil
 			}
 		}
@@ -377,16 +398,9 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
-		// Check container auth and image BEFORE creating the session to avoid running
-		// without sandboxing when the user expects container protection
+		// Check container prerequisites BEFORE creating the session
 		if state.GetUseContainers() {
-			if !claude.ContainerAuthAvailable() {
-				m.modal.SetError("Container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
-				return m, nil
-			}
-			image := m.config.GetContainerImage()
-			if !process.ContainerImageExists(image) {
-				m.modal.Show(ui.NewContainerBuildState(image))
+			if !m.checkContainerPrerequisites() {
 				return m, nil
 			}
 		}
@@ -633,16 +647,9 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 			}
 		}
 
-		// Check container auth and image BEFORE creating sessions to avoid running
-		// without sandboxing when the user expects container protection
+		// Check container prerequisites BEFORE creating sessions
 		if state.GetUseContainers() {
-			if !claude.ContainerAuthAvailable() {
-				m.modal.SetError("Container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
-				return m, nil
-			}
-			image := m.config.GetContainerImage()
-			if !process.ContainerImageExists(image) {
-				m.modal.Show(ui.NewContainerBuildState(image))
+			if !m.checkContainerPrerequisites() {
 				return m, nil
 			}
 		}

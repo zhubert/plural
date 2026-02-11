@@ -9,6 +9,7 @@ import (
 
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -694,8 +695,18 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		t.Errorf("Expected focus 2, got %d", state.Focus)
 	}
 
-	// Without ASANA_PAT, per-repo section is hidden entirely
-	// (3 fields: theme, prefix, notifications) - wrap around to theme
+	// Without ASANA_PAT, per-repo section is hidden entirely.
+	// On Apple Silicon, container image field adds one more field.
+	if process.ContainersSupported() {
+		// Focus 3: container image
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 3 {
+			t.Errorf("Expected focus 3 (container image), got %d", state.Focus)
+		}
+	}
+
+	// Wrap around to theme
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 0 {
