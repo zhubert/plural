@@ -17,6 +17,7 @@ import (
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -87,6 +88,9 @@ type Model struct {
 
 	// Pending conflict resolution state (nil when inactive)
 	pendingConflict *PendingConflict
+
+	// Pending container action to execute after async prerequisite checks pass (nil when inactive)
+	pendingContainerAction func() (tea.Model, tea.Cmd)
 }
 
 // StartupModalMsg is sent on app start to trigger welcome/changelog modals
@@ -163,6 +167,11 @@ type ChangelogFetchedMsg struct {
 type AsanaProjectsFetchedMsg struct {
 	Projects []issues.AsanaProject
 	Error    error
+}
+
+// ContainerPrereqCheckMsg is sent when async container prerequisite checks complete
+type ContainerPrereqCheckMsg struct {
+	Result process.ContainerPrerequisites
 }
 
 // New creates a new app model
@@ -628,6 +637,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AsanaProjectsFetchedMsg:
 		return m.handleAsanaProjectsFetchedMsg(msg)
+
+	case ContainerPrereqCheckMsg:
+		return m.handleContainerPrereqCheckMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()

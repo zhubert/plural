@@ -337,7 +337,8 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
-		// Save container image if containers are supported
+		// Save container image if containers are supported.
+		// An empty string means "use default image" — validation is intentionally skipped for empty.
 		if state.ContainersSupported {
 			containerImage := state.GetContainerImage()
 			if containerImage != "" && !ui.ValidateContainerImage(containerImage) {

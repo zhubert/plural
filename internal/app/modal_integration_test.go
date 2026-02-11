@@ -9,7 +9,6 @@ import (
 
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
-	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -660,58 +659,122 @@ func TestSettingsModal_TabSwitchesFocus(t *testing.T) {
 }
 
 func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
-	cfg := testConfigWithSessions()
-	m := testModelWithSize(cfg, 120, 40)
-	m.sidebar.SetSessions(cfg.Sessions)
+	// Split into sub-tests with explicit containersSupported to avoid
+	// platform-dependent behavior (process.ContainersSupported() only
+	// returns true on Apple Silicon).
 
-	// Select a session so we have a repo path
-	m = sendKey(m, "enter")
-	m = sendKey(m, "tab") // Back to sidebar
+	t.Run("WithoutContainers", func(t *testing.T) {
+		cfg := testConfigWithSessions()
+		m := testModelWithSize(cfg, 120, 40)
+		m.sidebar.SetSessions(cfg.Sessions)
 
-	m = sendKey(m, ",")
-	state := m.modal.State.(*ui.SettingsState)
+		// Select a session so we have a repo path
+		m = sendKey(m, "enter")
+		m = sendKey(m, "tab") // Back to sidebar
 
-	// Verify we have repos (enables per-repo fields when PAT is set)
-	if len(state.Repos) == 0 {
-		t.Fatal("Expected Repos to be populated when session is active")
-	}
+		// Show settings modal directly with containersSupported=false
+		repos := cfg.GetRepos()
+		asanaProjects := make(map[string]string, len(repos))
+		for _, repo := range repos {
+			asanaProjects[repo] = cfg.GetAsanaProject(repo)
+		}
+		m.modal.Show(ui.NewSettingsState(
+			cfg.GetDefaultBranchPrefix(),
+			cfg.GetNotificationsEnabled(),
+			repos, asanaProjects, 0, false,
+			false, "", // containersSupported=false
+		))
 
-	// Focus 0: theme selector
-	if state.Focus != 0 {
-		t.Errorf("Expected initial focus 0, got %d", state.Focus)
-	}
+		state := m.modal.State.(*ui.SettingsState)
 
-	// Focus 1: branch prefix
-	m = sendKey(m, "tab")
-	state = m.modal.State.(*ui.SettingsState)
-	if state.Focus != 1 {
-		t.Errorf("Expected focus 1, got %d", state.Focus)
-	}
+		if len(state.Repos) == 0 {
+			t.Fatal("Expected Repos to be populated")
+		}
 
-	// Focus 2: notifications
-	m = sendKey(m, "tab")
-	state = m.modal.State.(*ui.SettingsState)
-	if state.Focus != 2 {
-		t.Errorf("Expected focus 2, got %d", state.Focus)
-	}
+		// Focus 0: theme selector
+		if state.Focus != 0 {
+			t.Errorf("Expected initial focus 0, got %d", state.Focus)
+		}
 
-	// Without ASANA_PAT, per-repo section is hidden entirely.
-	// On Apple Silicon, container image field adds one more field.
-	if process.ContainersSupported() {
+		// Focus 1: branch prefix
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 1 {
+			t.Errorf("Expected focus 1, got %d", state.Focus)
+		}
+
+		// Focus 2: notifications
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 2 {
+			t.Errorf("Expected focus 2, got %d", state.Focus)
+		}
+
+		// No container field — wrap around to theme
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 0 {
+			t.Errorf("Expected focus 0 after full cycle, got %d", state.Focus)
+		}
+	})
+
+	t.Run("WithContainers", func(t *testing.T) {
+		cfg := testConfigWithSessions()
+		m := testModelWithSize(cfg, 120, 40)
+		m.sidebar.SetSessions(cfg.Sessions)
+
+		// Select a session so we have a repo path
+		m = sendKey(m, "enter")
+		m = sendKey(m, "tab") // Back to sidebar
+
+		// Show settings modal directly with containersSupported=true
+		repos := cfg.GetRepos()
+		asanaProjects := make(map[string]string, len(repos))
+		for _, repo := range repos {
+			asanaProjects[repo] = cfg.GetAsanaProject(repo)
+		}
+		m.modal.Show(ui.NewSettingsState(
+			cfg.GetDefaultBranchPrefix(),
+			cfg.GetNotificationsEnabled(),
+			repos, asanaProjects, 0, false,
+			true, "", // containersSupported=true
+		))
+
+		state := m.modal.State.(*ui.SettingsState)
+
+		// Focus 0: theme selector
+		if state.Focus != 0 {
+			t.Errorf("Expected initial focus 0, got %d", state.Focus)
+		}
+
+		// Focus 1: branch prefix
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 1 {
+			t.Errorf("Expected focus 1, got %d", state.Focus)
+		}
+
+		// Focus 2: notifications
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 2 {
+			t.Errorf("Expected focus 2, got %d", state.Focus)
+		}
+
 		// Focus 3: container image
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
 		if state.Focus != 3 {
 			t.Errorf("Expected focus 3 (container image), got %d", state.Focus)
 		}
-	}
 
-	// Wrap around to theme
-	m = sendKey(m, "tab")
-	state = m.modal.State.(*ui.SettingsState)
-	if state.Focus != 0 {
-		t.Errorf("Expected focus 0 after full cycle, got %d", state.Focus)
-	}
+		// Wrap around to theme
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 0 {
+			t.Errorf("Expected focus 0 after full cycle, got %d", state.Focus)
+		}
+	})
 }
 
 func TestSettingsModal_ToggleNotifications(t *testing.T) {

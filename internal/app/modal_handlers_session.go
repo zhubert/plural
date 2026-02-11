@@ -17,32 +17,56 @@ import (
 	"github.com/zhubert/plural/internal/ui"
 )
 
-// checkContainerPrerequisites runs all container prerequisite checks and shows the
-// appropriate modal/error for the first failing check. Returns true only if all
-// prerequisites pass and the caller should proceed with session creation.
-func (m *Model) checkContainerPrerequisites() bool {
-	prereqs := process.CheckContainerPrerequisites(
-		m.config.GetContainerImage(),
-		claude.ContainerAuthAvailable,
-	)
+// checkContainerPrerequisitesAsync launches an async check of container prerequisites.
+// The onSuccess closure is stored and called if all checks pass.
+// This avoids blocking the UI thread on slow shell-outs (container system info, image inspect).
+func (m *Model) checkContainerPrerequisitesAsync(onSuccess func() (tea.Model, tea.Cmd)) (tea.Model, tea.Cmd) {
+	m.pendingContainerAction = onSuccess
+	image := m.config.GetContainerImage()
+	authChecker := claude.ContainerAuthAvailable
+	return m, func() tea.Msg {
+		return ContainerPrereqCheckMsg{
+			Result: process.CheckContainerPrerequisites(image, authChecker),
+		}
+	}
+}
+
+// handleContainerPrereqCheckMsg processes the result of async container prerequisite checks.
+// Shows the appropriate error modal for the first failing check, or executes the
+// pending action if all checks pass.
+func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.Model, tea.Cmd) {
+	prereqs := msg.Result
 
 	if !prereqs.CLIInstalled {
+		m.pendingContainerAction = nil
 		m.modal.Show(ui.NewContainerCLINotInstalledState())
-		return false
+		return m, nil
 	}
 	if !prereqs.SystemRunning {
+		m.pendingContainerAction = nil
 		m.modal.Show(ui.NewContainerSystemNotRunningState())
-		return false
+		return m, nil
 	}
 	if !prereqs.ImageExists {
+		m.pendingContainerAction = nil
 		m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
-		return false
+		return m, nil
 	}
 	if !prereqs.AuthAvailable {
+		m.pendingContainerAction = nil
+		// Note: This sets an error on whatever modal is currently showing (e.g. the new session modal).
+		// A dedicated auth error modal could improve UX but is not implemented yet.
 		m.modal.SetError("Container mode requires authentication: " + ui.ContainerAuthHelp)
-		return false
+		return m, nil
 	}
-	return true
+
+	// All checks passed — execute the pending action
+	if m.pendingContainerAction != nil {
+		action := m.pendingContainerAction
+		m.pendingContainerAction = nil
+		return action()
+	}
+	return m, nil
 }
 
 // handleAddRepoModal handles key events for the Add Repository modal.
@@ -265,44 +289,51 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		if state.GetBaseIndex() == 1 {
 			basePoint = session.BasePointHead
 		}
-		// Check container prerequisites BEFORE creating the session
-		if state.GetUseContainers() {
-			if !m.checkContainerPrerequisites() {
-				return m, nil
-			}
+		// Check container prerequisites asynchronously BEFORE creating the session
+		useContainers := state.GetUseContainers()
+		if useContainers {
+			return m.checkContainerPrerequisitesAsync(func() (tea.Model, tea.Cmd) {
+				return m.createNewSession(repoPath, branchName, branchPrefix, basePoint, true)
+			})
 		}
-		logger.Get().Debug("creating new session", "repo", repoPath, "branch", branchName, "prefix", branchPrefix, "basePoint", basePoint)
-		sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
-		if err != nil {
-			logger.Get().Error("failed to create session", "error", err)
-			m.modal.SetError(err.Error())
-			return m, nil
-		}
-		logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
-		// Set containerized flag if user checked the container checkbox
-		if state.GetUseContainers() {
-			sess.Containerized = true
-		}
-		// Auto-assign to active workspace
-		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
-			sess.WorkspaceID = activeWS
-		}
-		m.config.AddSession(*sess)
-		if err := m.config.Save(); err != nil {
-			logger.Get().Error("failed to save config", "error", err)
-			m.modal.SetError("Failed to save: " + err.Error())
-			return m, nil
-		}
-		m.sidebar.SetSessions(m.getFilteredSessions())
-		m.sidebar.SelectSession(sess.ID)
-		m.selectSession(sess)
-		m.modal.Hide()
-		return m, nil
+		return m.createNewSession(repoPath, branchName, branchPrefix, basePoint, false)
 	}
 	// Forward other keys (tab, shift+tab, up, down, etc.) to modal for handling
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// createNewSession is the shared session-creation logic used by handleNewSessionModal.
+// It is extracted so it can be called either directly (non-container) or from a
+// pendingContainerAction closure (after async prerequisite checks pass).
+func (m *Model) createNewSession(repoPath, branchName, branchPrefix string, basePoint session.BasePoint, useContainers bool) (tea.Model, tea.Cmd) {
+	ctx := context.Background()
+	logger.Get().Debug("creating new session", "repo", repoPath, "branch", branchName, "prefix", branchPrefix, "basePoint", basePoint)
+	sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
+	if err != nil {
+		logger.Get().Error("failed to create session", "error", err)
+		m.modal.SetError(err.Error())
+		return m, nil
+	}
+	logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
+	if useContainers {
+		sess.Containerized = true
+	}
+	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+		sess.WorkspaceID = activeWS
+	}
+	m.config.AddSession(*sess)
+	if err := m.config.Save(); err != nil {
+		logger.Get().Error("failed to save config", "error", err)
+		m.modal.SetError("Failed to save: " + err.Error())
+		return m, nil
+	}
+	m.sidebar.SetSessions(m.getFilteredSessions())
+	m.sidebar.SelectSession(sess.ID)
+	m.selectSession(sess)
+	m.modal.Hide()
+	return m, nil
 }
 
 // handleConfirmDeleteModal handles key events for the Confirm Delete modal.
@@ -398,83 +429,88 @@ func (m *Model) handleForkSessionModal(key string, msg tea.KeyPressMsg, state *u
 			return m, nil
 		}
 
-		// Check container prerequisites BEFORE creating the session
-		if state.GetUseContainers() {
-			if !m.checkContainerPrerequisites() {
-				return m, nil
-			}
-		}
+		// Capture fork state for the closure
+		parentSessionID := state.ParentSessionID
+		repoPath := state.RepoPath
+		copyMessages := state.CopyMessages
+		useContainers := state.GetUseContainers()
 
-		// Get parent session to fork from its branch
-		parentSess := m.config.GetSession(state.ParentSessionID)
-		if parentSess == nil {
-			m.modal.SetError("Parent session not found")
-			return m, nil
+		// Check container prerequisites asynchronously BEFORE creating the session
+		if useContainers {
+			return m.checkContainerPrerequisitesAsync(func() (tea.Model, tea.Cmd) {
+				return m.createForkSession(repoPath, parentSessionID, branchName, branchPrefix, copyMessages, true)
+			})
 		}
-
-		logger.WithSession(state.ParentSessionID).Debug("forking session", "parentBranch", parentSess.Branch, "copyMessages", state.CopyMessages, "newBranch", branchName, "prefix", branchPrefix)
-
-		// Create new session forked from parent's branch
-		sess, err := m.sessionService.CreateFromBranch(ctx, state.RepoPath, parentSess.Branch, branchName, branchPrefix)
-		if err != nil {
-			logger.Get().Error("failed to create forked session", "error", err)
-			m.modal.SetError(err.Error())
-			return m, nil
-		}
-
-		log := logger.WithSession(sess.ID)
-
-		// Copy messages if requested
-		var messageCopyFailed bool
-		if state.CopyMessages {
-			parentMsgs, err := config.LoadSessionMessages(state.ParentSessionID)
-			if err != nil {
-				log.Warn("failed to load parent session messages", "error", err)
-				messageCopyFailed = true
-			} else if len(parentMsgs) > 0 {
-				if err := config.SaveSessionMessages(sess.ID, parentMsgs, config.MaxSessionMessageLines); err != nil {
-					log.Warn("failed to save forked session messages", "error", err)
-					messageCopyFailed = true
-				} else {
-					log.Debug("copied messages from parent session", "count", len(parentMsgs))
-				}
-			}
-		}
-
-		// Set parent ID to track fork relationship
-		sess.ParentID = state.ParentSessionID
-		// Set containerized flag if user checked the container checkbox
-		if state.GetUseContainers() {
-			sess.Containerized = true
-		}
-		// Auto-assign to active workspace
-		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
-			sess.WorkspaceID = activeWS
-		}
-
-		log.Info("forked session created", "name", sess.Name, "parentID", sess.ParentID)
-		m.config.AddSession(*sess)
-		if err := m.config.Save(); err != nil {
-			log.Error("failed to save config", "error", err)
-			m.modal.SetError("Failed to save: " + err.Error())
-			return m, nil
-		}
-		m.sidebar.SetSessions(m.getFilteredSessions())
-		m.sidebar.SelectSession(sess.ID)
-		m.selectSession(sess)
-
-		// Show warnings after session is created
-		if messageCopyFailed {
-			m.modal.Hide()
-			return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
-		}
-		m.modal.Hide()
-		return m, nil
+		return m.createForkSession(repoPath, parentSessionID, branchName, branchPrefix, copyMessages, false)
 	}
 	// Forward other keys (tab, shift+tab, space, up, down, etc.) to modal for handling
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd
+}
+
+// createForkSession is the shared fork-session logic used by handleForkSessionModal.
+// Extracted so it can be called either directly or from a pendingContainerAction closure.
+func (m *Model) createForkSession(repoPath, parentSessionID, branchName, branchPrefix string, copyMessages, useContainers bool) (tea.Model, tea.Cmd) {
+	parentSess := m.config.GetSession(parentSessionID)
+	if parentSess == nil {
+		m.modal.SetError("Parent session not found")
+		return m, nil
+	}
+
+	ctx := context.Background()
+	logger.WithSession(parentSessionID).Debug("forking session", "parentBranch", parentSess.Branch, "copyMessages", copyMessages, "newBranch", branchName, "prefix", branchPrefix)
+
+	sess, err := m.sessionService.CreateFromBranch(ctx, repoPath, parentSess.Branch, branchName, branchPrefix)
+	if err != nil {
+		logger.Get().Error("failed to create forked session", "error", err)
+		m.modal.SetError(err.Error())
+		return m, nil
+	}
+
+	log := logger.WithSession(sess.ID)
+
+	var messageCopyFailed bool
+	if copyMessages {
+		parentMsgs, err := config.LoadSessionMessages(parentSessionID)
+		if err != nil {
+			log.Warn("failed to load parent session messages", "error", err)
+			messageCopyFailed = true
+		} else if len(parentMsgs) > 0 {
+			if err := config.SaveSessionMessages(sess.ID, parentMsgs, config.MaxSessionMessageLines); err != nil {
+				log.Warn("failed to save forked session messages", "error", err)
+				messageCopyFailed = true
+			} else {
+				log.Debug("copied messages from parent session", "count", len(parentMsgs))
+			}
+		}
+	}
+
+	sess.ParentID = parentSessionID
+	if useContainers {
+		sess.Containerized = true
+	}
+	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+		sess.WorkspaceID = activeWS
+	}
+
+	log.Info("forked session created", "name", sess.Name, "parentID", sess.ParentID)
+	m.config.AddSession(*sess)
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config", "error", err)
+		m.modal.SetError("Failed to save: " + err.Error())
+		return m, nil
+	}
+	m.sidebar.SetSessions(m.getFilteredSessions())
+	m.sidebar.SelectSession(sess.ID)
+	m.selectSession(sess)
+
+	if messageCopyFailed {
+		m.modal.Hide()
+		return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
+	}
+	m.modal.Hide()
+	return m, nil
 }
 
 // handleRenameSessionModal handles key events for the Rename Session modal.
@@ -647,15 +683,17 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 			}
 		}
 
-		// Check container prerequisites BEFORE creating sessions
-		if state.GetUseContainers() {
-			if !m.checkContainerPrerequisites() {
-				return m, nil
-			}
+		// Check container prerequisites asynchronously BEFORE creating sessions
+		useContainers := state.GetUseContainers()
+		if useContainers {
+			return m.checkContainerPrerequisitesAsync(func() (tea.Model, tea.Cmd) {
+				m.modal.Hide()
+				return m.createBroadcastSessions(selectedRepos, prompt, sessionName, true)
+			})
 		}
 
 		m.modal.Hide()
-		return m.createBroadcastSessions(selectedRepos, prompt, sessionName, state.GetUseContainers())
+		return m.createBroadcastSessions(selectedRepos, prompt, sessionName, false)
 	}
 
 	// Forward other keys to modal for navigation/selection
