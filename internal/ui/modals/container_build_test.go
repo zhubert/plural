@@ -6,106 +6,49 @@ import (
 )
 
 // =============================================================================
-// ContainerCLINotInstalledState tests
+// ContainerCommandState tests (CLI not installed, system not running)
 // =============================================================================
 
-func TestContainerCLINotInstalledState_Title(t *testing.T) {
-	s := &ContainerCLINotInstalledState{}
+func TestContainerCommandState_CLINotInstalled(t *testing.T) {
+	s := NewContainerCLINotInstalledState()
+
 	if s.Title() != "Container CLI Not Found" {
 		t.Errorf("Expected title 'Container CLI Not Found', got %q", s.Title())
 	}
-}
-
-func TestContainerCLINotInstalledState_GetCommand(t *testing.T) {
-	s := &ContainerCLINotInstalledState{}
-	if cmd := s.GetCommand(); cmd != "brew install container" {
-		t.Errorf("Expected 'brew install container', got %q", cmd)
+	if s.GetCommand() != "brew install container" {
+		t.Errorf("Expected 'brew install container', got %q", s.GetCommand())
 	}
-}
 
-func TestContainerCLINotInstalledState_Render_ShowsBrewInstall(t *testing.T) {
-	s := &ContainerCLINotInstalledState{}
 	rendered := s.Render()
-
 	if !strings.Contains(rendered, "brew install container") {
 		t.Error("Rendered output should contain the brew install command")
 	}
-}
-
-func TestContainerCLINotInstalledState_Render_ShowsExplanation(t *testing.T) {
-	s := &ContainerCLINotInstalledState{}
-	rendered := s.Render()
-
 	if !strings.Contains(rendered, "container CLI is required") {
 		t.Error("Rendered output should explain that the CLI is required")
 	}
 }
 
-func TestContainerCLINotInstalledState_Help_BeforeCopy(t *testing.T) {
-	s := &ContainerCLINotInstalledState{}
-	help := s.Help()
+func TestContainerCommandState_SystemNotRunning(t *testing.T) {
+	s := NewContainerSystemNotRunningState()
 
-	if !strings.Contains(help, "copy to clipboard") {
-		t.Errorf("Help before copy should mention clipboard, got %q", help)
-	}
-}
-
-func TestContainerCLINotInstalledState_Help_AfterCopy(t *testing.T) {
-	s := &ContainerCLINotInstalledState{Copied: true}
-	help := s.Help()
-
-	if !strings.Contains(help, "Copied") {
-		t.Errorf("Help after copy should say Copied, got %q", help)
-	}
-}
-
-func TestContainerCLINotInstalledState_Render_ShowsCopiedMessage(t *testing.T) {
-	s := &ContainerCLINotInstalledState{Copied: true}
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "Copied to clipboard") {
-		t.Error("Rendered output should show 'Copied to clipboard' after copy")
-	}
-}
-
-// =============================================================================
-// ContainerSystemNotRunningState tests
-// =============================================================================
-
-func TestContainerSystemNotRunningState_Title(t *testing.T) {
-	s := &ContainerSystemNotRunningState{}
 	if s.Title() != "Container System Not Running" {
 		t.Errorf("Expected title 'Container System Not Running', got %q", s.Title())
 	}
-}
-
-func TestContainerSystemNotRunningState_GetCommand(t *testing.T) {
-	s := &ContainerSystemNotRunningState{}
-	if cmd := s.GetCommand(); cmd != "container system start" {
-		t.Errorf("Expected 'container system start', got %q", cmd)
+	if s.GetCommand() != "container system start" {
+		t.Errorf("Expected 'container system start', got %q", s.GetCommand())
 	}
-}
 
-func TestContainerSystemNotRunningState_Render_ShowsStartCommand(t *testing.T) {
-	s := &ContainerSystemNotRunningState{}
 	rendered := s.Render()
-
 	if !strings.Contains(rendered, "container system start") {
 		t.Error("Rendered output should contain the system start command")
 	}
-}
-
-func TestContainerSystemNotRunningState_Render_ShowsExplanation(t *testing.T) {
-	s := &ContainerSystemNotRunningState{}
-	rendered := s.Render()
-
 	if !strings.Contains(rendered, "not running") {
 		t.Error("Rendered output should explain that the system is not running")
 	}
 }
 
-func TestContainerSystemNotRunningState_Help_BeforeCopy(t *testing.T) {
-	s := &ContainerSystemNotRunningState{}
+func TestContainerCommandState_Help_BeforeCopy(t *testing.T) {
+	s := NewContainerCLINotInstalledState()
 	help := s.Help()
 
 	if !strings.Contains(help, "copy to clipboard") {
@@ -113,8 +56,9 @@ func TestContainerSystemNotRunningState_Help_BeforeCopy(t *testing.T) {
 	}
 }
 
-func TestContainerSystemNotRunningState_Help_AfterCopy(t *testing.T) {
-	s := &ContainerSystemNotRunningState{Copied: true}
+func TestContainerCommandState_Help_AfterCopy(t *testing.T) {
+	s := NewContainerCLINotInstalledState()
+	s.Copied = true
 	help := s.Help()
 
 	if !strings.Contains(help, "Copied") {
@@ -122,8 +66,9 @@ func TestContainerSystemNotRunningState_Help_AfterCopy(t *testing.T) {
 	}
 }
 
-func TestContainerSystemNotRunningState_Render_ShowsCopiedMessage(t *testing.T) {
-	s := &ContainerSystemNotRunningState{Copied: true}
+func TestContainerCommandState_Render_ShowsCopiedMessage(t *testing.T) {
+	s := NewContainerSystemNotRunningState()
+	s.Copied = true
 	rendered := s.Render()
 
 	if !strings.Contains(rendered, "Copied to clipboard") {
@@ -164,15 +109,6 @@ func TestContainerBuildState_Render_ShowsBuildCommand(t *testing.T) {
 
 	if !strings.Contains(rendered, "container build -t plural-claude .") {
 		t.Error("Rendered output should contain the build command")
-	}
-}
-
-func TestContainerBuildState_Render_ShowsImageName(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "plural-claude") {
-		t.Error("Rendered output should contain the image name")
 	}
 }
 

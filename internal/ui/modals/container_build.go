@@ -12,33 +12,37 @@ import (
 var validContainerImage = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._\-/:]*$`)
 
 // =============================================================================
-// ContainerCLINotInstalledState - Container CLI not found
+// ContainerCommandState - Generic "run this command" modal
 // =============================================================================
 
-// ContainerCLINotInstalledState shows the user how to install the container CLI.
-type ContainerCLINotInstalledState struct {
-	Copied bool // Whether the command was copied to clipboard
+// ContainerCommandState shows the user a command to run, with copy-to-clipboard support.
+// Used for CLI not installed, system not running, etc.
+type ContainerCommandState struct {
+	ModalTitle string // e.g., "Container CLI Not Found"
+	Message    string // Explanatory text
+	Command    string // The command to display and copy
+	Copied     bool   // Whether the command was copied to clipboard
 }
 
-func (*ContainerCLINotInstalledState) modalState() {}
+func (*ContainerCommandState) modalState() {}
 
-func (s *ContainerCLINotInstalledState) Title() string { return "Container CLI Not Found" }
+func (s *ContainerCommandState) Title() string { return s.ModalTitle }
 
-func (s *ContainerCLINotInstalledState) Help() string {
+func (s *ContainerCommandState) Help() string {
 	if s.Copied {
 		return "Copied! Press Esc to dismiss"
 	}
 	return "Enter: copy to clipboard  Esc: dismiss"
 }
 
-func (s *ContainerCLINotInstalledState) Render() string {
+func (s *ContainerCommandState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
 	message := lipgloss.NewStyle().
 		Foreground(ColorText).
 		Width(55).
 		MarginBottom(1).
-		Render("Apple's container CLI is required for container mode. Install it with Homebrew:")
+		Render(s.Message)
 
 	cmdStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -47,7 +51,7 @@ func (s *ContainerCLINotInstalledState) Render() string {
 		Padding(0, 1).
 		MarginBottom(1)
 
-	cmd := cmdStyle.Render("brew install container")
+	cmd := cmdStyle.Render(s.Command)
 
 	var statusView string
 	if s.Copied {
@@ -68,79 +72,31 @@ func (s *ContainerCLINotInstalledState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (s *ContainerCLINotInstalledState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+func (s *ContainerCommandState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	return s, nil
 }
 
-// GetCommand returns the install command for clipboard copying.
-func (s *ContainerCLINotInstalledState) GetCommand() string {
-	return "brew install container"
+// GetCommand returns the command for clipboard copying.
+func (s *ContainerCommandState) GetCommand() string {
+	return s.Command
 }
 
-// =============================================================================
-// ContainerSystemNotRunningState - Container system not running
-// =============================================================================
-
-// ContainerSystemNotRunningState shows the user how to start the container system.
-type ContainerSystemNotRunningState struct {
-	Copied bool // Whether the command was copied to clipboard
-}
-
-func (*ContainerSystemNotRunningState) modalState() {}
-
-func (s *ContainerSystemNotRunningState) Title() string { return "Container System Not Running" }
-
-func (s *ContainerSystemNotRunningState) Help() string {
-	if s.Copied {
-		return "Copied! Press Esc to dismiss"
+// NewContainerCLINotInstalledState creates a modal for when the container CLI is not installed.
+func NewContainerCLINotInstalledState() *ContainerCommandState {
+	return &ContainerCommandState{
+		ModalTitle: "Container CLI Not Found",
+		Message:    "Apple's container CLI is required for container mode. Install it with Homebrew:",
+		Command:    "brew install container",
 	}
-	return "Enter: copy to clipboard  Esc: dismiss"
 }
 
-func (s *ContainerSystemNotRunningState) Render() string {
-	title := ModalTitleStyle.Render(s.Title())
-
-	message := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Width(55).
-		MarginBottom(1).
-		Render("The container system service is not running. Start it with:")
-
-	cmdStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Background(lipgloss.Color("#1a1a2e")).
-		Padding(0, 1).
-		MarginBottom(1)
-
-	cmd := cmdStyle.Render("container system start")
-
-	var statusView string
-	if s.Copied {
-		statusView = lipgloss.NewStyle().
-			Foreground(ColorPrimary).
-			Bold(true).
-			Render("Copied to clipboard!")
+// NewContainerSystemNotRunningState creates a modal for when the container system is not running.
+func NewContainerSystemNotRunningState() *ContainerCommandState {
+	return &ContainerCommandState{
+		ModalTitle: "Container System Not Running",
+		Message:    "The container system service is not running. Start it with:",
+		Command:    "container system start",
 	}
-
-	help := ModalHelpStyle.Render(s.Help())
-
-	parts := []string{title, message, cmd}
-	if statusView != "" {
-		parts = append(parts, statusView)
-	}
-	parts = append(parts, help)
-
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func (s *ContainerSystemNotRunningState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	return s, nil
-}
-
-// GetCommand returns the start command for clipboard copying.
-func (s *ContainerSystemNotRunningState) GetCommand() string {
-	return "container system start"
 }
 
 // =============================================================================
