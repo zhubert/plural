@@ -643,6 +643,8 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 		asanaProjects,
 		defaultRepoIndex,
 		asanaPATSet,
+		process.ContainersSupported(),
+		m.config.GetContainerImage(),
 	))
 
 	// Kick off async fetch of Asana projects if PAT is set

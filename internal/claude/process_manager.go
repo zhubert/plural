@@ -311,6 +311,9 @@ func (pm *ProcessManager) Start() error {
 		stdout.Close()
 		stderr.Close()
 		pm.log.Error("failed to start process", "error", err)
+		if pm.config.Containerized {
+			return fmt.Errorf("failed to start container: %v (is the container system running?)", err)
+		}
 		return fmt.Errorf("failed to start process: %v", err)
 	}
 

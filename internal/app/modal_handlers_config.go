@@ -337,6 +337,15 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
+		// Save container image if containers are supported
+		if state.ContainersSupported {
+			containerImage := state.GetContainerImage()
+			if containerImage != "" && !ui.ValidateContainerImage(containerImage) {
+				m.modal.SetError("Invalid container image name")
+				return m, nil
+			}
+			m.config.SetContainerImage(containerImage)
+		}
 		// Apply theme if changed
 		if state.ThemeChanged() {
 			selectedTheme := ui.GetSelectedSettingsTheme(state)
@@ -370,6 +379,40 @@ func (m *Model) handleContainerBuildModal(key string, _ tea.KeyPressMsg, state *
 		return m, nil
 	case keys.Enter:
 		if err := clipboard.WriteText(state.GetBuildCommand()); err != nil {
+			logger.Get().Error("failed to copy to clipboard", "error", err)
+			return m, m.ShowFlashError("Failed to copy to clipboard")
+		}
+		state.Copied = true
+		return m, nil
+	}
+	return m, nil
+}
+
+// handleContainerCLINotInstalledModal handles key events for the Container CLI Not Installed modal.
+func (m *Model) handleContainerCLINotInstalledModal(key string, _ tea.KeyPressMsg, state *ui.ContainerCLINotInstalledState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		if err := clipboard.WriteText(state.GetCommand()); err != nil {
+			logger.Get().Error("failed to copy to clipboard", "error", err)
+			return m, m.ShowFlashError("Failed to copy to clipboard")
+		}
+		state.Copied = true
+		return m, nil
+	}
+	return m, nil
+}
+
+// handleContainerSystemNotRunningModal handles key events for the Container System Not Running modal.
+func (m *Model) handleContainerSystemNotRunningModal(key string, _ tea.KeyPressMsg, state *ui.ContainerSystemNotRunningState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		if err := clipboard.WriteText(state.GetCommand()); err != nil {
 			logger.Get().Error("failed to copy to clipboard", "error", err)
 			return m, m.ShowFlashError("Failed to copy to clipboard")
 		}

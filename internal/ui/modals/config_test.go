@@ -18,7 +18,17 @@ var (
 func newTestSettingsState(branchPrefix string, notifs bool, repos []string,
 	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool) *SettingsState {
 	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, repos, asanaProjects, defaultRepoIndex, asanaPATSet)
+		branchPrefix, notifs, repos, asanaProjects, defaultRepoIndex, asanaPATSet,
+		false, "") // no containers by default in tests
+}
+
+// newTestSettingsStateWithContainers is like newTestSettingsState but with container support.
+func newTestSettingsStateWithContainers(branchPrefix string, notifs bool, repos []string,
+	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool,
+	containersSupported bool, containerImage string) *SettingsState {
+	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
+		branchPrefix, notifs, repos, asanaProjects, defaultRepoIndex, asanaPATSet,
+		containersSupported, containerImage)
 }
 
 func TestSettingsState_NumFields_NoRepo(t *testing.T) {
@@ -95,18 +105,27 @@ func TestSettingsState_TabCycle_WithRepo_NoPAT(t *testing.T) {
 	}
 }
 
-func TestSettingsState_Render_NoContainerSection(t *testing.T) {
+func TestSettingsState_Render_NoContainerSection_WhenUnsupported(t *testing.T) {
 	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
 	rendered := s.Render()
 
-	if strings.Contains(rendered, "Run sessions in containers") {
-		t.Error("Container checkbox should not appear in settings modal")
+	if strings.Contains(rendered, "Container image") {
+		t.Error("Container image field should not appear when containers unsupported")
 	}
-	if strings.Contains(rendered, "defense in depth") {
-		t.Error("Container warning should not appear in settings modal")
+}
+
+func TestSettingsState_Render_ContainerSection_WhenSupported(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, true, true, "plural-claude")
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "Container image") {
+		t.Error("Container image field should appear when containers supported")
 	}
 }
 
@@ -1015,5 +1034,147 @@ func TestBroadcastState_AuthWarning_WhenAuthAvailable(t *testing.T) {
 
 	if strings.Contains(rendered, "Requires ANTHROPIC_API_KEY") {
 		t.Error("Auth warning should not appear when auth is available")
+	}
+}
+
+// =============================================================================
+// Settings container image field tests
+// =============================================================================
+
+func TestSettingsState_NumFields_WithContainers(t *testing.T) {
+	// No repos, no PAT, but containers supported: theme + branch + notifs + container = 4
+	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "")
+	if n := s.numFields(); n != 4 {
+		t.Errorf("Expected 4 fields with containers supported and no repos, got %d", n)
+	}
+}
+
+func TestSettingsState_NumFields_WithContainersAndRepoAndPAT(t *testing.T) {
+	// Repos + PAT + containers: theme + branch + notifs + container + repo + asana = 6
+	s := newTestSettingsStateWithContainers("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, true, true, "")
+	if n := s.numFields(); n != 6 {
+		t.Errorf("Expected 6 fields with containers, repo and PAT, got %d", n)
+	}
+}
+
+func TestSettingsState_ContainerImageFocusIndex(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "")
+	if idx := s.containerImageFocusIndex(); idx != 3 {
+		t.Errorf("Expected container image focus index 3, got %d", idx)
+	}
+}
+
+func TestSettingsState_RepoSelectorFocusIndex_WithContainers(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, true, true, "")
+	if idx := s.repoSelectorFocusIndex(); idx != 4 {
+		t.Errorf("Expected repo selector focus index 4 with containers, got %d", idx)
+	}
+}
+
+func TestSettingsState_RepoSelectorFocusIndex_WithoutContainers(t *testing.T) {
+	s := newTestSettingsState("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, true)
+	if idx := s.repoSelectorFocusIndex(); idx != 3 {
+		t.Errorf("Expected repo selector focus index 3 without containers, got %d", idx)
+	}
+}
+
+func TestSettingsState_AsanaFocusIndex_WithContainers(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, true, true, "")
+	if idx := s.asanaFocusIndex(); idx != 5 {
+		t.Errorf("Expected asana focus index 5 with containers, got %d", idx)
+	}
+}
+
+func TestSettingsState_TabCycle_WithContainers(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, true, true, "plural-claude")
+
+	// 6 fields: theme(0) branch(1) notifs(2) container(3) repo(4) asana(5)
+	expectedFoci := []int{1, 2, 3, 4, 5, 0}
+	for i, expected := range expectedFoci {
+		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+		if s.Focus != expected {
+			t.Errorf("After tab %d: expected focus %d, got %d", i+1, expected, s.Focus)
+		}
+	}
+}
+
+func TestSettingsState_GetContainerImage(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "my-image")
+	if img := s.GetContainerImage(); img != "my-image" {
+		t.Errorf("Expected container image 'my-image', got %q", img)
+	}
+}
+
+func TestSettingsState_GetContainerImage_Default(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "")
+	if img := s.GetContainerImage(); img != "" {
+		t.Errorf("Expected empty container image, got %q", img)
+	}
+}
+
+func TestSettingsState_ContainerImageInput_WhenFocused(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "plural-claude")
+
+	// Focus on container image field
+	s.Focus = s.containerImageFocusIndex()
+	s.updateInputFocus()
+
+	// Container image input should be focused
+	if !s.ContainerImageInput.Focused() {
+		t.Error("Container image input should be focused when focus is on container image index")
+	}
+
+	// Branch prefix should not be focused
+	if s.BranchPrefixInput.Focused() {
+		t.Error("Branch prefix input should not be focused when container image is focused")
+	}
+}
+
+func TestSettingsState_Render_ContainerImageValue(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "custom-image")
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "Container image") {
+		t.Error("Should show container image label")
+	}
+}
+
+func TestContainerAuthHelp_Content(t *testing.T) {
+	// Verify the ContainerAuthHelp constant mentions all three auth methods
+	if !strings.Contains(ContainerAuthHelp, "ANTHROPIC_API_KEY") {
+		t.Error("ContainerAuthHelp should mention ANTHROPIC_API_KEY")
+	}
+	if !strings.Contains(ContainerAuthHelp, "setup-token") {
+		t.Error("ContainerAuthHelp should mention setup-token")
+	}
+	if !strings.Contains(ContainerAuthHelp, "keychain") {
+		t.Error("ContainerAuthHelp should mention keychain")
+	}
+}
+
+func TestNewSessionState_AuthWarning_UsesContainerAuthHelp(t *testing.T) {
+	// Verify the auth warning renders when containers checked and no auth
+	s := NewNewSessionState([]string{"/repo"}, true, false)
+	s.UseContainers = true
+	rendered := s.Render()
+
+	// Check for keychain mention (word won't be split by lipgloss wrapping)
+	if !strings.Contains(rendered, "keychain") {
+		t.Error("Auth warning should mention keychain")
 	}
 }

@@ -17,14 +17,63 @@ func ContainersSupported() bool {
 	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
 }
 
+// ContainerCLIInstalled returns true if the `container` CLI is on the PATH.
+func ContainerCLIInstalled() bool {
+	_, err := exec.LookPath("container")
+	return err == nil
+}
+
+// ContainerSystemRunning returns true if the container system service is active.
+// Returns false if the CLI is not installed or the system is not running.
+func ContainerSystemRunning() bool {
+	if !ContainerCLIInstalled() {
+		return false
+	}
+	cmd := exec.Command("container", "system", "info")
+	return cmd.Run() == nil
+}
+
 // ContainerImageExists checks if a container image exists locally.
 // Returns false if the container CLI is not available or the image is not found.
 func ContainerImageExists(image string) bool {
-	if _, err := exec.LookPath("container"); err != nil {
+	if !ContainerCLIInstalled() {
 		return false
 	}
 	cmd := exec.Command("container", "image", "inspect", image)
 	return cmd.Run() == nil
+}
+
+// ContainerPrerequisites holds the results of all container prerequisite checks.
+type ContainerPrerequisites struct {
+	CLIInstalled   bool
+	SystemRunning  bool
+	ImageExists    bool
+	AuthAvailable  bool
+}
+
+// CheckContainerPrerequisites runs all container prerequisite checks with short-circuiting.
+// Later checks are skipped when earlier ones fail, since they depend on the previous step.
+// authChecker is a function that returns whether auth credentials are available.
+func CheckContainerPrerequisites(image string, authChecker func() bool) ContainerPrerequisites {
+	result := ContainerPrerequisites{}
+
+	result.CLIInstalled = ContainerCLIInstalled()
+	if !result.CLIInstalled {
+		return result
+	}
+
+	result.SystemRunning = ContainerSystemRunning()
+	if !result.SystemRunning {
+		return result
+	}
+
+	result.ImageExists = ContainerImageExists(image)
+	if !result.ImageExists {
+		return result
+	}
+
+	result.AuthAvailable = authChecker()
+	return result
 }
 
 // ClaudeProcess represents a running Claude CLI process found on the system.
