@@ -106,18 +106,20 @@ if ! command -v goreleaser &> /dev/null; then
 fi
 echo "  goreleaser: found"
 
-# Check for required environment variables
-if [ -z "$GITHUB_TOKEN" ]; then
-    echo -e "${RED}Error: GITHUB_TOKEN environment variable is not set${NC}"
+# Check for gh CLI and authentication
+if ! command -v gh &> /dev/null; then
+    echo -e "${RED}Error: gh CLI is not installed${NC}"
+    echo "Install with: brew install gh"
     exit 1
 fi
-echo "  GITHUB_TOKEN: set"
+echo "  gh CLI: found"
 
-if [ -z "$HOMEBREW_TAP_GITHUB_TOKEN" ]; then
-    echo -e "${RED}Error: HOMEBREW_TAP_GITHUB_TOKEN environment variable is not set${NC}"
+if ! gh auth status &> /dev/null; then
+    echo -e "${RED}Error: Not authenticated with gh CLI${NC}"
+    echo "Run: gh auth login"
     exit 1
 fi
-echo "  HOMEBREW_TAP_GITHUB_TOKEN: set"
+echo "  gh auth: authenticated"
 
 # Check for clean working directory
 if [ -n "$(git status --porcelain)" ]; then
