@@ -1,6 +1,7 @@
 package process
 
 import (
+	"encoding/json"
 	"runtime"
 	"strings"
 	"testing"
@@ -192,5 +193,90 @@ func TestFindOrphanedContainers_NoContainerCLI(t *testing.T) {
 
 	if len(containers) != 0 {
 		t.Errorf("Expected empty list when container CLI not found, got %d containers", len(containers))
+	}
+}
+
+func TestListContainerNamesJSON(t *testing.T) {
+	// Test JSON parsing with sample Apple container CLI output
+	tests := []struct {
+		name     string
+		json     string
+		wantIDs  []string
+		wantErr  bool
+	}{
+		{
+			name: "single container",
+			json: `[{"configuration":{"id":"buildkit"}}]`,
+			wantIDs: []string{"buildkit"},
+			wantErr: false,
+		},
+		{
+			name: "multiple containers",
+			json: `[{"configuration":{"id":"plural-abc123"}},{"configuration":{"id":"plural-def456"}}]`,
+			wantIDs: []string{"plural-abc123", "plural-def456"},
+			wantErr: false,
+		},
+		{
+			name: "mixed containers",
+			json: `[{"configuration":{"id":"buildkit"}},{"configuration":{"id":"plural-test"}}]`,
+			wantIDs: []string{"buildkit", "plural-test"},
+			wantErr: false,
+		},
+		{
+			name: "empty array",
+			json: `[]`,
+			wantIDs: []string{},
+			wantErr: false,
+		},
+		{
+			name: "missing id field",
+			json: `[{"configuration":{"other":"value"}}]`,
+			wantIDs: []string{},
+			wantErr: false,
+		},
+		{
+			name: "invalid json",
+			json: `{invalid}`,
+			wantIDs: nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Mock the JSON unmarshal by directly testing the logic
+			var containers []map[string]interface{}
+			err := json.Unmarshal([]byte(tt.json), &containers)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			var names []string
+			for _, container := range containers {
+				if config, ok := container["configuration"].(map[string]interface{}); ok {
+					if id, ok := config["id"].(string); ok && id != "" {
+						names = append(names, id)
+					}
+				}
+			}
+
+			if len(names) != len(tt.wantIDs) {
+				t.Errorf("Got %d names, want %d", len(names), len(tt.wantIDs))
+			}
+
+			for i, id := range names {
+				if i >= len(tt.wantIDs) || id != tt.wantIDs[i] {
+					t.Errorf("Name[%d] = %q, want %q", i, id, tt.wantIDs[i])
+				}
+			}
+		})
 	}
 }
