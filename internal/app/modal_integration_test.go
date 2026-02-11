@@ -670,7 +670,7 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 	m = sendKey(m, ",")
 	state := m.modal.State.(*ui.SettingsState)
 
-	// Verify we have repos (enables per-repo fields)
+	// Verify we have repos (enables per-repo fields when PAT is set)
 	if len(state.Repos) == 0 {
 		t.Fatal("Expected Repos to be populated when session is active")
 	}
@@ -694,15 +694,8 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		t.Errorf("Expected focus 2, got %d", state.Focus)
 	}
 
-	// Focus 3: repo selector
-	m = sendKey(m, "tab")
-	state = m.modal.State.(*ui.SettingsState)
-	if state.Focus != 3 {
-		t.Errorf("Expected focus 3, got %d", state.Focus)
-	}
-
-	// Without ASANA_PAT, no asana field - wrap around to theme
-	// (4 fields: theme, prefix, notifications, repo selector)
+	// Without ASANA_PAT, per-repo section is hidden entirely
+	// (3 fields: theme, prefix, notifications) - wrap around to theme
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 0 {
@@ -750,8 +743,8 @@ func TestSettingsModal_AsanaProjectGID(t *testing.T) {
 	m = sendKey(m, ",")
 	state := m.modal.State.(*ui.SettingsState)
 
-	// Set the Asana project GID
-	state.AsanaProjectInput.SetValue("1234567890123")
+	// Set the Asana project GID via the selector
+	state.AsanaSelectedGIDs[repoPath] = "1234567890123"
 
 	// Save
 	m = sendKey(m, "enter")
@@ -782,8 +775,8 @@ func TestSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 		t.Errorf("Expected pre-set Asana project '9999999999999', got %q", state.GetAsanaProject())
 	}
 
-	// Clear the value
-	state.AsanaProjectInput.SetValue("")
+	// Clear the value via the selector (selecting "(none)")
+	state.AsanaSelectedGIDs[repoPath] = ""
 
 	// Save
 	m = sendKey(m, "enter")

@@ -19,10 +19,17 @@ const (
 	asanaHTTPTimeout = 30 * time.Second
 )
 
+// AsanaProject represents an Asana project with its GID and name.
+type AsanaProject struct {
+	GID  string
+	Name string
+}
+
 // AsanaProvider implements Provider for Asana Tasks using the Asana REST API.
 type AsanaProvider struct {
 	config     *config.Config
 	httpClient *http.Client
+	apiBase    string // Override for testing; defaults to asanaAPIBase
 }
 
 // NewAsanaProvider creates a new Asana task provider.
@@ -32,14 +39,19 @@ func NewAsanaProvider(cfg *config.Config) *AsanaProvider {
 		httpClient: &http.Client{
 			Timeout: asanaHTTPTimeout,
 		},
+		apiBase: asanaAPIBase,
 	}
 }
 
-// NewAsanaProviderWithClient creates a new Asana task provider with a custom HTTP client (for testing).
-func NewAsanaProviderWithClient(cfg *config.Config, client *http.Client) *AsanaProvider {
+// NewAsanaProviderWithClient creates a new Asana task provider with a custom HTTP client and API base URL (for testing).
+func NewAsanaProviderWithClient(cfg *config.Config, client *http.Client, apiBase string) *AsanaProvider {
+	if apiBase == "" {
+		apiBase = asanaAPIBase
+	}
 	return &AsanaProvider{
 		config:     cfg,
 		httpClient: client,
+		apiBase:    apiBase,
 	}
 }
 
@@ -79,7 +91,7 @@ func (p *AsanaProvider) FetchIssues(ctx context.Context, repoPath, projectID str
 	}
 
 	// Fetch incomplete tasks from the project
-	url := fmt.Sprintf("%s/projects/%s/tasks?opt_fields=gid,name,notes,permalink_url&completed_since=now", asanaAPIBase, projectID)
+	url := fmt.Sprintf("%s/projects/%s/tasks?opt_fields=gid,name,notes,permalink_url&completed_since=now", p.apiBase, projectID)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -157,6 +169,129 @@ func (p *AsanaProvider) GenerateBranchName(issue Issue) string {
 	}
 
 	return fmt.Sprintf("task-%s", slug)
+}
+
+// asanaWorkspace represents a workspace from the Asana API.
+type asanaWorkspace struct {
+	GID  string `json:"gid"`
+	Name string `json:"name"`
+}
+
+// asanaWorkspacesResponse represents the Asana API response for listing workspaces.
+type asanaWorkspacesResponse struct {
+	Data []asanaWorkspace `json:"data"`
+}
+
+// asanaProject represents a project from the Asana API.
+type asanaProject struct {
+	GID  string `json:"gid"`
+	Name string `json:"name"`
+}
+
+// asanaProjectsResponse represents the Asana API response for listing projects.
+type asanaProjectsResponse struct {
+	Data []asanaProject `json:"data"`
+}
+
+// FetchProjects retrieves all projects accessible to the user.
+// If the user belongs to a single workspace, project names are returned directly.
+// If multiple workspaces exist, names are prefixed with "WorkspaceName / ProjectName".
+func (p *AsanaProvider) FetchProjects(ctx context.Context) ([]AsanaProject, error) {
+	pat := os.Getenv(asanaPATEnvVar)
+	if pat == "" {
+		return nil, fmt.Errorf("ASANA_PAT environment variable not set")
+	}
+
+	workspaces, err := p.fetchWorkspaces(ctx, pat)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(workspaces) == 0 {
+		return nil, nil
+	}
+
+	multiWorkspace := len(workspaces) > 1
+
+	var allProjects []AsanaProject
+	for _, ws := range workspaces {
+		projects, err := p.fetchWorkspaceProjects(ctx, pat, ws.GID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch projects for workspace %q: %w", ws.Name, err)
+		}
+		for _, proj := range projects {
+			name := proj.Name
+			if multiWorkspace {
+				name = ws.Name + " / " + proj.Name
+			}
+			allProjects = append(allProjects, AsanaProject{
+				GID:  proj.GID,
+				Name: name,
+			})
+		}
+	}
+
+	return allProjects, nil
+}
+
+// fetchWorkspaces retrieves all workspaces for the authenticated user.
+func (p *AsanaProvider) fetchWorkspaces(ctx context.Context, pat string) ([]asanaWorkspace, error) {
+	url := fmt.Sprintf("%s/workspaces", p.apiBase)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+pat)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch workspaces: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Asana API returned status %d for workspaces", resp.StatusCode)
+	}
+
+	var wsResp asanaWorkspacesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wsResp); err != nil {
+		return nil, fmt.Errorf("failed to parse workspaces response: %w", err)
+	}
+
+	return wsResp.Data, nil
+}
+
+// fetchWorkspaceProjects retrieves all projects in a workspace.
+func (p *AsanaProvider) fetchWorkspaceProjects(ctx context.Context, pat, workspaceGID string) ([]asanaProject, error) {
+	url := fmt.Sprintf("%s/workspaces/%s/projects?opt_fields=gid,name&limit=100", p.apiBase, workspaceGID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+pat)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch projects: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Asana API returned status %d for projects", resp.StatusCode)
+	}
+
+	var projResp asanaProjectsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&projResp); err != nil {
+		return nil, fmt.Errorf("failed to parse projects response: %w", err)
+	}
+
+	return projResp.Data, nil
 }
 
 // GetPRLinkText returns empty string for Asana tasks.

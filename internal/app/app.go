@@ -159,6 +159,12 @@ type ChangelogFetchedMsg struct {
 	IsManual bool // If true, this was triggered by user shortcut (don't update lastSeen)
 }
 
+// AsanaProjectsFetchedMsg is sent when Asana projects have been fetched
+type AsanaProjectsFetchedMsg struct {
+	Projects []issues.AsanaProject
+	Error    error
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -619,6 +625,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ChangelogFetchedMsg:
 		return m.handleChangelogFetchedMsg(msg)
+
+	case AsanaProjectsFetchedMsg:
+		return m.handleAsanaProjectsFetchedMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
@@ -1444,6 +1453,56 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 		}
 	}
 	return m, nil
+}
+
+// handleAsanaProjectsFetchedMsg handles the fetched Asana projects for the settings modal.
+func (m *Model) handleAsanaProjectsFetchedMsg(msg AsanaProjectsFetchedMsg) (tea.Model, tea.Cmd) {
+	state, ok := m.modal.State.(*ui.SettingsState)
+	if !ok {
+		return m, nil
+	}
+
+	if msg.Error != nil {
+		state.SetAsanaProjectsError("Failed to fetch projects: " + msg.Error.Error())
+		return m, nil
+	}
+
+	// Convert issues.AsanaProject to ui.AsanaProjectOption and prepend "(none)" entry
+	options := make([]ui.AsanaProjectOption, 0, len(msg.Projects)+1)
+	options = append(options, ui.AsanaProjectOption{GID: "", Name: "(none)"})
+	for _, p := range msg.Projects {
+		options = append(options, ui.AsanaProjectOption{GID: p.GID, Name: p.Name})
+	}
+	state.SetAsanaProjects(options)
+	return m, nil
+}
+
+// fetchAsanaProjects creates a command to fetch Asana projects asynchronously.
+func (m *Model) fetchAsanaProjects() tea.Cmd {
+	registry := m.issueRegistry
+	return func() tea.Msg {
+		provider := registry.GetProvider(issues.SourceAsana)
+		if provider == nil {
+			return AsanaProjectsFetchedMsg{
+				Error: fmt.Errorf("Asana provider not available"),
+			}
+		}
+		asanaProvider, ok := provider.(*issues.AsanaProvider)
+		if !ok {
+			return AsanaProjectsFetchedMsg{
+				Error: fmt.Errorf("Asana provider type assertion failed"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		projects, err := asanaProvider.FetchProjects(ctx)
+		return AsanaProjectsFetchedMsg{
+			Projects: projects,
+			Error:    err,
+		}
+	}
 }
 
 // Note: updateSizes() and View() have been moved to view.go for better organization.

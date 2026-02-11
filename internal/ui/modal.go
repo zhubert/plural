@@ -59,6 +59,7 @@ type (
 	BulkActionState          = modals.BulkActionState
 	BulkAction               = modals.BulkAction
 	ContainerBuildState      = modals.ContainerBuildState
+	AsanaProjectOption       = modals.AsanaProjectOption
 )
 
 // Re-export broadcast action constants

@@ -634,14 +634,21 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	asanaPATSet := os.Getenv("ASANA_PAT") != ""
+
 	m.modal.Show(ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
 		repos,
 		asanaProjects,
 		defaultRepoIndex,
-		os.Getenv("ASANA_PAT") != "",
+		asanaPATSet,
 	))
+
+	// Kick off async fetch of Asana projects if PAT is set
+	if asanaPATSet {
+		return m, m.fetchAsanaProjects()
+	}
 	return m, nil
 }
 
