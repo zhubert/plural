@@ -16,6 +16,7 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
+	"github.com/google/uuid"
 )
 
 // Shortcut represents a keyboard shortcut with its metadata and handler.
@@ -812,20 +813,34 @@ func openTerminalForSession(sess *config.Session) tea.Cmd {
 func openTerminalInContainer(sess *config.Session) tea.Cmd {
 	return func() tea.Msg {
 		log := logger.WithSession(sess.ID)
+
+		// Validate session ID is a valid UUID (defense against command injection)
+		if _, err := uuid.Parse(sess.ID); err != nil {
+			errMsg := fmt.Sprintf("Invalid session ID: %v", err)
+			log.Error("invalid session ID format", "error", err, "sessionID", sess.ID)
+			return TerminalErrorMsg{Error: errMsg}
+		}
+
 		containerName := "plural-" + sess.ID
 		log.Debug("opening terminal in container", "container", containerName)
 
-		// First, verify the container is actually running
-		checkCmd := exec.Command("container", "list")
-		output, err := checkCmd.Output()
+		// First, verify the container is actually running using the robust helper
+		names, err := process.ListContainerNames()
 		if err != nil {
 			errMsg := fmt.Sprintf("Failed to check running containers: %v", err)
 			log.Error("failed to list containers", "error", err)
 			return TerminalErrorMsg{Error: errMsg}
 		}
 
-		// Check if our container is in the list
-		if !strings.Contains(string(output), containerName) {
+		// Check if our container is in the list (exact match)
+		found := false
+		for _, name := range names {
+			if name == containerName {
+				found = true
+				break
+			}
+		}
+		if !found {
 			errMsg := fmt.Sprintf("Container not running. Session must be active (send a message first).")
 			log.Debug("container not found in running containers", "container", containerName)
 			return TerminalErrorMsg{Error: errMsg}

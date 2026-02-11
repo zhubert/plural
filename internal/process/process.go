@@ -187,9 +187,9 @@ type OrphanedContainer struct {
 	Name string // Container name (e.g., "plural-abc123")
 }
 
-// listContainerNames returns a list of all container names.
+// ListContainerNames returns a list of all container names.
 // Supports both Docker/Podman (Go template format) and Apple container CLI (JSON format).
-func listContainerNames() ([]string, error) {
+func ListContainerNames() ([]string, error) {
 	log := logger.WithComponent("process")
 
 	// Try Docker/Podman format first (Go templates)
@@ -256,7 +256,7 @@ func FindOrphanedContainers(knownSessionIDs map[string]bool) ([]OrphanedContaine
 	}
 
 	// Get list of container names
-	names, err := listContainerNames()
+	names, err := ListContainerNames()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}

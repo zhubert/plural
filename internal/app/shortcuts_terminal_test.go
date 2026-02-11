@@ -29,29 +29,20 @@ func TestOpenTerminalForSession(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sess := &config.Session{
-				ID:            "test-session-123",
+				ID:            "550e8400-e29b-41d4-a716-446655440000", // Valid UUID
 				WorkTree:      "/path/to/worktree",
 				Containerized: tt.containerized,
 			}
 
-			// We can't easily test the actual execution, but we can verify
-			// that the function returns a command and doesn't panic
+			// Verify that the function returns a non-nil command
 			cmd := openTerminalForSession(sess)
 			if cmd == nil {
 				t.Fatal("openTerminalForSession returned nil command")
 			}
 
-			// The command should be callable without panicking
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("openTerminalForSession panicked: %v", r)
-				}
-			}()
-
-			// Execute the command to ensure it's properly formed
-			// (Note: this will actually try to open a terminal, so we just
-			// verify it doesn't panic during construction)
-			_ = cmd()
+			// We don't execute the command to avoid side effects (opening terminals,
+			// running container list, etc.). We've verified the function returns a
+			// command without panicking, which is sufficient for this unit test.
 		})
 	}
 }
