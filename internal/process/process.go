@@ -35,10 +35,7 @@ func ContainerSystemRunning() bool {
 	if !ContainerCLIInstalled() {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "container", "system", "info")
-	return cmd.Run() == nil
+	return containerSystemRunning()
 }
 
 // ContainerImageExists checks if a container image exists locally.
@@ -47,6 +44,21 @@ func ContainerImageExists(image string) bool {
 	if !ContainerCLIInstalled() {
 		return false
 	}
+	return containerImageExists(image)
+}
+
+// containerSystemRunning checks if the container system is running.
+// Caller must verify CLI is installed first.
+func containerSystemRunning() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "container", "system", "info")
+	return cmd.Run() == nil
+}
+
+// containerImageExists checks if a container image exists.
+// Caller must verify CLI is installed first.
+func containerImageExists(image string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "container", "image", "inspect", image)
@@ -72,12 +84,12 @@ func CheckContainerPrerequisites(image string, authChecker func() bool) Containe
 		return result
 	}
 
-	result.SystemRunning = ContainerSystemRunning()
+	result.SystemRunning = containerSystemRunning()
 	if !result.SystemRunning {
 		return result
 	}
 
-	result.ImageExists = ContainerImageExists(image)
+	result.ImageExists = containerImageExists(image)
 	if !result.ImageExists {
 		return result
 	}
