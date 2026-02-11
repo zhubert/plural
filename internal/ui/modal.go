@@ -42,7 +42,6 @@ type (
 	AddMarketplaceState     = modals.AddMarketplaceState
 	WelcomeState            = modals.WelcomeState
 	ChangelogState          = modals.ChangelogState
-	ThemeState              = modals.ThemeState
 	SettingsState           = modals.SettingsState
 	ImportIssuesState        = modals.ImportIssuesState
 	SelectIssueSourceState   = modals.SelectIssueSourceState
@@ -95,7 +94,6 @@ var (
 	NewAddMarketplaceState     = modals.NewAddMarketplaceState
 	NewWelcomeState            = modals.NewWelcomeState
 	NewChangelogState          = modals.NewChangelogState
-	NewSettingsState           = modals.NewSettingsState
 	NewImportIssuesState           = modals.NewImportIssuesState
 	NewImportIssuesStateWithSource = modals.NewImportIssuesStateWithSource
 	NewSelectIssueSourceState      = modals.NewSelectIssueSourceState
@@ -119,8 +117,8 @@ var (
 	IsGlobPattern                  = modals.IsGlobPattern
 )
 
-// NewThemeState creates a new ThemeState - wrapper to handle ThemeName conversion
-func NewThemeState(currentTheme ThemeName) *ThemeState {
+// themeKeysAndNames returns parallel slices of theme keys and display names.
+func themeKeysAndNames() ([]string, []string) {
 	themes := ThemeNames()
 	var themeKeys []string
 	var themeDisplayNames []string
@@ -128,11 +126,20 @@ func NewThemeState(currentTheme ThemeName) *ThemeState {
 		themeKeys = append(themeKeys, string(t))
 		themeDisplayNames = append(themeDisplayNames, GetTheme(t).Name)
 	}
-	return modals.NewThemeState(themeKeys, themeDisplayNames, string(currentTheme))
+	return themeKeys, themeDisplayNames
 }
 
-// GetSelectedThemeAsThemeName returns the selected theme as a ThemeName type
-func GetSelectedThemeAsThemeName(s *ThemeState) ThemeName {
+// NewSettingsState creates a new SettingsState with theme data injected automatically.
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, repos []string,
+	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool) *SettingsState {
+	themeKeys, themeDisplayNames := themeKeysAndNames()
+	currentTheme := string(CurrentThemeName())
+	return modals.NewSettingsState(themeKeys, themeDisplayNames, currentTheme,
+		currentBranchPrefix, notificationsEnabled, repos, asanaProjects, defaultRepoIndex, asanaPATSet)
+}
+
+// GetSelectedSettingsTheme returns the selected theme from a SettingsState as a ThemeName.
+func GetSelectedSettingsTheme(s *SettingsState) ThemeName {
 	return ThemeName(s.GetSelectedTheme())
 }
 

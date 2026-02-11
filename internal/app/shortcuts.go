@@ -194,13 +194,6 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutAddRepo,
 	},
 	{
-		Key:             "t",
-		Description:     "Change theme",
-		Category:        CategoryConfiguration,
-		RequiresSidebar: true,
-		Handler:         shortcutTheme,
-	},
-	{
 		Key:             ",",
 		Description:     "Settings",
 		Category:        CategoryConfiguration,
@@ -581,11 +574,6 @@ func shortcutMCPServers(m *Model) (tea.Model, tea.Cmd) {
 
 func shortcutPlugins(m *Model) (tea.Model, tea.Cmd) {
 	m.showPluginsModal()
-	return m, nil
-}
-
-func shortcutTheme(m *Model) (tea.Model, tea.Cmd) {
-	m.modal.Show(ui.NewThemeState(ui.CurrentThemeName()))
 	return m, nil
 }
 

@@ -201,33 +201,6 @@ func (m *Model) handleAddMarketplaceModal(key string, msg tea.KeyPressMsg, state
 	return m, cmd
 }
 
-// handleThemeModal handles key events for the Theme picker modal.
-func (m *Model) handleThemeModal(key string, msg tea.KeyPressMsg, state *ui.ThemeState) (tea.Model, tea.Cmd) {
-	switch key {
-	case keys.Escape:
-		m.modal.Hide()
-		return m, nil
-	case keys.Enter:
-		selectedTheme := ui.GetSelectedThemeAsThemeName(state)
-		ui.SetTheme(selectedTheme)
-		m.config.SetTheme(string(selectedTheme))
-		if err := m.config.Save(); err != nil {
-			logger.Get().Error("failed to save theme", "error", err)
-			m.modal.Hide()
-			return m, m.ShowFlashError("Failed to save theme")
-		}
-		m.chat.RefreshStyles()
-		m.modal.Hide()
-		return m, nil
-	case keys.Up, "k", keys.Down, "j":
-		// Forward navigation keys to modal
-		modal, cmd := m.modal.Update(msg)
-		m.modal = modal
-		return m, cmd
-	}
-	return m, nil
-}
-
 // showWorkspaceListModal opens the workspace list modal with current data.
 func (m *Model) showWorkspaceListModal() {
 	workspaces := m.config.GetWorkspaces()
@@ -357,6 +330,13 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
+		// Apply theme if changed
+		if state.ThemeChanged() {
+			selectedTheme := ui.GetSelectedSettingsTheme(state)
+			ui.SetTheme(selectedTheme)
+			m.config.SetTheme(string(selectedTheme))
+			m.chat.RefreshStyles()
+		}
 		// Save per-repo settings for all repos
 		for repo, gid := range state.GetAllAsanaProjects() {
 			m.config.SetAsanaProject(repo, gid)

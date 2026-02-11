@@ -588,93 +588,6 @@ func TestRenameSessionModal_Cancel(t *testing.T) {
 // =============================================================================
 // Theme Modal Tests
 // =============================================================================
-
-func TestThemeModal_Open(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	m = sendKey(m, "t")
-	if !m.modal.IsVisible() {
-		t.Fatal("Theme modal should be visible")
-	}
-
-	_, ok := m.modal.State.(*ui.ThemeState)
-	if !ok {
-		t.Fatalf("Expected ThemeState, got %T", m.modal.State)
-	}
-}
-
-func TestThemeModal_Navigate(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	m = sendKey(m, "t")
-	state := m.modal.State.(*ui.ThemeState)
-
-	initialIndex := state.SelectedIndex
-
-	// Navigate down
-	m = sendKey(m, "down")
-	state = m.modal.State.(*ui.ThemeState)
-
-	if state.SelectedIndex == initialIndex && len(state.Themes) > 1 {
-		t.Error("Theme selection should change after pressing down")
-	}
-
-	// Navigate up
-	m = sendKey(m, "up")
-	state = m.modal.State.(*ui.ThemeState)
-
-	if state.SelectedIndex != initialIndex {
-		t.Error("Theme selection should return to initial after pressing up")
-	}
-}
-
-func TestThemeModal_VimNavigation(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	m = sendKey(m, "t")
-	state := m.modal.State.(*ui.ThemeState)
-
-	initialIndex := state.SelectedIndex
-
-	// Navigate with j
-	m = sendKey(m, "j")
-	state = m.modal.State.(*ui.ThemeState)
-
-	if state.SelectedIndex == initialIndex && len(state.Themes) > 1 {
-		t.Error("Theme selection should change after pressing j")
-	}
-
-	// Navigate with k
-	m = sendKey(m, "k")
-	state = m.modal.State.(*ui.ThemeState)
-
-	if state.SelectedIndex != initialIndex {
-		t.Error("Theme selection should return to initial after pressing k")
-	}
-}
-
-func TestThemeModal_SelectAndApply(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	m = sendKey(m, "t")
-
-	// Navigate to a different theme
-	m = sendKey(m, "down")
-
-	// Select it
-	m = sendKey(m, "enter")
-
-	// Modal should close
-	if m.modal.IsVisible() {
-		t.Error("Modal should close after selecting theme")
-	}
-}
-
-// =============================================================================
 // Settings Modal Tests
 // =============================================================================
 
@@ -762,27 +675,34 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		t.Fatal("Expected Repos to be populated when session is active")
 	}
 
-	// Focus 0: branch prefix
+	// Focus 0: theme selector
 	if state.Focus != 0 {
 		t.Errorf("Expected initial focus 0, got %d", state.Focus)
 	}
 
-	// Focus 1: notifications
+	// Focus 1: branch prefix
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 1 {
 		t.Errorf("Expected focus 1, got %d", state.Focus)
 	}
 
-	// Focus 2: repo selector
+	// Focus 2: notifications
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 2 {
 		t.Errorf("Expected focus 2, got %d", state.Focus)
 	}
 
-	// Without ASANA_PAT, no asana field - wrap around to branch prefix
-	// (3 fields: prefix, notifications, repo selector)
+	// Focus 3: repo selector
+	m = sendKey(m, "tab")
+	state = m.modal.State.(*ui.SettingsState)
+	if state.Focus != 3 {
+		t.Errorf("Expected focus 3, got %d", state.Focus)
+	}
+
+	// Without ASANA_PAT, no asana field - wrap around to theme
+	// (4 fields: theme, prefix, notifications, repo selector)
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 0 {
@@ -803,8 +723,9 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 		t.Error("Notifications should be enabled initially")
 	}
 
-	// Tab to notifications checkbox
-	m = sendKey(m, "tab")
+	// Tab to notifications checkbox (focus 0=theme, 1=prefix, 2=notifications)
+	m = sendKey(m, "tab") // -> branch prefix
+	m = sendKey(m, "tab") // -> notifications
 	state = m.modal.State.(*ui.SettingsState)
 
 	// Toggle with space

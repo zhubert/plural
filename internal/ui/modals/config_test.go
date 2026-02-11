@@ -7,56 +7,70 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// testThemes and testThemeNames are used across settings tests.
+var (
+	testThemes      = []string{"dark-purple", "nord", "dracula"}
+	testThemeNames  = []string{"Dark Purple", "Nord", "Dracula"}
+	testCurrentTheme = "dark-purple"
+)
+
+// newTestSettingsState is a helper that prepends theme data to NewSettingsState calls.
+func newTestSettingsState(branchPrefix string, notifs bool, repos []string,
+	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool) *SettingsState {
+	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
+		branchPrefix, notifs, repos, asanaProjects, defaultRepoIndex, asanaPATSet)
+}
+
 func TestSettingsState_NumFields_NoRepo(t *testing.T) {
-	s := NewSettingsState("", false, nil, nil, 0, false)
-	if n := s.numFields(); n != 2 {
-		t.Errorf("Expected 2 fields with no repos, got %d", n)
+	s := newTestSettingsState("", false, nil, nil, 0, false)
+	if n := s.numFields(); n != 3 {
+		t.Errorf("Expected 3 fields with no repos, got %d", n)
 	}
 }
 
 func TestSettingsState_NumFields_WithRepo_AsanaPAT(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if n := s.numFields(); n != 4 {
-		t.Errorf("Expected 4 fields with repo and Asana PAT, got %d", n)
+	if n := s.numFields(); n != 5 {
+		t.Errorf("Expected 5 fields with repo and Asana PAT, got %d", n)
 	}
 }
 
 func TestSettingsState_NumFields_WithRepo_NoAsanaPAT(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false)
-	if n := s.numFields(); n != 3 {
-		t.Errorf("Expected 3 fields with repo but no Asana PAT, got %d", n)
+	if n := s.numFields(); n != 4 {
+		t.Errorf("Expected 4 fields with repo but no Asana PAT, got %d", n)
 	}
 }
 
 func TestSettingsState_AsanaFocusIndex(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if idx := s.asanaFocusIndex(); idx != 3 {
-		t.Errorf("Expected asana focus index 3, got %d", idx)
+	if idx := s.asanaFocusIndex(); idx != 4 {
+		t.Errorf("Expected asana focus index 4, got %d", idx)
 	}
 }
 
 func TestSettingsState_TabCycle_WithRepo(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
 
-	// Start at 0 (branch prefix)
+	// Start at 0 (theme)
 	if s.Focus != 0 {
 		t.Fatalf("Expected initial focus 0, got %d", s.Focus)
 	}
 
-	// Tab through: 0 -> 1 -> 2 -> 3 -> 0 (4 fields with repo + PAT)
-	expectedFoci := []int{1, 2, 3, 0}
+	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 0 (5 fields with repo + PAT)
+	expectedFoci := []int{1, 2, 3, 4, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -66,13 +80,13 @@ func TestSettingsState_TabCycle_WithRepo(t *testing.T) {
 }
 
 func TestSettingsState_TabCycle_WithRepo_NoPAT(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false)
 
-	// Tab through: 0 -> 1 -> 2 -> 0 (3 fields, no asana)
-	expectedFoci := []int{1, 2, 0}
+	// Tab through: 0 -> 1 -> 2 -> 3 -> 0 (4 fields, no asana)
+	expectedFoci := []int{1, 2, 3, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -82,7 +96,7 @@ func TestSettingsState_TabCycle_WithRepo_NoPAT(t *testing.T) {
 }
 
 func TestSettingsState_Render_NoContainerSection(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
@@ -97,7 +111,7 @@ func TestSettingsState_Render_NoContainerSection(t *testing.T) {
 }
 
 func TestSettingsState_Render_AsanaHiddenWithoutPAT(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": "123"},
 		0, false)
@@ -109,7 +123,7 @@ func TestSettingsState_Render_AsanaHiddenWithoutPAT(t *testing.T) {
 }
 
 func TestSettingsState_Render_AsanaShownWithPAT(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": "123"},
 		0, true)
@@ -122,12 +136,12 @@ func TestSettingsState_Render_AsanaShownWithPAT(t *testing.T) {
 
 func TestSettingsState_RepoSelector_LeftRight(t *testing.T) {
 	repos := []string{"/repo/a", "/repo/b", "/repo/c"}
-	s := NewSettingsState("", false, repos,
+	s := newTestSettingsState("", false, repos,
 		map[string]string{"/repo/a": "111", "/repo/b": "222", "/repo/c": "333"},
 		0, true)
 
-	// Focus on repo selector
-	s.Focus = 2
+	// Focus on repo selector (now index 3)
+	s.Focus = 3
 
 	// Initially at index 0
 	if s.SelectedRepoIndex != 0 {
@@ -179,7 +193,7 @@ func TestSettingsState_RepoSelector_LeftRight(t *testing.T) {
 
 func TestSettingsState_ValuePersistenceAcrossSwitch(t *testing.T) {
 	repos := []string{"/repo/a", "/repo/b"}
-	s := NewSettingsState("", false, repos,
+	s := newTestSettingsState("", false, repos,
 		map[string]string{"/repo/a": "aaa", "/repo/b": "bbb"},
 		0, true)
 
@@ -189,7 +203,7 @@ func TestSettingsState_ValuePersistenceAcrossSwitch(t *testing.T) {
 	s.AsanaProjectInput.SetValue("modified-aaa")
 
 	// Switch repos
-	s.Focus = 2
+	s.Focus = 3
 	s.switchRepo(1)
 
 	// Repo b should show its original values
@@ -208,7 +222,7 @@ func TestSettingsState_ValuePersistenceAcrossSwitch(t *testing.T) {
 
 func TestSettingsState_GetAllAsanaProjects(t *testing.T) {
 	repos := []string{"/repo/a", "/repo/b"}
-	s := NewSettingsState("", false, repos,
+	s := newTestSettingsState("", false, repos,
 		map[string]string{"/repo/a": "aaa", "/repo/b": "bbb"},
 		0, true)
 
@@ -226,7 +240,7 @@ func TestSettingsState_GetAllAsanaProjects(t *testing.T) {
 
 func TestSettingsState_Render_WithRepoSelector(t *testing.T) {
 	repos := []string{"/path/to/myrepo"}
-	s := NewSettingsState("", false, repos,
+	s := newTestSettingsState("", false, repos,
 		map[string]string{"/path/to/myrepo": ""},
 		0, false)
 
@@ -240,7 +254,7 @@ func TestSettingsState_Render_WithRepoSelector(t *testing.T) {
 }
 
 func TestSettingsState_Render_NoRepos(t *testing.T) {
-	s := NewSettingsState("", false, nil, nil, 0, false)
+	s := newTestSettingsState("", false, nil, nil, 0, false)
 	rendered := s.Render()
 
 	if strings.Contains(rendered, "Per-repo settings") {
@@ -250,7 +264,7 @@ func TestSettingsState_Render_NoRepos(t *testing.T) {
 
 func TestSettingsState_DefaultRepoIndex(t *testing.T) {
 	repos := []string{"/repo/a", "/repo/b", "/repo/c"}
-	s := NewSettingsState("", false, repos,
+	s := newTestSettingsState("", false, repos,
 		map[string]string{"/repo/a": "aaa", "/repo/b": "bbb", "/repo/c": "ccc"},
 		1, true)
 
@@ -264,7 +278,7 @@ func TestSettingsState_DefaultRepoIndex(t *testing.T) {
 
 func TestSettingsState_DefaultRepoIndex_OutOfBounds(t *testing.T) {
 	repos := []string{"/repo/a"}
-	s := NewSettingsState("", false, repos,
+	s := newTestSettingsState("", false, repos,
 		map[string]string{"/repo/a": "aaa"},
 		99, true)
 
@@ -274,21 +288,137 @@ func TestSettingsState_DefaultRepoIndex_OutOfBounds(t *testing.T) {
 }
 
 func TestSettingsState_HelpChangesOnRepoFocus(t *testing.T) {
-	s := NewSettingsState("", false,
+	s := newTestSettingsState("", false,
 		[]string{"/repo"},
 		map[string]string{"/repo": ""},
 		0, false)
 
-	s.Focus = 2
+	s.Focus = 3
 	help := s.Help()
-	if !strings.Contains(help, "Left/Right") {
-		t.Errorf("Help at repo selector focus should mention Left/Right, got %q", help)
+	if !strings.Contains(help, "Left/Right: switch repo") {
+		t.Errorf("Help at repo selector focus should mention Left/Right: switch repo, got %q", help)
 	}
 
-	s.Focus = 0
+	s.Focus = 1
 	help = s.Help()
-	if strings.Contains(help, "Left/Right") {
-		t.Errorf("Help at non-repo focus should not mention Left/Right, got %q", help)
+	if strings.Contains(help, "switch repo") {
+		t.Errorf("Help at non-repo focus should not mention switch repo, got %q", help)
+	}
+}
+
+func TestSettingsState_PreferredWidth(t *testing.T) {
+	s := newTestSettingsState("", false, nil, nil, 0, false)
+	if w := s.PreferredWidth(); w != ModalWidthWide {
+		t.Errorf("Expected preferred width %d, got %d", ModalWidthWide, w)
+	}
+}
+
+func TestSettingsState_ThemeSelector(t *testing.T) {
+	s := newTestSettingsState("", false, nil, nil, 0, false)
+
+	// Initially focused on theme (focus 0) and current theme selected
+	if s.Focus != 0 {
+		t.Fatalf("Expected initial focus 0, got %d", s.Focus)
+	}
+	if s.SelectedThemeIndex != 0 {
+		t.Fatalf("Expected initial theme index 0, got %d", s.SelectedThemeIndex)
+	}
+	if s.GetSelectedTheme() != "dark-purple" {
+		t.Errorf("Expected selected theme 'dark-purple', got %q", s.GetSelectedTheme())
+	}
+	if s.ThemeChanged() {
+		t.Error("Theme should not be changed initially")
+	}
+
+	// Press right -> next theme
+	s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if s.SelectedThemeIndex != 1 {
+		t.Errorf("After Right, expected theme index 1, got %d", s.SelectedThemeIndex)
+	}
+	if s.GetSelectedTheme() != "nord" {
+		t.Errorf("Expected selected theme 'nord', got %q", s.GetSelectedTheme())
+	}
+	if !s.ThemeChanged() {
+		t.Error("Theme should be changed after switching")
+	}
+
+	// Press right -> next theme
+	s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if s.SelectedThemeIndex != 2 {
+		t.Errorf("After Right, expected theme index 2, got %d", s.SelectedThemeIndex)
+	}
+
+	// Press right at max -> should clamp
+	s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if s.SelectedThemeIndex != 2 {
+		t.Errorf("After Right at max, expected theme index 2 (clamped), got %d", s.SelectedThemeIndex)
+	}
+
+	// Press left -> back to index 1
+	s.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if s.SelectedThemeIndex != 1 {
+		t.Errorf("After Left, expected theme index 1, got %d", s.SelectedThemeIndex)
+	}
+
+	// Press left -> back to index 0
+	s.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if s.SelectedThemeIndex != 0 {
+		t.Errorf("After Left, expected theme index 0, got %d", s.SelectedThemeIndex)
+	}
+
+	// Press left at min -> should clamp
+	s.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if s.SelectedThemeIndex != 0 {
+		t.Errorf("After Left at min, expected theme index 0 (clamped), got %d", s.SelectedThemeIndex)
+	}
+
+	// Theme should no longer be changed (back to original)
+	if s.ThemeChanged() {
+		t.Error("Theme should not be changed after navigating back to original")
+	}
+}
+
+func TestSettingsState_ThemeSelector_NotAffectedWhenNotFocused(t *testing.T) {
+	s := newTestSettingsState("", false,
+		[]string{"/repo"},
+		map[string]string{"/repo": ""},
+		0, false)
+
+	// Focus on branch prefix (focus 1)
+	s.Focus = 1
+
+	// Left/Right should NOT change theme
+	s.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if s.SelectedThemeIndex != 0 {
+		t.Errorf("Theme should not change when not focused, got index %d", s.SelectedThemeIndex)
+	}
+}
+
+func TestSettingsState_Render_ContainsThemeSection(t *testing.T) {
+	s := newTestSettingsState("", false, nil, nil, 0, false)
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "Theme:") {
+		t.Error("Rendered settings should contain 'Theme:' label")
+	}
+	if !strings.Contains(rendered, "Dark Purple") {
+		t.Error("Rendered settings should contain the selected theme display name")
+	}
+}
+
+func TestSettingsState_HelpChangesOnThemeFocus(t *testing.T) {
+	s := newTestSettingsState("", false, nil, nil, 0, false)
+
+	s.Focus = 0
+	help := s.Help()
+	if !strings.Contains(help, "change theme") {
+		t.Errorf("Help at theme focus should mention change theme, got %q", help)
+	}
+
+	s.Focus = 1
+	help = s.Help()
+	if strings.Contains(help, "change theme") {
+		t.Errorf("Help at non-theme focus should not mention change theme, got %q", help)
 	}
 }
 
