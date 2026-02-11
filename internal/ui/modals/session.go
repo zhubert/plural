@@ -1,11 +1,16 @@
 package modals
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/keys"
 )
+
+// NewSessionMaxVisibleRepos is the maximum number of repos visible before scrolling
+const NewSessionMaxVisibleRepos = 10
 
 // =============================================================================
 // NewSessionState - State for the New Session modal
@@ -14,6 +19,7 @@ import (
 type NewSessionState struct {
 	RepoOptions            []string
 	RepoIndex              int
+	ScrollOffset           int // For scrolling the repo list
 	BaseOptions            []string // Options for base branch selection
 	BaseIndex              int      // Selected base option index
 	BranchInput            textinput.Model
@@ -55,7 +61,7 @@ func (s *NewSessionState) Render() string {
 			Italic(true).
 			Render("No repositories added. Press 'a' to add one.")
 	} else {
-		repoList = RenderSelectableListWithFocus(s.RepoOptions, s.RepoIndex, s.Focus == 0, "* ")
+		repoList = s.renderRepoList()
 	}
 
 	// Base branch selection section
@@ -132,6 +138,47 @@ func (s *NewSessionState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
+func (s *NewSessionState) renderRepoList() string {
+	var lines []string
+
+	// Calculate visible range
+	startIdx := s.ScrollOffset
+	endIdx := startIdx + NewSessionMaxVisibleRepos
+	if endIdx > len(s.RepoOptions) {
+		endIdx = len(s.RepoOptions)
+	}
+
+	// Show scroll indicator at top if needed
+	if startIdx > 0 {
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Render("  ... "+formatCount(startIdx, 0)+" more above"))
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		style := SidebarItemStyle
+		prefix := "  "
+		if i == s.RepoIndex && s.Focus == 0 {
+			style = SidebarSelectedStyle
+			prefix = "> "
+		} else if i == s.RepoIndex {
+			prefix = "* "
+		}
+
+		lines = append(lines, style.Render(prefix+s.RepoOptions[i]))
+	}
+
+	// Show scroll indicator at bottom if needed
+	if endIdx < len(s.RepoOptions) {
+		remaining := len(s.RepoOptions) - endIdx
+		lines = append(lines, lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Render("  ... "+formatCount(remaining, 0)+" more below"))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 // numFields returns the number of focusable fields.
 func (s *NewSessionState) numFields() int {
 	if s.ContainersSupported {
@@ -150,6 +197,9 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			case 0: // Repo list
 				if s.RepoIndex > 0 {
 					s.RepoIndex--
+					if s.RepoIndex < s.ScrollOffset {
+						s.ScrollOffset = s.RepoIndex
+					}
 				}
 			case 1: // Base selection
 				if s.BaseIndex > 0 {
@@ -161,6 +211,9 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			case 0: // Repo list
 				if s.RepoIndex < len(s.RepoOptions)-1 {
 					s.RepoIndex++
+					if s.RepoIndex >= s.ScrollOffset+NewSessionMaxVisibleRepos {
+						s.ScrollOffset = s.RepoIndex - NewSessionMaxVisibleRepos + 1
+					}
 				}
 			case 1: // Base selection
 				if s.BaseIndex < len(s.BaseOptions)-1 {
@@ -239,6 +292,7 @@ func NewNewSessionState(repos []string, containersSupported bool, containerAuthA
 	return &NewSessionState{
 		RepoOptions:         repos,
 		RepoIndex:           0,
+		ScrollOffset:        0,
 		BaseOptions: []string{
 			"From current local branch",
 			"From remote default branch (latest)",
