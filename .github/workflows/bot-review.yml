@@ -1,6 +1,8 @@
 name: Bot Review Status
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   pull_request_review:
     types: [submitted]
 
@@ -11,24 +13,37 @@ permissions:
 jobs:
   bot-review-status:
     runs-on: ubuntu-latest
-    if: github.event.review.user.login == 'shipitai[bot]'
 
     steps:
-      - name: Set status check based on review
+      - name: Set status check
         uses: actions/github-script@v7
         with:
           script: |
-            const state = context.payload.review.state === 'APPROVED' ? 'success' : 'failure';
-            const description = context.payload.review.state === 'APPROVED'
-              ? 'Bot approved the changes'
-              : 'Bot requested changes';
+            const pr = context.payload.pull_request;
+            const review = context.payload.review;
+
+            let state, description, targetUrl;
+
+            if (review && review.user.login === 'shipitai[bot]') {
+              // Bot review submitted - set success or failure
+              state = review.state === 'APPROVED' ? 'success' : 'failure';
+              description = review.state === 'APPROVED'
+                ? 'Bot approved the changes'
+                : 'Bot requested changes';
+              targetUrl = review.html_url;
+            } else {
+              // PR opened/updated - set pending status
+              state = 'pending';
+              description = 'Waiting for bot review';
+              targetUrl = pr.html_url;
+            }
 
             await github.rest.repos.createCommitStatus({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              sha: context.payload.pull_request.head.sha,
+              sha: pr.head.sha,
               state: state,
-              target_url: context.payload.review.html_url,
+              target_url: targetUrl,
               description: description,
               context: 'bot-review'
             });
