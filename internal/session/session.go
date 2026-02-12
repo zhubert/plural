@@ -504,6 +504,12 @@ func getWorktreeRepoPath(worktreePath string) (string, error) {
 	}
 
 	gitdir := strings.TrimPrefix(line, "gitdir: ")
+
+	// Handle relative paths by resolving against the worktree path
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(worktreePath, gitdir)
+	}
+
 	// gitdir is like: /path/to/repo/.git/worktrees/uuid
 	// We want: /path/to/repo
 	parts := strings.Split(filepath.Clean(gitdir), string(filepath.Separator))

@@ -852,6 +852,48 @@ func TestGetWorktreeRepoPath_MissingGitFile(t *testing.T) {
 	}
 }
 
+// TestGetWorktreeRepoPath_RelativePath tests handling of relative gitdir paths
+func TestGetWorktreeRepoPath_RelativePath(t *testing.T) {
+	// Create a real repo and worktree to get the structure right
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Modify the .git file to use a relative path
+	// (simulating how git might create it in some configurations)
+	gitFile := filepath.Join(session.WorkTree, ".git")
+
+	// Calculate relative path from worktree to repo's .git/worktrees/<id>
+	// From: <parent>/.plural-worktrees/<id>
+	// To:   <parent>/<reponame>/.git/worktrees/<id>
+	repoName := filepath.Base(repoPath)
+	sessionID := session.ID
+	relativeGitDir := filepath.Join("..", "..", repoName, ".git", "worktrees", sessionID)
+
+	gitContent := fmt.Sprintf("gitdir: %s\n", relativeGitDir)
+	if err := os.WriteFile(gitFile, []byte(gitContent), 0644); err != nil {
+		t.Fatalf("Failed to write .git file: %v", err)
+	}
+
+	// Call getWorktreeRepoPath - should still work with relative path
+	detectedRepoPath, err := getWorktreeRepoPath(session.WorkTree)
+	if err != nil {
+		t.Fatalf("getWorktreeRepoPath failed with relative path: %v", err)
+	}
+
+	// Should still return the correct repo path
+	detectedResolved, _ := filepath.EvalSymlinks(detectedRepoPath)
+	repoResolved, _ := filepath.EvalSymlinks(repoPath)
+	if detectedResolved != repoResolved {
+		t.Errorf("getWorktreeRepoPath() with relative path = %q, want %q", detectedRepoPath, repoPath)
+	}
+}
+
 func TestOrphanedWorktree_Fields(t *testing.T) {
 	orphan := OrphanedWorktree{
 		Path:     "/path/to/worktree",
