@@ -182,8 +182,8 @@ func (c *Config) Validate() error {
 
 // Save writes the config to disk
 func (c *Config) Save() error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	dir, err := configDir()
 	if err != nil {

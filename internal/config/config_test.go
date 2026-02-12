@@ -2127,3 +2127,50 @@ func TestSession_Containerized(t *testing.T) {
 		t.Error("Containerized=false should be omitted from JSON (omitempty)")
 	}
 }
+
+func TestConfig_ConcurrentSave(t *testing.T) {
+	// Create temp directory for config
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := &Config{
+		Repos:    []string{"/path/to/repo"},
+		Sessions: []Session{},
+		filePath: configPath,
+	}
+
+	// Launch multiple goroutines that all try to Save() concurrently
+	const numGoroutines = 10
+	errChan := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			// Each goroutine modifies the config and saves
+			cfg.AddRepo("/repo/" + string(rune('a'+id)))
+			errChan <- cfg.Save()
+		}(i)
+	}
+
+	// Collect results
+	for i := 0; i < numGoroutines; i++ {
+		if err := <-errChan; err != nil {
+			t.Errorf("Save() failed in goroutine: %v", err)
+		}
+	}
+
+	// Verify the config file is valid JSON and can be loaded
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Config file is corrupted (invalid JSON): %v", err)
+	}
+
+	// Verify repos were added (at least the initial one should be present)
+	if len(loaded.Repos) == 0 {
+		t.Error("Expected at least one repo in the loaded config")
+	}
+}
