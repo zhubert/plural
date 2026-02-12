@@ -1036,10 +1036,10 @@ func TestChat_IsStreaming_WithToolUseRollup(t *testing.T) {
 		t.Error("Should be streaming when tool use rollup is active (even without text)")
 	}
 
-	// Add text streaming while tool use is active
+	// Add text streaming - this flushes the tool use rollup
 	chat.AppendStreaming("Some text")
 	if !chat.IsStreaming() {
-		t.Error("Should be streaming when both text and tool use are active")
+		t.Error("Should still be streaming after text is appended (rollup flushed to streaming)")
 	}
 
 	// Mark tool complete and flush - should still be streaming due to text
@@ -1055,8 +1055,7 @@ func TestChat_IsStreaming_WithToolUseRollup(t *testing.T) {
 		t.Error("Should not be streaming after FinishStreaming")
 	}
 
-	// Add tool use again after finishing
-	chat.AppendStreaming("")
+	// Add tool use again after finishing - rollup should make it streaming
 	chat.AppendToolUse("Read", "/path/to/file", "tool-2")
 	if !chat.IsStreaming() {
 		t.Error("Should be streaming when new tool use rollup is active")
