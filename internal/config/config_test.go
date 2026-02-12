@@ -2,9 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -2129,7 +2131,11 @@ func TestSession_Containerized(t *testing.T) {
 }
 
 func TestConfig_ConcurrentSave(t *testing.T) {
-	// Create temp directory for config
+	t.Parallel()
+
+	// This test primarily detects data races when run with -race flag.
+	// It verifies that concurrent Save() calls don't corrupt the config file,
+	// but does not test atomicity of Save() with other operations like AddRepo.
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
 
@@ -2144,11 +2150,10 @@ func TestConfig_ConcurrentSave(t *testing.T) {
 	errChan := make(chan error, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			// Each goroutine modifies the config and saves
-			cfg.AddRepo("/repo/" + string(rune('a'+id)))
+		go func() {
+			// Just call Save() repeatedly to test concurrent file writes
 			errChan <- cfg.Save()
-		}(i)
+		}()
 	}
 
 	// Collect results
@@ -2169,8 +2174,65 @@ func TestConfig_ConcurrentSave(t *testing.T) {
 		t.Fatalf("Config file is corrupted (invalid JSON): %v", err)
 	}
 
-	// Verify repos were added (at least the initial one should be present)
-	if len(loaded.Repos) == 0 {
-		t.Error("Expected at least one repo in the loaded config")
+	// Verify the config matches what we expect
+	if len(loaded.Repos) != 1 || loaded.Repos[0] != "/path/to/repo" {
+		t.Errorf("Expected repos ['/path/to/repo'], got %v", loaded.Repos)
+	}
+}
+
+func TestConfig_SaveRaceWithMutations(t *testing.T) {
+	t.Parallel()
+
+	// This test detects races between Save() and mutations (AddRepo, etc.)
+	// when run with -race flag. It verifies Save() properly serializes with
+	// write operations so concurrent file writes don't produce corrupt JSON.
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+		filePath: configPath,
+	}
+
+	var wg sync.WaitGroup
+
+	// Half the goroutines mutate the config
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				cfg.AddRepo(fmt.Sprintf("/repo/%d/%d", id, j))
+			}
+		}(i)
+	}
+
+	// Half the goroutines save the config
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 5; j++ {
+				_ = cfg.Save()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// Final save and verify the file is valid JSON
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("Final save failed: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Config file is corrupted (invalid JSON): %v", err)
 	}
 }
