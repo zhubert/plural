@@ -50,10 +50,22 @@ func TestBulkActionState_SwitchAction(t *testing.T) {
 		t.Errorf("expected CreatePRs, got %d", state.Action)
 	}
 
+	// Switch right to Send Prompt (use arrow key instead of vim shortcut)
+	state.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if state.Action != BulkActionSendPrompt {
+		t.Errorf("expected SendPrompt, got %d", state.Action)
+	}
+
 	// Can't go further right
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+	state.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	if state.Action != BulkActionSendPrompt {
+		t.Errorf("should stay at SendPrompt, got %d", state.Action)
+	}
+
+	// Switch back left to CreatePRs (use arrow key when on SendPrompt)
+	state.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	if state.Action != BulkActionCreatePRs {
-		t.Errorf("should stay at CreatePRs, got %d", state.Action)
+		t.Errorf("expected CreatePRs, got %d", state.Action)
 	}
 
 	// Switch back left to Move
@@ -209,5 +221,117 @@ func TestBulkActionState_Render_CreatePRs(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "skipped") {
 		t.Error("should mention that sessions will be skipped")
+	}
+}
+
+func TestBulkActionState_SwitchToSendPrompt(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+
+	// Navigate right to SendPrompt (Delete -> Move -> CreatePRs -> SendPrompt)
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+
+	if state.Action != BulkActionSendPrompt {
+		t.Errorf("expected BulkActionSendPrompt, got %d", state.Action)
+	}
+
+	// Can't go further right
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+	if state.Action != BulkActionSendPrompt {
+		t.Errorf("should stay at SendPrompt, got %d", state.Action)
+	}
+}
+
+func TestBulkActionState_Render_SendPrompt(t *testing.T) {
+	state := NewBulkActionState([]string{"s1", "s2"}, nil)
+	state.Action = BulkActionSendPrompt
+
+	rendered := state.Render()
+
+	if !strings.Contains(rendered, "Send Prompt") {
+		t.Error("should contain 'Send Prompt' action")
+	}
+	if !strings.Contains(rendered, "Enter prompt:") {
+		t.Error("should show prompt input label")
+	}
+	if !strings.Contains(rendered, "Send prompt to 2 session(s)") {
+		t.Error("should show send prompt confirmation message")
+	}
+}
+
+func TestBulkActionState_GetPrompt(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+	state.Action = BulkActionSendPrompt
+
+	// Simulate typing text into the prompt
+	state.PromptInput.SetValue("Test prompt message")
+
+	prompt := state.GetPrompt()
+	if prompt != "Test prompt message" {
+		t.Errorf("expected 'Test prompt message', got %q", prompt)
+	}
+}
+
+func TestBulkActionState_GetPrompt_Empty(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+
+	prompt := state.GetPrompt()
+	if prompt != "" {
+		t.Errorf("expected empty prompt, got %q", prompt)
+	}
+}
+
+func TestBulkActionState_GetPrompt_Trimmed(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+	state.PromptInput.SetValue("  Test prompt  \n")
+
+	prompt := state.GetPrompt()
+	if prompt != "Test prompt" {
+		t.Errorf("expected trimmed 'Test prompt', got %q", prompt)
+	}
+}
+
+func TestBulkActionState_PromptInputInitialized(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+
+	// Check that PromptInput is initialized
+	if state.PromptInput.Placeholder == "" {
+		t.Error("PromptInput should have a placeholder")
+	}
+}
+
+func TestBulkActionState_PromptInput_AcceptsTyping(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+	state.Action = BulkActionSendPrompt
+
+	// Simulate typing
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "t"})
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "e"})
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "s"})
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "t"})
+
+	prompt := state.GetPrompt()
+	if prompt != "test" {
+		t.Errorf("expected 'test', got %q", prompt)
+	}
+}
+
+func TestBulkActionState_PromptInput_NavigationStillWorks(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+	state.Action = BulkActionSendPrompt
+
+	// Type something
+	state.PromptInput.SetValue("test")
+
+	// Navigate left using arrow key (h/l don't work when on SendPrompt to avoid typing interference)
+	state.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+
+	if state.Action != BulkActionCreatePRs {
+		t.Errorf("expected to switch to CreatePRs, got %d", state.Action)
+	}
+
+	if state.GetPrompt() != "test" {
+		t.Error("prompt should be preserved when navigating")
 	}
 }

@@ -77,6 +77,7 @@ const (
 	BulkActionDelete          = modals.BulkActionDelete
 	BulkActionMoveToWorkspace = modals.BulkActionMoveToWorkspace
 	BulkActionCreatePRs       = modals.BulkActionCreatePRs
+	BulkActionSendPrompt      = modals.BulkActionSendPrompt
 )
 
 // Re-export constructor functions

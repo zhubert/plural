@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -18,6 +19,7 @@ const (
 	BulkActionDelete          BulkAction = iota
 	BulkActionMoveToWorkspace
 	BulkActionCreatePRs
+	BulkActionSendPrompt
 )
 
 // BulkActionState is the modal for choosing a bulk action
@@ -27,6 +29,7 @@ type BulkActionState struct {
 	Action        BulkAction
 	Workspaces    []config.Workspace
 	SelectedWSIdx int
+	PromptInput   textarea.Model
 }
 
 func (*BulkActionState) modalState() {}
@@ -36,6 +39,9 @@ func (s *BulkActionState) Title() string {
 }
 
 func (s *BulkActionState) Help() string {
+	if s.Action == BulkActionSendPrompt {
+		return "left/right: switch action  Enter: send  Esc: cancel"
+	}
 	return "left/right: switch action  Enter: confirm  Esc: cancel"
 }
 
@@ -43,7 +49,7 @@ func (s *BulkActionState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
 	// Action selector (left/right)
-	actions := []string{"Delete", "Move to Workspace", "Create PRs"}
+	actions := []string{"Delete", "Move to Workspace", "Create PRs", "Send Prompt"}
 	var actionLine strings.Builder
 	for i, action := range actions {
 		style := SidebarItemStyle
@@ -86,6 +92,23 @@ func (s *BulkActionState) Render() string {
 		}
 	}
 
+	// Show prompt input when "Send Prompt" is selected
+	if s.Action == BulkActionSendPrompt {
+		promptLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Enter prompt:")
+
+		promptStyle := lipgloss.NewStyle().
+			BorderLeft(true).
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderForeground(ColorPrimary).
+			PaddingLeft(1)
+		promptView := promptStyle.Render(s.PromptInput.View())
+
+		parts = append(parts, promptLabel, promptView)
+	}
+
 	// Confirm info
 	var confirmMsg string
 	switch s.Action {
@@ -97,6 +120,8 @@ func (s *BulkActionState) Render() string {
 		}
 	case BulkActionCreatePRs:
 		confirmMsg = fmt.Sprintf("Create PRs for %d session(s). Sessions with existing PRs or that are already merged will be skipped.", s.SessionCount)
+	case BulkActionSendPrompt:
+		confirmMsg = fmt.Sprintf("Send prompt to %d session(s).", s.SessionCount)
 	}
 	if confirmMsg != "" {
 		confirmStyle := lipgloss.NewStyle().
@@ -114,25 +139,62 @@ func (s *BulkActionState) Render() string {
 
 func (s *BulkActionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
+		key := keyMsg.String()
+
+		// When on Send Prompt action, only handle arrow keys for navigation
+		// (not h/l shortcuts which would interfere with typing)
+		if s.Action == BulkActionSendPrompt {
+			switch key {
+			case keys.Left:
+				if s.Action > 0 {
+					s.Action--
+					return s, nil
+				}
+			case keys.Right:
+				if s.Action < BulkActionSendPrompt {
+					s.Action++
+					return s, nil
+				}
+			default:
+				// Forward all other events to textarea
+				var cmd tea.Cmd
+				s.PromptInput, cmd = s.PromptInput.Update(msg)
+				return s, cmd
+			}
+			return s, nil
+		}
+
+		// For other actions, handle navigation keys (arrow keys + vim shortcuts)
+		switch key {
 		case keys.Left, "h":
 			if s.Action > 0 {
 				s.Action--
+				return s, nil
 			}
 		case keys.Right, "l":
-			if s.Action < BulkActionCreatePRs {
+			if s.Action < BulkActionSendPrompt {
 				s.Action++
+				return s, nil
 			}
-		case keys.Up, "k":
-			if s.Action == BulkActionMoveToWorkspace && s.SelectedWSIdx > 0 {
-				s.SelectedWSIdx--
-			}
-		case keys.Down, "j":
-			if s.Action == BulkActionMoveToWorkspace && s.SelectedWSIdx < len(s.Workspaces)-1 {
-				s.SelectedWSIdx++
+		}
+
+		// Handle workspace navigation when in Move action
+		if s.Action == BulkActionMoveToWorkspace {
+			switch key {
+			case keys.Up, "k":
+				if s.SelectedWSIdx > 0 {
+					s.SelectedWSIdx--
+				}
+				return s, nil
+			case keys.Down, "j":
+				if s.SelectedWSIdx < len(s.Workspaces)-1 {
+					s.SelectedWSIdx++
+				}
+				return s, nil
 			}
 		}
 	}
+
 	return s, nil
 }
 
@@ -149,12 +211,25 @@ func (s *BulkActionState) GetSelectedWorkspaceID() string {
 	return ""
 }
 
+// GetPrompt returns the prompt text for send prompt action
+func (s *BulkActionState) GetPrompt() string {
+	return strings.TrimSpace(s.PromptInput.Value())
+}
+
 // NewBulkActionState creates a new BulkActionState
 func NewBulkActionState(sessionIDs []string, workspaces []config.Workspace) *BulkActionState {
+	promptInput := textarea.New()
+	promptInput.Placeholder = "Enter your prompt here..."
+	promptInput.ShowLineNumbers = false
+	promptInput.SetWidth(60)
+	promptInput.SetHeight(4)
+	promptInput.Focus()
+
 	return &BulkActionState{
 		SessionIDs:   sessionIDs,
 		SessionCount: len(sessionIDs),
 		Action:       BulkActionDelete,
 		Workspaces:   workspaces,
+		PromptInput:  promptInput,
 	}
 }
