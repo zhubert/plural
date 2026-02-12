@@ -171,8 +171,8 @@ func TestNewSocketServer(t *testing.T) {
 		t.Error("SocketPath returned empty string")
 	}
 
-	if !contains(path, "plural-test-session-123.sock") {
-		t.Errorf("SocketPath = %q, expected to contain 'plural-test-session-123.sock'", path)
+	if !contains(path, "pl-test-ses.sock") {
+		t.Errorf("SocketPath = %q, expected to contain 'pl-test-ses.sock'", path)
 	}
 }
 
@@ -431,6 +431,291 @@ func TestSocketClient_WriteTimeoutErrorMessage(t *testing.T) {
 	}
 
 	// The connection error is expected - this just verifies NewSocketClient returns errors properly
+}
+
+func TestNewTCPSocketServer(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewTCPSocketServer("test-tcp-session", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewTCPSocketServer failed: %v", err)
+	}
+	defer server.Close()
+
+	// SocketPath should be empty for TCP servers
+	if path := server.SocketPath(); path != "" {
+		t.Errorf("SocketPath() = %q, want empty for TCP server", path)
+	}
+
+	// TCPAddr should return a non-empty address
+	addr := server.TCPAddr()
+	if addr == "" {
+		t.Error("TCPAddr() returned empty string")
+	}
+
+	// TCPPort should return a positive port number
+	port := server.TCPPort()
+	if port <= 0 {
+		t.Errorf("TCPPort() = %d, want positive port number", port)
+	}
+}
+
+func TestNewTCPSocketServer_Close(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewTCPSocketServer("test-tcp-close", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewTCPSocketServer failed: %v", err)
+	}
+
+	// Close should not error
+	if err := server.Close(); err != nil {
+		t.Errorf("Close failed: %v", err)
+	}
+
+	// Double close should be safe
+	server.Close()
+}
+
+func TestTCPSocketServer_SocketPathEmpty(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewTCPSocketServer("test-tcp-no-socket", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewTCPSocketServer failed: %v", err)
+	}
+	defer server.Close()
+
+	// TCP server should have isTCP true
+	if !server.isTCP {
+		t.Error("TCP server should have isTCP = true")
+	}
+
+	// Unix socket server should have isTCP false
+	unixServer, err := NewSocketServer("test-unix-check", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewSocketServer failed: %v", err)
+	}
+	defer unixServer.Close()
+
+	if unixServer.isTCP {
+		t.Error("Unix socket server should have isTCP = false")
+	}
+	if unixServer.TCPAddr() != "" {
+		t.Error("Unix socket server TCPAddr() should return empty string")
+	}
+	if unixServer.TCPPort() != 0 {
+		t.Errorf("Unix socket server TCPPort() = %d, want 0", unixServer.TCPPort())
+	}
+}
+
+func TestTCPClientServer_Integration(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewTCPSocketServer("test-tcp-integration", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewTCPSocketServer failed: %v", err)
+	}
+	defer server.Close()
+
+	// Start server in background
+	server.Start()
+
+	// Give server time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Create TCP client
+	client, err := NewTCPSocketClient(server.TCPAddr())
+	if err != nil {
+		t.Fatalf("NewTCPSocketClient failed: %v", err)
+	}
+	defer client.Close()
+
+	// Test permission request/response
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		select {
+		case req := <-permReqCh:
+			if req.ID != "tcp-perm-1" {
+				t.Errorf("Request ID = %q, want 'tcp-perm-1'", req.ID)
+			}
+			permRespCh <- PermissionResponse{
+				ID:      req.ID,
+				Allowed: true,
+				Message: "TCP Approved",
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for permission request via TCP")
+		}
+	}()
+
+	resp, err := client.SendPermissionRequest(PermissionRequest{
+		ID:   "tcp-perm-1",
+		Tool: "Bash",
+	})
+	if err != nil {
+		t.Fatalf("SendPermissionRequest via TCP failed: %v", err)
+	}
+
+	<-done
+
+	if resp.ID != "tcp-perm-1" {
+		t.Errorf("Response ID = %q, want 'tcp-perm-1'", resp.ID)
+	}
+	if !resp.Allowed {
+		t.Error("Expected Allowed to be true")
+	}
+	if resp.Message != "TCP Approved" {
+		t.Errorf("Message = %q, want 'TCP Approved'", resp.Message)
+	}
+
+	server.Close()
+}
+
+func TestTCPClientServer_Question(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewTCPSocketServer("test-tcp-question", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewTCPSocketServer failed: %v", err)
+	}
+	defer server.Close()
+
+	server.Start()
+	time.Sleep(50 * time.Millisecond)
+
+	client, err := NewTCPSocketClient(server.TCPAddr())
+	if err != nil {
+		t.Fatalf("NewTCPSocketClient failed: %v", err)
+	}
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case req := <-questReqCh:
+			questRespCh <- QuestionResponse{
+				ID:      req.ID,
+				Answers: map[string]string{"q1": "tcp-answer"},
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for question request via TCP")
+		}
+	}()
+
+	resp, err := client.SendQuestionRequest(QuestionRequest{
+		ID: "tcp-quest-1",
+		Questions: []Question{
+			{Question: "TCP Test?", Header: "Q1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendQuestionRequest via TCP failed: %v", err)
+	}
+
+	<-done
+
+	if resp.ID != "tcp-quest-1" {
+		t.Errorf("Response ID = %q, want 'tcp-quest-1'", resp.ID)
+	}
+	if resp.Answers["q1"] != "tcp-answer" {
+		t.Errorf("Answer = %q, want 'tcp-answer'", resp.Answers["q1"])
+	}
+
+	server.Close()
+}
+
+func TestTCPClientServer_PlanApproval(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server, err := NewTCPSocketServer("test-tcp-plan", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	if err != nil {
+		t.Fatalf("NewTCPSocketServer failed: %v", err)
+	}
+	defer server.Close()
+
+	server.Start()
+	time.Sleep(50 * time.Millisecond)
+
+	client, err := NewTCPSocketClient(server.TCPAddr())
+	if err != nil {
+		t.Fatalf("NewTCPSocketClient failed: %v", err)
+	}
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		select {
+		case req := <-planReqCh:
+			planRespCh <- PlanApprovalResponse{
+				ID:       req.ID,
+				Approved: true,
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for plan approval request via TCP")
+		}
+	}()
+
+	resp, err := client.SendPlanApprovalRequest(PlanApprovalRequest{
+		ID:   "tcp-plan-1",
+		Plan: "TCP test plan content",
+	})
+	if err != nil {
+		t.Fatalf("SendPlanApprovalRequest via TCP failed: %v", err)
+	}
+
+	<-done
+
+	if resp.ID != "tcp-plan-1" {
+		t.Errorf("Response ID = %q, want 'tcp-plan-1'", resp.ID)
+	}
+	if !resp.Approved {
+		t.Error("Expected Approved to be true")
+	}
+
+	server.Close()
+}
+
+func TestNewTCPSocketClient_InvalidAddr(t *testing.T) {
+	// Connecting to a non-listening address should fail
+	_, err := NewTCPSocketClient("127.0.0.1:1")
+	if err == nil {
+		t.Error("Expected error for invalid TCP address")
+	}
 }
 
 // contains checks if s contains substr (helper for tests)

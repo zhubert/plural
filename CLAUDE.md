@@ -496,7 +496,7 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 
 ### Container Mode (Apple Containers)
 
-Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, eliminating the MCP permission system entirely for containerized sessions.
+Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, so all regular tool permissions are auto-approved. However, interactive prompts (`AskUserQuestion`, `ExitPlanMode`) still route through the TUI via a lightweight MCP server running inside the container with `--auto-approve` (wildcard `"*"` allowed tools). The MCP socket server runs on the host and communicates with the in-container MCP subprocess via a mounted Unix socket.
 
 **Authentication Requirement**: Container mode requires one of: `ANTHROPIC_API_KEY` (env var or macOS keychain `anthropic_api_key`), or `CLAUDE_CODE_OAUTH_TOKEN` (long-lived token from `claude setup-token`, ~1 year lifetime). The short-lived OAuth access token from the macOS keychain is NOT supported because it rotates every ~8-12 hours and would become invalid inside the container. The UI shows a warning when the container checkbox is checked without available credentials, and session creation is blocked.
 
@@ -509,19 +509,19 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - Forked sessions inherit the parent's `Containerized` flag.
 
 **ProcessManager** (`internal/claude/process_manager.go`):
-- `ProcessConfig.Containerized`/`ContainerImage`: Passed from Runner
-- `BuildCommandArgs()`: When containerized, replaces MCP/permission/allowedTools block with just `--dangerously-skip-permissions`
+- `ProcessConfig.Containerized`/`ContainerImage`/`SocketPath`: Passed from Runner
+- `BuildCommandArgs()`: When containerized, uses `--dangerously-skip-permissions` plus `--mcp-config`/`--permission-prompt-tool` (when MCPConfigPath is set) for AskUserQuestion/ExitPlanMode routing
 - `Start()`: When containerized, checks `ContainerAuthAvailable()` first, then builds command as `container run -i --rm ...` wrapping `claude`
 - `Stop()`: Runs `container rm -f` as defense-in-depth cleanup
 - `ContainerAuthAvailable()`: Checks if credentials exist (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or keychain)
-- `buildContainerRunArgs()`: Constructs container run arguments with worktree mount, auth mount, working directory
+- `buildContainerRunArgs()`: Constructs container run arguments with worktree mount, auth mount, socket mount, MCP config mount, working directory
 - `writeContainerAuthFile()`: Writes credentials to temp file for container mount (API key, OAuth token, or keychain)
 
 **Runner** (`internal/claude/claude.go`):
 - `SetContainerized(bool, string)`: Stores container mode and image
-- `SendContent()`: Skips `ensureServerRunning()` (MCP) when containerized
-- `ensureProcessRunning()`: Passes container fields to `ProcessConfig`
-- `Stop()`: Skips socket server and MCP config cleanup when containerized
+- `SendContent()`: Calls `ensureServerRunning()` for all sessions (container and non-container)
+- `ensureProcessRunning()`: Passes container fields and socket path to `ProcessConfig`
+- `Stop()`: Cleans up socket server and MCP config for all sessions
 
 **UI**:
 - New Session modal (`n`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
@@ -530,10 +530,19 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - Header: `[CONTAINER]` indicator in green when viewing a containerized session
 - Modal constructors accept `containerAuthAvailable bool` parameter for auth state
 
+**MCP Config** (`internal/claude/mcp_config.go`):
+- `ensureServerRunning()`: Runs socket server on host for both container and non-container sessions
+- `createMCPConfigLocked()`: Host config pointing to current plural binary
+- `createContainerMCPConfigLocked()`: Container config pointing to `/usr/local/bin/plural` with `--auto-approve`
+
+**MCP Server** (`cmd/mcp_server.go`):
+- `--auto-approve` flag: When set, passes `[]string{"*"}` as allowedTools to auto-approve all regular permissions
+- Wildcard `"*"` in `isToolAllowed()` matches any tool, but AskUserQuestion/ExitPlanMode are handled before the allowed check
+
 **Containerfile** (repo root):
-- Builds the default `plural-claude` image using `node:22-slim` base
-- Installs git and Claude CLI via npm
-- Build: `container build -t plural-claude .`
+- Builds `plural-claude` image using `golang:1.25-alpine` base
+- Installs git, Claude CLI via npm, and builds plural binary at `/usr/local/bin/plural`
+- Build: `./scripts/build-container.sh` (cross-compiles plural binary, builds from clean temp dir)
 
 **Container orphan cleanup** (`internal/process/process.go`):
 - `OrphanedContainer` struct: `Name string` (e.g., `plural-abc123`)

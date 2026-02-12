@@ -973,18 +973,24 @@ func TestBuildCommandArgs_Containerized_NewSession(t *testing.T) {
 		t.Errorf("--session-id = %q, want 'container-session-uuid'", got)
 	}
 
-	// Containerized: must have --dangerously-skip-permissions
-	if !containsArg(args, "--dangerously-skip-permissions") {
-		t.Error("Containerized session must have --dangerously-skip-permissions")
+	// With MCPConfigPath set, containerized sessions use MCP with wildcard
+	// instead of --dangerously-skip-permissions (they conflict in Claude CLI)
+	if containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized session with MCPConfigPath must NOT have --dangerously-skip-permissions (conflicts with --permission-prompt-tool)")
+	}
+	if !containsArg(args, "--mcp-config") {
+		t.Error("Containerized session with MCPConfigPath should have --mcp-config")
+	}
+	if !containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized session with MCPConfigPath should have --permission-prompt-tool")
 	}
 
-	// Must NOT have MCP-related flags
-	if containsArg(args, "--mcp-config") {
-		t.Error("Containerized session must not have --mcp-config")
+	// --mcp-config must use the short container-side path, not the host path
+	if got := getArgValue(args, "--mcp-config"); got != containerMCPConfigPath {
+		t.Errorf("--mcp-config = %q, want %q (short container-side path)", got, containerMCPConfigPath)
 	}
-	if containsArg(args, "--permission-prompt-tool") {
-		t.Error("Containerized session must not have --permission-prompt-tool")
-	}
+
+	// Must NOT have --allowedTools (container uses wildcard in MCP server)
 	if containsArg(args, "--allowedTools") {
 		t.Error("Containerized session must not have --allowedTools")
 	}
@@ -992,6 +998,31 @@ func TestBuildCommandArgs_Containerized_NewSession(t *testing.T) {
 	// Must still have --append-system-prompt
 	if !containsArg(args, "--append-system-prompt") {
 		t.Error("Containerized session should still have --append-system-prompt")
+	}
+}
+
+func TestBuildCommandArgs_Containerized_NoMCPConfig(t *testing.T) {
+	// When MCPConfigPath is empty (MCP server not started yet),
+	// containerized sessions fall back to --dangerously-skip-permissions
+	config := ProcessConfig{
+		SessionID:      "container-session-uuid",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: false,
+		MCPConfigPath:  "", // Empty - MCP not configured
+		Containerized:  true,
+		ContainerImage: "my-image",
+	}
+
+	args := BuildCommandArgs(config)
+
+	if !containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized session without MCPConfigPath should fall back to --dangerously-skip-permissions")
+	}
+	if containsArg(args, "--mcp-config") {
+		t.Error("Containerized session without MCPConfigPath should not have --mcp-config")
+	}
+	if containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized session without MCPConfigPath should not have --permission-prompt-tool")
 	}
 }
 
@@ -1016,17 +1047,15 @@ func TestBuildCommandArgs_Containerized_ResumedSession(t *testing.T) {
 		t.Errorf("--session-id = %q, want 'container-session-uuid'", got)
 	}
 
-	// Containerized: must have --dangerously-skip-permissions
-	if !containsArg(args, "--dangerously-skip-permissions") {
-		t.Error("Containerized resumed session must have --dangerously-skip-permissions")
+	// With MCPConfigPath set, should use MCP instead of --dangerously-skip-permissions
+	if containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized resumed session with MCPConfigPath must NOT have --dangerously-skip-permissions")
 	}
-
-	// Must NOT have MCP-related flags
-	if containsArg(args, "--mcp-config") {
-		t.Error("Containerized resumed session must not have --mcp-config")
+	if !containsArg(args, "--mcp-config") {
+		t.Error("Containerized resumed session with MCPConfigPath should have --mcp-config")
 	}
-	if containsArg(args, "--permission-prompt-tool") {
-		t.Error("Containerized resumed session must not have --permission-prompt-tool")
+	if !containsArg(args, "--permission-prompt-tool") {
+		t.Error("Containerized resumed session with MCPConfigPath should have --permission-prompt-tool")
 	}
 }
 
@@ -1066,14 +1095,12 @@ func TestBuildCommandArgs_Containerized_ForkedSession(t *testing.T) {
 		}
 	}
 
-	// Containerized: must have --dangerously-skip-permissions
-	if !containsArg(args, "--dangerously-skip-permissions") {
-		t.Error("Containerized forked session must have --dangerously-skip-permissions")
+	// With MCPConfigPath set, should use MCP instead of --dangerously-skip-permissions
+	if containsArg(args, "--dangerously-skip-permissions") {
+		t.Error("Containerized forked session with MCPConfigPath must NOT have --dangerously-skip-permissions")
 	}
-
-	// Must NOT have MCP-related flags
-	if containsArg(args, "--mcp-config") {
-		t.Error("Containerized forked session must not have --mcp-config")
+	if !containsArg(args, "--mcp-config") {
+		t.Error("Containerized forked session with MCPConfigPath should have --mcp-config")
 	}
 }
 
@@ -1515,5 +1542,72 @@ func TestProcessManager_Start_AllowsNonContainerizedWithoutAuth(t *testing.T) {
 	}
 	// Clean up if it somehow started
 	pm.Stop()
+}
+
+func TestBuildContainerRunArgs_MountsMCPConfig(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-mount-session",
+		WorkingDir:     "/path/to/worktree",
+		ContainerImage: "plural-claude",
+		MCPConfigPath:  "/var/folders/xx/long-temp-path/T/plural-mcp-test-mount-session.json",
+	}
+
+	claudeArgs := []string{"--print", "--session-id", "test-mount-session"}
+	result := buildContainerRunArgs(config, claudeArgs)
+	args := result.Args
+
+	// Verify MCP config is mounted at the short container-side path (read-only)
+	foundConfigMount := false
+	expectedConfig := "/var/folders/xx/long-temp-path/T/plural-mcp-test-mount-session.json:" + containerMCPConfigPath + ":ro"
+	for _, arg := range args {
+		if arg == expectedConfig {
+			foundConfigMount = true
+			break
+		}
+	}
+	if !foundConfigMount {
+		t.Errorf("Should mount MCP config at short container path, looking for %q in %v", expectedConfig, args)
+	}
+
+	// Verify no socket file is mounted (TCP is used instead)
+	for _, arg := range args {
+		if strings.Contains(arg, ".sock") {
+			t.Errorf("Should not mount a socket file (TCP is used for container sessions), found %q", arg)
+		}
+	}
+}
+
+func TestBuildContainerRunArgs_NoMountsWithoutPaths(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-no-mount",
+		WorkingDir:     "/path/to/worktree",
+		ContainerImage: "plural-claude",
+		MCPConfigPath:  "", // No MCP config
+	}
+
+	claudeArgs := []string{"--print", "--session-id", "test-no-mount"}
+	result := buildContainerRunArgs(config, claudeArgs)
+	args := result.Args
+
+	// Should NOT have MCP config mounts
+	for _, arg := range args {
+		if strings.Contains(arg, "plural-mcp-test-no-mount.json") {
+			t.Error("Should not mount MCP config when MCPConfigPath is empty")
+		}
+	}
+}
+
+func TestContainerSidePaths_ShortEnough(t *testing.T) {
+	// Apple containers prepend /run/container/<name>/rootfs/ to all mount paths.
+	// With a worst-case container name like "plural-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+	// (7 + 36 = 43 chars), the prefix is:
+	// /run/container/plural-<36-char-uuid>/rootfs/ = ~56 chars
+	// Verify the MCP config path is reasonable when mounted inside the container.
+	worstCasePrefix := "/run/container/plural-12345678-1234-1234-1234-123456789012/rootfs"
+	fullMCPPath := worstCasePrefix + containerMCPConfigPath
+	// MCP config path doesn't have the Unix socket ~104 char limit, but should still be reasonable
+	if len(fullMCPPath) > 200 {
+		t.Errorf("container MCP config path too long (%d chars): %s", len(fullMCPPath), fullMCPPath)
+	}
 }
 

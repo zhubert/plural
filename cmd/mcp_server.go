@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/zhubert/plural/internal/logger"
@@ -12,6 +13,9 @@ import (
 )
 
 var socketPath string
+var tcpAddr string
+var autoApprove bool
+var mcpSessionID string
 
 var mcpServerCmd = &cobra.Command{
 	Use:    "mcp-server",
@@ -22,13 +26,18 @@ var mcpServerCmd = &cobra.Command{
 
 func init() {
 	mcpServerCmd.Flags().StringVar(&socketPath, "socket", "", "Unix socket path for TUI communication")
-	mcpServerCmd.MarkFlagRequired("socket")
+	mcpServerCmd.Flags().StringVar(&tcpAddr, "tcp", "", "TCP address for TUI communication (host:port)")
+	mcpServerCmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Auto-approve all tool permissions (used in container mode)")
+	mcpServerCmd.Flags().StringVar(&mcpSessionID, "session-id", "", "Session ID for logging")
 	rootCmd.AddCommand(mcpServerCmd)
 }
 
 func runMCPServer(cmd *cobra.Command, args []string) error {
-	// Extract session ID from socket path (e.g., /tmp/plural-<session-id>.sock)
-	sessionID := extractSessionID(socketPath)
+	// Determine session ID from flag or socket path
+	sessionID := mcpSessionID
+	if sessionID == "" {
+		sessionID = extractSessionID(socketPath)
+	}
 	if sessionID != "" {
 		if logPath, err := logger.MCPLogPath(sessionID); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get MCP log path: %v\n", err)
@@ -38,10 +47,35 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}
 	defer logger.Close()
 
-	// Connect to TUI socket
-	client, err := mcp.NewSocketClient(socketPath)
-	if err != nil {
-		return fmt.Errorf("error connecting to TUI socket: %w", err)
+	// Connect to TUI — via TCP (container mode) or Unix socket (host mode).
+	// TCP connections retry because the container's network stack may not be ready
+	// immediately on boot. Without retries, the MCP subprocess exits, causing
+	// Claude CLI to exit, and the user's first prompt is lost.
+	var client *mcp.SocketClient
+	var err error
+	if tcpAddr != "" {
+		const maxRetries = 10
+		const retryInterval = 500 * time.Millisecond
+		for i := range maxRetries {
+			client, err = mcp.NewTCPSocketClient(tcpAddr)
+			if err == nil {
+				break
+			}
+			if i < maxRetries-1 {
+				fmt.Fprintf(os.Stderr, "TCP connect attempt %d/%d failed, retrying: %v\n", i+1, maxRetries, err)
+				time.Sleep(retryInterval)
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("error connecting to TUI via TCP (%s) after %d attempts: %w", tcpAddr, maxRetries, err)
+		}
+	} else if socketPath != "" {
+		client, err = mcp.NewSocketClient(socketPath)
+		if err != nil {
+			return fmt.Errorf("error connecting to TUI socket: %w", err)
+		}
+	} else {
+		return fmt.Errorf("either --socket or --tcp must be specified")
 	}
 	defer client.Close()
 
@@ -103,7 +137,11 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Run MCP server on stdin/stdout
-	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, nil, sessionID)
+	var allowedTools []string
+	if autoApprove {
+		allowedTools = []string{"*"}
+	}
+	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID)
 	err = server.Run()
 
 	// Close request channels so the forwarding goroutines exit their range loops
@@ -117,14 +155,14 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// extractSessionID extracts the session ID from a socket path like /tmp/plural-<session-id>.sock
+// extractSessionID extracts the session ID from a socket path like /tmp/pl-<session-id>.sock
 func extractSessionID(socketPath string) string {
 	base := filepath.Base(socketPath)
 	// Remove .sock extension
 	base = strings.TrimSuffix(base, ".sock")
-	// Remove plural- prefix
-	if strings.HasPrefix(base, "plural-") {
-		return strings.TrimPrefix(base, "plural-")
+	// Remove pl- prefix (shortened from plural- to keep socket path under Unix limit)
+	if strings.HasPrefix(base, "pl-") {
+		return strings.TrimPrefix(base, "pl-")
 	}
 	return ""
 }

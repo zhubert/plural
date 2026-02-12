@@ -13,22 +13,22 @@ func TestExtractSessionID(t *testing.T) {
 	}{
 		{
 			name:       "standard socket path",
-			socketPath: "/tmp/plural-abc123-def456.sock",
-			expected:   "abc123-def456",
+			socketPath: "/tmp/pl-abc123de.sock",
+			expected:   "abc123de",
 		},
 		{
-			name:       "full UUID socket path",
-			socketPath: "/tmp/plural-550e8400-e29b-41d4-a716-446655440000.sock",
-			expected:   "550e8400-e29b-41d4-a716-446655440000",
+			name:       "abbreviated UUID socket path",
+			socketPath: "/tmp/pl-550e8400.sock",
+			expected:   "550e8400",
 		},
 		{
-			name:       "no plural prefix",
+			name:       "no pl- prefix",
 			socketPath: "/tmp/other-abc123.sock",
 			expected:   "",
 		},
 		{
 			name:       "no .sock extension",
-			socketPath: "/tmp/plural-abc123",
+			socketPath: "/tmp/pl-abc123",
 			expected:   "abc123",
 		},
 		{
@@ -37,8 +37,8 @@ func TestExtractSessionID(t *testing.T) {
 			expected:   "",
 		},
 		{
-			name:       "just plural prefix",
-			socketPath: "/tmp/plural-.sock",
+			name:       "just pl- prefix",
+			socketPath: "/tmp/pl-.sock",
 			expected:   "",
 		},
 	}
