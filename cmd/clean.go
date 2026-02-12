@@ -138,7 +138,6 @@ func runCleanWithReader(input io.Reader) error {
 	}
 
 	// Prune orphans in parallel (from --prune)
-	sessionSvc := session.NewSessionService()
 
 	var prunedWorktrees, prunedMessages, prunedProcesses, prunedContainers int
 	var worktreesErr, messagesErr, processesErr, containersErr error
@@ -148,7 +147,7 @@ func runCleanWithReader(input io.Reader) error {
 
 	go func() {
 		defer wg.Done()
-		prunedWorktrees, worktreesErr = sessionSvc.PruneOrphanedWorktrees(ctx, cfg)
+		prunedWorktrees, worktreesErr = sessionService.PruneOrphanedWorktrees(ctx, cfg)
 	}()
 
 	go func() {
