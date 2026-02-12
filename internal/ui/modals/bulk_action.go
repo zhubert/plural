@@ -17,6 +17,7 @@ type BulkAction int
 const (
 	BulkActionDelete          BulkAction = iota
 	BulkActionMoveToWorkspace
+	BulkActionCreatePRs
 )
 
 // BulkActionState is the modal for choosing a bulk action
@@ -42,7 +43,7 @@ func (s *BulkActionState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
 	// Action selector (left/right)
-	actions := []string{"Delete", "Move to Workspace"}
+	actions := []string{"Delete", "Move to Workspace", "Create PRs"}
 	var actionLine strings.Builder
 	for i, action := range actions {
 		style := SidebarItemStyle
@@ -94,6 +95,8 @@ func (s *BulkActionState) Render() string {
 		if len(s.Workspaces) > 0 && s.SelectedWSIdx < len(s.Workspaces) {
 			confirmMsg = fmt.Sprintf("Move %d session(s) to \"%s\".", s.SessionCount, s.Workspaces[s.SelectedWSIdx].Name)
 		}
+	case BulkActionCreatePRs:
+		confirmMsg = fmt.Sprintf("Create PRs for %d session(s). Sessions with existing PRs or uncommitted changes will be skipped.", s.SessionCount)
 	}
 	if confirmMsg != "" {
 		confirmStyle := lipgloss.NewStyle().
@@ -117,7 +120,7 @@ func (s *BulkActionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.Action--
 			}
 		case keys.Right, "l":
-			if s.Action < BulkActionMoveToWorkspace {
+			if s.Action < BulkActionCreatePRs {
 				s.Action++
 			}
 		case keys.Up, "k":

@@ -1102,6 +1102,8 @@ func (m *Model) handleBulkActionModal(key string, msg tea.KeyPressMsg, state *ui
 				return m, nil
 			}
 			return m.executeBulkMove(state.SessionIDs, wsID)
+		case ui.BulkActionCreatePRs:
+			return m.executeBulkCreatePRs(state.SessionIDs)
 		}
 		return m, nil
 	}
@@ -1195,4 +1197,26 @@ func (m *Model) executeBulkMove(sessionIDs []string, workspaceID string) (tea.Mo
 	}
 
 	return m, m.ShowFlashSuccess(fmt.Sprintf("Moved %d session(s) to \"%s\"", count, wsName))
+}
+
+// executeBulkCreatePRs creates PRs for multiple sessions
+func (m *Model) executeBulkCreatePRs(sessionIDs []string) (tea.Model, tea.Cmd) {
+	// Convert session IDs to session objects
+	var sessions []config.Session
+	for _, id := range sessionIDs {
+		if sess := m.config.GetSession(id); sess != nil {
+			sessions = append(sessions, *sess)
+		}
+	}
+
+	if len(sessions) == 0 {
+		return m, m.ShowFlashError("No valid sessions found")
+	}
+
+	// Exit multi-select mode and hide modal
+	m.sidebar.ExitMultiSelect()
+	m.modal.Hide()
+
+	// Call the existing createPRsForSessions function which handles all the logic
+	return m.createPRsForSessions(sessions)
 }

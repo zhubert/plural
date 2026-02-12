@@ -76,6 +76,7 @@ const ContainerAuthHelp = modals.ContainerAuthHelp
 const (
 	BulkActionDelete          = modals.BulkActionDelete
 	BulkActionMoveToWorkspace = modals.BulkActionMoveToWorkspace
+	BulkActionCreatePRs       = modals.BulkActionCreatePRs
 )
 
 // Re-export constructor functions

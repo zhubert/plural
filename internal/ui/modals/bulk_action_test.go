@@ -44,10 +44,22 @@ func TestBulkActionState_SwitchAction(t *testing.T) {
 		t.Errorf("expected MoveToWorkspace, got %d", state.Action)
 	}
 
+	// Switch right to Create PRs
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+	if state.Action != BulkActionCreatePRs {
+		t.Errorf("expected CreatePRs, got %d", state.Action)
+	}
+
 	// Can't go further right
 	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
+	if state.Action != BulkActionCreatePRs {
+		t.Errorf("should stay at CreatePRs, got %d", state.Action)
+	}
+
+	// Switch back left to Move
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "h"})
 	if state.Action != BulkActionMoveToWorkspace {
-		t.Errorf("should stay at MoveToWorkspace, got %d", state.Action)
+		t.Errorf("expected MoveToWorkspace, got %d", state.Action)
 	}
 
 	// Switch back left to Delete
@@ -180,5 +192,22 @@ func TestBulkActionState_Render_NoWorkspaces(t *testing.T) {
 
 	if !strings.Contains(rendered, "No workspaces") {
 		t.Error("should show 'No workspaces' message")
+	}
+}
+
+func TestBulkActionState_Render_CreatePRs(t *testing.T) {
+	state := NewBulkActionState([]string{"s1", "s2", "s3"}, nil)
+	state.Action = BulkActionCreatePRs
+
+	rendered := state.Render()
+
+	if !strings.Contains(rendered, "Create PRs") {
+		t.Error("should contain 'Create PRs' action")
+	}
+	if !strings.Contains(rendered, "Create PRs for 3 session(s)") {
+		t.Error("should show PR creation confirmation message")
+	}
+	if !strings.Contains(rendered, "skipped") {
+		t.Error("should mention that sessions will be skipped")
 	}
 }
