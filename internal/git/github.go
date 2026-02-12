@@ -94,7 +94,7 @@ func (s *GitService) GeneratePRTitleAndBodyWithIssueRef(ctx context.Context, rep
 
 Output format (use exactly this format with the markers):
 ---TITLE---
-Your PR title here (max 72 chars, imperative mood)
+Your PR title here in conventional commit format
 ---BODY---
 ## Summary
 Brief description of what this PR does
@@ -106,7 +106,13 @@ Brief description of what this PR does
 - How to test these changes
 
 Rules:
-1. Title should be concise and descriptive (max 72 chars)
+1. Title MUST follow conventional commit format: <type>[optional scope]: <description>
+   - type: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+   - scope: optional component/module name in parentheses
+   - description: concise summary in imperative mood, lowercase, no period at end
+   - Example: "feat(auth): add OAuth2 login support"
+   - Example: "fix: prevent race condition in request handling"
+   - Keep total title length under 72 characters
 2. Body should explain the purpose and changes clearly
 3. Include a test plan section
 4. Do NOT include any preamble - start directly with ---TITLE---
