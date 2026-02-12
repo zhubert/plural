@@ -455,6 +455,36 @@ func TestSessionState_HelperMethods(t *testing.T) {
 	}
 }
 
+func TestSessionState_GetMergeChan(t *testing.T) {
+	state := &SessionState{}
+
+	// Initially nil
+	if ch := state.GetMergeChan(); ch != nil {
+		t.Error("expected nil merge channel initially")
+	}
+
+	// Set a channel
+	mergeChan := make(chan git.Result)
+	state.WithLock(func(s *SessionState) {
+		s.MergeChan = mergeChan
+	})
+
+	// Should be retrievable
+	if ch := state.GetMergeChan(); ch != mergeChan {
+		t.Error("expected to get the same merge channel")
+	}
+
+	// Clear the channel
+	state.WithLock(func(s *SessionState) {
+		s.MergeChan = nil
+	})
+
+	// Should now be nil again
+	if ch := state.GetMergeChan(); ch != nil {
+		t.Error("expected nil merge channel after clearing")
+	}
+}
+
 func TestSessionStateManager_GetPendingMessage(t *testing.T) {
 	m := NewSessionStateManager()
 
@@ -551,6 +581,8 @@ func TestSessionState_ToolUseRollup(t *testing.T) {
 
 	// Mark tool-2 complete by ID
 	state.MarkToolUseComplete("tool-2", nil)
+	// Get a fresh copy to see the updated state
+	rollup = state.GetToolUseRollup()
 	if !rollup.Items[1].Complete {
 		t.Error("expected second item to be complete")
 	}
@@ -560,6 +592,8 @@ func TestSessionState_ToolUseRollup(t *testing.T) {
 
 	// Mark tool-1 complete by ID
 	state.MarkToolUseComplete("tool-1", nil)
+	// Get a fresh copy to see the updated state
+	rollup = state.GetToolUseRollup()
 	if !rollup.Items[0].Complete {
 		t.Error("expected first item to be complete")
 	}
@@ -758,6 +792,51 @@ func TestSessionStateManager_ContainerInitConcurrency(t *testing.T) {
 	if initializing {
 		t.Error("Expected not initializing after concurrent operations")
 	}
+}
+
+// TestSessionState_GetMergeChanConcurrency tests that GetMergeChan is safe to call
+// concurrently with StopMerge (which sets MergeChan to nil). This is the race condition
+// from issue #134 - listenForMergeResult was accessing MergeChan without a lock.
+func TestSessionState_GetMergeChanConcurrency(t *testing.T) {
+	m := NewSessionStateManager()
+	const numGoroutines = 50
+	const numIterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 2)
+
+	// Goroutines that repeatedly start and stop merges
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				ch := make(chan git.Result)
+				_, cancel := context.WithCancel(context.Background())
+				m.StartMerge("session-1", ch, cancel, MergeTypeMerge)
+				m.StopMerge("session-1")
+				cancel() // Clean up the context to avoid leaks
+			}
+		}()
+	}
+
+	// Goroutines that repeatedly read the merge channel (like listenForMergeResult does)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				state := m.GetIfExists("session-1")
+				if state != nil {
+					// This is the pattern from listenForMergeResult - accessing GetMergeChan
+					// should be safe even while another goroutine is calling StopMerge
+					_ = state.GetMergeChan()
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	// If we get here without panicking or race detector triggering, the test passes
 }
 
 // Helper function for string contains check
