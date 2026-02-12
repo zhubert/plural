@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/rivo/uniseg"
 )
 
 func newTestChat() *Chat {
@@ -263,5 +266,213 @@ func TestCopySelectedText_NoSelection(t *testing.T) {
 	cmd := c.CopySelectedText()
 	if cmd != nil {
 		t.Error("expected nil cmd when no selection")
+	}
+}
+
+// =============================================================================
+// Unicode handling tests
+// =============================================================================
+
+func TestSelectWord_UnicodeEmoji(t *testing.T) {
+	c := newTestChat()
+
+	// Test with emoji (multi-byte, single visual column)
+	testLine := "Hello 👋 world"
+	c.viewport.SetContent(testLine)
+
+	// Click on the emoji (column 6)
+	c.SelectWord(6, 0)
+
+	selected := c.GetSelectedText()
+	if selected != "👋" {
+		t.Errorf("expected emoji to be selected, got %q", selected)
+	}
+}
+
+func TestSelectWord_UnicodeAccents(t *testing.T) {
+	c := newTestChat()
+
+	// Test with accented characters
+	testLine := "Héllo wörld"
+	c.viewport.SetContent(testLine)
+
+	// Click on the second word (column 6)
+	c.SelectWord(6, 0)
+
+	selected := c.GetSelectedText()
+	if selected != "wörld" {
+		t.Errorf("expected 'wörld', got %q", selected)
+	}
+}
+
+func TestSelectWord_UnicodeCJK(t *testing.T) {
+	c := newTestChat()
+
+	// Test with CJK characters (wide characters - 2 columns each)
+	// Note: Unicode word boundaries treat each CJK character as a separate word
+	// because CJK languages don't use spaces between words. This is correct per UAX#29.
+	testLine := "Hello 世界 world"
+	c.viewport.SetContent(testLine)
+
+	// Click on the first CJK character (column 6)
+	c.SelectWord(6, 0)
+
+	selected := c.GetSelectedText()
+	// Each CJK character is treated as a separate word per Unicode spec
+	if selected != "世" {
+		t.Errorf("expected '世', got %q", selected)
+	}
+
+	// Click on the second CJK character (column 8)
+	c.SelectWord(8, 0)
+
+	selected = c.GetSelectedText()
+	if selected != "界" {
+		t.Errorf("expected '界', got %q", selected)
+	}
+}
+
+func TestGetSelectedText_UnicodeMultiByteChars(t *testing.T) {
+	c := newTestChat()
+
+	// Text with various multi-byte characters
+	testLine := "Café ☕ is nice"
+	c.viewport.SetContent(testLine)
+
+	// Select "Café" (columns 0-4)
+	c.selection.StartCol = 0
+	c.selection.StartLine = 0
+	c.selection.EndCol = 4
+	c.selection.EndLine = 0
+
+	selected := c.GetSelectedText()
+	if selected != "Café" {
+		t.Errorf("expected 'Café', got %q", selected)
+	}
+}
+
+func TestGetSelectedText_UnicodeWideChars(t *testing.T) {
+	c := newTestChat()
+
+	// Text with wide characters (each takes 2 visual columns)
+	testLine := "日本語"
+	c.viewport.SetContent(testLine)
+
+	// Wide chars: 日(0-1), 本(2-3), 語(4-5)
+	// Select "本" (columns 2-4)
+	c.selection.StartCol = 2
+	c.selection.StartLine = 0
+	c.selection.EndCol = 4
+	c.selection.EndLine = 0
+
+	selected := c.GetSelectedText()
+	if selected != "本" {
+		t.Errorf("expected '本', got %q", selected)
+	}
+}
+
+// =============================================================================
+// Utility function tests (columnToByteOffset, byteOffsetToColumn)
+// =============================================================================
+
+func TestColumnToByteOffset(t *testing.T) {
+	tests := []struct {
+		name   string
+		str    string
+		col    int
+		want   int
+		wantAt string // character at the returned offset
+	}{
+		{"empty string", "", 0, 0, ""},
+		{"ascii start", "Hello", 0, 0, "H"},
+		{"ascii middle", "Hello", 3, 3, "l"},
+		{"ascii end", "Hello", 5, 5, ""},
+		{"ascii beyond end", "Hello", 10, 5, ""},
+		{"emoji start", "👋Hello", 0, 0, "👋"},
+		{"emoji after", "👋Hello", 2, 4, "H"},
+		{"wide char start", "世界", 0, 0, "世"},
+		{"wide char middle", "世界", 2, 3, "界"},
+		{"wide char end", "世界", 4, 6, ""},
+		{"mixed unicode", "Café☕", 4, 5, "☕"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := columnToByteOffset(tt.str, tt.col)
+			if got != tt.want {
+				t.Errorf("columnToByteOffset(%q, %d) = %d, want %d", tt.str, tt.col, got, tt.want)
+			}
+			if tt.wantAt != "" && got < len(tt.str) {
+				// Verify we're at the correct character
+				rest := tt.str[got:]
+				if !strings.HasPrefix(rest, tt.wantAt) {
+					t.Errorf("at offset %d, got %q, want %q", got, string(rest[0]), tt.wantAt)
+				}
+			}
+		})
+	}
+}
+
+func TestByteOffsetToColumn(t *testing.T) {
+	tests := []struct {
+		name   string
+		str    string
+		offset int
+		want   int
+	}{
+		{"empty string", "", 0, 0},
+		{"ascii start", "Hello", 0, 0},
+		{"ascii middle", "Hello", 3, 3},
+		{"ascii end", "Hello", 5, 5},
+		{"ascii beyond end", "Hello", 10, 5},
+		{"emoji start", "👋Hello", 0, 0},
+		{"emoji middle", "👋Hello", 2, 2},
+		{"emoji after", "👋Hello", 4, 2},
+		{"wide char start", "世界", 0, 0},
+		{"wide char after first", "世界", 3, 2},
+		{"wide char end", "世界", 6, 4},
+		{"mixed unicode", "Café☕", 5, 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := byteOffsetToColumn(tt.str, tt.offset)
+			if got != tt.want {
+				t.Errorf("byteOffsetToColumn(%q, %d) = %d, want %d", tt.str, tt.offset, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestColumnByteRoundTrip(t *testing.T) {
+	// Note: Round-tripping is only guaranteed for ASCII and narrow characters.
+	// Wide characters (emoji, CJK) can span multiple columns, so column positions
+	// that fall "inside" a wide character will snap to the character's start position.
+	// For example, if an emoji at byte 6 spans columns 6-7, asking for column 7
+	// will return byte 6 (the emoji's start), and converting back gives column 6.
+	//
+	// This test verifies round-tripping works for ASCII where each byte = 1 column.
+
+	tests := []struct {
+		name string
+		str  string
+	}{
+		{"ascii", "Hello world"},
+		{"accents", "Café crème"}, // Multi-byte but single-width chars
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// For each column position, convert to byte offset and back
+			width := uniseg.StringWidth(tt.str)
+			for col := 0; col <= width; col++ {
+				byteOff := columnToByteOffset(tt.str, col)
+				colBack := byteOffsetToColumn(tt.str, byteOff)
+				if colBack != col {
+					t.Errorf("round trip failed at col %d: col->byte->col = %d->%d->%d",
+						col, col, byteOff, colBack)
+				}
+			}
+		})
 	}
 }

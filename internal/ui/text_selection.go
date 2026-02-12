@@ -36,6 +36,37 @@
 // When extracting selected text, the coordinates are used to index into the viewport's
 // content lines. ANSI escape codes are stripped before text extraction to ensure
 // coordinates align with visible character positions.
+//
+// # Unicode and Multi-Byte Character Handling
+//
+// Selection coordinates represent VISUAL column positions, not byte offsets or rune indices.
+// This distinction is critical for correctly handling Unicode text:
+//
+//   - Multi-byte characters (e.g., "é" = 2 bytes, "👋" = 4 bytes) may take 1 visual column
+//   - Wide characters (e.g., CJK "世" = 3 bytes) take 2 visual columns each
+//   - Combining characters and grapheme clusters must be treated as single units
+//
+// To handle this correctly, the text selection system uses two key utility functions:
+//
+//   - columnToByteOffset(): Converts visual column position → byte offset in string
+//   - byteOffsetToColumn(): Converts byte offset in string → visual column position
+//
+// These functions use the uniseg library to iterate over grapheme clusters (user-perceived
+// characters) and account for their visual width using uniseg.StringWidth().
+//
+// Example: For the string "Hello 👋 world" (where 👋 is 4 bytes but 2 visual columns):
+//   - Column 0 = byte 0 ('H')
+//   - Column 6 = byte 6 (start of 👋 emoji)
+//   - Column 8 = byte 10 (space after emoji)
+//
+// When selecting text, mouse coordinates arrive as visual column positions. To extract
+// the selected substring, we must:
+//  1. Convert column positions to byte offsets (to know where to slice the string)
+//  2. Extract the substring using byte-based string slicing
+//
+// Similarly, when finding word boundaries, uniseg operates on byte positions, so we
+// convert the click column to a byte offset, find word boundaries in bytes, then
+// convert back to visual columns for storage.
 package ui
 
 import (
@@ -149,7 +180,62 @@ func abs(x int) int {
 	return x
 }
 
-// SelectWord selects the word at the given position
+// columnToByteOffset converts a visual column position to a byte offset in the string.
+// This handles multi-byte characters and wide characters (e.g., CJK) correctly.
+// Returns the byte offset, or len(s) if col is beyond the end of the string.
+func columnToByteOffset(s string, col int) int {
+	if col <= 0 {
+		return 0
+	}
+
+	gr := uniseg.NewGraphemes(s)
+	currentCol := 0
+	byteOffset := 0
+
+	for gr.Next() {
+		grapheme := gr.Str()
+		graphemeWidth := uniseg.StringWidth(grapheme)
+
+		if currentCol+graphemeWidth > col {
+			return byteOffset
+		}
+
+		currentCol += graphemeWidth
+		byteOffset += len(grapheme)
+	}
+
+	return byteOffset
+}
+
+// byteOffsetToColumn converts a byte offset in a string to a visual column position.
+// This handles multi-byte characters and wide characters (e.g., CJK) correctly.
+// Returns the visual column position.
+func byteOffsetToColumn(s string, offset int) int {
+	if offset <= 0 {
+		return 0
+	}
+	if offset >= len(s) {
+		return uniseg.StringWidth(s)
+	}
+
+	gr := uniseg.NewGraphemes(s)
+	currentCol := 0
+	bytePos := 0
+
+	for gr.Next() {
+		grapheme := gr.Str()
+		if bytePos >= offset {
+			return currentCol
+		}
+		currentCol += uniseg.StringWidth(grapheme)
+		bytePos += len(grapheme)
+	}
+
+	return currentCol
+}
+
+// SelectWord selects the word at the given position.
+// The col parameter is a visual column position (0-based).
 func (c *Chat) SelectWord(col, line int) {
 	// Get the content from the viewport
 	content := c.viewport.View()
@@ -160,38 +246,54 @@ func (c *Chat) SelectWord(col, line int) {
 	}
 
 	currentLine := ansi.Strip(lines[line])
-	if col < 0 || col >= len(currentLine) {
+	lineWidth := uniseg.StringWidth(currentLine)
+	if col < 0 || col >= lineWidth {
 		return
 	}
 
-	// Find word boundaries using uniseg
-	startCol := col
-	endCol := col
+	// Convert column position to byte offset for grapheme iteration
+	clickByteOffset := columnToByteOffset(currentLine, col)
 
-	// Search backward for word start
-	gr := uniseg.NewGraphemes(currentLine[:col])
-	pos := 0
-	lastBoundary := 0
-	for gr.Next() {
-		if gr.IsWordBoundary() {
-			lastBoundary = pos
-		}
-		pos += len(gr.Str())
+	// Find all word boundaries in the line
+	// A word boundary marks the END of a word (the last character of the word)
+	type boundary struct {
+		byteOffset int
+		column     int
 	}
-	startCol = lastBoundary
+	var boundaries []boundary
 
-	// Search forward for word end
-	gr = uniseg.NewGraphemes(currentLine[col:])
-	pos = col
+	gr := uniseg.NewGraphemes(currentLine)
+	bytePos := 0
+	currentCol := 0
 	for gr.Next() {
+		grapheme := gr.Str()
+		graphemeWidth := uniseg.StringWidth(grapheme)
+
 		if gr.IsWordBoundary() {
-			endCol = pos
+			// This grapheme is the end of a word
+			boundaries = append(boundaries, boundary{
+				byteOffset: bytePos + len(grapheme),
+				column:     currentCol + graphemeWidth,
+			})
+		}
+
+		bytePos += len(grapheme)
+		currentCol += graphemeWidth
+	}
+
+	// Find the word containing the click position
+	// Words are bounded by boundaries: [0, boundary[0]), [boundary[0], boundary[1]), ...
+	startCol := 0
+	endCol := lineWidth
+
+	for _, b := range boundaries {
+		if b.byteOffset > clickByteOffset {
+			// The click is before this boundary, so it's in the previous word
+			endCol = b.column
 			break
 		}
-		pos += len(gr.Str())
-	}
-	if endCol <= col {
-		endCol = len(currentLine)
+		// The click is after this boundary, so update the start for the next word
+		startCol = b.column
 	}
 
 	c.selection.StartCol = startCol
@@ -233,8 +335,8 @@ func (c *Chat) SelectParagraph(col, line int) {
 		endLine++
 	}
 
-	// Get the width of the last line in the paragraph
-	lastLineWidth := len(ansi.Strip(lines[endLine]))
+	// Get the visual width of the last line in the paragraph
+	lastLineWidth := uniseg.StringWidth(ansi.Strip(lines[endLine]))
 
 	c.selection.StartCol = 0
 	c.selection.StartLine = startLine
@@ -275,12 +377,17 @@ func (c *Chat) selectionArea() (startCol, startLine, endCol, endLine int) {
 //  1. Get the viewport's rendered content (which contains ANSI escape codes)
 //  2. Split into lines
 //  3. For each line in the selection range, strip ANSI codes before extracting substring
-//  4. Join lines with newlines
+//  4. Convert visual column positions to byte offsets for proper substring extraction
+//  5. Join lines with newlines
 //
 // ANSI codes are stripped because selection coordinates correspond to visible character
 // positions, not raw string positions. For example, a bold "Hello" might be stored as
 // "\x1b[1mHello\x1b[0m" (15 bytes) but displays as 5 characters. When the user selects
 // characters 0-5, they expect "Hello", not a partial escape sequence.
+//
+// Column-to-byte conversion is necessary because selection coordinates are visual column
+// positions (accounting for wide characters like CJK), but string slicing requires byte
+// offsets. Without this conversion, multi-byte characters cause incorrect text extraction.
 func (c *Chat) GetSelectedText() string {
 	if !c.HasTextSelection() {
 		return ""
@@ -296,31 +403,37 @@ func (c *Chat) GetSelectedText() string {
 	for y := startLine; y <= endLine && y < len(lines); y++ {
 		line := ansi.Strip(lines[y])
 
-		var lineStart, lineEnd int
+		var lineStartCol, lineEndCol int
 		if y == startLine {
-			lineStart = startCol
+			lineStartCol = startCol
 		} else {
-			lineStart = 0
+			lineStartCol = 0
 		}
 		if y == endLine {
-			lineEnd = endCol
+			lineEndCol = endCol
 		} else {
-			lineEnd = len(line)
+			lineEndCol = uniseg.StringWidth(line)
 		}
 
-		// Ensure bounds are valid
-		if lineStart < 0 {
-			lineStart = 0
+		// Ensure column bounds are valid
+		lineWidth := uniseg.StringWidth(line)
+		if lineStartCol < 0 {
+			lineStartCol = 0
 		}
-		if lineEnd > len(line) {
-			lineEnd = len(line)
+		if lineEndCol > lineWidth {
+			lineEndCol = lineWidth
 		}
-		if lineStart > lineEnd {
-			lineStart = lineEnd
+		if lineStartCol > lineEndCol {
+			lineStartCol = lineEndCol
 		}
 
-		if lineStart < len(line) {
-			result.WriteString(line[lineStart:lineEnd])
+		// Convert visual column positions to byte offsets
+		lineStartByte := columnToByteOffset(line, lineStartCol)
+		lineEndByte := columnToByteOffset(line, lineEndCol)
+
+		// Extract substring using byte offsets
+		if lineStartByte < len(line) {
+			result.WriteString(line[lineStartByte:lineEndByte])
 		}
 		if y < endLine {
 			result.WriteString("\n")
