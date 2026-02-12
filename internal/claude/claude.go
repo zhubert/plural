@@ -1036,18 +1036,16 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 		return false
 	}
 
-	// Mark streaming as done
-	r.streaming.Active = false
-	r.mu.Unlock()
-
-	// Use safeSendChannel to protect against send-on-closed-channel panic.
-	// Between the unlock above and the send below, Stop() could close the channel.
+	// Signal completion, close channel, then mark streaming as done.
+	// Order matches processResponse: close channel before clearing Active,
+	// so consumers never see Active==false with an open/un-drained channel.
+	// safeSendChannel provides defense-in-depth against closed-channel panics.
 	if ch != nil && !chClosed {
 		safeSendChannel(ch, ResponseChunk{Done: true})
-		r.mu.Lock()
 		r.closeResponseChannel()
-		r.mu.Unlock()
 	}
+	r.streaming.Active = false
+	r.mu.Unlock()
 
 	// Return true to allow ProcessManager to handle restart logic
 	return true
@@ -1056,14 +1054,12 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 // handleRestartAttempt is called when a restart is being attempted.
 func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Lock()
-	ch := r.responseChan.Channel
-	chClosed := r.responseChan.Closed
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
-	// Use safeSendChannel to protect against send-on-closed-channel panic.
-	// Between the unlock above and the send below, Stop() could close the channel.
-	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{
+	// Send under lock so Stop() cannot close the channel between check and send.
+	// safeSendChannel provides defense-in-depth against closed-channel panics.
+	if r.responseChan.IsOpen() {
+		safeSendChannel(r.responseChan.Channel, ResponseChunk{
 			Type:    ChunkTypeText,
 			Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", attemptNum, MaxProcessRestartAttempts),
 		})

@@ -6,46 +6,35 @@ import (
 	"time"
 )
 
-// TestHandleProcessExit_RaceCondition tests that handleProcessExit doesn't panic
-// when the channel is closed between the nil/closed check and the send.
-func TestHandleProcessExit_RaceCondition(t *testing.T) {
+// TestHandleProcessExit_ConcurrentStop tests that handleProcessExit doesn't panic
+// or deadlock when Stop() closes the channel concurrently.
+// Run with -race to verify no data races: go test -race -run TestHandleProcessExit_ConcurrentStop
+func TestHandleProcessExit_ConcurrentStop(t *testing.T) {
 	runner := New("test-session", "/tmp", false, nil)
 	runner.log = testLogger()
 
-	// Initialize response channel
+	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.responseChan.Channel = make(chan ResponseChunk, 10)
-	runner.responseChan.Closed = false
+	runner.responseChan.Setup(ch)
 	runner.streaming.Active = true
 	runner.streaming.Complete = false
 	runner.mu.Unlock()
 
-	// Use a WaitGroup to synchronize goroutines
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Goroutine 1: Call handleProcessExit
 	go func() {
 		defer wg.Done()
-		// Add a small delay to increase chance of race
-		time.Sleep(1 * time.Millisecond)
 		runner.handleProcessExit(nil, "test stderr")
 	}()
 
-	// Goroutine 2: Close the channel (simulating Stop())
 	go func() {
 		defer wg.Done()
-		time.Sleep(1 * time.Millisecond)
 		runner.mu.Lock()
-		if runner.responseChan.Channel != nil && !runner.responseChan.Closed {
-			close(runner.responseChan.Channel)
-			runner.responseChan.Closed = true
-		}
+		runner.responseChan.Close()
 		runner.mu.Unlock()
 	}()
 
-	// Wait for both goroutines to complete
-	// If there's a panic, the test will fail
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -54,48 +43,39 @@ func TestHandleProcessExit_RaceCondition(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success - no panic occurred
+		// Success - no panic or deadlock
 	case <-time.After(5 * time.Second):
 		t.Fatal("Test timed out - possible deadlock")
 	}
 }
 
-// TestHandleRestartAttempt_RaceCondition tests that handleRestartAttempt doesn't panic
-// when the channel is closed between the nil/closed check and the send.
-func TestHandleRestartAttempt_RaceCondition(t *testing.T) {
+// TestHandleRestartAttempt_ConcurrentStop tests that handleRestartAttempt doesn't panic
+// or deadlock when Stop() closes the channel concurrently.
+// Run with -race to verify no data races: go test -race -run TestHandleRestartAttempt_ConcurrentStop
+func TestHandleRestartAttempt_ConcurrentStop(t *testing.T) {
 	runner := New("test-session", "/tmp", false, nil)
 	runner.log = testLogger()
 
-	// Initialize response channel
+	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.responseChan.Channel = make(chan ResponseChunk, 10)
-	runner.responseChan.Closed = false
+	runner.responseChan.Setup(ch)
 	runner.mu.Unlock()
 
-	// Use a WaitGroup to synchronize goroutines
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Goroutine 1: Call handleRestartAttempt
 	go func() {
 		defer wg.Done()
-		time.Sleep(1 * time.Millisecond)
 		runner.handleRestartAttempt(1)
 	}()
 
-	// Goroutine 2: Close the channel (simulating Stop())
 	go func() {
 		defer wg.Done()
-		time.Sleep(1 * time.Millisecond)
 		runner.mu.Lock()
-		if runner.responseChan.Channel != nil && !runner.responseChan.Closed {
-			close(runner.responseChan.Channel)
-			runner.responseChan.Closed = true
-		}
+		runner.responseChan.Close()
 		runner.mu.Unlock()
 	}()
 
-	// Wait for both goroutines to complete
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -104,22 +84,22 @@ func TestHandleRestartAttempt_RaceCondition(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success - no panic occurred
+		// Success - no panic or deadlock
 	case <-time.After(5 * time.Second):
 		t.Fatal("Test timed out - possible deadlock")
 	}
 }
 
-// TestHandleProcessExit_MultipleRaces runs the race test multiple times
-// to increase the likelihood of catching the race condition.
-func TestHandleProcessExit_MultipleRaces(t *testing.T) {
+// TestHandleProcessExit_ConcurrentStop_Repeated runs the concurrent test many times
+// to increase the likelihood of exposing ordering issues.
+func TestHandleProcessExit_ConcurrentStop_Repeated(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		runner := New("test-session", "/tmp", false, nil)
 		runner.log = testLogger()
 
+		ch := make(chan ResponseChunk, 10)
 		runner.mu.Lock()
-		runner.responseChan.Channel = make(chan ResponseChunk, 10)
-		runner.responseChan.Closed = false
+		runner.responseChan.Setup(ch)
 		runner.streaming.Active = true
 		runner.streaming.Complete = false
 		runner.mu.Unlock()
@@ -135,10 +115,7 @@ func TestHandleProcessExit_MultipleRaces(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			runner.mu.Lock()
-			if runner.responseChan.Channel != nil && !runner.responseChan.Closed {
-				close(runner.responseChan.Channel)
-				runner.responseChan.Closed = true
-			}
+			runner.responseChan.Close()
 			runner.mu.Unlock()
 		}()
 
@@ -150,23 +127,22 @@ func TestHandleProcessExit_MultipleRaces(t *testing.T) {
 
 		select {
 		case <-done:
-			// Success
 		case <-time.After(1 * time.Second):
 			t.Fatalf("Test timed out on iteration %d", i)
 		}
 	}
 }
 
-// TestHandleRestartAttempt_MultipleRaces runs the race test multiple times
-// to increase the likelihood of catching the race condition.
-func TestHandleRestartAttempt_MultipleRaces(t *testing.T) {
+// TestHandleRestartAttempt_ConcurrentStop_Repeated runs the concurrent test many times
+// to increase the likelihood of exposing ordering issues.
+func TestHandleRestartAttempt_ConcurrentStop_Repeated(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		runner := New("test-session", "/tmp", false, nil)
 		runner.log = testLogger()
 
+		ch := make(chan ResponseChunk, 10)
 		runner.mu.Lock()
-		runner.responseChan.Channel = make(chan ResponseChunk, 10)
-		runner.responseChan.Closed = false
+		runner.responseChan.Setup(ch)
 		runner.mu.Unlock()
 
 		var wg sync.WaitGroup
@@ -180,10 +156,7 @@ func TestHandleRestartAttempt_MultipleRaces(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			runner.mu.Lock()
-			if runner.responseChan.Channel != nil && !runner.responseChan.Closed {
-				close(runner.responseChan.Channel)
-				runner.responseChan.Closed = true
-			}
+			runner.responseChan.Close()
 			runner.mu.Unlock()
 		}()
 
@@ -195,28 +168,25 @@ func TestHandleRestartAttempt_MultipleRaces(t *testing.T) {
 
 		select {
 		case <-done:
-			// Success
 		case <-time.After(1 * time.Second):
 			t.Fatalf("Test timed out on iteration %d", i)
 		}
 	}
 }
 
-// TestHandleProcessExit_AfterStop verifies that handleProcessExit handles
-// the case where Stop() has already been called.
+// TestHandleProcessExit_AfterStop verifies that handleProcessExit returns false
+// when Stop() has already been called.
 func TestHandleProcessExit_AfterStop(t *testing.T) {
 	runner := New("test-session", "/tmp", false, nil)
 	runner.log = testLogger()
 
-	// Initialize and then stop
+	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.responseChan.Channel = make(chan ResponseChunk, 10)
-	runner.responseChan.Closed = false
+	runner.responseChan.Setup(ch)
 	runner.streaming.Active = true
-	runner.stopped = true // Simulate Stop() having been called
+	runner.stopped = true
 	runner.mu.Unlock()
 
-	// This should return false immediately without attempting to send
 	shouldRestart := runner.handleProcessExit(nil, "test stderr")
 	if shouldRestart {
 		t.Error("handleProcessExit should return false when stopped=true")
@@ -229,14 +199,13 @@ func TestHandleProcessExit_ResponseComplete(t *testing.T) {
 	runner := New("test-session", "/tmp", false, nil)
 	runner.log = testLogger()
 
+	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.responseChan.Channel = make(chan ResponseChunk, 10)
-	runner.responseChan.Closed = false
+	runner.responseChan.Setup(ch)
 	runner.streaming.Active = true
-	runner.streaming.Complete = true // Response already complete
+	runner.streaming.Complete = true
 	runner.mu.Unlock()
 
-	// This should return false since response is complete
 	shouldRestart := runner.handleProcessExit(nil, "test stderr")
 	if shouldRestart {
 		t.Error("handleProcessExit should return false when response is complete")
@@ -244,56 +213,60 @@ func TestHandleProcessExit_ResponseComplete(t *testing.T) {
 }
 
 // TestHandleProcessExit_NormalCase verifies the normal case where
-// the process exits unexpectedly and should restart.
+// the process exits unexpectedly: sends Done chunk, closes channel,
+// clears streaming.Active, and returns true.
 func TestHandleProcessExit_NormalCase(t *testing.T) {
 	runner := New("test-session", "/tmp", false, nil)
 	runner.log = testLogger()
 
+	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.responseChan.Channel = make(chan ResponseChunk, 10)
-	runner.responseChan.Closed = false
+	runner.responseChan.Setup(ch)
 	runner.streaming.Active = true
 	runner.streaming.Complete = false
 	runner.mu.Unlock()
 
-	// Drain the channel in a goroutine
-	go func() {
-		for range runner.responseChan.Channel {
-			// Consume messages
-		}
-	}()
-
-	// This should return true to indicate restart should happen
 	shouldRestart := runner.handleProcessExit(nil, "test stderr")
 	if !shouldRestart {
 		t.Error("handleProcessExit should return true when process crashes unexpectedly")
 	}
 
-	// Verify streaming is no longer active
+	// Verify Done chunk was sent
+	select {
+	case chunk := <-ch:
+		if !chunk.Done {
+			t.Error("expected Done chunk, got non-Done chunk")
+		}
+	default:
+		t.Error("expected Done chunk on channel, but channel was empty")
+	}
+
+	// Verify streaming is no longer active and channel is closed
 	runner.mu.Lock()
 	if runner.streaming.Active {
 		t.Error("streaming.Active should be false after handleProcessExit")
+	}
+	if !runner.responseChan.Closed {
+		t.Error("response channel should be closed after handleProcessExit")
 	}
 	runner.mu.Unlock()
 }
 
 // TestHandleRestartAttempt_NormalCase verifies that handleRestartAttempt
-// successfully sends a restart message.
+// sends a restart notification message.
 func TestHandleRestartAttempt_NormalCase(t *testing.T) {
 	runner := New("test-session", "/tmp", false, nil)
 	runner.log = testLogger()
 
+	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
-	runner.responseChan.Channel = make(chan ResponseChunk, 10)
-	runner.responseChan.Closed = false
+	runner.responseChan.Setup(ch)
 	runner.mu.Unlock()
 
-	// Call handleRestartAttempt
 	runner.handleRestartAttempt(1)
 
-	// Try to receive the message
 	select {
-	case chunk := <-runner.responseChan.Channel:
+	case chunk := <-ch:
 		if chunk.Type != ChunkTypeText {
 			t.Errorf("chunk.Type = %q, want %q", chunk.Type, ChunkTypeText)
 		}
@@ -304,4 +277,31 @@ func TestHandleRestartAttempt_NormalCase(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Error("handleRestartAttempt did not send message to channel")
 	}
+}
+
+// TestHandleProcessExit_ChannelAlreadyClosed verifies that handleProcessExit
+// handles the case where the channel was already closed gracefully.
+func TestHandleProcessExit_ChannelAlreadyClosed(t *testing.T) {
+	runner := New("test-session", "/tmp", false, nil)
+	runner.log = testLogger()
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.responseChan.Close() // Pre-close the channel
+	runner.streaming.Active = true
+	runner.streaming.Complete = false
+	runner.mu.Unlock()
+
+	// Should not panic
+	shouldRestart := runner.handleProcessExit(nil, "test stderr")
+	if !shouldRestart {
+		t.Error("handleProcessExit should return true even when channel is already closed")
+	}
+
+	runner.mu.Lock()
+	if runner.streaming.Active {
+		t.Error("streaming.Active should be false after handleProcessExit")
+	}
+	runner.mu.Unlock()
 }
