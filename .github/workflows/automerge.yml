@@ -1,0 +1,48 @@
+name: Automerge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+  check_suite:
+    types: [completed]
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'zhubert' || github.event.pull_request.user.login == 'zhubert'
+
+    steps:
+      - name: Enable automerge
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+
+            // Only enable automerge if not already enabled
+            if (!pr.auto_merge) {
+              try {
+                await github.graphql(`
+                  mutation($prId: ID!) {
+                    enablePullRequestAutoMerge(input: {
+                      pullRequestId: $prId,
+                      mergeMethod: REBASE
+                    }) {
+                      pullRequest {
+                        autoMergeRequest {
+                          enabledAt
+                        }
+                      }
+                    }
+                  }
+                `, {
+                  prId: pr.node_id
+                });
+                console.log('Automerge enabled for PR #' + pr.number);
+              } catch (error) {
+                // Might fail if checks haven't passed yet - that's OK
+                console.log('Could not enable automerge yet:', error.message);
+              }
+            }
