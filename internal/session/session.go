@@ -428,13 +428,23 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 		log.Info("no repos in config, checking common locations")
 	}
 
-	// Build list of unique directories to check
-	type dirToCheck struct {
-		worktreesDir string
-		repoPath     string
+	// Build set of repo paths for filtering
+	// Resolve symlinks for consistent path comparison (e.g., /tmp vs /private/tmp on macOS)
+	repoPathsSet := make(map[string]bool)
+	for _, repoPath := range repoPaths {
+		// Add both the original and resolved paths for maximum compatibility
+		repoPathsSet[repoPath] = true
+		if resolved, err := filepath.EvalSymlinks(repoPath); err == nil {
+			repoPathsSet[resolved] = true
+		}
 	}
+
+	// Build list of unique .plural-worktrees directories to check
+	// Note: Multiple repos can share the same parent directory and thus
+	// the same .plural-worktrees directory. We deduplicate the directories
+	// but let getWorktreeRepoPath() determine which repo each worktree belongs to.
 	checkedDirs := make(map[string]bool)
-	var dirsToCheck []dirToCheck
+	var dirsToCheck []string
 
 	for _, repoPath := range repoPaths {
 		repoParent := filepath.Dir(repoPath)
@@ -444,7 +454,7 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 			continue
 		}
 		checkedDirs[worktreesDir] = true
-		dirsToCheck = append(dirsToCheck, dirToCheck{worktreesDir: worktreesDir, repoPath: repoPath})
+		dirsToCheck = append(dirsToCheck, worktreesDir)
 	}
 
 	if len(dirsToCheck) == 0 {
@@ -456,12 +466,12 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 	var orphans []OrphanedWorktree
 
 	var wg sync.WaitGroup
-	for _, dir := range dirsToCheck {
+	for _, worktreesDir := range dirsToCheck {
 		wg.Add(1)
-		go func(dir dirToCheck) {
+		go func(worktreesDir string) {
 			defer wg.Done()
 
-			orphansInDir, err := findOrphansInDir(dir.worktreesDir, dir.repoPath, knownSessions)
+			orphansInDir, err := findOrphansInDir(worktreesDir, knownSessions, repoPathsSet)
 			if err != nil {
 				return // Skip if directory doesn't exist or can't be read
 			}
@@ -469,7 +479,7 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 			mu.Lock()
 			orphans = append(orphans, orphansInDir...)
 			mu.Unlock()
-		}(dir)
+		}(worktreesDir)
 	}
 
 	wg.Wait()
@@ -477,7 +487,46 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 	return orphans, nil
 }
 
-func findOrphansInDir(worktreesDir, repoPath string, knownSessions map[string]bool) ([]OrphanedWorktree, error) {
+// getWorktreeRepoPath determines which repository a worktree belongs to
+// by reading the .git file in the worktree, which points to the main repo's
+// .git/worktrees/<name> directory.
+func getWorktreeRepoPath(worktreePath string) (string, error) {
+	gitFile := filepath.Join(worktreePath, ".git")
+	content, err := os.ReadFile(gitFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read .git file: %w", err)
+	}
+
+	// Content is like: "gitdir: /path/to/repo/.git/worktrees/uuid"
+	line := strings.TrimSpace(string(content))
+	if !strings.HasPrefix(line, "gitdir: ") {
+		return "", fmt.Errorf("invalid .git file format: %s", line)
+	}
+
+	gitdir := strings.TrimPrefix(line, "gitdir: ")
+	// gitdir is like: /path/to/repo/.git/worktrees/uuid
+	// We want: /path/to/repo
+	parts := strings.Split(filepath.Clean(gitdir), string(filepath.Separator))
+
+	// Find the .git component and take everything before it
+	for i := len(parts) - 1; i >= 0; i-- {
+		if parts[i] == ".git" {
+			repoPath := filepath.Join(string(filepath.Separator), filepath.Join(parts[:i]...))
+
+			// Resolve symlinks for consistent path comparison (e.g., /tmp vs /private/tmp on macOS)
+			repoPath, err = filepath.EvalSymlinks(repoPath)
+			if err != nil {
+				// If we can't resolve symlinks, use the path as-is
+				return filepath.Join(string(filepath.Separator), filepath.Join(parts[:i]...)), nil
+			}
+			return repoPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find .git directory in path: %s", gitdir)
+}
+
+func findOrphansInDir(worktreesDir string, knownSessions map[string]bool, repoPathsSet map[string]bool) ([]OrphanedWorktree, error) {
 	entries, err := os.ReadDir(worktreesDir)
 	if err != nil {
 		return nil, err
@@ -491,11 +540,24 @@ func findOrphansInDir(worktreesDir, repoPath string, knownSessions map[string]bo
 
 		sessionID := entry.Name()
 		if !knownSessions[sessionID] {
-			orphans = append(orphans, OrphanedWorktree{
-				Path:     filepath.Join(worktreesDir, sessionID),
-				RepoPath: repoPath,
-				ID:       sessionID,
-			})
+			worktreePath := filepath.Join(worktreesDir, sessionID)
+
+			// Determine which repo this worktree actually belongs to
+			repoPath, err := getWorktreeRepoPath(worktreePath)
+			if err != nil {
+				// If we can't determine the repo, skip this worktree
+				// (it might be corrupted or not a valid git worktree)
+				continue
+			}
+
+			// Only include orphans that belong to repos in our config
+			if repoPathsSet[repoPath] {
+				orphans = append(orphans, OrphanedWorktree{
+					Path:     worktreePath,
+					RepoPath: repoPath,
+					ID:       sessionID,
+				})
+			}
 		}
 	}
 
