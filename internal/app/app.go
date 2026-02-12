@@ -418,9 +418,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.sidebar.SetStreaming(m.activeSession.ID, false)
 						m.chat.SetWaiting(false)
 						// Save partial response to runner before finishing
+						var saveErrorCmd tea.Cmd
 						if content := m.chat.GetStreaming(); content != "" {
 							m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
-							m.sessionMgr.SaveRunnerMessages(m.activeSession.ID, m.claudeRunner)
+							if err := m.sessionMgr.SaveRunnerMessages(m.activeSession.ID, m.claudeRunner); err != nil {
+								logger.WithSession(m.activeSession.ID).Error("failed to save session messages after interrupt", "error", err)
+								saveErrorCmd = m.ShowFlashError("Failed to save conversation history")
+							}
 						}
 						m.chat.AppendStreaming("\n[Interrupted]\n")
 						m.chat.FinishStreaming()
@@ -428,7 +432,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if !m.hasAnyStreamingSessions() {
 							m.setState(StateIdle)
 						}
-						return m, nil
+						return m, saveErrorCmd
 					}
 				}
 			}

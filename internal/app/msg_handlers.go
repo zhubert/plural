@@ -102,7 +102,17 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 			}
 		}
 		// Save messages for this session
-		m.sessionMgr.SaveRunnerMessages(sessionID, runner)
+		if err := m.sessionMgr.SaveRunnerMessages(sessionID, runner); err != nil {
+			logger.WithSession(sessionID).Error("failed to save session messages", "error", err)
+			if isActiveSession {
+				// Show flash error to user if this is the active session
+				if completionCmd != nil {
+					completionCmd = tea.Batch(completionCmd, m.ShowFlashError("Failed to save conversation history"))
+				} else {
+					completionCmd = m.ShowFlashError("Failed to save conversation history")
+				}
+			}
+		}
 	}
 
 	// Check if Claude resolved a pending merge conflict for this session
@@ -304,7 +314,10 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 			if content != "" {
 				if runner := m.sessionMgr.GetRunner(sessionID); runner != nil {
 					runner.AddAssistantMessage(content)
-					m.sessionMgr.SaveRunnerMessages(sessionID, runner)
+					if err := m.sessionMgr.SaveRunnerMessages(sessionID, runner); err != nil {
+						logger.WithSession(sessionID).Error("failed to save session messages after merge", "error", err)
+						// Note: Not showing flash message here since this is a background session
+					}
 				}
 				state.SetStreamingContent("")
 			}

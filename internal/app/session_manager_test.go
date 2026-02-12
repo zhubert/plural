@@ -897,3 +897,161 @@ func TestCopyClaudeSessionForFork_SuccessPath(t *testing.T) {
 	}
 }
 
+func TestSessionManager_SaveMessages_NoRunner(t *testing.T) {
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Should not error when runner doesn't exist
+	err := sm.SaveMessages("nonexistent-session")
+	if err != nil {
+		t.Errorf("Expected nil error when runner doesn't exist, got: %v", err)
+	}
+}
+
+func TestSessionManager_SaveMessages_Success(t *testing.T) {
+	// Set up temp home directory to avoid polluting ~/.plural/ during tests
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Create a runner with messages
+	initialMsgs := []claude.Message{
+		{Role: "user", Content: "Test message"},
+		{Role: "assistant", Content: "Test response"},
+	}
+	runner := claude.New("session-1", "/test", false, initialMsgs)
+	sm.runners["session-1"] = runner
+
+	// Should save successfully
+	err := sm.SaveMessages("session-1")
+	if err != nil {
+		t.Fatalf("Expected successful save, got error: %v", err)
+	}
+
+	// Verify messages were saved by loading them back
+	loadedMsgs, err := config.LoadSessionMessages("session-1")
+	if err != nil {
+		t.Fatalf("Failed to load saved messages: %v", err)
+	}
+
+	if len(loadedMsgs) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(loadedMsgs))
+	}
+}
+
+func TestSessionManager_SaveMessages_Error(t *testing.T) {
+	// Test error propagation by making the sessions directory read-only
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Create a runner with messages
+	initialMsgs := []claude.Message{
+		{Role: "user", Content: "Test message"},
+	}
+	runner := claude.New("session-1", "/test", false, initialMsgs)
+	sm.runners["session-1"] = runner
+
+	// Create the sessions directory and make it read-only
+	sessionsDir := filepath.Join(tempHome, ".plural", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions directory: %v", err)
+	}
+	if err := os.Chmod(sessionsDir, 0444); err != nil {
+		t.Fatalf("Failed to make sessions directory read-only: %v", err)
+	}
+	defer os.Chmod(sessionsDir, 0755) // Restore permissions for cleanup
+
+	// Should return error
+	err := sm.SaveMessages("session-1")
+	if err == nil {
+		t.Error("Expected error when sessions directory is read-only")
+	}
+}
+
+func TestSessionManager_SaveRunnerMessages_NilRunner(t *testing.T) {
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Should not error when runner is nil
+	err := sm.SaveRunnerMessages("session-1", nil)
+	if err != nil {
+		t.Errorf("Expected nil error when runner is nil, got: %v", err)
+	}
+}
+
+func TestSessionManager_SaveRunnerMessages_Success(t *testing.T) {
+	// Set up temp home directory to avoid polluting ~/.plural/ during tests
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Create a runner with messages
+	initialMsgs := []claude.Message{
+		{Role: "user", Content: "Test user message"},
+		{Role: "assistant", Content: "Test assistant response"},
+	}
+	runner := claude.New("session-1", "/test", false, initialMsgs)
+
+	// Should save successfully
+	err := sm.SaveRunnerMessages("session-1", runner)
+	if err != nil {
+		t.Fatalf("Expected successful save, got error: %v", err)
+	}
+
+	// Verify messages were saved by loading them back
+	loadedMsgs, err := config.LoadSessionMessages("session-1")
+	if err != nil {
+		t.Fatalf("Failed to load saved messages: %v", err)
+	}
+
+	if len(loadedMsgs) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(loadedMsgs))
+	}
+
+	if loadedMsgs[0].Role != "user" || loadedMsgs[0].Content != "Test user message" {
+		t.Errorf("First message mismatch: got role=%q content=%q", loadedMsgs[0].Role, loadedMsgs[0].Content)
+	}
+
+	if loadedMsgs[1].Role != "assistant" || loadedMsgs[1].Content != "Test assistant response" {
+		t.Errorf("Second message mismatch: got role=%q content=%q", loadedMsgs[1].Role, loadedMsgs[1].Content)
+	}
+}
+
+func TestSessionManager_SaveRunnerMessages_Error(t *testing.T) {
+	// Test error propagation by making the sessions directory read-only
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Create a runner with messages
+	initialMsgs := []claude.Message{
+		{Role: "user", Content: "Test message"},
+	}
+	runner := claude.New("session-1", "/test", false, initialMsgs)
+
+	// Create the sessions directory and make it read-only
+	sessionsDir := filepath.Join(tempHome, ".plural", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("Failed to create sessions directory: %v", err)
+	}
+	if err := os.Chmod(sessionsDir, 0444); err != nil {
+		t.Fatalf("Failed to make sessions directory read-only: %v", err)
+	}
+	defer os.Chmod(sessionsDir, 0755) // Restore permissions for cleanup
+
+	// Should return error
+	err := sm.SaveRunnerMessages("session-1", runner)
+	if err == nil {
+		t.Error("Expected error when sessions directory is read-only")
+	}
+}
+

@@ -384,12 +384,12 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 }
 
 // SaveMessages saves the current messages from a runner to disk.
-func (sm *SessionManager) SaveMessages(sessionID string) {
+func (sm *SessionManager) SaveMessages(sessionID string) error {
 	sm.mu.RLock()
 	runner, exists := sm.runners[sessionID]
 	sm.mu.RUnlock()
 	if !exists || runner == nil {
-		return
+		return nil
 	}
 
 	msgs := runner.GetMessages()
@@ -401,13 +401,13 @@ func (sm *SessionManager) SaveMessages(sessionID string) {
 		})
 	}
 
-	config.SaveSessionMessages(sessionID, configMsgs, config.MaxSessionMessageLines)
+	return config.SaveSessionMessages(sessionID, configMsgs, config.MaxSessionMessageLines)
 }
 
 // SaveRunnerMessages saves messages for a specific runner (used when runner reference is already available).
-func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner claude.RunnerInterface) {
+func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner claude.RunnerInterface) error {
 	if runner == nil {
-		return
+		return nil
 	}
 
 	msgs := runner.GetMessages()
@@ -419,7 +419,7 @@ func (sm *SessionManager) SaveRunnerMessages(sessionID string, runner claude.Run
 		})
 	}
 
-	config.SaveSessionMessages(sessionID, configMsgs, config.MaxSessionMessageLines)
+	return config.SaveSessionMessages(sessionID, configMsgs, config.MaxSessionMessageLines)
 }
 
 // DeleteSession cleans up all resources for a deleted session.
