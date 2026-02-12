@@ -755,7 +755,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) toggleFocus() tea.Cmd {
-	var cmds []tea.Cmd
 	if m.focus == FocusSidebar {
 		// Only allow switching to chat if there's an active session
 		if m.activeSession == nil {
@@ -768,9 +767,6 @@ func (m *Model) toggleFocus() tea.Cmd {
 		m.focus = FocusSidebar
 		m.sidebar.SetFocused(true)
 		m.chat.SetFocused(false)
-	}
-	if len(cmds) > 0 {
-		return tea.Batch(cmds...)
 	}
 	return nil
 }
