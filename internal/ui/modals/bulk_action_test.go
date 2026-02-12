@@ -50,20 +50,23 @@ func TestBulkActionState_SwitchAction(t *testing.T) {
 		t.Errorf("expected CreatePRs, got %d", state.Action)
 	}
 
-	// Switch right to Send Prompt (use arrow key instead of vim shortcut)
+	// Switch right to Send Prompt
 	state.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	if state.Action != BulkActionSendPrompt {
 		t.Errorf("expected SendPrompt, got %d", state.Action)
 	}
 
-	// Can't go further right
-	state.Update(tea.KeyPressMsg{Code: tea.KeyRight})
-	if state.Action != BulkActionSendPrompt {
-		t.Errorf("should stay at SendPrompt, got %d", state.Action)
+	// On SendPrompt, tab wraps to beginning
+	state.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if state.Action != BulkActionDelete {
+		t.Errorf("tab should wrap to Delete, got %d", state.Action)
 	}
 
-	// Switch back left to CreatePRs (use arrow key when on SendPrompt)
-	state.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	// Navigate forward to SendPrompt again
+	state.Action = BulkActionSendPrompt
+
+	// Switch back left to CreatePRs (use shift+tab when on SendPrompt)
+	state.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if state.Action != BulkActionCreatePRs {
 		t.Errorf("expected CreatePRs, got %d", state.Action)
 	}
@@ -236,10 +239,10 @@ func TestBulkActionState_SwitchToSendPrompt(t *testing.T) {
 		t.Errorf("expected BulkActionSendPrompt, got %d", state.Action)
 	}
 
-	// Can't go further right
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
-	if state.Action != BulkActionSendPrompt {
-		t.Errorf("should stay at SendPrompt, got %d", state.Action)
+	// When on SendPrompt, tab wraps to beginning (not boundary clamping)
+	state.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if state.Action != BulkActionDelete {
+		t.Errorf("tab should wrap to Delete, got %d", state.Action)
 	}
 }
 
@@ -301,9 +304,58 @@ func TestBulkActionState_PromptInputInitialized(t *testing.T) {
 	}
 }
 
+func TestBulkActionState_PromptInput_ArrowKeysForEditing(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+	state.Action = BulkActionSendPrompt
+	state.PromptInput.Focus()
+
+	// Type some text
+	state.PromptInput.SetValue("hello")
+
+	// Arrow keys should work for cursor movement within the textarea, not action switching
+	// Just verify that arrow key messages are forwarded to the textarea
+	_, cmd := state.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+
+	// The action should remain on SendPrompt (arrow keys don't switch actions)
+	if state.Action != BulkActionSendPrompt {
+		t.Errorf("arrow keys should not switch actions when on SendPrompt, got action %d", state.Action)
+	}
+
+	// Cmd might be nil or a textarea command - either is fine
+	_ = cmd
+}
+
+func TestBulkActionState_FocusManagement(t *testing.T) {
+	state := NewBulkActionState([]string{"s1"}, nil)
+
+	// Start on Delete - textarea should not be focused
+	if state.PromptInput.Focused() {
+		t.Error("textarea should not be focused initially")
+	}
+
+	// Navigate to SendPrompt
+	state.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // to Move
+	state.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // to CreatePRs
+	state.Update(tea.KeyPressMsg{Code: tea.KeyRight}) // to SendPrompt
+
+	// Textarea should be focused now
+	if !state.PromptInput.Focused() {
+		t.Error("textarea should be focused when on SendPrompt action")
+	}
+
+	// Navigate away using shift+tab
+	state.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}) // to CreatePRs
+
+	// Textarea should be blurred
+	if state.PromptInput.Focused() {
+		t.Error("textarea should be blurred when navigating away from SendPrompt")
+	}
+}
+
 func TestBulkActionState_PromptInput_AcceptsTyping(t *testing.T) {
 	state := NewBulkActionState([]string{"s1"}, nil)
 	state.Action = BulkActionSendPrompt
+	state.PromptInput.Focus() // Focus textarea since we're directly setting the action
 
 	// Simulate typing
 	state.Update(tea.KeyPressMsg{Code: -1, Text: "t"})
@@ -320,12 +372,13 @@ func TestBulkActionState_PromptInput_AcceptsTyping(t *testing.T) {
 func TestBulkActionState_PromptInput_NavigationStillWorks(t *testing.T) {
 	state := NewBulkActionState([]string{"s1"}, nil)
 	state.Action = BulkActionSendPrompt
+	state.PromptInput.Focus() // Focus since we're directly setting the action
 
 	// Type something
 	state.PromptInput.SetValue("test")
 
-	// Navigate left using arrow key (h/l don't work when on SendPrompt to avoid typing interference)
-	state.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	// Navigate left using shift+tab (arrow keys are used for text editing when on SendPrompt)
+	state.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 
 	if state.Action != BulkActionCreatePRs {
 		t.Errorf("expected to switch to CreatePRs, got %d", state.Action)
