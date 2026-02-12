@@ -25,11 +25,18 @@ jobs:
             let state, description, targetUrl;
 
             if (review && review.user.login === 'shipitai[bot]') {
-              // Bot review submitted - set success or failure
-              state = review.state === 'APPROVED' ? 'success' : 'failure';
-              description = review.state === 'APPROVED'
-                ? 'Bot approved the changes'
-                : 'Bot requested changes';
+              // Bot review submitted - set success, failure, or pending
+              if (review.state === 'APPROVED') {
+                state = 'success';
+                description = 'Bot approved the changes';
+              } else if (review.state === 'CHANGES_REQUESTED') {
+                state = 'failure';
+                description = 'Bot requested changes';
+              } else {
+                // COMMENTED - not a decision, keep waiting
+                state = 'pending';
+                description = 'Bot commented, waiting for approval or rejection';
+              }
               targetUrl = review.html_url;
             } else {
               // PR opened/updated - check for existing bot review
@@ -45,10 +52,17 @@ jobs:
 
               if (botReview) {
                 // Use existing bot review
-                state = botReview.state === 'APPROVED' ? 'success' : 'failure';
-                description = botReview.state === 'APPROVED'
-                  ? 'Bot approved the changes'
-                  : 'Bot requested changes';
+                if (botReview.state === 'APPROVED') {
+                  state = 'success';
+                  description = 'Bot approved the changes';
+                } else if (botReview.state === 'CHANGES_REQUESTED') {
+                  state = 'failure';
+                  description = 'Bot requested changes';
+                } else {
+                  // COMMENTED - not a decision, keep waiting
+                  state = 'pending';
+                  description = 'Bot commented, waiting for approval or rejection';
+                }
                 targetUrl = botReview.html_url;
               } else {
                 // No bot review yet - set pending
