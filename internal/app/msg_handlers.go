@@ -541,6 +541,52 @@ func (m *Model) handleIssuesFetchedMsg(msg IssuesFetchedMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+// handlePRStatusCheckMsg handles the result of a background PR state check.
+func (m *Model) handlePRStatusCheckMsg(msg PRStatusCheckMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+
+	if msg.Error != nil {
+		log.Debug("PR status check failed", "error", msg.Error)
+		return m, nil
+	}
+
+	sess := m.config.GetSession(msg.SessionID)
+	if sess == nil {
+		return m, nil
+	}
+
+	sessionName := ui.SessionDisplayName(sess.Branch, sess.Name)
+	var cmds []tea.Cmd
+
+	switch msg.State {
+	case git.PRStateMerged:
+		log.Info("PR merged on GitHub", "session", sessionName)
+		m.config.MarkSessionPRMerged(msg.SessionID)
+		if err := m.config.Save(); err != nil {
+			log.Error("failed to save config after PR merged", "error", err)
+		}
+		m.sidebar.SetSessions(m.getFilteredSessions())
+		cmds = append(cmds, m.ShowFlashSuccess("PR merged: "+sessionName))
+
+	case git.PRStateClosed:
+		log.Info("PR closed on GitHub", "session", sessionName)
+		m.config.MarkSessionPRClosed(msg.SessionID)
+		if err := m.config.Save(); err != nil {
+			log.Error("failed to save config after PR closed", "error", err)
+		}
+		m.sidebar.SetSessions(m.getFilteredSessions())
+		cmds = append(cmds, m.ShowFlashWarning("PR closed: "+sessionName))
+
+	default:
+		// OPEN or unknown - no action needed
+	}
+
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
+	return m, nil
+}
+
 // formatPermissionDenialsText formats permission denials as a text block for display.
 func formatPermissionDenialsText(denials []claude.PermissionDenial) string {
 	if len(denials) == 0 {

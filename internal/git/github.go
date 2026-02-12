@@ -10,6 +10,39 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
+// PRState represents the state of a GitHub pull request
+type PRState string
+
+const (
+	PRStateOpen    PRState = "OPEN"
+	PRStateMerged  PRState = "MERGED"
+	PRStateClosed  PRState = "CLOSED"
+	PRStateUnknown PRState = ""
+)
+
+// GetPRState returns the state of a PR for the given branch using the gh CLI.
+// Returns PRStateUnknown and an error if the PR cannot be found or gh fails.
+func (s *GitService) GetPRState(ctx context.Context, repoPath, branch string) (PRState, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "view", branch, "--json", "state")
+	if err != nil {
+		return PRStateUnknown, fmt.Errorf("gh pr view failed: %w", err)
+	}
+
+	var result struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		return PRStateUnknown, fmt.Errorf("failed to parse PR state: %w", err)
+	}
+
+	switch PRState(result.State) {
+	case PRStateOpen, PRStateMerged, PRStateClosed:
+		return PRState(result.State), nil
+	default:
+		return PRStateUnknown, fmt.Errorf("unknown PR state: %s", result.State)
+	}
+}
+
 // GitHubIssue represents a GitHub issue fetched via the gh CLI
 type GitHubIssue struct {
 	Number int    `json:"number"`

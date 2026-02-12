@@ -1134,6 +1134,54 @@ func TestSidebar_SelectSession_SearchMode_NotInFilteredList(t *testing.T) {
 	}
 }
 
+func TestSidebar_HashSessions_PRMergedPRClosed(t *testing.T) {
+	sessBase := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", PRCreated: true},
+	}
+	sessPRMerged := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", PRCreated: true, PRMerged: true},
+	}
+	sessPRClosed := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", PRCreated: true, PRClosed: true},
+	}
+
+	hashBase := hashSessions(sessBase)
+	hashMerged := hashSessions(sessPRMerged)
+	hashClosed := hashSessions(sessPRClosed)
+
+	if hashBase == hashMerged {
+		t.Error("Hash should differ when PRMerged changes")
+	}
+	if hashBase == hashClosed {
+		t.Error("Hash should differ when PRClosed changes")
+	}
+	if hashMerged == hashClosed {
+		t.Error("Hash should differ between PRMerged and PRClosed")
+	}
+}
+
+func TestSidebar_RenderSessionNode_PRMergedSymbol(t *testing.T) {
+	sidebar := NewSidebar()
+	session := config.Session{ID: "s1", Name: "test", PRCreated: true, PRMerged: true}
+
+	result := sidebar.renderSessionNode(session, 0, false, false, true)
+
+	if !strings.Contains(result, "✓") {
+		t.Errorf("PR merged session should show ✓ symbol, got %q", result)
+	}
+}
+
+func TestSidebar_RenderSessionNode_PRClosedSymbol(t *testing.T) {
+	sidebar := NewSidebar()
+	session := config.Session{ID: "s1", Name: "test", PRCreated: true, PRClosed: true}
+
+	result := sidebar.renderSessionNode(session, 0, false, false, true)
+
+	if !strings.Contains(result, "✕") {
+		t.Errorf("PR closed session should show ✕ symbol, got %q", result)
+	}
+}
+
 func TestSidebar_SelectSession_NormalMode(t *testing.T) {
 	sidebar := NewSidebar()
 

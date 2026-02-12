@@ -326,10 +326,14 @@ func (m *Model) refreshDiffStats() {
 
 // Init initializes the model
 func (m *Model) Init() tea.Cmd {
-	// Trigger startup modal check (welcome or changelog)
-	return func() tea.Msg {
-		return StartupModalMsg{}
-	}
+	return tea.Batch(
+		// Trigger startup modal check (welcome or changelog)
+		func() tea.Msg {
+			return StartupModalMsg{}
+		},
+		// Start background PR merge detection polling
+		PRPollTick(),
+	)
 }
 
 // Update handles messages
@@ -640,6 +644,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ContainerPrereqCheckMsg:
 		return m.handleContainerPrereqCheckMsg(msg)
+
+	case PRPollTickMsg:
+		// Re-schedule next tick and check PR statuses for eligible sessions
+		checkCmd := checkPRStatuses(m.config.GetSessions(), m.gitService)
+		if checkCmd != nil {
+			return m, tea.Batch(PRPollTick(), checkCmd)
+		}
+		return m, PRPollTick()
+
+	case PRStatusCheckMsg:
+		return m.handlePRStatusCheckMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
