@@ -1007,55 +1007,9 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 		candidates = append(candidates, sess)
 	}
 
-	// Second pass: parallel worktree status checks
-	type statusResult struct {
-		sess       config.Session
-		hasChanges bool
-		err        error
-	}
-
-	const maxConcurrent = 10
-	sem := make(chan struct{}, maxConcurrent)
-	results := make(chan statusResult, len(candidates))
-
-	var wg sync.WaitGroup
-	for _, sess := range candidates {
-		wg.Add(1)
-		go func(sess config.Session) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			ctx := context.Background()
-			status, err := m.gitService.GetWorktreeStatus(ctx, sess.WorkTree)
-			results <- statusResult{sess: sess, hasChanges: status != nil && status.HasChanges, err: err}
-		}(sess)
-	}
-
-	// Close results channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect eligible sessions
-	var eligible []config.Session
-	for result := range results {
-		sessionLog := logger.WithSession(result.sess.ID)
-		if result.err != nil {
-			sessionLog.Warn("failed to check worktree status", "error", result.err)
-			skippedCount++
-			continue
-		}
-		if result.hasChanges {
-			sessionLog.Debug("skipping PR creation - has uncommitted changes")
-			skippedCount++
-			continue
-		}
-		eligible = append(eligible, result.sess)
-	}
-
-	// Third pass: start PR creation for eligible sessions (sequential - modifies app state)
+	// Second pass: start PR creation for eligible sessions (sequential - modifies app state)
+	// Note: CreatePR will automatically commit any uncommitted changes with a generated message
+	eligible := candidates
 	for _, sess := range eligible {
 		sessionLog := logger.WithSession(sess.ID)
 		sessionLog.Info("starting PR creation")
@@ -1078,7 +1032,7 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 	} else {
 		msg = "No sessions eligible for PR creation"
 		if skippedCount > 0 {
-			msg += fmt.Sprintf(" (%d skipped - already have PRs, merged, or have uncommitted changes)", skippedCount)
+			msg += fmt.Sprintf(" (%d skipped - already have PRs or merged)", skippedCount)
 		}
 		cmds = append(cmds, m.ShowFlashWarning(msg))
 	}
