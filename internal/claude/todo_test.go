@@ -113,26 +113,58 @@ func TestParseTodoWriteInput(t *testing.T) {
 }
 
 func TestTodoList_CountByStatus(t *testing.T) {
-	list := &TodoList{
-		Items: []TodoItem{
-			{Content: "Task 1", Status: TodoStatusCompleted},
-			{Content: "Task 2", Status: TodoStatusInProgress},
-			{Content: "Task 3", Status: TodoStatusPending},
-			{Content: "Task 4", Status: TodoStatusPending},
-			{Content: "Task 5", Status: TodoStatusCompleted},
+	tests := []struct {
+		name              string
+		list              *TodoList
+		wantPending       int
+		wantInProgress    int
+		wantCompleted     int
+	}{
+		{
+			name: "nil list",
+			list: nil,
+			wantPending: 0,
+			wantInProgress: 0,
+			wantCompleted: 0,
+		},
+		{
+			name: "empty items",
+			list: &TodoList{Items: []TodoItem{}},
+			wantPending: 0,
+			wantInProgress: 0,
+			wantCompleted: 0,
+		},
+		{
+			name: "mixed statuses",
+			list: &TodoList{
+				Items: []TodoItem{
+					{Content: "Task 1", Status: TodoStatusCompleted},
+					{Content: "Task 2", Status: TodoStatusInProgress},
+					{Content: "Task 3", Status: TodoStatusPending},
+					{Content: "Task 4", Status: TodoStatusPending},
+					{Content: "Task 5", Status: TodoStatusCompleted},
+				},
+			},
+			wantPending: 2,
+			wantInProgress: 1,
+			wantCompleted: 2,
 		},
 	}
 
-	pending, inProgress, completed := list.CountByStatus()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pending, inProgress, completed := tt.list.CountByStatus()
 
-	if pending != 2 {
-		t.Errorf("pending = %d, want 2", pending)
-	}
-	if inProgress != 1 {
-		t.Errorf("inProgress = %d, want 1", inProgress)
-	}
-	if completed != 2 {
-		t.Errorf("completed = %d, want 2", completed)
+			if pending != tt.wantPending {
+				t.Errorf("pending = %d, want %d", pending, tt.wantPending)
+			}
+			if inProgress != tt.wantInProgress {
+				t.Errorf("inProgress = %d, want %d", inProgress, tt.wantInProgress)
+			}
+			if completed != tt.wantCompleted {
+				t.Errorf("completed = %d, want %d", completed, tt.wantCompleted)
+			}
+		})
 	}
 }
 
