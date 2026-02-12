@@ -636,6 +636,56 @@ func TestGetWorktreeStatus_StagedChanges(t *testing.T) {
 	if status.Diff == "" {
 		t.Error("Expected Diff to contain staged changes")
 	}
+
+	// Verify staged changes are not duplicated in diff
+	// Count how many times "diff --git a/staged.txt" appears
+	diffCount := strings.Count(status.Diff, "diff --git a/staged.txt")
+	if diffCount != 1 {
+		t.Errorf("Expected staged file diff to appear once, got %d times. This indicates double-counting of staged changes", diffCount)
+	}
+}
+
+func TestGetWorktreeStatus_StagedAndUnstaged(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create and stage a file
+	stagedFile := filepath.Join(repoPath, "staged.txt")
+	if err := os.WriteFile(stagedFile, []byte("staged content"), 0644); err != nil {
+		t.Fatalf("Failed to create staged file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", "staged.txt")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to stage file: %v", err)
+	}
+
+	// Modify an existing file without staging
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+
+	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("GetWorktreeStatus failed: %v", err)
+	}
+
+	if !status.HasChanges {
+		t.Error("Expected HasChanges to be true")
+	}
+
+	// Both files should appear in the diff, each exactly once
+	stagedDiffCount := strings.Count(status.Diff, "diff --git a/staged.txt")
+	testDiffCount := strings.Count(status.Diff, "diff --git a/test.txt")
+
+	if stagedDiffCount != 1 {
+		t.Errorf("Expected staged.txt diff to appear once, got %d times", stagedDiffCount)
+	}
+	if testDiffCount != 1 {
+		t.Errorf("Expected test.txt diff to appear once, got %d times", testDiffCount)
+	}
 }
 
 func TestMaxDiffSize(t *testing.T) {
