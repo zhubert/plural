@@ -49,12 +49,12 @@ func TestBuildToolDescription(t *testing.T) {
 			expected: "Run: ls -la",
 		},
 		{
-			name: "Bash with long command truncated",
+			name: "Bash with long command not truncated",
 			tool: "Bash",
 			input: map[string]interface{}{
 				"command": strings.Repeat("a", 150),
 			},
-			expected: "Run: " + strings.Repeat("a", 97) + "...",
+			expected: "Run: " + strings.Repeat("a", 150),
 		},
 		{
 			name: "Glob with pattern only",
@@ -415,12 +415,12 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 			expected: "",
 		},
 		{
-			name: "Task with long prompt truncated",
+			name: "Task with long prompt not truncated",
 			tool: "Task",
 			input: map[string]interface{}{
 				"prompt": strings.Repeat("x", 100),
 			},
-			expected: "Delegate task: " + strings.Repeat("x", 57) + "...",
+			expected: "Delegate task: " + strings.Repeat("x", 100),
 		},
 	}
 
