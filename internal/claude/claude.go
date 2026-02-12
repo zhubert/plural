@@ -1197,7 +1197,10 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			r.streaming.Active = false
 			r.mu.Unlock()
 
-			// Send error and close channel using the proper mechanism
+			// Send error chunk before closing. This is safe because:
+			// 1. ch has already been returned to the caller (we're in a goroutine)
+			// 2. ch is buffered (cap 100), so the send won't block
+			// 3. closeResponseChannel() closes the channel after the send completes
 			ch <- ResponseChunk{Error: err, Done: true}
 			r.closeResponseChannel()
 			return
