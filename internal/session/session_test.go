@@ -623,6 +623,235 @@ func TestPruneOrphanedWorktrees(t *testing.T) {
 	}
 }
 
+// TestFindOrphanedWorktrees_SharedParentDirectory tests the scenario from issue #148
+// where two repos share a parent directory (and thus .plural-worktrees).
+// The fix ensures orphaned worktrees are correctly attributed to their actual repo
+// by reading the .git file instead of assuming all worktrees in a directory belong
+// to the first repo encountered.
+func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
+	// Create a shared parent directory
+	parentDir, err := os.MkdirTemp("", "plural-shared-parent-*")
+	if err != nil {
+		t.Fatalf("Failed to create parent dir: %v", err)
+	}
+	defer os.RemoveAll(parentDir)
+
+	// Create two repos in the same parent directory
+	repo1Path := filepath.Join(parentDir, "repo1")
+	repo2Path := filepath.Join(parentDir, "repo2")
+
+	// Create repo1
+	if err := os.Mkdir(repo1Path, 0755); err != nil {
+		t.Fatalf("Failed to create repo1 dir: %v", err)
+	}
+	cmd := exec.Command("git", "init")
+	cmd.Dir = repo1Path
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to init repo1: %v", err)
+	}
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = repo1Path
+	cmd.Run()
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = repo1Path
+	cmd.Run()
+	if err := os.WriteFile(filepath.Join(repo1Path, "file1.txt"), []byte("repo1"), 0644); err != nil {
+		t.Fatalf("Failed to create file in repo1: %v", err)
+	}
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repo1Path
+	cmd.Run()
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = repo1Path
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit in repo1: %v", err)
+	}
+
+	// Create repo2
+	if err := os.Mkdir(repo2Path, 0755); err != nil {
+		t.Fatalf("Failed to create repo2 dir: %v", err)
+	}
+	cmd = exec.Command("git", "init")
+	cmd.Dir = repo2Path
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to init repo2: %v", err)
+	}
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = repo2Path
+	cmd.Run()
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = repo2Path
+	cmd.Run()
+	if err := os.WriteFile(filepath.Join(repo2Path, "file2.txt"), []byte("repo2"), 0644); err != nil {
+		t.Fatalf("Failed to create file in repo2: %v", err)
+	}
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = repo2Path
+	cmd.Run()
+	cmd = exec.Command("git", "commit", "-m", "Initial commit")
+	cmd.Dir = repo2Path
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit in repo2: %v", err)
+	}
+
+	defer cleanupWorktrees(repo1Path)
+	defer cleanupWorktrees(repo2Path)
+
+	// Create sessions for both repos
+	session1, err := svc.Create(ctx, repo1Path, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Failed to create session for repo1: %v", err)
+	}
+
+	session2, err := svc.Create(ctx, repo2Path, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Failed to create session for repo2: %v", err)
+	}
+
+	// Verify both share the same .plural-worktrees directory
+	worktreesDir1 := filepath.Join(filepath.Dir(repo1Path), ".plural-worktrees")
+	worktreesDir2 := filepath.Join(filepath.Dir(repo2Path), ".plural-worktrees")
+	if worktreesDir1 != worktreesDir2 {
+		t.Fatalf("Expected repos to share worktrees dir, got %q and %q", worktreesDir1, worktreesDir2)
+	}
+
+	// Config with both repos, but session1 missing (making it orphaned)
+	cfg := &config.Config{
+		Repos:    []string{repo1Path, repo2Path},
+		Sessions: []config.Session{*session2}, // Only session2 in config
+	}
+
+	// Find orphans
+	orphans, err := FindOrphanedWorktrees(cfg)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	// Should find exactly one orphan (session1)
+	if len(orphans) != 1 {
+		t.Fatalf("Expected 1 orphan, got %d", len(orphans))
+	}
+
+	// Verify the orphan is correctly attributed to repo1
+	orphan := orphans[0]
+	if orphan.ID != session1.ID {
+		t.Errorf("Orphan ID = %q, want %q", orphan.ID, session1.ID)
+	}
+	// Resolve symlinks for comparison (macOS /tmp vs /private/tmp)
+	orphanRepoResolved, _ := filepath.EvalSymlinks(orphan.RepoPath)
+	repo1Resolved, _ := filepath.EvalSymlinks(repo1Path)
+	if orphanRepoResolved != repo1Resolved {
+		t.Errorf("Orphan RepoPath = %q, want %q (THIS IS THE BUG FROM ISSUE #148)", orphan.RepoPath, repo1Path)
+	}
+	if orphan.Path != session1.WorkTree {
+		t.Errorf("Orphan Path = %q, want %q", orphan.Path, session1.WorkTree)
+	}
+
+	// Now make both sessions orphaned
+	cfg.Sessions = []config.Session{}
+	orphans, err = FindOrphanedWorktrees(cfg)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	// Should find both orphans
+	if len(orphans) != 2 {
+		t.Fatalf("Expected 2 orphans, got %d", len(orphans))
+	}
+
+	// Verify both are correctly attributed
+	orphansByID := make(map[string]OrphanedWorktree)
+	for _, orphan := range orphans {
+		orphansByID[orphan.ID] = orphan
+	}
+
+	if orphan1, ok := orphansByID[session1.ID]; ok {
+		// Resolve symlinks for comparison (macOS /tmp vs /private/tmp)
+		orphan1RepoResolved, _ := filepath.EvalSymlinks(orphan1.RepoPath)
+		repo1Resolved, _ := filepath.EvalSymlinks(repo1Path)
+		if orphan1RepoResolved != repo1Resolved {
+			t.Errorf("Session1 orphan RepoPath = %q, want %q", orphan1.RepoPath, repo1Path)
+		}
+	} else {
+		t.Errorf("Session1 not found in orphans")
+	}
+
+	if orphan2, ok := orphansByID[session2.ID]; ok {
+		// Resolve symlinks for comparison (macOS /tmp vs /private/tmp)
+		orphan2RepoResolved, _ := filepath.EvalSymlinks(orphan2.RepoPath)
+		repo2Resolved, _ := filepath.EvalSymlinks(repo2Path)
+		if orphan2RepoResolved != repo2Resolved {
+			t.Errorf("Session2 orphan RepoPath = %q, want %q", orphan2.RepoPath, repo2Path)
+		}
+	} else {
+		t.Errorf("Session2 not found in orphans")
+	}
+}
+
+// TestGetWorktreeRepoPath tests the helper function that determines
+// which repo a worktree belongs to by reading its .git file
+func TestGetWorktreeRepoPath(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a session
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Call getWorktreeRepoPath
+	detectedRepoPath, err := getWorktreeRepoPath(session.WorkTree)
+	if err != nil {
+		t.Fatalf("getWorktreeRepoPath failed: %v", err)
+	}
+
+	// Should return the original repo path (resolve symlinks for comparison)
+	detectedResolved, _ := filepath.EvalSymlinks(detectedRepoPath)
+	repoResolved, _ := filepath.EvalSymlinks(repoPath)
+	if detectedResolved != repoResolved {
+		t.Errorf("getWorktreeRepoPath() = %q, want %q", detectedRepoPath, repoPath)
+	}
+}
+
+// TestGetWorktreeRepoPath_InvalidGitFile tests error handling
+func TestGetWorktreeRepoPath_InvalidGitFile(t *testing.T) {
+	// Create a temp directory with invalid .git file
+	tmpDir, err := os.MkdirTemp("", "plural-invalid-git-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write invalid content to .git file
+	gitFile := filepath.Join(tmpDir, ".git")
+	if err := os.WriteFile(gitFile, []byte("invalid content"), 0644); err != nil {
+		t.Fatalf("Failed to write .git file: %v", err)
+	}
+
+	// Should return error
+	_, err = getWorktreeRepoPath(tmpDir)
+	if err == nil {
+		t.Error("Expected error for invalid .git file, got nil")
+	}
+}
+
+// TestGetWorktreeRepoPath_MissingGitFile tests error handling for missing .git
+func TestGetWorktreeRepoPath_MissingGitFile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "plural-missing-git-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Should return error
+	_, err = getWorktreeRepoPath(tmpDir)
+	if err == nil {
+		t.Error("Expected error for missing .git file, got nil")
+	}
+}
+
 func TestOrphanedWorktree_Fields(t *testing.T) {
 	orphan := OrphanedWorktree{
 		Path:     "/path/to/worktree",
@@ -1224,6 +1453,14 @@ func TestPruneOrphanedWorktrees_LogsGitErrors(t *testing.T) {
 
 	if err := os.MkdirAll(orphanPath, 0755); err != nil {
 		t.Fatalf("Failed to create orphan dir: %v", err)
+	}
+
+	// Create a .git file so it looks like a real worktree
+	// (getWorktreeRepoPath will read this to determine which repo it belongs to)
+	gitFile := filepath.Join(orphanPath, ".git")
+	gitContent := fmt.Sprintf("gitdir: %s/.git/worktrees/%s\n", repoPath, orphanID)
+	if err := os.WriteFile(gitFile, []byte(gitContent), 0644); err != nil {
+		t.Fatalf("Failed to create .git file: %v", err)
 	}
 
 	cfg := &config.Config{
