@@ -636,6 +636,56 @@ func TestGetWorktreeStatus_StagedChanges(t *testing.T) {
 	if status.Diff == "" {
 		t.Error("Expected Diff to contain staged changes")
 	}
+
+	// Verify staged changes are not duplicated in diff
+	// Count how many times "diff --git a/staged.txt" appears
+	diffCount := strings.Count(status.Diff, "diff --git a/staged.txt")
+	if diffCount != 1 {
+		t.Errorf("Expected staged file diff to appear once, got %d times. This indicates double-counting of staged changes", diffCount)
+	}
+}
+
+func TestGetWorktreeStatus_StagedAndUnstaged(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create and stage a file
+	stagedFile := filepath.Join(repoPath, "staged.txt")
+	if err := os.WriteFile(stagedFile, []byte("staged content"), 0644); err != nil {
+		t.Fatalf("Failed to create staged file: %v", err)
+	}
+
+	cmd := exec.Command("git", "add", "staged.txt")
+	cmd.Dir = repoPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to stage file: %v", err)
+	}
+
+	// Modify an existing file without staging
+	testFile := filepath.Join(repoPath, "test.txt")
+	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
+		t.Fatalf("Failed to modify test file: %v", err)
+	}
+
+	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	if err != nil {
+		t.Fatalf("GetWorktreeStatus failed: %v", err)
+	}
+
+	if !status.HasChanges {
+		t.Error("Expected HasChanges to be true")
+	}
+
+	// Both files should appear in the diff, each exactly once
+	stagedDiffCount := strings.Count(status.Diff, "diff --git a/staged.txt")
+	testDiffCount := strings.Count(status.Diff, "diff --git a/test.txt")
+
+	if stagedDiffCount != 1 {
+		t.Errorf("Expected staged.txt diff to appear once, got %d times", stagedDiffCount)
+	}
+	if testDiffCount != 1 {
+		t.Errorf("Expected test.txt diff to appear once, got %d times", testDiffCount)
+	}
 }
 
 func TestMaxDiffSize(t *testing.T) {
@@ -730,6 +780,104 @@ func TestCreatePR_Cancelled(t *testing.T) {
 
 	// Drain channel - should not hang
 	for range ch {
+	}
+}
+
+func TestCreatePR_UsesBaseBranchNotDefaultBranch(t *testing.T) {
+	// This test verifies that CreatePR uses baseBranch (not defaultBranch) for the --base flag.
+	// This is critical for forked sessions where baseBranch is a parent branch, not main.
+	mockExec := pexec.NewMockExecutor(nil)
+	svc := NewGitServiceWithExecutor(mockExec)
+
+	repoPath := "/test/repo"
+	worktreePath := "/test/worktree"
+	branch := "feature-branch"
+	baseBranch := "parent-branch" // The branch this PR should target (e.g., from a forked session)
+
+	// Mock GetDefaultBranch to return "main"
+	mockExec.AddPrefixMatch("git", []string{"symbolic-ref", "refs/remotes/origin/HEAD"}, pexec.MockResponse{
+		Stdout: []byte("refs/remotes/origin/main\n"),
+	})
+
+	// Mock worktree status check (no uncommitted changes)
+	mockExec.AddPrefixMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	// Mock git push
+	mockExec.AddPrefixMatch("git", []string{"push", "-u", "origin", branch}, pexec.MockResponse{
+		Stdout: []byte("Branch pushed successfully\n"),
+	})
+
+	// Mock git log for PR generation (baseBranch..branch)
+	mockExec.AddPrefixMatch("git", []string{"log", baseBranch + ".." + branch, "--oneline"}, pexec.MockResponse{
+		Stdout: []byte("abc123 Add new feature\n"),
+	})
+
+	// Mock git diff for PR generation (using baseBranch)
+	mockExec.AddPrefixMatch("git", []string{"diff", baseBranch + "..." + branch}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/file.txt b/file.txt\n"),
+	})
+
+	// Mock Claude PR generation (will fail, which is expected - we're testing the fallback path)
+	// When Claude generation fails, CreatePR falls back to --fill
+	mockExec.AddPrefixMatch("claude", []string{}, pexec.MockResponse{
+		Stderr: []byte("Claude not available"),
+		Err:    fmt.Errorf("claude not available"),
+	})
+
+	// Mock gh pr create to succeed
+	mockExec.AddPrefixMatch("gh", []string{"pr", "create"}, pexec.MockResponse{
+		Stdout: []byte("https://github.com/owner/repo/pull/123\n"),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Call CreatePR with baseBranch="parent-branch"
+	ch := svc.CreatePR(ctx, repoPath, worktreePath, branch, baseBranch, "", nil)
+
+	// Drain the channel
+	for range ch {
+	}
+
+	// Get all recorded calls
+	calls := mockExec.GetCalls()
+
+	// Find the gh pr create call
+	var ghCall *pexec.MockCall
+	for _, call := range calls {
+		if call.Name == "gh" && len(call.Args) > 0 && call.Args[0] == "pr" {
+			ghCall = &call
+			break
+		}
+	}
+
+	if ghCall == nil {
+		t.Fatal("gh pr create was not called")
+	}
+
+	// Find the --base flag in the command
+	baseIndex := -1
+	for i, arg := range ghCall.Args {
+		if arg == "--base" {
+			baseIndex = i
+			break
+		}
+	}
+
+	if baseIndex == -1 {
+		t.Fatalf("--base flag not found in gh command: %v", ghCall.Args)
+	}
+
+	if baseIndex+1 >= len(ghCall.Args) {
+		t.Fatalf("--base flag has no value in gh command: %v", ghCall.Args)
+	}
+
+	actualBase := ghCall.Args[baseIndex+1]
+	if actualBase != baseBranch {
+		t.Errorf("gh pr create --base = %q, want %q (not %q)", actualBase, baseBranch, "main")
+		t.Errorf("Full command: gh %v", ghCall.Args)
 	}
 }
 

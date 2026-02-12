@@ -271,11 +271,11 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 			log.Warn("Claude PR generation failed, using --fill", "error", err)
 			ch <- Result{Output: "Claude unavailable, using commit info for PR...\n"}
 			// Fall back to --fill which uses commit info
-			ghArgs = []string{"pr", "create", "--base", defaultBranch, "--head", branch, "--fill"}
+			ghArgs = []string{"pr", "create", "--base", baseBranch, "--head", branch, "--fill"}
 		} else {
 			ch <- Result{Output: fmt.Sprintf("PR title: %s\n", prTitle)}
 			// Create PR with Claude-generated title and body
-			ghArgs = []string{"pr", "create", "--base", defaultBranch, "--head", branch, "--title", prTitle, "--body", prBody}
+			ghArgs = []string{"pr", "create", "--base", baseBranch, "--head", branch, "--title", prTitle, "--body", prBody}
 		}
 
 		// Run gh pr create using the executor

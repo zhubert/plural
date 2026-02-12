@@ -86,23 +86,26 @@ func (s *GitService) GetWorktreeStatus(ctx context.Context, worktreePath string)
 	log := logger.WithComponent("git")
 
 	// Get diff (use --no-ext-diff to ensure output goes to stdout even if external diff is configured)
+	// git diff HEAD shows all changes (both staged and unstaged) compared to the last commit
 	diffOutput, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "HEAD")
 	if err != nil {
-		// If HEAD doesn't exist (new repo), try diff without HEAD
+		// If HEAD doesn't exist (new repo), fall back to showing unstaged + staged separately
 		log.Debug("diff HEAD failed, trying without HEAD", "error", err, "worktree", worktreePath)
-		diffOutput, err = s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
-		if err != nil {
-			log.Warn("git diff failed", "error", err, "worktree", worktreePath)
+
+		// Get unstaged changes
+		unstagedDiff, err1 := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff")
+		// Get staged changes
+		stagedDiff, err2 := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
+
+		if err1 != nil && err2 != nil {
+			log.Warn("git diff failed", "unstaged_error", err1, "staged_error", err2, "worktree", worktreePath)
 		}
+
+		// Combine unstaged and staged diffs (no duplication since they're mutually exclusive)
+		diffOutput = append(unstagedDiff, stagedDiff...)
 	}
 
-	// Also include staged changes in diff-like format
-	cachedDiff, err := s.executor.Output(ctx, worktreePath, "git", "diff", "--no-ext-diff", "--cached")
-	if err != nil {
-		log.Warn("git diff --cached failed", "error", err, "worktree", worktreePath)
-	}
-
-	status.Diff = string(diffOutput) + string(cachedDiff)
+	status.Diff = string(diffOutput)
 
 	// Parse per-file diffs for detailed viewing
 	status.FileDiffs = s.parseFileDiffs(ctx, worktreePath, status.Diff, status.Files, fileStatuses)
