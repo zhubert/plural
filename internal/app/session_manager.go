@@ -502,10 +502,18 @@ func copyClaudeSessionForFork(parentSessionID, parentWorktree, childWorktree str
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
 
-	if _, err := io.Copy(dst, src); err != nil {
-		return err
+	// Copy data, check for errors, and ensure cleanup on failure
+	_, copyErr := io.Copy(dst, src)
+	closeErr := dst.Close()
+
+	// If either operation failed, clean up the partial file and return error
+	if copyErr != nil || closeErr != nil {
+		os.Remove(dstFile) // Best effort cleanup
+		if copyErr != nil {
+			return copyErr
+		}
+		return closeErr
 	}
 
 	logger.WithSession(parentSessionID).Debug("copied Claude session for fork", "from", parentProjectDir, "to", childProjectDir)
