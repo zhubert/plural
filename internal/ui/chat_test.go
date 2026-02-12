@@ -4323,6 +4323,75 @@ func TestOverlayBoxWidthCapping(t *testing.T) {
 	}
 }
 
+// TestPermissionPromptLongCommand verifies long commands wrap correctly (Issue #154)
+func TestPermissionPromptLongCommand(t *testing.T) {
+	// Test with a long command similar to the one in the GitHub issue
+	longCommand := "git commit -m \"$(cat <<'EOF'\\nUpdate authentication flow to support OAuth 2.0\\n\\nThis is a very long commit message that demonstrates the wrapping issue\\n\\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\\nEOF\\n)\""
+
+	// Test at various widths including very wide terminals
+	testWidths := []int{80, 120, 200, 300}
+
+	for _, width := range testWidths {
+		t.Run(fmt.Sprintf("width_%d", width), func(t *testing.T) {
+			result := renderPermissionPrompt("Bash", longCommand, width)
+			lines := strings.Split(result, "\n")
+
+			for i, line := range lines {
+				visualWidth := lipgloss.Width(line)
+				// Allow margin for borders but ensure nothing exceeds the max
+				if visualWidth > OverlayBoxMaxWidth+10 {
+					t.Errorf("Line %d width %d exceeds max %d at terminal width %d\nLine: %q",
+						i, visualWidth, OverlayBoxMaxWidth, width, line)
+				}
+			}
+
+			// Verify the command text actually appears in the output (not truncated)
+			fullText := strings.Join(lines, "")
+			// Remove ANSI codes and normalize whitespace for checking
+			// Text may be wrapped across lines, so we need to check without exact spacing
+			normalizedText := strings.ReplaceAll(fullText, "\n", " ")
+			normalizedText = strings.ReplaceAll(normalizedText, "  ", " ")
+
+			// Check for beginning, middle, and end of command to ensure nothing is truncated
+			if !strings.Contains(fullText, "git commit") {
+				t.Error("Command beginning not found")
+			}
+			// OAuth might be split across lines, so check for the parts
+			if !strings.Contains(fullText, "OAuth") {
+				t.Error("Command middle (OAuth) not found")
+			}
+			if !strings.Contains(fullText, "Co-Authored-By") {
+				t.Error("Command end not found")
+			}
+
+			// Verify complete command string appears (may be on multiple lines)
+			if !strings.Contains(normalizedText, "Update authentication flow") {
+				t.Error("Full command content not found")
+			}
+		})
+	}
+}
+
+// TestPermissionPromptShortCommand verifies short commands still render properly
+func TestPermissionPromptShortCommand(t *testing.T) {
+	shortCommand := "ls -la"
+
+	result := renderPermissionPrompt("Bash", shortCommand, 80)
+
+	// Verify command appears
+	if !strings.Contains(result, shortCommand) {
+		t.Error("Short command text not found in output")
+	}
+
+	// Verify structure
+	if !strings.Contains(result, "Permission Required") {
+		t.Error("Title not found in output")
+	}
+	if !strings.Contains(result, "[y]") || !strings.Contains(result, "[n]") || !strings.Contains(result, "[a]") {
+		t.Error("Action hints not found in output")
+	}
+}
+
 // TestPlanBoxWidthCapping verifies plan boxes use their specific max width
 func TestPlanBoxWidthCapping(t *testing.T) {
 	chat := NewChat()

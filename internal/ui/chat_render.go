@@ -656,14 +656,22 @@ func renderNoSessionMessage() string {
 func renderPermissionPrompt(tool, description string, wrapWidth int) string {
 	var sb strings.Builder
 
+	// Calculate final box width first (capped at max width for readability)
+	boxWidth := wrapWidth
+	if boxWidth > OverlayBoxMaxWidth {
+		boxWidth = OverlayBoxMaxWidth
+	}
+
 	// Title with tool name on same line: "⚠ Permission Required: Edit"
 	sb.WriteString(PermissionTitleStyle.Render("⚠ Permission Required: "))
 	sb.WriteString(PermissionToolStyle.Render(tool))
 	sb.WriteString("\n")
 
-	// Description (wrapped to fit within box padding)
-	descStyle := PermissionDescStyle.Width(wrapWidth - OverlayBoxPadding)
-	sb.WriteString(descStyle.Render(description))
+	// Description (manually wrapped to fit within box padding, using final box width)
+	// We need to manually wrap because lipgloss .Width() doesn't auto-wrap text
+	descWidth := boxWidth - OverlayBoxPadding
+	wrappedDesc := wrapText(description, descWidth)
+	sb.WriteString(PermissionDescStyle.Render(wrappedDesc))
 	sb.WriteString("\n\n")
 
 	// Keyboard hints - compact horizontal layout
@@ -677,11 +685,6 @@ func renderPermissionPrompt(tool, description string, wrapWidth int) string {
 	sb.WriteString(keyStyle.Render("[a]"))
 	sb.WriteString(hintStyle.Render(" Always"))
 
-	// Wrap in a box, capped at max width for readability
-	boxWidth := wrapWidth
-	if boxWidth > OverlayBoxMaxWidth {
-		boxWidth = OverlayBoxMaxWidth
-	}
 	return PermissionBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
