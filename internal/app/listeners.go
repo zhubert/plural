@@ -108,10 +108,13 @@ func (m *Model) listenForSessionPlanApproval(sessionID string, runner claude.Run
 // listenForMergeResult creates a command to listen for merge operation results
 func (m *Model) listenForMergeResult(sessionID string) tea.Cmd {
 	state := m.sessionState().GetIfExists(sessionID)
-	if state == nil || state.MergeChan == nil {
+	if state == nil {
 		return nil
 	}
-	ch := state.MergeChan
+	ch := state.GetMergeChan()
+	if ch == nil {
+		return nil
+	}
 
 	return func() tea.Msg {
 		result, ok := <-ch

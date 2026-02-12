@@ -59,6 +59,9 @@ func ParseTodoWriteInput(input json.RawMessage) (*TodoList, error) {
 
 // CountByStatus returns the count of items with each status
 func (t *TodoList) CountByStatus() (pending, inProgress, completed int) {
+	if t == nil {
+		return 0, 0, 0
+	}
 	for _, item := range t.Items {
 		switch item.Status {
 		case TodoStatusPending:
