@@ -739,6 +739,8 @@ func (m *SessionStateManager) GetInitialMessage(sessionID string) string {
 
 // StartContainerInit marks a session as initializing its container.
 // This sets ContainerInitializing and ContainerInitStart atomically.
+// Uses the same locking pattern as StartWaiting and StartMerge: acquire write lock,
+// create state if needed, release manager lock, then acquire state lock.
 func (m *SessionStateManager) StartContainerInit(sessionID string) {
 	m.mu.Lock()
 	state := m.getOrCreate(sessionID)

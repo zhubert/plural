@@ -727,22 +727,33 @@ func TestSessionStateManager_ContainerInitConcurrency(t *testing.T) {
 	m := NewSessionStateManager()
 	const numGoroutines = 10
 
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
+	var startWg, stopWg sync.WaitGroup
+	startWg.Add(numGoroutines)
+	stopWg.Add(numGoroutines)
 
-	// Multiple goroutines starting/stopping container init
+	// Multiple goroutines starting container init
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			defer wg.Done()
 			m.StartContainerInit("session-1")
-			time.Sleep(time.Millisecond)
-			m.StopContainerInit("session-1")
+			startWg.Done()
 		}()
 	}
 
-	wg.Wait()
+	// Wait for all starts to complete before any stops
+	startWg.Wait()
 
-	// Should end in stopped state
+	// Multiple goroutines stopping container init
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			m.StopContainerInit("session-1")
+			stopWg.Done()
+		}()
+	}
+
+	// Wait for all stops to complete
+	stopWg.Wait()
+
+	// Should end in stopped state (all starts happened before all stops)
 	_, initializing := m.GetContainerInitStart("session-1")
 	if initializing {
 		t.Error("Expected not initializing after concurrent operations")

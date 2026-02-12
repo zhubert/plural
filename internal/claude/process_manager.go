@@ -531,12 +531,13 @@ func (pm *ProcessManager) UpdateConfig(config ProcessConfig) {
 func (pm *ProcessManager) MarkSessionStarted() {
 	pm.mu.Lock()
 	wasContainerized := pm.config.Containerized
+	callback := pm.callbacks.OnContainerReady
 	pm.config.SessionStarted = true
 	pm.mu.Unlock()
 
 	// Notify that container is ready (if this was a containerized session)
-	if wasContainerized && pm.callbacks.OnContainerReady != nil {
-		pm.callbacks.OnContainerReady()
+	if wasContainerized && callback != nil {
+		callback()
 	}
 }
 
