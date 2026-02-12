@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/config"
+	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/logger"
 )
 
@@ -407,12 +408,13 @@ type OrphanedWorktree struct {
 	Path     string // Full path to the worktree
 	RepoPath string // Parent repo path (derived from .plural-worktrees location)
 	ID       string // Session ID (directory name)
+	Branch   string // Branch name (empty if failed to detect)
 }
 
 // FindOrphanedWorktrees finds all worktrees in .plural-worktrees directories
 // that don't have a matching session in config.
 // Directory scans are parallelized for better performance with many repos.
-func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
+func (s *SessionService) FindOrphanedWorktrees(ctx context.Context, cfg *config.Config) ([]OrphanedWorktree, error) {
 	log := logger.WithComponent("session")
 	log.Info("searching for orphaned worktrees")
 
@@ -471,7 +473,7 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 		go func(worktreesDir string) {
 			defer wg.Done()
 
-			orphansInDir, err := findOrphansInDir(worktreesDir, knownSessions, repoPathsSet)
+			orphansInDir, err := findOrphansInDir(ctx, s.executor, worktreesDir, knownSessions, repoPathsSet)
 			if err != nil {
 				return // Skip if directory doesn't exist or can't be read
 			}
@@ -485,6 +487,23 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 	wg.Wait()
 	log.Info("orphaned worktree search complete", "count", len(orphans))
 	return orphans, nil
+}
+
+// getWorktreeBranch returns the branch name for a given worktree path.
+// Returns an error if the worktree is not valid or has no branch (detached HEAD).
+func getWorktreeBranch(ctx context.Context, executor pexec.CommandExecutor, worktreePath string) (string, error) {
+	// Run git rev-parse --abbrev-ref HEAD in the worktree to get the branch name
+	stdout, err := executor.Output(ctx, worktreePath, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get branch for worktree: %w", err)
+	}
+
+	branch := strings.TrimSpace(string(stdout))
+	if branch == "" || branch == "HEAD" {
+		return "", fmt.Errorf("worktree has no branch (detached HEAD)")
+	}
+
+	return branch, nil
 }
 
 // getWorktreeRepoPath determines which repository a worktree belongs to
@@ -532,7 +551,7 @@ func getWorktreeRepoPath(worktreePath string) (string, error) {
 	return "", fmt.Errorf("could not find .git directory in path: %s", gitdir)
 }
 
-func findOrphansInDir(worktreesDir string, knownSessions map[string]bool, repoPathsSet map[string]bool) ([]OrphanedWorktree, error) {
+func findOrphansInDir(ctx context.Context, executor pexec.CommandExecutor, worktreesDir string, knownSessions map[string]bool, repoPathsSet map[string]bool) ([]OrphanedWorktree, error) {
 	entries, err := os.ReadDir(worktreesDir)
 	if err != nil {
 		return nil, err
@@ -558,10 +577,19 @@ func findOrphansInDir(worktreesDir string, knownSessions map[string]bool, repoPa
 
 			// Only include orphans that belong to repos in our config
 			if repoPathsSet[repoPath] {
+				// Try to get the branch name for this worktree
+				branch, err := getWorktreeBranch(ctx, executor, worktreePath)
+				if err != nil {
+					// If we can't get the branch, log it but continue with empty branch
+					// (we still want to clean up the worktree, branch deletion will be best-effort)
+					branch = ""
+				}
+
 				orphans = append(orphans, OrphanedWorktree{
 					Path:     worktreePath,
 					RepoPath: repoPath,
 					ID:       sessionID,
+					Branch:   branch,
 				})
 			}
 		}
@@ -576,7 +604,7 @@ func findOrphansInDir(worktreesDir string, knownSessions map[string]bool, repoPa
 func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config.Config) (int, error) {
 	log := logger.WithComponent("session")
 
-	orphans, err := FindOrphanedWorktrees(cfg)
+	orphans, err := s.FindOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		return 0, err
 	}
@@ -620,10 +648,13 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 					log.Warn("worktree prune failed (best-effort)", "repoPath", orphan.RepoPath, "error", pruneErr)
 				}
 
-				// Try to delete the branch
-				branchName := fmt.Sprintf("plural-%s", orphan.ID)
-				if _, _, branchErr := s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName); branchErr != nil {
-					log.Warn("failed to delete branch (may already be deleted)", "branch", branchName, "error", branchErr)
+				// Try to delete the branch if we have a branch name
+				if orphan.Branch != "" {
+					if _, _, branchErr := s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", orphan.Branch); branchErr != nil {
+						log.Warn("failed to delete branch (may already be deleted)", "branch", orphan.Branch, "error", branchErr)
+					}
+				} else {
+					log.Warn("no branch name available for orphan, skipping branch deletion", "sessionID", orphan.ID)
 				}
 
 				// Delete session messages file

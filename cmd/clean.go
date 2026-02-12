@@ -49,7 +49,11 @@ func runCleanWithReader(input io.Reader) error {
 	// Gather statistics about what will be cleaned
 	sessionCount := len(cfg.GetSessions())
 
-	orphanWorktrees, err := session.FindOrphanedWorktrees(cfg)
+	// Create session service for orphan detection
+	sessionService := session.NewSessionService()
+	ctx := context.Background()
+
+	orphanWorktrees, err := sessionService.FindOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: error finding orphaned worktrees: %v\n", err)
 	}
@@ -135,7 +139,6 @@ func runCleanWithReader(input io.Reader) error {
 
 	// Prune orphans in parallel (from --prune)
 	sessionSvc := session.NewSessionService()
-	ctx := context.Background()
 
 	var prunedWorktrees, prunedMessages, prunedProcesses, prunedContainers int
 	var worktreesErr, messagesErr, processesErr, containersErr error

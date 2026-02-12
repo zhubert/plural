@@ -536,7 +536,7 @@ func TestFindOrphanedWorktrees(t *testing.T) {
 	}
 
 	// Find orphans - there should be none since the session is in config
-	orphans, err := FindOrphanedWorktrees(cfg)
+	orphans, err := svc.FindOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
 	}
@@ -551,7 +551,7 @@ func TestFindOrphanedWorktrees(t *testing.T) {
 		Sessions: []config.Session{},
 	}
 
-	orphans, err = FindOrphanedWorktrees(emptyConfig)
+	orphans, err = svc.FindOrphanedWorktrees(ctx, emptyConfig)
 	if err != nil {
 		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestFindOrphanedWorktrees_NoWorktrees(t *testing.T) {
 		Sessions: []config.Session{},
 	}
 
-	orphans, err := FindOrphanedWorktrees(cfg)
+	orphans, err := svc.FindOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
 	}
@@ -722,7 +722,7 @@ func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
 	}
 
 	// Find orphans
-	orphans, err := FindOrphanedWorktrees(cfg)
+	orphans, err := svc.FindOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
 	}
@@ -749,7 +749,7 @@ func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
 
 	// Now make both sessions orphaned
 	cfg.Sessions = []config.Session{}
-	orphans, err = FindOrphanedWorktrees(cfg)
+	orphans, err = svc.FindOrphanedWorktrees(ctx, cfg)
 	if err != nil {
 		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
 	}
@@ -1512,6 +1512,10 @@ func TestPruneOrphanedWorktrees_LogsGitErrors(t *testing.T) {
 
 	// Use a mock executor that fails on worktree remove, prune, and branch delete
 	mockExec := pexec.NewMockExecutor(nil)
+	// Mock the branch detection to return a fake branch name
+	mockExec.AddPrefixMatch("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("plural-" + orphanID + "\n"),
+	})
 	mockExec.AddPrefixMatch("git", []string{"worktree", "remove"}, pexec.MockResponse{
 		Err: fmt.Errorf("mock: worktree remove failed"),
 	})
@@ -1562,5 +1566,133 @@ func TestPruneOrphanedWorktrees_LogsGitErrors(t *testing.T) {
 	}
 	if !hasBranchDelete {
 		t.Error("Expected git branch -D to be called")
+	}
+}
+
+// TestFindOrphanedWorktrees_BranchDetection tests that orphaned worktrees
+// correctly detect their branch names, including those with prefixes or custom names.
+// This tests the fix for issue #136.
+func TestFindOrphanedWorktrees_BranchDetection(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create sessions with different branch naming patterns
+	session1, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create session1 failed: %v", err)
+	}
+
+	session2, err := svc.Create(ctx, repoPath, "", "zhubert/", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create session2 failed: %v", err)
+	}
+
+	session3, err := svc.Create(ctx, repoPath, "custom-branch", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create session3 failed: %v", err)
+	}
+
+	// Create a config without these sessions (making them orphans)
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{},
+	}
+
+	// Find orphans
+	orphans, err := svc.FindOrphanedWorktrees(ctx, cfg)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	if len(orphans) != 3 {
+		t.Fatalf("Expected 3 orphans, got %d", len(orphans))
+	}
+
+	// Build a map of orphans by session ID for easier lookup
+	orphansByID := make(map[string]OrphanedWorktree)
+	for _, orphan := range orphans {
+		orphansByID[orphan.ID] = orphan
+	}
+
+	// Verify each orphan has the correct branch name
+	if orphan1, ok := orphansByID[session1.ID]; ok {
+		if orphan1.Branch != session1.Branch {
+			t.Errorf("Session1 orphan branch = %q, want %q", orphan1.Branch, session1.Branch)
+		}
+		// Verify it's the default format
+		if !strings.HasPrefix(orphan1.Branch, "plural-") {
+			t.Errorf("Session1 branch should start with 'plural-', got %q", orphan1.Branch)
+		}
+	} else {
+		t.Error("Session1 not found in orphans")
+	}
+
+	if orphan2, ok := orphansByID[session2.ID]; ok {
+		if orphan2.Branch != session2.Branch {
+			t.Errorf("Session2 orphan branch = %q, want %q", orphan2.Branch, session2.Branch)
+		}
+		// Verify it has the prefix
+		if !strings.HasPrefix(orphan2.Branch, "zhubert/plural-") {
+			t.Errorf("Session2 branch should start with 'zhubert/plural-', got %q", orphan2.Branch)
+		}
+	} else {
+		t.Error("Session2 not found in orphans")
+	}
+
+	if orphan3, ok := orphansByID[session3.ID]; ok {
+		if orphan3.Branch != session3.Branch {
+			t.Errorf("Session3 orphan branch = %q, want %q", orphan3.Branch, session3.Branch)
+		}
+		if orphan3.Branch != "custom-branch" {
+			t.Errorf("Session3 branch = %q, want 'custom-branch'", orphan3.Branch)
+		}
+	} else {
+		t.Error("Session3 not found in orphans")
+	}
+}
+
+// TestPruneOrphanedWorktrees_PrefixedBranch tests that pruning correctly
+// deletes branches with prefixes. This is the main test for issue #136.
+func TestPruneOrphanedWorktrees_PrefixedBranch(t *testing.T) {
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(repoPath)
+
+	// Create a session with a branch prefix
+	session, err := svc.Create(ctx, repoPath, "", "zhubert/", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// Verify the branch exists
+	if !svc.BranchExists(ctx, repoPath, session.Branch) {
+		t.Fatalf("Branch %q should exist before prune", session.Branch)
+	}
+
+	// Create a config without this session (making it an orphan)
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{},
+	}
+
+	// Prune orphans
+	pruned, err := svc.PruneOrphanedWorktrees(ctx, cfg)
+	if err != nil {
+		t.Fatalf("PruneOrphanedWorktrees failed: %v", err)
+	}
+
+	if pruned != 1 {
+		t.Errorf("Expected 1 pruned, got %d", pruned)
+	}
+
+	// Verify the worktree is gone
+	if _, err := os.Stat(session.WorkTree); !os.IsNotExist(err) {
+		t.Error("Worktree should be removed after prune")
+	}
+
+	// Verify the branch is deleted (this would fail with the old hardcoded logic)
+	if svc.BranchExists(ctx, repoPath, session.Branch) {
+		t.Errorf("Branch %q should be deleted after prune", session.Branch)
 	}
 }
