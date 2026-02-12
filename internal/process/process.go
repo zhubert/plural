@@ -150,9 +150,10 @@ func FindClaudeProcesses() ([]ClaudeProcess, error) {
 		cmd := exec.Command("wmic", "process", "where", "name like 'claude%'", "get", "ProcessId,CommandLine", "/format:csv")
 		output, err := cmd.Output()
 		if err != nil {
-			// If wmic fails, try PowerShell as fallback
+			// If wmic fails, try PowerShell with WMI to get command line
+			// Get-Process doesn't include CommandLine, so we use Get-CimInstance
 			psCmd := exec.Command("powershell", "-Command",
-				"Get-Process | Where-Object {$_.Name -like 'claude*'} | Select-Object Id,Path | ConvertTo-Csv -NoTypeInformation")
+				"Get-CimInstance Win32_Process | Where-Object {$_.Name -like 'claude*' -and $_.CommandLine -like '*--session-id*'} | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation")
 			output, err = psCmd.Output()
 			if err != nil {
 				return nil, err
@@ -168,19 +169,17 @@ func FindClaudeProcesses() ([]ClaudeProcess, error) {
 
 			fields := strings.Split(line, ",")
 			if len(fields) >= 2 {
-				// wmic format: Node,CommandLine,ProcessId
-				// PowerShell format: "Id","Path"
 				var pidStr, cmdLine string
 
-				if strings.Contains(line, "CommandLine") || len(fields) >= 3 {
-					// wmic format - last field is PID
+				// Check if this is wmic format (has 3+ fields with Node column)
+				// or PowerShell format (2 fields: ProcessId,CommandLine)
+				if len(fields) >= 3 {
+					// wmic format: Node,CommandLine,ProcessId
 					pidStr = strings.Trim(strings.TrimSpace(fields[len(fields)-1]), "\"")
 					// CommandLine is all fields except first (node) and last (PID)
-					if len(fields) > 2 {
-						cmdLine = strings.Trim(strings.Join(fields[1:len(fields)-1], ","), "\"")
-					}
+					cmdLine = strings.Trim(strings.Join(fields[1:len(fields)-1], ","), "\"")
 				} else {
-					// PowerShell format - first field is PID, second is Path
+					// PowerShell format: ProcessId,CommandLine
 					pidStr = strings.Trim(strings.TrimSpace(fields[0]), "\"")
 					cmdLine = strings.Trim(strings.TrimSpace(fields[1]), "\"")
 				}
