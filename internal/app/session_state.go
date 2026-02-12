@@ -75,6 +75,21 @@ type ToolUseRollupState struct {
 	Expanded bool               // Whether the rollup is expanded
 }
 
+// Copy creates a deep copy of the ToolUseRollupState.
+func (t *ToolUseRollupState) Copy() *ToolUseRollupState {
+	if t == nil {
+		return nil
+	}
+	items := make([]ToolUseItemState, len(t.Items))
+	for i, item := range t.Items {
+		items[i] = item.Copy()
+	}
+	return &ToolUseRollupState{
+		Items:    items,
+		Expanded: t.Expanded,
+	}
+}
+
 // ToolUseItemState represents a single tool use
 type ToolUseItemState struct {
 	ToolName   string
@@ -82,6 +97,20 @@ type ToolUseItemState struct {
 	ToolUseID  string
 	Complete   bool
 	ResultInfo *claude.ToolResultInfo // Rich details about the result (populated on completion)
+}
+
+// Copy creates a deep copy of the ToolUseItemState.
+func (t ToolUseItemState) Copy() ToolUseItemState {
+	// ResultInfo is copied by reference since it's immutable after creation
+	// and only set on completion. If this assumption changes, we'd need a
+	// deep copy method for ToolResultInfo as well.
+	return ToolUseItemState{
+		ToolName:   t.ToolName,
+		ToolInput:  t.ToolInput,
+		ToolUseID:  t.ToolUseID,
+		Complete:   t.Complete,
+		ResultInfo: t.ResultInfo,
+	}
 }
 
 // HasDetectedOptions returns true if there are at least 2 detected options.
@@ -191,12 +220,16 @@ func (s *SessionState) SetToolUsePos(pos int) {
 
 // --- Thread-safe accessors for ToolUseRollup ---
 
-// GetToolUseRollup returns the current tool use rollup.
+// GetToolUseRollup returns a copy of the current tool use rollup.
+// Returns nil if no rollup exists.
 // Thread-safe.
 func (s *SessionState) GetToolUseRollup() *ToolUseRollupState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.ToolUseRollup
+	if s.ToolUseRollup == nil {
+		return nil
+	}
+	return s.ToolUseRollup.Copy()
 }
 
 // SetToolUseRollup sets the tool use rollup.
@@ -304,12 +337,13 @@ func (s *SessionState) FlushToolUseRollup(getToolIcon func(string) string, inPro
 
 // --- Thread-safe accessors for PendingPermission ---
 
-// GetPendingPermission returns the pending permission request.
+// GetPendingPermission returns a copy of the pending permission request.
+// Returns nil if no permission request exists.
 // Thread-safe.
 func (s *SessionState) GetPendingPermission() *mcp.PermissionRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.PendingPermission
+	return copyPermissionRequest(s.PendingPermission)
 }
 
 // SetPendingPermission sets the pending permission request.
@@ -322,12 +356,13 @@ func (s *SessionState) SetPendingPermission(req *mcp.PermissionRequest) {
 
 // --- Thread-safe accessors for PendingQuestion ---
 
-// GetPendingQuestion returns the pending question request.
+// GetPendingQuestion returns a copy of the pending question request.
+// Returns nil if no question request exists.
 // Thread-safe.
 func (s *SessionState) GetPendingQuestion() *mcp.QuestionRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.PendingQuestion
+	return copyQuestionRequest(s.PendingQuestion)
 }
 
 // SetPendingQuestion sets the pending question request.
@@ -340,12 +375,13 @@ func (s *SessionState) SetPendingQuestion(req *mcp.QuestionRequest) {
 
 // --- Thread-safe accessors for PendingPlanApproval ---
 
-// GetPendingPlanApproval returns the pending plan approval request.
+// GetPendingPlanApproval returns a copy of the pending plan approval request.
+// Returns nil if no plan approval request exists.
 // Thread-safe.
 func (s *SessionState) GetPendingPlanApproval() *mcp.PlanApprovalRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.PendingPlanApproval
+	return copyPlanApprovalRequest(s.PendingPlanApproval)
 }
 
 // SetPendingPlanApproval sets the pending plan approval request.
@@ -358,12 +394,13 @@ func (s *SessionState) SetPendingPlanApproval(req *mcp.PlanApprovalRequest) {
 
 // --- Thread-safe accessors for CurrentTodoList ---
 
-// GetCurrentTodoList returns the current todo list.
+// GetCurrentTodoList returns a copy of the current todo list.
+// Returns nil if no todo list exists.
 // Thread-safe.
 func (s *SessionState) GetCurrentTodoList() *claude.TodoList {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.CurrentTodoList
+	return copyTodoList(s.CurrentTodoList)
 }
 
 // SetCurrentTodoList sets the current todo list.
@@ -390,6 +427,88 @@ func (s *SessionState) SetSubagentModel(model string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.SubagentModel = model
+}
+
+// --- Helper functions for deep copying ---
+
+// copyPermissionRequest creates a deep copy of a PermissionRequest.
+// Returns nil if the input is nil.
+func copyPermissionRequest(req *mcp.PermissionRequest) *mcp.PermissionRequest {
+	if req == nil {
+		return nil
+	}
+	// Deep copy the Arguments map
+	args := make(map[string]interface{}, len(req.Arguments))
+	for k, v := range req.Arguments {
+		args[k] = v
+	}
+	return &mcp.PermissionRequest{
+		ID:          req.ID,
+		Tool:        req.Tool,
+		Description: req.Description,
+		Arguments:   args,
+	}
+}
+
+// copyQuestionRequest creates a deep copy of a QuestionRequest.
+// Returns nil if the input is nil.
+func copyQuestionRequest(req *mcp.QuestionRequest) *mcp.QuestionRequest {
+	if req == nil {
+		return nil
+	}
+	// Deep copy the Questions slice
+	questions := make([]mcp.Question, len(req.Questions))
+	for i, q := range req.Questions {
+		// Deep copy the Options slice
+		options := make([]mcp.QuestionOption, len(q.Options))
+		copy(options, q.Options)
+		questions[i] = mcp.Question{
+			Question:    q.Question,
+			Header:      q.Header,
+			Options:     options,
+			MultiSelect: q.MultiSelect,
+		}
+	}
+	return &mcp.QuestionRequest{
+		ID:        req.ID,
+		Questions: questions,
+	}
+}
+
+// copyPlanApprovalRequest creates a deep copy of a PlanApprovalRequest.
+// Returns nil if the input is nil.
+func copyPlanApprovalRequest(req *mcp.PlanApprovalRequest) *mcp.PlanApprovalRequest {
+	if req == nil {
+		return nil
+	}
+	// Deep copy the AllowedPrompts slice
+	prompts := make([]mcp.AllowedPrompt, len(req.AllowedPrompts))
+	copy(prompts, req.AllowedPrompts)
+	// Deep copy the Arguments map
+	args := make(map[string]interface{}, len(req.Arguments))
+	for k, v := range req.Arguments {
+		args[k] = v
+	}
+	return &mcp.PlanApprovalRequest{
+		ID:             req.ID,
+		Plan:           req.Plan,
+		AllowedPrompts: prompts,
+		Arguments:      args,
+	}
+}
+
+// copyTodoList creates a deep copy of a TodoList.
+// Returns nil if the input is nil.
+func copyTodoList(list *claude.TodoList) *claude.TodoList {
+	if list == nil {
+		return nil
+	}
+	// Deep copy the Items slice
+	items := make([]claude.TodoItem, len(list.Items))
+	copy(items, list.Items)
+	return &claude.TodoList{
+		Items: items,
+	}
 }
 
 // --- Thread-safe accessors for WaitStart ---
