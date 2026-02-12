@@ -445,6 +445,12 @@ func (s *Server) isToolAllowed(tool string) bool {
 	defer s.mu.Unlock()
 
 	for _, allowed := range s.allowedTools {
+		// Wildcard matches any tool — used in container mode where the container
+		// IS the sandbox, so all regular permissions are auto-approved while
+		// AskUserQuestion and ExitPlanMode still route through the TUI.
+		if allowed == "*" {
+			return true
+		}
 		if allowed == tool {
 			return true
 		}

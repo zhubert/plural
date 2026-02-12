@@ -670,6 +670,24 @@ func TestServer_isToolAllowed(t *testing.T) {
 			tool:         "Edit",
 			expected:     false,
 		},
+		{
+			name:         "wildcard matches any tool",
+			allowedTools: []string{"*"},
+			tool:         "Bash",
+			expected:     true,
+		},
+		{
+			name:         "wildcard matches unknown tool",
+			allowedTools: []string{"*"},
+			tool:         "SomeUnknownTool",
+			expected:     true,
+		},
+		{
+			name:         "wildcard with other tools",
+			allowedTools: []string{"Read", "*"},
+			tool:         "Write",
+			expected:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -932,6 +950,88 @@ func TestValidatePlanPath(t *testing.T) {
 				t.Errorf("validatePlanPath(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestWildcard_AskUserQuestion_StillRoutesToTUI(t *testing.T) {
+	// Even with wildcard "*" in allowed tools (container mode), AskUserQuestion
+	// should route through the TUI rather than being auto-approved.
+	questionChan := make(chan QuestionRequest, 1)
+	answerChan := make(chan QuestionResponse, 1)
+	var buf strings.Builder
+
+	s := &Server{
+		questionChan: questionChan,
+		answerChan:   answerChan,
+		allowedTools: []string{"*"}, // Wildcard - auto-approve everything
+		writer:       &buf,
+		log:          logger.WithSession("test"),
+	}
+
+	// Verify that "*" matches regular tools
+	if !s.isToolAllowed("Bash") {
+		t.Error("wildcard should match Bash")
+	}
+
+	// But AskUserQuestion is handled BEFORE isToolAllowed check,
+	// so it should go to the TUI
+	go func() {
+		req := <-questionChan
+		if len(req.Questions) != 1 {
+			t.Errorf("Expected 1 question, got %d", len(req.Questions))
+		}
+		if req.Questions[0].Question != "Which approach?" {
+			t.Errorf("Question = %q, want %q", req.Questions[0].Question, "Which approach?")
+		}
+		answerChan <- QuestionResponse{ID: req.ID, Answers: map[string]string{"0": "Option A"}}
+	}()
+
+	s.handleAskUserQuestion("test-id", map[string]interface{}{
+		"questions": []interface{}{
+			map[string]interface{}{
+				"question": "Which approach?",
+				"header":   "Approach",
+				"options": []interface{}{
+					map[string]interface{}{"label": "Option A", "description": "First"},
+					map[string]interface{}{"label": "Option B", "description": "Second"},
+				},
+			},
+		},
+	})
+
+	// Verify a response was written (not auto-approved)
+	if buf.Len() == 0 {
+		t.Error("Expected response to be written")
+	}
+}
+
+func TestWildcard_ExitPlanMode_StillRoutesToTUI(t *testing.T) {
+	// Even with wildcard "*" in allowed tools (container mode), ExitPlanMode
+	// should route through the TUI for plan approval.
+	planApprovalChan := make(chan PlanApprovalRequest, 1)
+	planResponseChan := make(chan PlanApprovalResponse, 1)
+	var buf strings.Builder
+
+	s := &Server{
+		planApprovalChan: planApprovalChan,
+		planResponseChan: planResponseChan,
+		allowedTools:     []string{"*"},
+		writer:           &buf,
+		log:              logger.WithSession("test"),
+	}
+
+	go func() {
+		req := <-planApprovalChan
+		if req.Plan != "# My Plan" {
+			t.Errorf("Plan = %q, want %q", req.Plan, "# My Plan")
+		}
+		planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: true}
+	}()
+
+	s.handleExitPlanMode("test-id", map[string]interface{}{"plan": "# My Plan"})
+
+	if buf.Len() == 0 {
+		t.Error("Expected response to be written")
 	}
 }
 

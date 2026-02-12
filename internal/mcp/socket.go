@@ -50,8 +50,9 @@ type SocketMessage struct {
 
 // SocketServer listens for permission requests from MCP server subprocesses
 type SocketServer struct {
-	socketPath    string
+	socketPath    string         // Unix socket path (empty for TCP servers)
 	listener      net.Listener
+	isTCP         bool           // True if listening on TCP instead of Unix socket
 	requestCh     chan<- PermissionRequest
 	responseCh    <-chan PermissionResponse
 	questionCh    chan<- QuestionRequest
@@ -66,7 +67,15 @@ type SocketServer struct {
 
 // NewSocketServer creates a new socket server for the given session
 func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
-	socketPath := filepath.Join(os.TempDir(), "plural-"+sessionID+".sock")
+	// Use abbreviated session ID (first 8 chars) in the socket path to keep
+	// it short. Unix domain socket paths have a max of ~104 characters, and
+	// Apple containers proxy mounted sockets under a long rootfs path like
+	// /run/container/<name>/rootfs/..., which can exceed the limit with full UUIDs.
+	shortID := sessionID
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	socketPath := filepath.Join(os.TempDir(), "pl-"+shortID+".sock")
 	log := logger.WithSession(sessionID).With("component", "mcp-socket")
 
 	// Remove existing socket if present
@@ -92,9 +101,57 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 	}, nil
 }
 
+// NewTCPSocketServer creates a socket server that listens on TCP instead of a
+// Unix socket. Used for container sessions where Unix sockets can't cross the
+// container boundary. Listens on 0.0.0.0:0 to get a random available port.
+func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
+	log := logger.WithSession(sessionID).With("component", "mcp-socket")
+
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		return nil, err
+	}
+
+	addr := listener.Addr().(*net.TCPAddr)
+	log.Info("listening on TCP", "addr", addr.String(), "port", addr.Port)
+
+	return &SocketServer{
+		listener:   listener,
+		isTCP:      true,
+		requestCh:  reqCh,
+		responseCh: respCh,
+		questionCh: questCh,
+		answerCh:   ansCh,
+		planReqCh:  planReqCh,
+		planRespCh: planRespCh,
+		log:        log,
+	}, nil
+}
+
 // SocketPath returns the path to the socket
 func (s *SocketServer) SocketPath() string {
 	return s.socketPath
+}
+
+// TCPAddr returns the TCP address the server is listening on.
+// Returns empty string if not a TCP server.
+func (s *SocketServer) TCPAddr() string {
+	if !s.isTCP {
+		return ""
+	}
+	return s.listener.Addr().String()
+}
+
+// TCPPort returns just the port number for TCP servers.
+// Returns 0 if not a TCP server.
+func (s *SocketServer) TCPPort() int {
+	if !s.isTCP {
+		return 0
+	}
+	if addr, ok := s.listener.Addr().(*net.TCPAddr); ok {
+		return addr.Port
+	}
+	return 0
 }
 
 // Start launches Run() in a goroutine. It increments the WaitGroup before
@@ -388,9 +445,11 @@ func (s *SocketServer) Close() error {
 	// file while it's still being used
 	s.wg.Wait()
 
-	// Remove socket file, logging any errors
-	if removeErr := os.Remove(s.socketPath); removeErr != nil && !os.IsNotExist(removeErr) {
-		s.log.Warn("failed to remove socket file", "socketPath", s.socketPath, "error", removeErr)
+	// Remove socket file for Unix socket servers (TCP servers have no file to clean up)
+	if !s.isTCP && s.socketPath != "" {
+		if removeErr := os.Remove(s.socketPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			s.log.Warn("failed to remove socket file", "socketPath", s.socketPath, "error", removeErr)
+		}
 	}
 
 	return err
@@ -403,7 +462,7 @@ type SocketClient struct {
 	reader     *bufio.Reader
 }
 
-// NewSocketClient creates a client connected to the TUI socket
+// NewSocketClient creates a client connected to the TUI socket via Unix socket
 func NewSocketClient(socketPath string) (*SocketClient, error) {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
@@ -414,6 +473,20 @@ func NewSocketClient(socketPath string) (*SocketClient, error) {
 		socketPath: socketPath,
 		conn:       conn,
 		reader:     bufio.NewReader(conn),
+	}, nil
+}
+
+// NewTCPSocketClient creates a client connected to the TUI via TCP.
+// Used inside containers where Unix sockets can't cross the container boundary.
+func NewTCPSocketClient(addr string) (*SocketClient, error) {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SocketClient{
+		conn:   conn,
+		reader: bufio.NewReader(conn),
 	}, nil
 }
 

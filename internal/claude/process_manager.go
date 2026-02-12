@@ -19,6 +19,10 @@ import (
 // errChannelFull is returned when the response channel is full for too long.
 var errChannelFull = fmt.Errorf("channel full")
 
+// containerMCPConfigPath is where the MCP config is mounted inside the container.
+// Must be short since Apple containers prepend /run/container/<name>/rootfs/ to paths.
+const containerMCPConfigPath = "/tmp/mcp.json"
+
 // readResult holds the result of a read operation for timeout handling.
 type readResult struct {
 	line string
@@ -218,11 +222,21 @@ func BuildCommandArgs(config ProcessConfig) []string {
 	}
 
 	if config.Containerized {
-		// Container IS the sandbox — skip MCP permission system entirely
-		args = append(args,
-			"--dangerously-skip-permissions",
-			"--append-system-prompt", OptionsSystemPrompt,
-		)
+		// Container IS the sandbox. When MCP config is available, use --permission-prompt-tool
+		// with a wildcard MCP server (--auto-approve) that auto-approves all regular permissions
+		// while routing AskUserQuestion and ExitPlanMode through the TUI.
+		// Note: --dangerously-skip-permissions and --permission-prompt-tool conflict in Claude CLI,
+		// so we use one or the other — never both.
+		if config.MCPConfigPath != "" {
+			args = append(args,
+				"--mcp-config", containerMCPConfigPath,
+				"--permission-prompt-tool", "mcp__plural__permission",
+			)
+		} else {
+			// Fallback if MCP server didn't start — use dangerously-skip-permissions
+			args = append(args, "--dangerously-skip-permissions")
+		}
+		args = append(args, "--append-system-prompt", OptionsSystemPrompt)
 	} else {
 		// Add MCP config and permission prompt tool
 		args = append(args,
@@ -805,6 +819,13 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerR
 	auth := writeContainerAuthFile(config.SessionID)
 	if auth.Path != "" {
 		args = append(args, "-v", auth.Path+":/home/claude/.auth:ro")
+	}
+
+	// Mount MCP config for AskUserQuestion/ExitPlanMode support.
+	// The MCP subprocess inside the container connects to the host via TCP
+	// (Unix sockets don't work across Apple's container boundary).
+	if config.MCPConfigPath != "" {
+		args = append(args, "-v", config.MCPConfigPath+":"+containerMCPConfigPath+":ro")
 	}
 
 	args = append(args, image)

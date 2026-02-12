@@ -1126,12 +1126,6 @@ func (r *Runner) Send(cmdCtx context.Context, prompt string) <-chan ResponseChun
 func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-chan ResponseChunk {
 	ch := make(chan ResponseChunk, 100) // Buffered to avoid blocking response reader
 
-	// Read container mode flag under lock before starting the goroutine to
-	// avoid a data race (containerized is set once during init via SetContainerized)
-	r.mu.RLock()
-	isContainerized := r.containerized
-	r.mu.RUnlock()
-
 	go func() {
 		sendStartTime := time.Now()
 
@@ -1148,14 +1142,14 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 		r.messages = append(r.messages, Message{Role: "user", Content: displayContent})
 		r.mu.Unlock()
 
-		// Ensure MCP server is running (persistent across Send calls)
-		// Skip for containerized sessions — the container IS the sandbox
-		if !isContainerized {
-			if err := r.ensureServerRunning(); err != nil {
-				ch <- ResponseChunk{Error: err, Done: true}
-				close(ch)
-				return
-			}
+		// Ensure MCP server is running (persistent across Send calls).
+		// For containerized sessions, the socket server runs on the host and the
+		// MCP config uses --auto-approve so regular permissions auto-approve while
+		// AskUserQuestion and ExitPlanMode still route through the TUI.
+		if err := r.ensureServerRunning(); err != nil {
+			ch <- ResponseChunk{Error: err, Done: true}
+			close(ch)
+			return
 		}
 
 		// Set up the response channel for routing BEFORE starting the process.
@@ -1287,26 +1281,23 @@ func (r *Runner) Stop() {
 		// PermissionRequestChan() and QuestionRequestChan() check this flag
 		r.stopped = true
 
-		// Skip MCP cleanup for containerized sessions — no socket server or MCP config
-		if !r.containerized {
-			// Close socket server if running
-			if r.socketServer != nil {
-				r.log.Debug("closing persistent socket server")
-				r.socketServer.Close()
-				r.socketServer = nil
-			}
-
-			// Remove MCP config file and log any errors
-			if r.mcpConfigPath != "" {
-				r.log.Debug("removing MCP config file", "path", r.mcpConfigPath)
-				if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
-					r.log.Warn("failed to remove MCP config file", "path", r.mcpConfigPath, "error", err)
-				}
-				r.mcpConfigPath = ""
-			}
-
-			r.serverRunning = false
+		// Close socket server if running (runs on host for both container and non-container sessions)
+		if r.socketServer != nil {
+			r.log.Debug("closing persistent socket server")
+			r.socketServer.Close()
+			r.socketServer = nil
 		}
+
+		// Remove MCP config file and log any errors
+		if r.mcpConfigPath != "" {
+			r.log.Debug("removing MCP config file", "path", r.mcpConfigPath)
+			if err := os.Remove(r.mcpConfigPath); err != nil && !os.IsNotExist(err) {
+				r.log.Warn("failed to remove MCP config file", "path", r.mcpConfigPath, "error", err)
+			}
+			r.mcpConfigPath = ""
+		}
+
+		r.serverRunning = false
 
 		// Close MCP channels to unblock any waiting goroutines
 		if r.mcp != nil {
