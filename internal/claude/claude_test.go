@@ -2934,3 +2934,43 @@ func TestMockRunner_SetContainerized(t *testing.T) {
 	mock.SetContainerized(true, "my-image")
 	mock.SetContainerized(false, "")
 }
+
+// TestRunner_StreamLogFile_RaceCondition tests that concurrent access to streamLogFile
+// is properly synchronized between handleProcessLine and Stop.
+// This is a regression test for issue #127.
+// Run with: go test -race -run TestRunner_StreamLogFile_RaceCondition
+func TestRunner_StreamLogFile_RaceCondition(t *testing.T) {
+	runner := New("race-test-session", "/tmp", false, nil)
+	defer runner.Stop()
+
+	// Simulate concurrent calls to handleProcessLine while Stop is called
+	// The race detector will catch any unsynchronized access
+	done := make(chan bool)
+
+	// Goroutine 1: Continuously call handleProcessLine (simulating ProcessManager output)
+	go func() {
+		for i := 0; i < 100; i++ {
+			// Simulate various JSON messages that would be written to stream log
+			runner.handleProcessLine(`{"type":"system","subtype":"init"}`)
+			runner.handleProcessLine(`{"type":"text","text":"Hello"}`)
+			runner.handleProcessLine(`{"type":"result","status":"success"}`)
+			time.Sleep(1 * time.Millisecond)
+		}
+		done <- true
+	}()
+
+	// Goroutine 2: Call Stop after a short delay
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		runner.Stop()
+		done <- true
+	}()
+
+	// Wait for both goroutines to complete
+	<-done
+	<-done
+
+	// If we get here without a race condition reported by -race flag, the test passes
+	// The key is that handleProcessLine now reads streamLogFile under RLock,
+	// preventing the race with Stop which sets it to nil under Lock
+}
