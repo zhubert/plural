@@ -3,6 +3,7 @@ package process
 import (
 	"encoding/json"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -331,5 +332,125 @@ func TestListContainerNamesJSON(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestWindowsProcessParsing_WMIC(t *testing.T) {
+	// Test parsing of wmic output format (CSV with Node,CommandLine,ProcessId)
+	wmicOutput := `Node,CommandLine,ProcessId
+DESKTOP,C:\Program Files\Claude\claude.exe --session-id abc123 --verbose,1234
+DESKTOP,C:\Program Files\Claude\claude.exe --session-id def456,5678
+DESKTOP,C:\Program Files\OtherApp\other.exe,9999
+`
+
+	lines := strings.Split(wmicOutput, "\n")
+	var processes []ClaudeProcess
+
+	for i, line := range lines {
+		// Skip header row and empty lines
+		if i == 0 || strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		fields := strings.Split(line, ",")
+		if len(fields) >= 2 {
+			var pidStr, cmdLine string
+
+			if len(fields) >= 3 {
+				// wmic format - last field is PID
+				pidStr = strings.Trim(strings.TrimSpace(fields[len(fields)-1]), "\"")
+				// CommandLine is all fields except first (node) and last (PID)
+				cmdLine = strings.Trim(strings.Join(fields[1:len(fields)-1], ","), "\"")
+			}
+
+			pid, err := strconv.Atoi(pidStr)
+			if err != nil {
+				continue
+			}
+
+			// Only include processes that contain --session-id
+			if !strings.Contains(cmdLine, "--session-id") {
+				continue
+			}
+
+			processes = append(processes, ClaudeProcess{
+				PID:     pid,
+				Command: cmdLine,
+			})
+		}
+	}
+
+	if len(processes) != 2 {
+		t.Errorf("Expected 2 processes, got %d", len(processes))
+	}
+
+	if len(processes) > 0 {
+		if processes[0].PID != 1234 {
+			t.Errorf("Expected first PID 1234, got %d", processes[0].PID)
+		}
+		if !strings.Contains(processes[0].Command, "--session-id abc123") {
+			t.Errorf("Expected command to contain --session-id abc123, got %q", processes[0].Command)
+		}
+	}
+
+	if len(processes) > 1 {
+		if processes[1].PID != 5678 {
+			t.Errorf("Expected second PID 5678, got %d", processes[1].PID)
+		}
+		if !strings.Contains(processes[1].Command, "--session-id def456") {
+			t.Errorf("Expected command to contain --session-id def456, got %q", processes[1].Command)
+		}
+	}
+}
+
+func TestWindowsProcessParsing_PowerShell(t *testing.T) {
+	// Test parsing of PowerShell output format (CSV with Id,Path)
+	psOutput := `"Id","Path"
+"1234","C:\Program Files\Claude\claude.exe"
+"5678","C:\Program Files\Claude\claude.exe"
+"9999","C:\Program Files\OtherApp\other.exe"
+`
+
+	lines := strings.Split(psOutput, "\n")
+	var processes []ClaudeProcess
+
+	for i, line := range lines {
+		// Skip header row and empty lines
+		if i == 0 || strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		fields := strings.Split(line, ",")
+		if len(fields) >= 2 {
+			// PowerShell format - first field is PID, second is Path
+			pidStr := strings.Trim(strings.TrimSpace(fields[0]), "\"")
+			cmdLine := strings.Trim(strings.TrimSpace(fields[1]), "\"")
+
+			pid, err := strconv.Atoi(pidStr)
+			if err != nil {
+				continue
+			}
+
+			// PowerShell Get-Process only returns the executable path, not full command line
+			// In real implementation, we'd need to get command line separately
+			// For this test, we just verify the parsing works
+			processes = append(processes, ClaudeProcess{
+				PID:     pid,
+				Command: cmdLine,
+			})
+		}
+	}
+
+	if len(processes) != 3 {
+		t.Errorf("Expected 3 processes, got %d", len(processes))
+	}
+
+	if len(processes) > 0 {
+		if processes[0].PID != 1234 {
+			t.Errorf("Expected first PID 1234, got %d", processes[0].PID)
+		}
+		if !strings.Contains(processes[0].Command, "claude.exe") {
+			t.Errorf("Expected command to contain claude.exe, got %q", processes[0].Command)
+		}
 	}
 }

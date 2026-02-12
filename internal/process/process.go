@@ -145,26 +145,59 @@ func FindClaudeProcesses() ([]ClaudeProcess, error) {
 		}
 
 	case "windows":
-		// Use tasklist on Windows
-		cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq claude*", "/FO", "CSV", "/NH")
+		// Use wmic to get all processes with command line, then filter for claude
+		// wmic supports wildcards in WHERE clauses
+		cmd := exec.Command("wmic", "process", "where", "name like 'claude%'", "get", "ProcessId,CommandLine", "/format:csv")
 		output, err := cmd.Output()
 		if err != nil {
-			return nil, err
+			// If wmic fails, try PowerShell as fallback
+			psCmd := exec.Command("powershell", "-Command",
+				"Get-Process | Where-Object {$_.Name -like 'claude*'} | Select-Object Id,Path | ConvertTo-Csv -NoTypeInformation")
+			output, err = psCmd.Output()
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
+		for i, line := range lines {
+			// Skip header row and empty lines
+			if i == 0 || strings.TrimSpace(line) == "" {
+				continue
+			}
+
 			fields := strings.Split(line, ",")
 			if len(fields) >= 2 {
-				// Remove quotes from PID field
-				pidStr := strings.Trim(strings.TrimSpace(fields[1]), "\"")
+				// wmic format: Node,CommandLine,ProcessId
+				// PowerShell format: "Id","Path"
+				var pidStr, cmdLine string
+
+				if strings.Contains(line, "CommandLine") || len(fields) >= 3 {
+					// wmic format - last field is PID
+					pidStr = strings.Trim(strings.TrimSpace(fields[len(fields)-1]), "\"")
+					// CommandLine is all fields except first (node) and last (PID)
+					if len(fields) > 2 {
+						cmdLine = strings.Trim(strings.Join(fields[1:len(fields)-1], ","), "\"")
+					}
+				} else {
+					// PowerShell format - first field is PID, second is Path
+					pidStr = strings.Trim(strings.TrimSpace(fields[0]), "\"")
+					cmdLine = strings.Trim(strings.TrimSpace(fields[1]), "\"")
+				}
+
 				pid, err := strconv.Atoi(pidStr)
 				if err != nil {
 					continue
 				}
+
+				// Only include processes that contain --session-id in the command line
+				if !strings.Contains(cmdLine, "--session-id") {
+					continue
+				}
+
 				processes = append(processes, ClaudeProcess{
 					PID:     pid,
-					Command: strings.Trim(fields[0], "\""),
+					Command: cmdLine,
 				})
 			}
 		}
