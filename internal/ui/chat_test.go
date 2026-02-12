@@ -1021,6 +1021,48 @@ func TestChat_Streaming(t *testing.T) {
 	}
 }
 
+func TestChat_IsStreaming_WithToolUseRollup(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+
+	// Initially not streaming
+	if chat.IsStreaming() {
+		t.Error("Should not be streaming initially")
+	}
+
+	// Add tool use without text streaming - should still be considered streaming
+	chat.AppendToolUse("Bash", "ls -la", "tool-1")
+	if !chat.IsStreaming() {
+		t.Error("Should be streaming when tool use rollup is active (even without text)")
+	}
+
+	// Add text streaming while tool use is active
+	chat.AppendStreaming("Some text")
+	if !chat.IsStreaming() {
+		t.Error("Should be streaming when both text and tool use are active")
+	}
+
+	// Mark tool complete and flush - should still be streaming due to text
+	chat.MarkToolUseComplete("tool-1", nil)
+	chat.AppendStreaming("\n") // This triggers flush
+	if !chat.IsStreaming() {
+		t.Error("Should still be streaming when text is present")
+	}
+
+	// Finish streaming - should not be streaming anymore
+	chat.FinishStreaming()
+	if chat.IsStreaming() {
+		t.Error("Should not be streaming after FinishStreaming")
+	}
+
+	// Add tool use again after finishing
+	chat.AppendStreaming("")
+	chat.AppendToolUse("Read", "/path/to/file", "tool-2")
+	if !chat.IsStreaming() {
+		t.Error("Should be streaming when new tool use rollup is active")
+	}
+}
+
 func TestChat_AppendPermissionDenials(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)

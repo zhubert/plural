@@ -546,8 +546,9 @@ func (c *Chat) ClearQueuedMessage() {
 }
 
 // IsStreaming returns whether we're currently streaming a response
+// This includes both text streaming and tool use operations
 func (c *Chat) IsStreaming() bool {
-	return c.streaming != ""
+	return c.streaming != "" || c.toolUseRollup != nil
 }
 
 // GetStreaming returns the current streaming content
