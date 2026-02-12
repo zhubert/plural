@@ -541,44 +541,45 @@ func (m *Model) handleIssuesFetchedMsg(msg IssuesFetchedMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
-// handlePRStatusCheckMsg handles the result of a background PR state check.
-func (m *Model) handlePRStatusCheckMsg(msg PRStatusCheckMsg) (tea.Model, tea.Cmd) {
-	log := logger.WithSession(msg.SessionID)
-
+// handlePRBatchStatusCheckMsg handles the batch result of checking all eligible sessions' PR states.
+func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Model, tea.Cmd) {
 	if msg.Error != nil {
-		log.Debug("PR status check failed", "error", msg.Error)
+		logger.WithComponent("pr-poller").Debug("batch PR status check failed", "error", msg.Error)
 		return m, nil
 	}
 
-	sess := m.config.GetSession(msg.SessionID)
-	if sess == nil {
-		return m, nil
-	}
-
-	sessionName := ui.SessionDisplayName(sess.Branch, sess.Name)
 	var cmds []tea.Cmd
+	changed := false
 
-	switch msg.State {
-	case git.PRStateMerged:
-		log.Info("PR merged on GitHub", "session", sessionName)
-		m.config.MarkSessionPRMerged(msg.SessionID)
+	for _, result := range msg.Results {
+		sess := m.config.GetSession(result.SessionID)
+		if sess == nil {
+			continue
+		}
+
+		log := logger.WithSession(result.SessionID)
+		sessionName := ui.SessionDisplayName(sess.Branch, sess.Name)
+
+		switch result.State {
+		case git.PRStateMerged:
+			log.Info("PR merged on GitHub", "session", sessionName)
+			m.config.MarkSessionPRMerged(result.SessionID)
+			changed = true
+			cmds = append(cmds, m.ShowFlashSuccess("PR merged: "+sessionName))
+
+		case git.PRStateClosed:
+			log.Info("PR closed on GitHub", "session", sessionName)
+			m.config.MarkSessionPRClosed(result.SessionID)
+			changed = true
+			cmds = append(cmds, m.ShowFlashWarning("PR closed: "+sessionName))
+		}
+	}
+
+	if changed {
 		if err := m.config.Save(); err != nil {
-			log.Error("failed to save config after PR merged", "error", err)
+			logger.WithComponent("pr-poller").Error("failed to save config after PR state change", "error", err)
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
-		cmds = append(cmds, m.ShowFlashSuccess("PR merged: "+sessionName))
-
-	case git.PRStateClosed:
-		log.Info("PR closed on GitHub", "session", sessionName)
-		m.config.MarkSessionPRClosed(msg.SessionID)
-		if err := m.config.Save(); err != nil {
-			log.Error("failed to save config after PR closed", "error", err)
-		}
-		m.sidebar.SetSessions(m.getFilteredSessions())
-		cmds = append(cmds, m.ShowFlashWarning("PR closed: "+sessionName))
-
-	default:
-		// OPEN or unknown - no action needed
 	}
 
 	if len(cmds) > 0 {

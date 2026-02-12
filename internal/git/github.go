@@ -39,8 +39,54 @@ func (s *GitService) GetPRState(ctx context.Context, repoPath, branch string) (P
 	case PRStateOpen, PRStateMerged, PRStateClosed:
 		return PRState(result.State), nil
 	default:
-		return PRStateUnknown, fmt.Errorf("unknown PR state: %s", result.State)
+		// Treat unrecognized states (e.g., DRAFT) as OPEN
+		return PRStateOpen, nil
 	}
+}
+
+// GetBatchPRStates returns the PR states for multiple branches in a single gh CLI call.
+// It uses `gh pr list --state all` to fetch all PRs for the repo, then matches by branch name.
+// Branches without a matching PR are omitted from the result map.
+func (s *GitService) GetBatchPRStates(ctx context.Context, repoPath string, branches []string) (map[string]PRState, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "list",
+		"--state", "all",
+		"--json", "state,headRefName",
+		"--limit", "200",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gh pr list failed: %w", err)
+	}
+
+	var prs []struct {
+		State       string `json:"state"`
+		HeadRefName string `json:"headRefName"`
+	}
+	if err := json.Unmarshal(output, &prs); err != nil {
+		return nil, fmt.Errorf("failed to parse PR list: %w", err)
+	}
+
+	// Build a lookup set for the branches we care about
+	branchSet := make(map[string]struct{}, len(branches))
+	for _, b := range branches {
+		branchSet[b] = struct{}{}
+	}
+
+	// Match PRs to requested branches
+	result := make(map[string]PRState, len(branches))
+	for _, pr := range prs {
+		if _, ok := branchSet[pr.HeadRefName]; !ok {
+			continue
+		}
+		switch PRState(pr.State) {
+		case PRStateOpen, PRStateMerged, PRStateClosed:
+			result[pr.HeadRefName] = PRState(pr.State)
+		default:
+			// Treat unrecognized states (e.g., DRAFT) as OPEN
+			result[pr.HeadRefName] = PRStateOpen
+		}
+	}
+
+	return result, nil
 }
 
 // GitHubIssue represents a GitHub issue fetched via the gh CLI

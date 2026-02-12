@@ -653,8 +653,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, PRPollTick()
 
-	case PRStatusCheckMsg:
-		return m.handlePRStatusCheckMsg(msg)
+	case PRBatchStatusCheckMsg:
+		return m.handlePRBatchStatusCheckMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
