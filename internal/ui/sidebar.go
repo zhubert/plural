@@ -65,9 +65,8 @@ type Sidebar struct {
 	selectedSessions map[string]bool
 
 	// Cache for incremental updates
-	sessionIndex  map[string]int // Map of session ID to index in sessions slice
-	lastHash      uint64         // Hash of last session list for change detection
-	lastAttnHash  uint64         // Hash of attention state for re-ordering detection
+	lastHash     uint64 // Hash of last session list for change detection
+	lastAttnHash uint64 // Hash of attention state for re-ordering detection
 
 	// Search mode
 	searchMode  bool
@@ -221,12 +220,6 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	s.sessions = make([]config.Session, 0, len(sessions))
 	for _, group := range s.groups {
 		flattenSessionTree(group.RootNodes, &s.sessions)
-	}
-
-	// Rebuild session index for O(1) lookup
-	s.sessionIndex = make(map[string]int, len(s.sessions))
-	for i, sess := range s.sessions {
-		s.sessionIndex[sess.ID] = i
 	}
 
 	// Adjust selection if needed
