@@ -496,7 +496,7 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 
 ### Container Mode (Apple Containers)
 
-Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, so all regular tool permissions are auto-approved. However, interactive prompts (`AskUserQuestion`, `ExitPlanMode`) still route through the TUI via a lightweight MCP server running inside the container with `--auto-approve` (wildcard `"*"` allowed tools). The MCP socket server runs on the host and communicates with the in-container MCP subprocess via a mounted Unix socket.
+Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, so all regular tool permissions are auto-approved. However, interactive prompts (`AskUserQuestion`, `ExitPlanMode`) still route through the TUI via a lightweight MCP server running inside the container with `--auto-approve` (wildcard `"*"` allowed tools). The MCP socket server runs on the host and communicates with the in-container MCP subprocess via TCP (since Unix sockets can't cross the Apple container boundary).
 
 **Authentication Requirement**: Container mode requires one of: `ANTHROPIC_API_KEY` (env var or macOS keychain `anthropic_api_key`), or `CLAUDE_CODE_OAUTH_TOKEN` (long-lived token from `claude setup-token`, ~1 year lifetime). The short-lived OAuth access token from the macOS keychain is NOT supported because it rotates every ~8-12 hours and would become invalid inside the container. The UI shows a warning when the container checkbox is checked without available credentials, and session creation is blocked.
 

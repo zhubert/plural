@@ -17,10 +17,6 @@ func makeRepos(n int) []string {
 	return repos
 }
 
-func sendKey(state *NewSessionState, key string) {
-	state.Update(tea.KeyPressMsg{Code: -1, Text: key})
-}
-
 func TestNewSessionState_ScrollOffsetAdjustsOnNavigateDown(t *testing.T) {
 	repos := makeRepos(15)
 	state := NewNewSessionState(repos, false, false)

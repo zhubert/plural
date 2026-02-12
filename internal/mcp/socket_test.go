@@ -171,8 +171,8 @@ func TestNewSocketServer(t *testing.T) {
 		t.Error("SocketPath returned empty string")
 	}
 
-	if !contains(path, "pl-test-ses.sock") {
-		t.Errorf("SocketPath = %q, expected to contain 'pl-test-ses.sock'", path)
+	if !contains(path, "pl-test-session.sock") {
+		t.Errorf("SocketPath = %q, expected to contain 'pl-test-session.sock'", path)
 	}
 }
 

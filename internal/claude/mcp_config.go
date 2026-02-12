@@ -130,7 +130,7 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 	}
 
 	configPath := filepath.Join(os.TempDir(), fmt.Sprintf("plural-mcp-%s.json", r.sessionID))
-	if err := os.WriteFile(configPath, configJSON, 0644); err != nil {
+	if err := os.WriteFile(configPath, configJSON, 0600); err != nil {
 		return "", err
 	}
 
@@ -160,7 +160,7 @@ func (r *Runner) createContainerMCPConfigLocked(tcpAddr string) (string, error) 
 	}
 
 	configPath := filepath.Join(os.TempDir(), fmt.Sprintf("plural-mcp-%s.json", r.sessionID))
-	if err := os.WriteFile(configPath, configJSON, 0644); err != nil {
+	if err := os.WriteFile(configPath, configJSON, 0600); err != nil {
 		return "", err
 	}
 
