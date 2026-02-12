@@ -1862,6 +1862,46 @@ func TestChat_StopwatchContinuesDuringStreaming(t *testing.T) {
 	}
 }
 
+// TestChat_StopwatchContinuesDuringToolUseRollup verifies that the stopwatch tick
+// continues while tool use rollup is active, even without streaming text.
+func TestChat_StopwatchContinuesDuringToolUseRollup(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+
+	// Start waiting
+	chat.SetWaiting(true)
+	cmd := chat.handleStopwatchTick()
+	if cmd == nil {
+		t.Error("Expected stopwatch to tick while waiting")
+	}
+
+	// Simulate tool-only streaming phase: waiting becomes false, no text streaming, but tool use rollup is active
+	chat.waiting = false
+	chat.streaming = ""
+	chat.AppendToolUse("Bash", "ls -la", "tool-1")
+
+	// The stopwatch should STILL tick while tool use rollup is active
+	cmd = chat.handleStopwatchTick()
+	if cmd == nil {
+		t.Error("Expected stopwatch to continue ticking while tool use rollup is active (Issue #144)")
+	}
+
+	// Add another tool use to the rollup
+	chat.AppendToolUse("Read", "/path/to/file", "tool-2")
+	cmd = chat.handleStopwatchTick()
+	if cmd == nil {
+		t.Error("Expected stopwatch to continue ticking with multiple tool uses in rollup")
+	}
+
+	// After tool use rollup is cleared, ticks should stop
+	chat.toolUseRollup = nil
+	cmd = chat.handleStopwatchTick()
+	if cmd != nil {
+		t.Error("Expected stopwatch to stop after tool use rollup is cleared")
+	}
+}
+
 func TestChat_FocusState(t *testing.T) {
 	chat := NewChat()
 

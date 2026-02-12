@@ -351,8 +351,8 @@ func (c *Chat) IsWaiting() bool {
 
 // handleStopwatchTick handles the spinner animation tick
 func (c *Chat) handleStopwatchTick() tea.Cmd {
-	// Continue ticking while waiting for response OR actively streaming
-	if !c.waiting && c.streaming == "" {
+	// Continue ticking while waiting for response OR actively streaming OR active tool use rollup
+	if !c.waiting && c.streaming == "" && c.toolUseRollup == nil {
 		return nil
 	}
 
