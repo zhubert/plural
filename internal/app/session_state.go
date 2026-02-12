@@ -129,6 +129,14 @@ func (s *SessionState) IsMerging() bool {
 	return s.MergeChan != nil
 }
 
+// GetMergeChan returns the merge channel if one exists, nil otherwise.
+// Thread-safe.
+func (s *SessionState) GetMergeChan() <-chan git.Result {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.MergeChan
+}
+
 // WithLock executes fn while holding the session state lock.
 // Use this for operations that need to access multiple fields atomically.
 // The function receives the SessionState pointer for direct field access.
