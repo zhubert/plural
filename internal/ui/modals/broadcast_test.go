@@ -41,6 +41,11 @@ func TestNewBroadcastState(t *testing.T) {
 	if state.SelectedIndex != 0 {
 		t.Errorf("expected initial SelectedIndex 0, got %d", state.SelectedIndex)
 	}
+
+	// Check textarea has line numbers disabled
+	if state.PromptInput.ShowLineNumbers {
+		t.Error("expected ShowLineNumbers to be false")
+	}
 }
 
 func TestBroadcastState_Title(t *testing.T) {
@@ -448,6 +453,11 @@ func TestNewBroadcastGroupState(t *testing.T) {
 	// Check group ID is set
 	if state.GroupID != "group123" {
 		t.Errorf("expected group ID 'group123', got %s", state.GroupID)
+	}
+
+	// Check textarea has line numbers disabled
+	if state.PromptInput.ShowLineNumbers {
+		t.Error("expected ShowLineNumbers to be false")
 	}
 }
 

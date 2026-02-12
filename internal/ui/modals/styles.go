@@ -136,6 +136,9 @@ func ApplyTextareaStyles(ta *textarea.Model) {
 	styles.Focused.Text = textStyle
 	styles.Focused.Placeholder = placeholderStyle
 	styles.Focused.CursorLine = textStyle // Remove background from cursor line
+	styles.Focused.CursorLineNumber = textStyle
+	styles.Focused.LineNumber = textStyle
+	styles.Focused.EndOfBuffer = baseStyle
 	styles.Focused.Prompt = textStyle
 
 	// Configure blurred state (same colors, just not focused)
@@ -143,6 +146,9 @@ func ApplyTextareaStyles(ta *textarea.Model) {
 	styles.Blurred.Text = textStyle
 	styles.Blurred.Placeholder = placeholderStyle
 	styles.Blurred.CursorLine = textStyle
+	styles.Blurred.CursorLineNumber = textStyle
+	styles.Blurred.LineNumber = textStyle
+	styles.Blurred.EndOfBuffer = baseStyle
 	styles.Blurred.Prompt = textStyle
 
 	ta.SetStyles(styles)
