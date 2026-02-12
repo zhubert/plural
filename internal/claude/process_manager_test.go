@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1632,12 +1633,12 @@ func TestProcessManager_NoDuplicateWait(t *testing.T) {
 	pm.mu.Unlock()
 
 	// Simulate monitorExit calling Wait and closing exitDone
-	waitCallCount := 0
+	var waitCallCount atomic.Int32
 	pm.wg.Add(1)
 	go func() {
 		defer pm.wg.Done()
 		defer close(pm.exitDone)
-		waitCallCount++
+		waitCallCount.Add(1)
 		// Simulate Wait completing
 		time.Sleep(10 * time.Millisecond)
 	}()
@@ -1652,8 +1653,8 @@ func TestProcessManager_NoDuplicateWait(t *testing.T) {
 	select {
 	case <-stopDone:
 		// Good - Stop returned
-		if waitCallCount != 1 {
-			t.Errorf("cmd.Wait() was called %d times, want exactly 1", waitCallCount)
+		if count := waitCallCount.Load(); count != 1 {
+			t.Errorf("cmd.Wait() was called %d times, want exactly 1", count)
 		}
 	case <-time.After(1 * time.Second):
 		t.Error("Stop() did not return - may be blocked waiting for process")
@@ -1662,45 +1663,64 @@ func TestProcessManager_NoDuplicateWait(t *testing.T) {
 
 // TestProcessManager_ExitDoneClosedOnMonitorExit verifies that the exitDone
 // channel is properly closed when monitorExit completes, allowing Stop() to proceed.
+// This test uses a real subprocess (true command) to exercise the actual monitorExit code path.
 func TestProcessManager_ExitDoneClosedOnMonitorExit(t *testing.T) {
+	var onExitCalled atomic.Bool
+
 	pm := NewProcessManager(ProcessConfig{
 		SessionID:  "test-exit-done",
 		WorkingDir: t.TempDir(),
-	}, ProcessCallbacks{}, pmTestLogger())
+	}, ProcessCallbacks{
+		OnLine: func(line string) {},
+		OnProcessExit: func(err error, stderr string) bool {
+			onExitCalled.Store(true)
+			return false // don't restart
+		},
+	}, pmTestLogger())
 
+	// Start a real lightweight process that exits immediately
+	// We'll use a shell command that just exits successfully
+	testCmd := exec.Command("true") // Unix 'true' command exits immediately with status 0
+	if err := testCmd.Start(); err != nil {
+		t.Skipf("Cannot run 'true' command: %v", err)
+	}
+
+	// Set up ProcessManager state to track this process
 	pm.mu.Lock()
-	pm.exitDone = make(chan struct{})
+	pm.cmd = testCmd
+	pm.running = true
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.exitDone = make(chan struct{})
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone) // No stderr to read
 	pm.mu.Unlock()
 
-	// Simulate monitorExit
+	// Start the actual monitorExit goroutine
 	pm.wg.Add(1)
 	go func() {
 		defer pm.wg.Done()
-		defer func() {
-			pm.mu.Lock()
-			if pm.exitDone != nil {
-				close(pm.exitDone)
-			}
-			pm.mu.Unlock()
-		}()
-		// Simulate some work
-		time.Sleep(10 * time.Millisecond)
+		pm.monitorExit()
 	}()
 
-	// Wait for monitorExit to complete
-	pm.wg.Wait()
-
-	// Verify exitDone is closed
+	// Get exitDone reference before waiting
 	pm.mu.Lock()
 	exitDone := pm.exitDone
 	pm.mu.Unlock()
 
+	// Wait for monitorExit to complete
+	pm.wg.Wait()
+
+	// Verify exitDone is closed (should be ready to receive immediately since monitorExit completed)
 	select {
 	case <-exitDone:
 		// Good - channel is closed
-	default:
+	case <-time.After(100 * time.Millisecond):
 		t.Error("exitDone channel should be closed after monitorExit completes")
+	}
+
+	// Verify the OnProcessExit callback was called
+	if !onExitCalled.Load() {
+		t.Error("OnProcessExit callback should have been called for natural process exit")
 	}
 }
 
@@ -1722,7 +1742,7 @@ func TestProcessManager_StopWaitsForExit(t *testing.T) {
 
 	// Simulate a process that takes time to exit
 	pm.wg.Add(1)
-	exitCompleted := false
+	var exitCompleted atomic.Bool
 	go func() {
 		defer pm.wg.Done()
 		defer func() {
@@ -1734,7 +1754,7 @@ func TestProcessManager_StopWaitsForExit(t *testing.T) {
 		}()
 		// Simulate cmd.Wait() taking some time
 		time.Sleep(100 * time.Millisecond)
-		exitCompleted = true
+		exitCompleted.Store(true)
 	}()
 
 	// Stop should wait for exitDone
@@ -1742,7 +1762,7 @@ func TestProcessManager_StopWaitsForExit(t *testing.T) {
 	pm.Stop()
 	stopDuration := time.Since(stopStart)
 
-	if !exitCompleted {
+	if !exitCompleted.Load() {
 		t.Error("Stop() returned before monitorExit completed")
 	}
 	if stopDuration < 100*time.Millisecond {

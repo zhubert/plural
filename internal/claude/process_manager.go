@@ -423,8 +423,12 @@ func (pm *ProcessManager) Stop() {
 		case <-time.After(2 * time.Second):
 			pm.log.Debug("force killing process")
 			cmd.Process.Kill()
-			// Wait for the kill to take effect
-			<-exitDone
+			// Wait for the kill to take effect (with timeout to avoid hanging forever)
+			select {
+			case <-exitDone:
+			case <-time.After(5 * time.Second):
+				pm.log.Error("process did not exit after kill")
+			}
 		}
 	}
 
@@ -663,9 +667,14 @@ func (pm *ProcessManager) monitorExit() {
 	pm.mu.Lock()
 	cmd := pm.cmd
 	exitDone := pm.exitDone
+	ctx := pm.ctx
 	pm.mu.Unlock()
 
 	if cmd == nil {
+		// Defensive: close exitDone even on early return to prevent Stop() from hanging
+		if exitDone != nil {
+			close(exitDone)
+		}
 		return
 	}
 
@@ -676,22 +685,25 @@ func (pm *ProcessManager) monitorExit() {
 		}
 	}()
 
-	// Call cmd.Wait() to reap the process and get its exit status.
-	// This can only be called once per command, so we must coordinate
-	// with Stop() to ensure it doesn't also call Wait().
-	err := cmd.Wait()
-	pm.log.Debug("cmd.Wait() completed", "error", err)
+	// Call cmd.Wait() in a goroutine and use select to handle both
+	// process exit and context cancellation atomically. This prevents
+	// a race where Stop() cancels the context between Wait() completing
+	// and the context check.
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
 
-	// Check if context was cancelled (Stop() was called) before handling exit.
-	// If Stop() was called, we skip the exit handler because the user
-	// explicitly stopped the process.
 	select {
-	case <-pm.ctx.Done():
-		pm.log.Debug("process monitor exiting - context cancelled before exit handling")
-		return
-	default:
-		// Context not cancelled, handle the exit
+	case err := <-done:
+		// Process exited naturally - handle it
+		pm.log.Debug("cmd.Wait() completed", "error", err)
 		pm.handleExit(err)
+	case <-ctx.Done():
+		// Stop() was called - wait for the process to finish but don't handle exit
+		pm.log.Debug("process monitor exiting - context cancelled")
+		// Still wait for cmd.Wait() to complete to avoid leaking the goroutine
+		<-done
 	}
 }
 
