@@ -4392,6 +4392,41 @@ func TestPermissionPromptShortCommand(t *testing.T) {
 	}
 }
 
+// TestPermissionPromptNoEllipsisTruncation verifies text is not truncated with ellipsis (Issue #154)
+func TestPermissionPromptNoEllipsisTruncation(t *testing.T) {
+	longCommand := "git commit -m \"$(cat <<'EOF'\\nUpdate authentication flow to support OAuth 2.0\\n\\nThis is a very long commit message that demonstrates the wrapping issue\\n\\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\\nEOF\\n)\""
+
+	result := renderPermissionPrompt("Bash", longCommand, 200)
+
+	// The issue reported that text was being truncated with "..."
+	// Verify no ellipsis truncation markers appear in the description area
+	lines := strings.Split(result, "\n")
+
+	// Skip title and action lines, check description lines for ellipsis
+	descriptionStarted := false
+	for _, line := range lines {
+		if strings.Contains(line, "Permission Required") {
+			descriptionStarted = true
+			continue
+		}
+		if strings.Contains(line, "[y]") || strings.Contains(line, "[n]") {
+			break // Reached action hints
+		}
+		if descriptionStarted && strings.Contains(line, "git commit") {
+			// This is a description line - check for truncation
+			if strings.Contains(line, "…") || strings.Contains(line, "...") {
+				t.Errorf("Description line contains ellipsis (truncation): %q", line)
+			}
+		}
+	}
+
+	// Verify the full command content is present
+	fullText := strings.ReplaceAll(result, "\n", " ")
+	if !strings.Contains(fullText, "EOF") {
+		t.Error("Command end (EOF) not found - text appears truncated")
+	}
+}
+
 // TestPlanBoxWidthCapping verifies plan boxes use their specific max width
 func TestPlanBoxWidthCapping(t *testing.T) {
 	chat := NewChat()
