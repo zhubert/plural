@@ -137,9 +137,9 @@ func (c *Chat) renderFileNavBar(width int) string {
 	arrowStyle := lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
 
 	// Calculate available width for filename
-	// Format: "← [M] filename (3 of 7) →"
+	// Assembly: leftArrow + status + " " + filename + " " + counter + rightArrow
 	// Use lipgloss.Width() to get visible width (excluding ANSI escape codes)
-	fixedWidth := lipgloss.Width(leftArrow) + lipgloss.Width(status) + 1 + lipgloss.Width(counter) + lipgloss.Width(rightArrow) + 2 // arrows, status, spaces, counter
+	fixedWidth := lipgloss.Width(leftArrow) + lipgloss.Width(status) + 1 + lipgloss.Width(counter) + lipgloss.Width(rightArrow) + 1 // +1 for space after status, +1 for space after filename
 	maxFilenameWidth := width - fixedWidth
 	if maxFilenameWidth < 10 {
 		maxFilenameWidth = 10
