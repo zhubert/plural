@@ -371,6 +371,7 @@ func NewBroadcastState(repoPaths []string, containersSupported bool, containerAu
 	promptInput := textarea.New()
 	promptInput.Placeholder = "Enter prompt to send to all selected repos..."
 	promptInput.CharLimit = 10000
+	promptInput.ShowLineNumbers = false
 	promptInput.SetWidth(ModalWidth - 6) // Account for padding/borders
 	promptInput.SetHeight(4)
 	promptInput.Prompt = "" // Remove default prompt to avoid double bar with focus border
@@ -717,6 +718,7 @@ func NewBroadcastGroupState(groupID string, sessions []SessionItem) *BroadcastGr
 	promptInput := textarea.New()
 	promptInput.Placeholder = "Enter prompt to send to selected sessions..."
 	promptInput.CharLimit = 10000
+	promptInput.ShowLineNumbers = false
 	promptInput.SetWidth(ModalWidth - 6)
 	promptInput.SetHeight(4)
 	promptInput.Prompt = ""
