@@ -733,6 +733,104 @@ func TestCreatePR_Cancelled(t *testing.T) {
 	}
 }
 
+func TestCreatePR_UsesBaseBranchNotDefaultBranch(t *testing.T) {
+	// This test verifies that CreatePR uses baseBranch (not defaultBranch) for the --base flag.
+	// This is critical for forked sessions where baseBranch is a parent branch, not main.
+	mockExec := pexec.NewMockExecutor(nil)
+	svc := NewGitServiceWithExecutor(mockExec)
+
+	repoPath := "/test/repo"
+	worktreePath := "/test/worktree"
+	branch := "feature-branch"
+	baseBranch := "parent-branch" // The branch this PR should target (e.g., from a forked session)
+
+	// Mock GetDefaultBranch to return "main"
+	mockExec.AddPrefixMatch("git", []string{"symbolic-ref", "refs/remotes/origin/HEAD"}, pexec.MockResponse{
+		Stdout: []byte("refs/remotes/origin/main\n"),
+	})
+
+	// Mock worktree status check (no uncommitted changes)
+	mockExec.AddPrefixMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	// Mock git push
+	mockExec.AddPrefixMatch("git", []string{"push", "-u", "origin", branch}, pexec.MockResponse{
+		Stdout: []byte("Branch pushed successfully\n"),
+	})
+
+	// Mock git log for PR generation (baseBranch..branch)
+	mockExec.AddPrefixMatch("git", []string{"log", baseBranch + ".." + branch, "--oneline"}, pexec.MockResponse{
+		Stdout: []byte("abc123 Add new feature\n"),
+	})
+
+	// Mock git diff for PR generation (using baseBranch)
+	mockExec.AddPrefixMatch("git", []string{"diff", baseBranch + "..." + branch}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/file.txt b/file.txt\n"),
+	})
+
+	// Mock Claude PR generation (will fail, which is expected - we're testing the fallback path)
+	// When Claude generation fails, CreatePR falls back to --fill
+	mockExec.AddPrefixMatch("claude", []string{}, pexec.MockResponse{
+		Stderr: []byte("Claude not available"),
+		Err:    fmt.Errorf("claude not available"),
+	})
+
+	// Mock gh pr create to succeed
+	mockExec.AddPrefixMatch("gh", []string{"pr", "create"}, pexec.MockResponse{
+		Stdout: []byte("https://github.com/owner/repo/pull/123\n"),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Call CreatePR with baseBranch="parent-branch"
+	ch := svc.CreatePR(ctx, repoPath, worktreePath, branch, baseBranch, "", nil)
+
+	// Drain the channel
+	for range ch {
+	}
+
+	// Get all recorded calls
+	calls := mockExec.GetCalls()
+
+	// Find the gh pr create call
+	var ghCall *pexec.MockCall
+	for _, call := range calls {
+		if call.Name == "gh" && len(call.Args) > 0 && call.Args[0] == "pr" {
+			ghCall = &call
+			break
+		}
+	}
+
+	if ghCall == nil {
+		t.Fatal("gh pr create was not called")
+	}
+
+	// Find the --base flag in the command
+	baseIndex := -1
+	for i, arg := range ghCall.Args {
+		if arg == "--base" {
+			baseIndex = i
+			break
+		}
+	}
+
+	if baseIndex == -1 {
+		t.Fatalf("--base flag not found in gh command: %v", ghCall.Args)
+	}
+
+	if baseIndex+1 >= len(ghCall.Args) {
+		t.Fatalf("--base flag has no value in gh command: %v", ghCall.Args)
+	}
+
+	actualBase := ghCall.Args[baseIndex+1]
+	if actualBase != baseBranch {
+		t.Errorf("gh pr create --base = %q, want %q (not %q)", actualBase, baseBranch, "main")
+		t.Errorf("Full command: gh %v", ghCall.Args)
+	}
+}
+
 func TestCommitAll_InvalidPath(t *testing.T) {
 	err := svc.CommitAll(ctx, "/nonexistent/path", "Test commit")
 	if err == nil {
