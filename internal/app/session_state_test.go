@@ -814,6 +814,7 @@ func TestSessionState_GetMergeChanConcurrency(t *testing.T) {
 				_, cancel := context.WithCancel(context.Background())
 				m.StartMerge("session-1", ch, cancel, MergeTypeMerge)
 				m.StopMerge("session-1")
+				cancel() // Clean up the context to avoid leaks
 			}
 		}()
 	}
