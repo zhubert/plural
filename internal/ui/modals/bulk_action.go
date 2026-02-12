@@ -40,7 +40,7 @@ func (s *BulkActionState) Title() string {
 
 func (s *BulkActionState) Help() string {
 	if s.Action == BulkActionSendPrompt {
-		return "left/right: switch action  Enter: send  Esc: cancel"
+		return "tab/shift+tab: switch action  Enter: send  Esc: cancel"
 	}
 	return "left/right: switch action  Enter: confirm  Esc: cancel"
 }
@@ -141,27 +141,40 @@ func (s *BulkActionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		key := keyMsg.String()
 
-		// When on Send Prompt action, only handle arrow keys for navigation
-		// (not h/l shortcuts which would interfere with typing)
+		// When on Send Prompt action, use tab/shift+tab for navigation
+		// to avoid conflicts with arrow keys used for text editing
 		if s.Action == BulkActionSendPrompt {
 			switch key {
-			case keys.Left:
-				if s.Action > 0 {
-					s.Action--
-					return s, nil
-				}
-			case keys.Right:
+			case keys.Tab:
+				// Navigate right (wrap to beginning)
+				s.PromptInput.Blur()
 				if s.Action < BulkActionSendPrompt {
 					s.Action++
-					return s, nil
+				} else {
+					s.Action = BulkActionDelete
 				}
+				if s.Action == BulkActionSendPrompt {
+					s.PromptInput.Focus()
+				}
+				return s, nil
+			case keys.ShiftTab:
+				// Navigate left (wrap to end)
+				s.PromptInput.Blur()
+				if s.Action > 0 {
+					s.Action--
+				} else {
+					s.Action = BulkActionSendPrompt
+				}
+				if s.Action == BulkActionSendPrompt {
+					s.PromptInput.Focus()
+				}
+				return s, nil
 			default:
-				// Forward all other events to textarea
+				// Forward all other events to textarea (including arrow keys for editing)
 				var cmd tea.Cmd
 				s.PromptInput, cmd = s.PromptInput.Update(msg)
 				return s, cmd
 			}
-			return s, nil
 		}
 
 		// For other actions, handle navigation keys (arrow keys + vim shortcuts)
@@ -169,11 +182,28 @@ func (s *BulkActionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case keys.Left, "h":
 			if s.Action > 0 {
 				s.Action--
+				// Focus textarea if we just switched to Send Prompt
+				if s.Action == BulkActionSendPrompt {
+					s.PromptInput.Focus()
+				}
 				return s, nil
 			}
-		case keys.Right, "l":
+		case keys.Right, "l", keys.Tab:
 			if s.Action < BulkActionSendPrompt {
 				s.Action++
+				// Focus textarea if we just switched to Send Prompt
+				if s.Action == BulkActionSendPrompt {
+					s.PromptInput.Focus()
+				}
+				return s, nil
+			}
+		case keys.ShiftTab:
+			if s.Action > 0 {
+				s.Action--
+				// Focus textarea if we just switched to Send Prompt
+				if s.Action == BulkActionSendPrompt {
+					s.PromptInput.Focus()
+				}
 				return s, nil
 			}
 		}
@@ -223,7 +253,7 @@ func NewBulkActionState(sessionIDs []string, workspaces []config.Workspace) *Bul
 	promptInput.ShowLineNumbers = false
 	promptInput.SetWidth(60)
 	promptInput.SetHeight(4)
-	promptInput.Focus()
+	// Don't focus immediately - focus when user navigates to Send Prompt action
 
 	return &BulkActionState{
 		SessionIDs:   sessionIDs,
