@@ -629,7 +629,7 @@ func buildToolDescription(tool string, input map[string]interface{}) string {
 		}
 	case "Bash":
 		if cmd, ok := input["command"].(string); ok {
-			return "Run: " + truncateString(cmd, 100)
+			return "Run: " + cmd
 		}
 	case "Glob":
 		if pattern, ok := input["pattern"].(string); ok {
@@ -652,7 +652,7 @@ func buildToolDescription(tool string, input map[string]interface{}) string {
 			return "Delegate task: " + desc
 		}
 		if prompt, ok := input["prompt"].(string); ok {
-			return "Delegate task: " + truncateString(prompt, 60)
+			return "Delegate task: " + prompt
 		}
 	case "WebFetch":
 		if url, ok := input["url"].(string); ok {
@@ -672,7 +672,7 @@ func buildToolDescription(tool string, input map[string]interface{}) string {
 			return tool + ": " + filePath
 		}
 		if cmd, ok := input["command"].(string); ok {
-			return tool + ": " + truncateString(cmd, 80)
+			return tool + ": " + cmd
 		}
 		if url, ok := input["url"].(string); ok {
 			return tool + ": " + url
@@ -730,7 +730,7 @@ func formatValue(key string, value interface{}) string {
 		if v == "" {
 			return ""
 		}
-		return displayKey + ": " + truncateString(v, 100)
+		return displayKey + ": " + v
 	case bool:
 		if v {
 			return displayKey + ": yes"
@@ -810,7 +810,7 @@ func formatNestedObject(obj map[string]interface{}) string {
 			v := obj[k]
 			switch val := v.(type) {
 			case string:
-				parts = append(parts, humanizeKey(k)+": "+truncateString(val, 40))
+				parts = append(parts, humanizeKey(k)+": "+val)
 			case bool:
 				if val {
 					parts = append(parts, humanizeKey(k)+": yes")
@@ -834,7 +834,7 @@ func formatArray(arr []interface{}) string {
 	}
 	if len(arr) == 1 {
 		if s, ok := arr[0].(string); ok {
-			return truncateString(s, 60)
+			return s
 		}
 		return fmt.Sprintf("%v", arr[0])
 	}
