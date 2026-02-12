@@ -1,0 +1,69 @@
+name: Bot Review Status
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  statuses: write
+  pull-requests: read
+
+jobs:
+  bot-review-status:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set status check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const review = context.payload.review;
+
+            let state, description, targetUrl;
+
+            if (review && review.user.login === 'shipitai[bot]') {
+              // Bot review submitted - set success or failure
+              state = review.state === 'APPROVED' ? 'success' : 'failure';
+              description = review.state === 'APPROVED'
+                ? 'Bot approved the changes'
+                : 'Bot requested changes';
+              targetUrl = review.html_url;
+            } else {
+              // PR opened/updated - check for existing bot review
+              const reviews = await github.rest.pulls.listReviews({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number
+              });
+
+              const botReview = reviews.data
+                .filter(r => r.user.login === 'shipitai[bot]')
+                .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))[0];
+
+              if (botReview) {
+                // Use existing bot review
+                state = botReview.state === 'APPROVED' ? 'success' : 'failure';
+                description = botReview.state === 'APPROVED'
+                  ? 'Bot approved the changes'
+                  : 'Bot requested changes';
+                targetUrl = botReview.html_url;
+              } else {
+                // No bot review yet - set pending
+                state = 'pending';
+                description = 'Waiting for bot review';
+                targetUrl = pr.html_url;
+              }
+            }
+
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: pr.head.sha,
+              state: state,
+              target_url: targetUrl,
+              description: description,
+              context: 'bot-review'
+            });
