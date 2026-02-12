@@ -175,6 +175,11 @@ type ProcessManager struct {
 
 	// Goroutine lifecycle management
 	wg sync.WaitGroup
+
+	// Process exit coordination
+	// exitDone is closed by monitorExit when cmd.Wait() completes
+	// This allows Stop() to wait for process exit without calling Wait() itself
+	exitDone chan struct{}
 }
 
 // NewProcessManager creates a new ProcessManager with the given configuration and callbacks.
@@ -346,6 +351,7 @@ func (pm *ProcessManager) Start() error {
 	pm.stderr = stderr
 	pm.stderrContent = ""
 	pm.stderrDone = make(chan struct{})
+	pm.exitDone = make(chan struct{})
 	pm.running = true
 
 	// Create context for process goroutines
@@ -403,22 +409,22 @@ func (pm *ProcessManager) Stop() {
 	}
 
 	cmd := pm.cmd
+	exitDone := pm.exitDone
 	pm.mu.Unlock()
 
-	// Kill the process if it doesn't exit gracefully
-	if cmd != nil && cmd.Process != nil {
-		done := make(chan struct{})
-		go func() {
-			cmd.Wait()
-			close(done)
-		}()
-
+	// Wait for process to exit gracefully, or kill it if it takes too long.
+	// The monitorExit goroutine is responsible for calling cmd.Wait() and
+	// closing exitDone when Wait() completes. We must NOT call cmd.Wait()
+	// here as it can only be called once.
+	if cmd != nil && cmd.Process != nil && exitDone != nil {
 		select {
-		case <-done:
+		case <-exitDone:
 			pm.log.Debug("process exited gracefully")
 		case <-time.After(2 * time.Second):
 			pm.log.Debug("force killing process")
 			cmd.Process.Kill()
+			// Wait for the kill to take effect
+			<-exitDone
 		}
 	}
 
@@ -652,28 +658,40 @@ func (pm *ProcessManager) drainStderr() {
 }
 
 // monitorExit waits for the process to exit and handles cleanup.
+// This is the ONLY place where cmd.Wait() is called.
 func (pm *ProcessManager) monitorExit() {
 	pm.mu.Lock()
 	cmd := pm.cmd
+	exitDone := pm.exitDone
 	pm.mu.Unlock()
 
 	if cmd == nil {
 		return
 	}
 
-	// Use a channel to detect when Wait() completes
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
+	// Ensure exitDone is closed when we're done, so Stop() doesn't hang
+	defer func() {
+		if exitDone != nil {
+			close(exitDone)
+		}
 	}()
 
-	// Wait for either process exit or context cancellation
+	// Call cmd.Wait() to reap the process and get its exit status.
+	// This can only be called once per command, so we must coordinate
+	// with Stop() to ensure it doesn't also call Wait().
+	err := cmd.Wait()
+	pm.log.Debug("cmd.Wait() completed", "error", err)
+
+	// Check if context was cancelled (Stop() was called) before handling exit.
+	// If Stop() was called, we skip the exit handler because the user
+	// explicitly stopped the process.
 	select {
-	case err := <-done:
-		pm.log.Debug("process exited", "error", err)
-		pm.handleExit(err)
 	case <-pm.ctx.Done():
-		pm.log.Debug("process monitor exiting - context cancelled")
+		pm.log.Debug("process monitor exiting - context cancelled before exit handling")
+		return
+	default:
+		// Context not cancelled, handle the exit
+		pm.handleExit(err)
 	}
 }
 
@@ -982,6 +1000,7 @@ func (pm *ProcessManager) cleanupLocked() {
 	pm.stdout = nil
 	pm.stderrContent = ""
 	pm.stderrDone = nil
+	pm.exitDone = nil
 	pm.running = false
 }
 

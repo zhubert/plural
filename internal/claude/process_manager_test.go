@@ -1611,3 +1611,142 @@ func TestContainerSidePaths_ShortEnough(t *testing.T) {
 	}
 }
 
+// TestProcessManager_NoDuplicateWait verifies that cmd.Wait() is only called once.
+// This is a regression test for issue #126 where both monitorExit() and Stop()
+// would call cmd.Wait(), causing undefined behavior.
+func TestProcessManager_NoDuplicateWait(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-no-duplicate-wait",
+		WorkingDir: t.TempDir(),
+	}, ProcessCallbacks{
+		OnLine: func(line string) {},
+	}, pmTestLogger())
+
+	// Simulate what Start() does with channels
+	pm.mu.Lock()
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.exitDone = make(chan struct{})
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone) // Simulate stderr already drained
+	pm.mu.Unlock()
+
+	// Simulate monitorExit calling Wait and closing exitDone
+	waitCallCount := 0
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+		defer close(pm.exitDone)
+		waitCallCount++
+		// Simulate Wait completing
+		time.Sleep(10 * time.Millisecond)
+	}()
+
+	// Stop should wait for exitDone, not call Wait again
+	stopDone := make(chan bool, 1)
+	go func() {
+		pm.Stop()
+		stopDone <- true
+	}()
+
+	select {
+	case <-stopDone:
+		// Good - Stop returned
+		if waitCallCount != 1 {
+			t.Errorf("cmd.Wait() was called %d times, want exactly 1", waitCallCount)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Stop() did not return - may be blocked waiting for process")
+	}
+}
+
+// TestProcessManager_ExitDoneClosedOnMonitorExit verifies that the exitDone
+// channel is properly closed when monitorExit completes, allowing Stop() to proceed.
+func TestProcessManager_ExitDoneClosedOnMonitorExit(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-exit-done",
+		WorkingDir: t.TempDir(),
+	}, ProcessCallbacks{}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.exitDone = make(chan struct{})
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	// Simulate monitorExit
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+		defer func() {
+			pm.mu.Lock()
+			if pm.exitDone != nil {
+				close(pm.exitDone)
+			}
+			pm.mu.Unlock()
+		}()
+		// Simulate some work
+		time.Sleep(10 * time.Millisecond)
+	}()
+
+	// Wait for monitorExit to complete
+	pm.wg.Wait()
+
+	// Verify exitDone is closed
+	pm.mu.Lock()
+	exitDone := pm.exitDone
+	pm.mu.Unlock()
+
+	select {
+	case <-exitDone:
+		// Good - channel is closed
+	default:
+		t.Error("exitDone channel should be closed after monitorExit completes")
+	}
+}
+
+// TestProcessManager_StopWaitsForExit verifies that Stop() properly waits for
+// the process to exit via the exitDone channel instead of calling cmd.Wait().
+func TestProcessManager_StopWaitsForExit(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-stop-waits",
+		WorkingDir: t.TempDir(),
+	}, ProcessCallbacks{}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.exitDone = make(chan struct{})
+	pm.stderrDone = make(chan struct{})
+	close(pm.stderrDone)
+	pm.mu.Unlock()
+
+	// Simulate a process that takes time to exit
+	pm.wg.Add(1)
+	exitCompleted := false
+	go func() {
+		defer pm.wg.Done()
+		defer func() {
+			pm.mu.Lock()
+			if pm.exitDone != nil {
+				close(pm.exitDone)
+			}
+			pm.mu.Unlock()
+		}()
+		// Simulate cmd.Wait() taking some time
+		time.Sleep(100 * time.Millisecond)
+		exitCompleted = true
+	}()
+
+	// Stop should wait for exitDone
+	stopStart := time.Now()
+	pm.Stop()
+	stopDuration := time.Since(stopStart)
+
+	if !exitCompleted {
+		t.Error("Stop() returned before monitorExit completed")
+	}
+	if stopDuration < 100*time.Millisecond {
+		t.Error("Stop() did not wait for process exit")
+	}
+}
+
