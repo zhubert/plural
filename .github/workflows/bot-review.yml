@@ -26,10 +26,12 @@ jobs:
 
             if (review && review.user.login === 'shipitai[bot]') {
               // Bot review submitted - set success, failure, or pending
-              if (review.state === 'APPROVED') {
+              // Webhook payload uses lowercase state ('approved'), REST API uses uppercase ('APPROVED')
+              const reviewState = review.state.toUpperCase();
+              if (reviewState === 'APPROVED') {
                 state = 'success';
                 description = 'Bot approved the changes';
-              } else if (review.state === 'CHANGES_REQUESTED') {
+              } else if (reviewState === 'CHANGES_REQUESTED') {
                 state = 'failure';
                 description = 'Bot requested changes';
               } else {
