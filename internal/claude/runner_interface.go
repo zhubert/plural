@@ -27,6 +27,7 @@ type RunnerInterface interface {
 	SetMCPServers(servers []MCPServer)
 	SetForkFromSession(parentSessionID string)
 	SetContainerized(containerized bool, image string)
+	SetOnContainerReady(callback func())
 
 	// Permission/Question/Plan channels
 	PermissionRequestChan() <-chan mcp.PermissionRequest

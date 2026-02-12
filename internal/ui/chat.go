@@ -100,6 +100,10 @@ type Chat struct {
 
 	// Subagent indicator
 	subagentModel string // Active subagent model (empty when no subagent active)
+
+	// Container initialization state
+	containerInitializing bool      // true during container startup
+	containerInitStart    time.Time // When container init started
 }
 
 // NewChat creates a new chat panel
@@ -1273,10 +1277,17 @@ func (c *Chat) updateContent() {
 			sb.WriteString(ChatAssistantStyle.Render("Claude:"))
 			sb.WriteString("\n")
 			var elapsed time.Duration
-			if !c.streamStartTime.IsZero() {
-				elapsed = time.Since(c.streamStartTime)
+			// If container is initializing, use container init start time for elapsed duration
+			if c.containerInitializing && !c.containerInitStart.IsZero() {
+				elapsed = time.Since(c.containerInitStart)
+				// Show container initialization message instead of normal waiting status
+				sb.WriteString(renderContainerInitStatus(c.spinner.Idx, elapsed))
+			} else {
+				if !c.streamStartTime.IsZero() {
+					elapsed = time.Since(c.streamStartTime)
+				}
+				sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats, c.subagentModel))
 			}
-			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats, c.subagentModel))
 		} else if c.spinner.FlashFrame >= 0 {
 			// Show completion flash animation with final stats
 			if len(c.messages) > 0 {

@@ -244,13 +244,13 @@ func (m *Model) CanSendMessage() bool {
 	if m.activeSession.MergedToParent {
 		return false
 	}
-	// Check if the active session is currently waiting for a response or has a merge in progress
-	// Each session can operate independently
+	// Check if the active session is currently waiting for a response, has a merge in progress,
+	// or has a container initializing. Each session can operate independently.
 	state := m.sessionMgr.StateManager().GetIfExists(m.activeSession.ID)
 	if state == nil {
-		return true // No state means not waiting or merging
+		return true // No state means not waiting, merging, or initializing
 	}
-	return !state.GetIsWaiting() && !state.IsMerging()
+	return !state.GetIsWaiting() && !state.IsMerging() && !state.GetContainerInitializing()
 }
 
 // setState transitions to a new state with logging
@@ -992,6 +992,13 @@ func (m *Model) selectSession(sess *config.Session) {
 		m.chat.SetWaiting(false)
 	}
 
+	// Restore container initialization state
+	if result.ContainerInitializing {
+		m.chat.SetContainerInitializing(true, result.ContainerInitStart)
+	} else {
+		m.chat.SetContainerInitializing(false, time.Time{})
+	}
+
 	// Restore pending permission
 	if result.Permission != nil {
 		m.chat.SetPendingPermission(result.Permission.Tool, result.Permission.Description)
@@ -1185,6 +1192,13 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 	m.sidebar.SetStreaming(sessionID, true)
 	m.sidebar.SetIdleWithResponse(sessionID, false)
 	m.setState(StateStreamingClaude)
+
+	// For containerized sessions that haven't started yet, mark as initializing
+	// The callback set in SessionManager.GetOrCreateRunner will clear this when the init message arrives
+	if m.activeSession.Containerized && !m.activeSession.Started {
+		m.sessionState().StartContainerInit(sessionID)
+		m.chat.SetContainerInitializing(true, time.Now())
+	}
 
 	// Start Claude request with content blocks
 	responseChan := runner.SendContent(ctx, content)

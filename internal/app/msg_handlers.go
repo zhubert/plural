@@ -92,6 +92,11 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 		if !sess.Started {
 			m.config.MarkSessionStarted(sess.ID)
 			sess.Started = true
+			// Clear container init state now that session has started
+			// The callback in SessionManager already cleared SessionStateManager state
+			if isActiveSession {
+				m.chat.SetContainerInitializing(false, time.Time{})
+			}
 			if err := m.config.Save(); err != nil {
 				logger.WithSession(sess.ID).Error("failed to save config after marking session started", "error", err)
 			}

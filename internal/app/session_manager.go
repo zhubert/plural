@@ -35,15 +35,17 @@ type SelectResult struct {
 	DiffStats  *DiffStats // Git diff statistics for the worktree
 
 	// State to restore
-	WaitStart     time.Time
-	IsWaiting     bool
-	Permission    *mcp.PermissionRequest
-	Question      *mcp.QuestionRequest
-	PlanApproval  *mcp.PlanApprovalRequest
-	TodoList      *claude.TodoList
-	Streaming     string
-	SavedInput    string
-	SubagentModel string // Active subagent model (empty if none)
+	WaitStart              time.Time
+	IsWaiting              bool
+	ContainerInitializing  bool      // true during container startup
+	ContainerInitStart     time.Time // When container init started
+	Permission             *mcp.PermissionRequest
+	Question               *mcp.QuestionRequest
+	PlanApproval           *mcp.PlanApprovalRequest
+	TodoList               *claude.TodoList
+	Streaming              string
+	SavedInput             string
+	SubagentModel          string // Active subagent model (empty if none)
 }
 
 // RunnerFactory creates a runner for a session.
@@ -219,10 +221,12 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 		result.TodoList = state.GetCurrentTodoList()
 
 		// Get streaming state atomically - this ensures IsWaiting, WaitStart,
-		// StreamingContent, SubagentModel, and StreamingStartTime are all read consistently
+		// StreamingContent, SubagentModel, ContainerInitializing, and StreamingStartTime are all read consistently
 		state.WithLock(func(s *SessionState) {
 			result.IsWaiting = s.IsWaiting
 			result.SubagentModel = s.SubagentModel
+			result.ContainerInitializing = s.ContainerInitializing
+			result.ContainerInitStart = s.ContainerInitStart
 			// Always use StreamingStartTime for elapsed time display - it's set when
 			// streaming starts and preserved throughout (WaitStart gets cleared when
 			// first chunk arrives, but we still need elapsed time for the UI)
@@ -352,6 +356,12 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 	// Configure container mode if enabled for this session
 	if sess.Containerized {
 		runner.SetContainerized(true, sm.config.GetContainerImage())
+		// Set callback to clear container init state when container is ready
+		sessionID := sess.ID
+		runner.SetOnContainerReady(func() {
+			sm.stateManager.StopContainerInit(sessionID)
+			log.Debug("container initialization complete", "sessionID", sessionID)
+		})
 		log.Debug("containerized session, MCP servers not used in container mode")
 	} else {
 		// Load MCP servers for this session's repo (only for non-containerized sessions)
