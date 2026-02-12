@@ -2934,3 +2934,56 @@ func TestMockRunner_SetContainerized(t *testing.T) {
 	mock.SetContainerized(true, "my-image")
 	mock.SetContainerized(false, "")
 }
+
+// TestResponseChannelState_ErrorPathBypassesClose tests the issue where the error
+// cleanup path in SendContent manually sets Channel=nil and Closed=true instead of
+// using closeResponseChannel(). While the current code has guards to prevent panics,
+// this is still a design inconsistency - the cleanup should use the same mechanism.
+//
+// This test verifies that even when the buggy manual cleanup is used, the code doesn't
+// panic. The actual fix will ensure we use closeResponseChannel() for consistency.
+func TestResponseChannelState_ErrorPathBypassesClose(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Simulate the normal flow: Setup the response channel
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.mu.Unlock()
+
+	// Verify Setup initialized CloseOnce
+	runner.mu.RLock()
+	if runner.responseChan.CloseOnce == nil {
+		t.Fatal("CloseOnce should be initialized by Setup")
+	}
+	runner.mu.RUnlock()
+
+	// Simulate the buggy error cleanup path from SendContent (lines 1196-1200)
+	// This bypasses the Close() method and manually sets Channel=nil, Closed=true
+	runner.mu.Lock()
+	runner.responseChan.Channel = nil
+	runner.responseChan.Closed = true
+	runner.mu.Unlock()
+
+	// Now if anything calls closeResponseChannel(), it should handle this gracefully
+	// The current implementation has guards, but this is still a design inconsistency
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("closeResponseChannel() panicked: %v", r)
+		}
+	}()
+
+	// Should not panic because Close() has guards, but ideally the error path
+	// should use closeResponseChannel() for consistency
+	runner.closeResponseChannel()
+
+	// Verify the state is still correct
+	runner.mu.RLock()
+	if !runner.responseChan.Closed {
+		t.Error("responseChan.Closed should be true")
+	}
+	if runner.responseChan.Channel != nil {
+		t.Error("responseChan.Channel should be nil")
+	}
+	runner.mu.RUnlock()
+}

@@ -1195,12 +1195,11 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 			// Clean up state since we're aborting
 			r.mu.Lock()
 			r.streaming.Active = false
-			r.responseChan.Channel = nil
-			r.responseChan.Closed = true
 			r.mu.Unlock()
 
+			// Send error and close channel using the proper mechanism
 			ch <- ResponseChunk{Error: err, Done: true}
-			close(ch)
+			r.closeResponseChannel()
 			return
 		}
 
