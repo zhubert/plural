@@ -188,7 +188,10 @@ type Runner struct {
 	// Session-scoped logger with sessionID pre-attached
 	log *slog.Logger
 
-	// Stream log file for raw Claude messages (separate from main debug log)
+	// Stream log file for raw Claude messages (separate from main debug log).
+	// Protected by streamLogMu (separate from r.mu to avoid deadlock, since
+	// handleProcessLine also acquires r.mu later in its execution).
+	streamLogMu   sync.Mutex
 	streamLogFile *os.File
 
 	// MCP interactive prompt channels (grouped in sub-struct)
@@ -619,24 +622,23 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 
 // handleProcessLine processes a line of output from the Claude process.
 func (r *Runner) handleProcessLine(line string) {
-	// Write raw message to dedicated stream log file (pretty-printed JSON)
-	// Must hold mutex to avoid race with Stop() closing the file
-	r.mu.RLock()
-	logFile := r.streamLogFile
-	r.mu.RUnlock()
-
-	if logFile != nil {
+	// Write raw message to dedicated stream log file (pretty-printed JSON).
+	// Uses dedicated streamLogMu (not r.mu) to avoid deadlock — this function
+	// acquires r.mu.Lock() later for streaming state updates.
+	r.streamLogMu.Lock()
+	if r.streamLogFile != nil {
 		var prettyJSON map[string]any
 		if err := json.Unmarshal([]byte(line), &prettyJSON); err == nil {
 			if formatted, err := json.MarshalIndent(prettyJSON, "", "  "); err == nil {
-				fmt.Fprintf(logFile, "%s\n", formatted)
+				fmt.Fprintf(r.streamLogFile, "%s\n", formatted)
 			} else {
-				fmt.Fprintf(logFile, "%s\n", line)
+				fmt.Fprintf(r.streamLogFile, "%s\n", line)
 			}
 		} else {
-			fmt.Fprintf(logFile, "%s\n", line)
+			fmt.Fprintf(r.streamLogFile, "%s\n", line)
 		}
 	}
+	r.streamLogMu.Unlock()
 
 	// Mark session as started as soon as we receive the init message.
 	// This is the earliest signal that Claude CLI has accepted the session ID.
@@ -1332,11 +1334,14 @@ func (r *Runner) Stop() {
 			r.mcp.Close()
 		}
 
-		// Close stream log file
+		// Close stream log file (under its own mutex so we don't close it
+		// while handleProcessLine is mid-write)
+		r.streamLogMu.Lock()
 		if r.streamLogFile != nil {
 			r.streamLogFile.Close()
 			r.streamLogFile = nil
 		}
+		r.streamLogMu.Unlock()
 
 		r.log.Info("runner stopped")
 	})
