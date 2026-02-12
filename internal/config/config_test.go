@@ -2127,3 +2127,119 @@ func TestSession_Containerized(t *testing.T) {
 		t.Error("Containerized=false should be omitted from JSON (omitempty)")
 	}
 }
+
+func TestConfig_MarkSessionPRMerged(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1", PRCreated: true},
+		},
+	}
+
+	// Test marking existing session as PR merged
+	if !cfg.MarkSessionPRMerged("session-1") {
+		t.Error("MarkSessionPRMerged should return true for existing session")
+	}
+
+	sess := cfg.GetSession("session-1")
+	if !sess.PRMerged {
+		t.Error("Session should be marked as PR merged")
+	}
+
+	// Test marking non-existent session
+	if cfg.MarkSessionPRMerged("nonexistent") {
+		t.Error("MarkSessionPRMerged should return false for non-existent session")
+	}
+}
+
+func TestConfig_MarkSessionPRClosed(t *testing.T) {
+	cfg := &Config{
+		Repos: []string{},
+		Sessions: []Session{
+			{ID: "session-1", RepoPath: "/path", WorkTree: "/wt", Branch: "b1", PRCreated: true},
+		},
+	}
+
+	// Test marking existing session as PR closed
+	if !cfg.MarkSessionPRClosed("session-1") {
+		t.Error("MarkSessionPRClosed should return true for existing session")
+	}
+
+	sess := cfg.GetSession("session-1")
+	if !sess.PRClosed {
+		t.Error("Session should be marked as PR closed")
+	}
+
+	// Test marking non-existent session
+	if cfg.MarkSessionPRClosed("nonexistent") {
+		t.Error("MarkSessionPRClosed should return false for non-existent session")
+	}
+}
+
+func TestSession_PRMergedClosed_JSON(t *testing.T) {
+	// Test that PRMerged and PRClosed fields round-trip through JSON
+	sess := Session{
+		ID:       "test-id",
+		RepoPath: "/repo",
+		WorkTree: "/wt",
+		Branch:   "main",
+		PRMerged: true,
+	}
+
+	data, err := json.Marshal(sess)
+	if err != nil {
+		t.Fatalf("Failed to marshal session: %v", err)
+	}
+
+	var loaded Session
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Failed to unmarshal session: %v", err)
+	}
+
+	if !loaded.PRMerged {
+		t.Error("PRMerged should be true after round-trip")
+	}
+
+	// Test PRClosed
+	sess2 := Session{
+		ID:       "test-id-2",
+		RepoPath: "/repo",
+		WorkTree: "/wt",
+		Branch:   "main",
+		PRClosed: true,
+	}
+
+	data2, err := json.Marshal(sess2)
+	if err != nil {
+		t.Fatalf("Failed to marshal session: %v", err)
+	}
+
+	var loaded2 Session
+	if err := json.Unmarshal(data2, &loaded2); err != nil {
+		t.Fatalf("Failed to unmarshal session: %v", err)
+	}
+
+	if !loaded2.PRClosed {
+		t.Error("PRClosed should be true after round-trip")
+	}
+
+	// Test omitempty: false values should not be in JSON
+	sess3 := Session{
+		ID:       "test-id-3",
+		RepoPath: "/repo",
+		WorkTree: "/wt",
+		Branch:   "main",
+	}
+
+	data3, err := json.Marshal(sess3)
+	if err != nil {
+		t.Fatalf("Failed to marshal session: %v", err)
+	}
+
+	if strings.Contains(string(data3), "pr_merged") {
+		t.Error("PRMerged=false should be omitted from JSON (omitempty)")
+	}
+	if strings.Contains(string(data3), "pr_closed") {
+		t.Error("PRClosed=false should be omitted from JSON (omitempty)")
+	}
+}

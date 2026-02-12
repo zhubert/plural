@@ -150,6 +150,16 @@ func hashSessions(sessions []config.Session) uint64 {
 		} else {
 			h.Write([]byte{0})
 		}
+		if sess.PRMerged {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
+		if sess.PRClosed {
+			h.Write([]byte{1})
+		} else {
+			h.Write([]byte{0})
+		}
 	}
 	return h.Sum64()
 }
@@ -911,8 +921,16 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 		// Merged to parent or main branch
 		nodeSymbol = "✓"
 		symbolColor = ColorSecondary
+	} else if sess.PRMerged {
+		// PR merged on GitHub
+		nodeSymbol = "✓"
+		symbolColor = ColorSuccess
+	} else if sess.PRClosed {
+		// PR closed without merging
+		nodeSymbol = "✕"
+		symbolColor = ColorError
 	} else if sess.PRCreated {
-		// PR created but not merged
+		// PR created but still open
 		nodeSymbol = "⬡" // hexagon to indicate PR
 		symbolColor = ColorUser
 	} else if hasChildren {

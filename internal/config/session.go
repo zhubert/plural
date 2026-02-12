@@ -27,6 +27,8 @@ type Session struct {
 
 	Merged           bool      `json:"merged,omitempty"`             // Whether session has been merged to main
 	PRCreated        bool      `json:"pr_created,omitempty"`         // Whether a PR has been created for this session
+	PRMerged         bool      `json:"pr_merged,omitempty"`          // Whether the PR was merged on GitHub
+	PRClosed         bool      `json:"pr_closed,omitempty"`          // Whether the PR was closed without merging on GitHub
 	ParentID         string    `json:"parent_id,omitempty"`          // ID of parent session if this is a fork
 	MergedToParent   bool      `json:"merged_to_parent,omitempty"`   // Whether session has been merged back to its parent (locks the session)
 	IssueNumber      int       `json:"issue_number,omitempty"`       // Deprecated: use IssueRef instead. Kept for backwards compatibility.
@@ -172,6 +174,34 @@ func (c *Config) MarkSessionPRCreated(sessionID string) bool {
 	for i := range c.Sessions {
 		if c.Sessions[i].ID == sessionID {
 			c.Sessions[i].PRCreated = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionPRMerged marks a session's PR as merged on GitHub
+func (c *Config) MarkSessionPRMerged(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].PRMerged = true
+			return true
+		}
+	}
+	return false
+}
+
+// MarkSessionPRClosed marks a session's PR as closed without merging on GitHub
+func (c *Config) MarkSessionPRClosed(sessionID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].PRClosed = true
 			return true
 		}
 	}
