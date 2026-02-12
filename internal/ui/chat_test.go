@@ -1036,15 +1036,20 @@ func TestChat_IsStreaming_WithToolUseRollup(t *testing.T) {
 		t.Error("Should be streaming when tool use rollup is active (even without text)")
 	}
 
-	// Add text streaming - this flushes the tool use rollup
+	// Mark tool complete before adding text - rollup should still be active
+	chat.MarkToolUseComplete("tool-1", nil)
+	if !chat.IsStreaming() {
+		t.Error("Should still be streaming after marking tool complete (rollup still active)")
+	}
+
+	// Add text streaming - this flushes the completed tool use rollup
 	chat.AppendStreaming("Some text")
 	if !chat.IsStreaming() {
 		t.Error("Should still be streaming after text is appended (rollup flushed to streaming)")
 	}
 
-	// Mark tool complete and flush - should still be streaming due to text
-	chat.MarkToolUseComplete("tool-1", nil)
-	chat.AppendStreaming("\n") // This triggers flush
+	// Add more text - streaming should continue
+	chat.AppendStreaming("\n")
 	if !chat.IsStreaming() {
 		t.Error("Should still be streaming when text is present")
 	}
