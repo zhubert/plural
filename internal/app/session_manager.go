@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -305,8 +307,30 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 			// Copy Claude's session JSONL file from parent's project dir to child's project dir.
 			// This is required because Claude CLI stores sessions by project path (worktree),
 			// so the child can't find the parent session unless we copy it.
-			if err := copyClaudeSessionForFork(sess.ParentID, parentSess.WorkTree, sess.WorkTree); err != nil {
-				log.Warn("failed to copy Claude session for fork, starting as new session", "error", err)
+			err := copyClaudeSessionForFork(sess.ParentID, parentSess.WorkTree, sess.WorkTree)
+			if err != nil {
+				log.Debug("Claude session file not found, trying to create synthetic session from messages", "error", err)
+
+				// Try to load the parent's Plural messages and create a synthetic Claude session file.
+				// This handles cases where:
+				// - The parent session's Claude file doesn't exist (parent never interacted with Claude)
+				// - The Claude file was deleted or is inaccessible
+				// - The user forked with copyMessages=true, so we have the UI messages
+				parentMsgs, loadErr := config.LoadSessionMessages(sess.ParentID)
+				if loadErr != nil {
+					log.Warn("failed to load parent messages for synthetic session", "error", loadErr)
+				} else if len(parentMsgs) > 0 {
+					// Create synthetic Claude session file from Plural messages
+					if synthErr := createSyntheticClaudeSessionFile(sess.ParentID, sess.WorkTree, parentMsgs); synthErr != nil {
+						log.Warn("failed to create synthetic Claude session for fork", "error", synthErr)
+					} else {
+						log.Info("created synthetic Claude session from parent messages", "count", len(parentMsgs))
+						runner.SetForkFromSession(sess.ParentID)
+						log.Debug("session will fork from parent (using synthetic session)", "parentID", sess.ParentID)
+					}
+				} else {
+					log.Debug("no messages to create synthetic session from, starting as new session")
+				}
 			} else {
 				runner.SetForkFromSession(sess.ParentID)
 				log.Debug("session will fork from parent", "parentID", sess.ParentID)
@@ -452,6 +476,86 @@ func (sm *SessionManager) Shutdown() {
 	}
 	sm.runners = make(map[string]claude.RunnerInterface)
 	log.Info("shutdown complete")
+}
+
+// createSyntheticClaudeSessionFile creates a Claude session JSONL file from Plural messages.
+// This is used when forking a session but the parent's Claude session file doesn't exist
+// (e.g., parent never sent a message to Claude, or file was deleted).
+// The synthetic file allows --fork-session to work by providing the conversation history.
+func createSyntheticClaudeSessionFile(parentSessionID, childWorktree string, messages []config.Message) error {
+	if len(messages) == 0 {
+		return fmt.Errorf("no messages to create synthetic session from")
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	// Claude escapes paths by replacing "/" and "." with "-"
+	escapePath := func(path string) string {
+		escaped := strings.ReplaceAll(path, "/", "-")
+		return strings.ReplaceAll(escaped, ".", "-")
+	}
+
+	childEscaped := escapePath(childWorktree)
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects")
+	childProjectDir := filepath.Join(claudeProjectsDir, childEscaped)
+	dstFile := filepath.Join(childProjectDir, parentSessionID+".jsonl")
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(childProjectDir, 0700); err != nil {
+		return err
+	}
+
+	// Create the file
+	f, err := os.Create(dstFile)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Write JSONL entries for each message
+	var parentUUID string
+	for i, msg := range messages {
+		uuid := fmt.Sprintf("synthetic-%s-%d", parentSessionID, i)
+		timestamp := time.Now().Add(time.Duration(-len(messages)+i) * time.Second).Format(time.RFC3339)
+
+		entry := map[string]interface{}{
+			"type":      msg.Role,
+			"sessionId": parentSessionID,
+			"uuid":      uuid,
+			"timestamp": timestamp,
+			"message": map[string]interface{}{
+				"role": msg.Role,
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": msg.Content,
+					},
+				},
+			},
+		}
+
+		if parentUUID != "" {
+			entry["parentUuid"] = parentUUID
+		}
+
+		jsonBytes, err := json.Marshal(entry)
+		if err != nil {
+			return fmt.Errorf("failed to marshal message %d: %w", i, err)
+		}
+
+		if _, err := f.Write(append(jsonBytes, '\n')); err != nil {
+			return fmt.Errorf("failed to write message %d: %w", i, err)
+		}
+
+		parentUUID = uuid
+	}
+
+	logger.WithSession(parentSessionID).Debug("created synthetic Claude session for fork",
+		"dst", childProjectDir, "messages", len(messages))
+	return nil
 }
 
 // copyClaudeSessionForFork copies Claude's session JSONL file from the parent's
