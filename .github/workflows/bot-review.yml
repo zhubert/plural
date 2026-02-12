@@ -4,6 +4,10 @@ on:
   pull_request_review:
     types: [submitted]
 
+permissions:
+  statuses: write
+  pull-requests: read
+
 jobs:
   bot-review-status:
     runs-on: ubuntu-latest

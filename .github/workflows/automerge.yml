@@ -8,6 +8,10 @@ on:
   check_suite:
     types: [completed]
 
+permissions:
+  pull-requests: write
+  contents: write
+
 jobs:
   automerge:
     runs-on: ubuntu-latest
