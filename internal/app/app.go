@@ -563,7 +563,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectSession(sess)
 					// Check if this session has an unsent initial message (from issue import)
 					if initialMsg := m.sessionState().GetInitialMessage(sess.ID); initialMsg != "" {
-						m.sessionState().GetOrCreate(sess.ID).PendingMessage = initialMsg
+						m.sessionState().GetOrCreate(sess.ID).SetPendingMsg(initialMsg)
 						return m, func() tea.Msg {
 							return SendPendingMessageMsg{SessionID: sess.ID}
 						}
@@ -577,10 +577,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if m.activeSession != nil {
 					// Check if waiting and queue message to be sent when streaming completes
 					sessState := m.sessionState().GetIfExists(m.activeSession.ID)
-					if sessState != nil && sessState.IsWaiting {
+					if sessState != nil && sessState.GetIsWaiting() {
 						input := m.chat.GetInput()
 						if input != "" {
-							sessState.PendingMessage = input
+							sessState.SetPendingMsg(input)
 							m.chat.ClearInput()
 							m.chat.SetQueuedMessage(input)
 							logger.WithSession(m.activeSession.ID).Debug("queued message while streaming")
