@@ -942,6 +942,10 @@ func TestSessionManager_SaveMessages_Success(t *testing.T) {
 }
 
 func TestSessionManager_SaveMessages_Error(t *testing.T) {
+	// Skip if running as root since root can write to read-only directories
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
 	// Test error propagation by making the sessions directory read-only
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
@@ -1025,6 +1029,10 @@ func TestSessionManager_SaveRunnerMessages_Success(t *testing.T) {
 }
 
 func TestSessionManager_SaveRunnerMessages_Error(t *testing.T) {
+	// Skip if running as root since root can write to read-only directories
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root user")
+	}
 	// Test error propagation by making the sessions directory read-only
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)

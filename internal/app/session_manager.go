@@ -18,6 +18,9 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
+// errMsgSaveHistory is the user-facing flash message shown when saving conversation history fails.
+const errMsgSaveHistory = "Failed to save conversation history"
+
 // DiffStats holds file change statistics for the header display
 type DiffStats struct {
 	FilesChanged int

@@ -423,7 +423,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.claudeRunner.AddAssistantMessage(content + "\n[Interrupted]")
 							if err := m.sessionMgr.SaveRunnerMessages(m.activeSession.ID, m.claudeRunner); err != nil {
 								logger.WithSession(m.activeSession.ID).Error("failed to save session messages after interrupt", "error", err)
-								saveErrorCmd = m.ShowFlashError("Failed to save conversation history")
+								saveErrorCmd = m.ShowFlashError(errMsgSaveHistory)
 							}
 						}
 						m.chat.AppendStreaming("\n[Interrupted]\n")
