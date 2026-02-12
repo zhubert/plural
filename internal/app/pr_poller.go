@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 const prPollInterval = 30 * time.Second
@@ -14,11 +15,16 @@ const prPollInterval = 30 * time.Second
 // PRPollTickMsg triggers a PR status check cycle
 type PRPollTickMsg time.Time
 
-// PRStatusCheckMsg carries the result of checking a single session's PR state
-type PRStatusCheckMsg struct {
+// PRStatusResult carries the result of checking a single session's PR state within a batch
+type PRStatusResult struct {
 	SessionID string
 	State     git.PRState
-	Error     error
+}
+
+// PRBatchStatusCheckMsg carries the results of checking all eligible sessions' PR states
+type PRBatchStatusCheckMsg struct {
+	Results []PRStatusResult
+	Error   error
 }
 
 // PRPollTick returns a command that sends a PRPollTickMsg after the poll interval
@@ -28,37 +34,75 @@ func PRPollTick() tea.Cmd {
 	})
 }
 
-// checkPRStatuses returns a batch of commands that check PR state for eligible sessions.
-// Eligible sessions are those with PRCreated=true and PRMerged=false and PRClosed=false and Merged=false.
-func checkPRStatuses(sessions []config.Session, gitSvc *git.GitService) tea.Cmd {
-	var cmds []tea.Cmd
+// eligibleSession holds the info needed to check a session's PR state
+type eligibleSession struct {
+	ID       string
+	RepoPath string
+	Branch   string
+}
 
+// getEligibleSessions filters sessions to those that need PR state checking.
+// Eligible sessions are those with PRCreated=true and PRMerged=false and PRClosed=false and Merged=false.
+func getEligibleSessions(sessions []config.Session) []eligibleSession {
+	var eligible []eligibleSession
 	for _, sess := range sessions {
 		if !sess.PRCreated || sess.PRMerged || sess.PRClosed || sess.Merged {
 			continue
 		}
-
-		// Capture loop variable for goroutine
-		sessionID := sess.ID
-		repoPath := sess.RepoPath
-		branch := sess.Branch
-
-		cmds = append(cmds, func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			state, err := gitSvc.GetPRState(ctx, repoPath, branch)
-			return PRStatusCheckMsg{
-				SessionID: sessionID,
-				State:     state,
-				Error:     err,
-			}
+		eligible = append(eligible, eligibleSession{
+			ID:       sess.ID,
+			RepoPath: sess.RepoPath,
+			Branch:   sess.Branch,
 		})
 	}
+	return eligible
+}
 
-	if len(cmds) == 0 {
+// checkPRStatuses returns a single command that checks PR state for all eligible sessions.
+// Sessions are grouped by repo so only one gh CLI call is made per repo.
+func checkPRStatuses(sessions []config.Session, gitSvc *git.GitService) tea.Cmd {
+	eligible := getEligibleSessions(sessions)
+	if len(eligible) == 0 {
 		return nil
 	}
 
-	return tea.Batch(cmds...)
+	return func() tea.Msg {
+		log := logger.WithComponent("pr-poller")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Group sessions by repo path
+		repoSessions := make(map[string][]eligibleSession)
+		for _, s := range eligible {
+			repoSessions[s.RepoPath] = append(repoSessions[s.RepoPath], s)
+		}
+
+		var results []PRStatusResult
+
+		// One gh call per repo
+		for repoPath, sessions := range repoSessions {
+			branches := make([]string, len(sessions))
+			for i, s := range sessions {
+				branches[i] = s.Branch
+			}
+
+			states, err := gitSvc.GetBatchPRStates(ctx, repoPath, branches)
+			if err != nil {
+				log.Debug("batch PR status check failed", "repo", repoPath, "error", err)
+				continue
+			}
+
+			// Build a branch->sessionID lookup for this repo
+			for _, s := range sessions {
+				if state, ok := states[s.Branch]; ok {
+					results = append(results, PRStatusResult{
+						SessionID: s.ID,
+						State:     state,
+					})
+				}
+			}
+		}
+
+		return PRBatchStatusCheckMsg{Results: results}
+	}
 }
