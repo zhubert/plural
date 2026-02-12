@@ -789,6 +789,11 @@ func (r *Runner) handleProcessLine(line string) {
 			// plus the current API call's running token count
 			currentTotal := r.tokens.CurrentTotal()
 
+			// Capture token values while still holding the lock to avoid race condition
+			cacheCreation := r.tokens.CacheCreation
+			cacheRead := r.tokens.CacheRead
+			inputTokens := r.tokens.Input
+
 			r.mu.Unlock()
 
 			// Emit stream stats with the accumulated token count and cache stats
@@ -798,9 +803,9 @@ func (r *Runner) handleProcessLine(line string) {
 					Stats: &StreamStats{
 						OutputTokens:        currentTotal,
 						TotalCostUSD:        0, // Not available during streaming, only on result
-						CacheCreationTokens: r.tokens.CacheCreation,
-						CacheReadTokens:     r.tokens.CacheRead,
-						InputTokens:         r.tokens.Input,
+						CacheCreationTokens: cacheCreation,
+						CacheReadTokens:     cacheRead,
+						InputTokens:         inputTokens,
 					},
 				})
 			}
