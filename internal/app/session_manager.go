@@ -160,11 +160,11 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 			prevState := sm.stateManager.GetOrCreate(previousSessionID)
 			prevLog := logger.WithSession(previousSessionID)
 			if previousInput != "" {
-				prevState.InputText = previousInput
+				prevState.SetInputText(previousInput)
 				prevLog.Debug("saved input for session")
 			}
 			if previousStreaming != "" {
-				prevState.StreamingContent = previousStreaming
+				prevState.SetStreamingContent(previousStreaming)
 				prevLog.Debug("saved streaming content for session")
 			}
 		}
