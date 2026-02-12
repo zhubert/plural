@@ -276,7 +276,7 @@ func TestCopySelectedText_NoSelection(t *testing.T) {
 func TestSelectWord_UnicodeEmoji(t *testing.T) {
 	c := newTestChat()
 
-	// Test with emoji (multi-byte, single visual column)
+	// Test with emoji (4 bytes, 2 visual columns wide)
 	testLine := "Hello 👋 world"
 	c.viewport.SetContent(testLine)
 

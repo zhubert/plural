@@ -42,7 +42,7 @@
 // Selection coordinates represent VISUAL column positions, not byte offsets or rune indices.
 // This distinction is critical for correctly handling Unicode text:
 //
-//   - Multi-byte characters (e.g., "é" = 2 bytes, "👋" = 4 bytes) may take 1 visual column
+//   - Multi-byte characters (e.g., "é" = 2 bytes) may take 1 visual column; emoji (e.g., "👋" = 4 bytes) take 2
 //   - Wide characters (e.g., CJK "世" = 3 bytes) take 2 visual columns each
 //   - Combining characters and grapheme clusters must be treated as single units
 //
@@ -209,6 +209,13 @@ func columnToByteOffset(s string, col int) int {
 
 // byteOffsetToColumn converts a byte offset in a string to a visual column position.
 // This handles multi-byte characters and wide characters (e.g., CJK) correctly.
+//
+// The function iterates through graphemes and returns the column position when it
+// reaches or passes the target byte offset. This means if offset points to the
+// start of a grapheme, it returns the column at that grapheme's start position.
+//
+// Example: byteOffsetToColumn("AB", 1) returns 1 (column of 'B')
+//
 // Returns the visual column position.
 func byteOffsetToColumn(s string, offset int) int {
 	if offset <= 0 {
@@ -254,11 +261,16 @@ func (c *Chat) SelectWord(col, line int) {
 	// Convert column position to byte offset for grapheme iteration
 	clickByteOffset := columnToByteOffset(currentLine, col)
 
-	// Find all word boundaries in the line
-	// A word boundary marks the END of a word (the last character of the word)
+	// Find all segment boundaries in the line using uniseg word segmentation.
+	// For each grapheme where IsWordBoundary() is true, we store the position
+	// just past that grapheme (bytePos + len(grapheme)). This partitions the
+	// line into segments.
+	//
+	// Example: "Hello world" produces boundaries at byte offsets 5, 6, 11,
+	// splitting the line into segments: "Hello" | " " | "world".
 	type boundary struct {
-		byteOffset int
-		column     int
+		byteOffset int // byte position just past the boundary grapheme
+		column     int // visual column just past the boundary grapheme
 	}
 	var boundaries []boundary
 
@@ -270,7 +282,6 @@ func (c *Chat) SelectWord(col, line int) {
 		graphemeWidth := uniseg.StringWidth(grapheme)
 
 		if gr.IsWordBoundary() {
-			// This grapheme is the end of a word
 			boundaries = append(boundaries, boundary{
 				byteOffset: bytePos + len(grapheme),
 				column:     currentCol + graphemeWidth,
