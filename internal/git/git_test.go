@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -2523,9 +2524,9 @@ index 1234567..abcdefg 100644
 `),
 	})
 
-	// Mock Claude response
+	// Mock Claude response (using conventional commit format)
 	claudeResponse := `---TITLE---
-Add feature Y
+feat: add feature Y
 
 ---BODY---
 ## Summary
@@ -2548,8 +2549,8 @@ This PR adds feature Y to the codebase.
 		t.Fatalf("GeneratePRTitleAndBodyWithIssueRef failed: %v", err)
 	}
 
-	if title != "Add feature Y" {
-		t.Errorf("Expected title 'Add feature Y', got '%s'", title)
+	if title != "feat: add feature Y" {
+		t.Errorf("Expected title 'feat: add feature Y', got '%s'", title)
 	}
 
 	if !strings.Contains(body, "feature Y") {
@@ -2600,9 +2601,9 @@ func TestGeneratePRTitleAndBodyWithEmptyBaseBranch(t *testing.T) {
 		Stdout: []byte("diff --git a/file.txt b/file.txt\n"),
 	})
 
-	// Mock Claude response
+	// Mock Claude response (using conventional commit format)
 	mockExec.AddPrefixMatch("claude", []string{"--print", "-p"}, pexec.MockResponse{
-		Stdout: []byte("---TITLE---\nAdd feature\n---BODY---\nTest PR"),
+		Stdout: []byte("---TITLE---\nfeat: add feature\n---BODY---\nTest PR"),
 	})
 
 	ctx := context.Background()
@@ -2613,8 +2614,8 @@ func TestGeneratePRTitleAndBodyWithEmptyBaseBranch(t *testing.T) {
 		t.Fatalf("GeneratePRTitleAndBodyWithIssueRef failed: %v", err)
 	}
 
-	if title != "Add feature" {
-		t.Errorf("Expected title 'Add feature', got '%s'", title)
+	if title != "feat: add feature" {
+		t.Errorf("Expected title 'feat: add feature', got '%s'", title)
 	}
 
 	// Verify that it fell back to using main
@@ -2631,5 +2632,144 @@ func TestGeneratePRTitleAndBodyWithEmptyBaseBranch(t *testing.T) {
 
 	if !foundLogWithMain {
 		t.Error("Expected to fall back to default branch 'main' when baseBranch is empty")
+	}
+}
+
+func TestGeneratePRTitleAndBody_ConventionalCommitFormat(t *testing.T) {
+	tests := []struct {
+		name          string
+		claudeTitle   string
+		expectedTitle string
+		shouldMatch   bool
+		description   string
+	}{
+		{
+			name:          "feat type",
+			claudeTitle:   "feat: add user authentication",
+			expectedTitle: "feat: add user authentication",
+			shouldMatch:   true,
+			description:   "Basic feat commit",
+		},
+		{
+			name:          "fix type",
+			claudeTitle:   "fix: prevent race condition in request handling",
+			expectedTitle: "fix: prevent race condition in request handling",
+			shouldMatch:   true,
+			description:   "Basic fix commit",
+		},
+		{
+			name:          "feat with scope",
+			claudeTitle:   "feat(auth): add OAuth2 login support",
+			expectedTitle: "feat(auth): add OAuth2 login support",
+			shouldMatch:   true,
+			description:   "Feat with scope",
+		},
+		{
+			name:          "fix with scope",
+			claudeTitle:   "fix(api): handle null response from upstream service",
+			expectedTitle: "fix(api): handle null response from upstream service",
+			shouldMatch:   true,
+			description:   "Fix with scope",
+		},
+		{
+			name:          "docs type",
+			claudeTitle:   "docs: update API documentation",
+			expectedTitle: "docs: update API documentation",
+			shouldMatch:   true,
+			description:   "Docs commit",
+		},
+		{
+			name:          "refactor type",
+			claudeTitle:   "refactor(database): simplify query builder",
+			expectedTitle: "refactor(database): simplify query builder",
+			shouldMatch:   true,
+			description:   "Refactor with scope",
+		},
+		{
+			name:          "test type",
+			claudeTitle:   "test: add integration tests for payment flow",
+			expectedTitle: "test: add integration tests for payment flow",
+			shouldMatch:   true,
+			description:   "Test commit",
+		},
+		{
+			name:          "chore type",
+			claudeTitle:   "chore: update dependencies",
+			expectedTitle: "chore: update dependencies",
+			shouldMatch:   true,
+			description:   "Chore commit",
+		},
+		{
+			name:          "perf type",
+			claudeTitle:   "perf(rendering): optimize component rendering cycle",
+			expectedTitle: "perf(rendering): optimize component rendering cycle",
+			shouldMatch:   true,
+			description:   "Performance commit",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock executor for testing
+			mockExec := pexec.NewMockExecutor(nil)
+			svc := NewGitServiceWithExecutor(mockExec)
+
+			// Mock git log
+			mockExec.AddPrefixMatch("git", []string{"log", "main..feature", "--oneline"}, pexec.MockResponse{
+				Stdout: []byte("abc123 Implement feature\n"),
+			})
+
+			// Mock git diff
+			mockExec.AddPrefixMatch("git", []string{"diff", "--no-ext-diff", "main...feature"}, pexec.MockResponse{
+				Stdout: []byte("diff --git a/file.txt b/file.txt\n+new line\n"),
+			})
+
+			// Mock Claude response with conventional commit format
+			claudeResponse := fmt.Sprintf(`---TITLE---
+%s
+
+---BODY---
+## Summary
+Test PR body
+
+## Changes
+- Change 1
+
+## Test plan
+- Test step 1
+`, tt.claudeTitle)
+
+			mockExec.AddPrefixMatch("claude", []string{"--print", "-p"}, pexec.MockResponse{
+				Stdout: []byte(claudeResponse),
+			})
+
+			ctx := context.Background()
+			title, body, err := svc.GeneratePRTitleAndBodyWithIssueRef(ctx, "/test/repo", "feature", "main", nil)
+
+			if err != nil {
+				t.Fatalf("GeneratePRTitleAndBodyWithIssueRef failed: %v", err)
+			}
+
+			if title != tt.expectedTitle {
+				t.Errorf("Expected title '%s', got '%s'", tt.expectedTitle, title)
+			}
+
+			if !strings.Contains(body, "Summary") {
+				t.Errorf("Expected body to contain 'Summary', got: %s", body)
+			}
+
+			// Verify conventional commit format pattern
+			// Pattern: <type>[optional scope]: <description>
+			// where type is: feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert
+			conventionalCommitPattern := `^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?: .+`
+			matched, err := regexp.MatchString(conventionalCommitPattern, title)
+			if err != nil {
+				t.Fatalf("Regex match failed: %v", err)
+			}
+
+			if tt.shouldMatch && !matched {
+				t.Errorf("Title '%s' does not match conventional commit format", title)
+			}
+		})
 	}
 }
