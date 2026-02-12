@@ -63,6 +63,10 @@ type SessionState struct {
 
 	// Subagent indicator - model name when subagent is active (empty when none)
 	SubagentModel string
+
+	// Container initialization state (for containerized sessions)
+	ContainerInitializing bool      // true during container startup
+	ContainerInitStart    time.Time // When container init started
 }
 
 // ToolUseRollupState tracks consecutive tool uses for non-active sessions
@@ -472,6 +476,24 @@ func (s *SessionState) GetMergeType() MergeType {
 	return s.MergeType
 }
 
+// --- Thread-safe accessors for ContainerInitializing ---
+
+// GetContainerInitializing returns whether the container is initializing.
+// Thread-safe.
+func (s *SessionState) GetContainerInitializing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ContainerInitializing
+}
+
+// GetContainerInitStart returns when container initialization started.
+// Thread-safe.
+func (s *SessionState) GetContainerInitStart() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ContainerInitStart
+}
+
 // SessionStateManager provides thread-safe access to per-session state.
 //
 // Basic usage pattern with thread-safe accessors:
@@ -713,6 +735,52 @@ func (m *SessionStateManager) GetInitialMessage(sessionID string) string {
 		return msg
 	}
 	return ""
+}
+
+// StartContainerInit marks a session as initializing its container.
+// This sets ContainerInitializing and ContainerInitStart atomically.
+func (m *SessionStateManager) StartContainerInit(sessionID string) {
+	m.mu.Lock()
+	state := m.getOrCreate(sessionID)
+	m.mu.Unlock()
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.ContainerInitializing = true
+	state.ContainerInitStart = time.Now()
+}
+
+// StopContainerInit marks a session's container as initialized.
+// This clears ContainerInitializing and ContainerInitStart atomically.
+func (m *SessionStateManager) StopContainerInit(sessionID string) {
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
+
+	if exists {
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		state.ContainerInitializing = false
+		state.ContainerInitStart = time.Time{}
+	}
+}
+
+// GetContainerInitStart returns when the container started initializing, and whether it's initializing.
+func (m *SessionStateManager) GetContainerInitStart(sessionID string) (time.Time, bool) {
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return time.Time{}, false
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.ContainerInitializing {
+		return state.ContainerInitStart, true
+	}
+	return time.Time{}, false
 }
 
 // getOrCreate returns existing state or creates new one. Caller must hold lock.

@@ -645,6 +645,110 @@ func TestSessionState_SubagentModel(t *testing.T) {
 	}
 }
 
+func TestSessionStateManager_ContainerInitialization(t *testing.T) {
+	m := NewSessionStateManager()
+
+	// Initially not initializing
+	startTime, initializing := m.GetContainerInitStart("session-1")
+	if initializing {
+		t.Error("Expected not initializing initially")
+	}
+	if !startTime.IsZero() {
+		t.Error("Expected zero start time initially")
+	}
+
+	// Start container initialization
+	m.StartContainerInit("session-1")
+
+	// Should now be initializing
+	startTime, initializing = m.GetContainerInitStart("session-1")
+	if !initializing {
+		t.Error("Expected initializing after StartContainerInit")
+	}
+	if startTime.IsZero() {
+		t.Error("Expected non-zero start time after StartContainerInit")
+	}
+
+	// Stop container initialization
+	m.StopContainerInit("session-1")
+
+	// Should no longer be initializing
+	startTime, initializing = m.GetContainerInitStart("session-1")
+	if initializing {
+		t.Error("Expected not initializing after StopContainerInit")
+	}
+	if !startTime.IsZero() {
+		t.Error("Expected zero start time after StopContainerInit")
+	}
+}
+
+func TestSessionState_ContainerInitializingAccessors(t *testing.T) {
+	state := &SessionState{}
+
+	// Initially not initializing
+	if state.GetContainerInitializing() {
+		t.Error("Expected not initializing initially")
+	}
+	if !state.GetContainerInitStart().IsZero() {
+		t.Error("Expected zero start time initially")
+	}
+
+	// Set container initializing state
+	now := time.Now()
+	state.WithLock(func(s *SessionState) {
+		s.ContainerInitializing = true
+		s.ContainerInitStart = now
+	})
+
+	// Verify state is set
+	if !state.GetContainerInitializing() {
+		t.Error("Expected initializing after setting")
+	}
+	if state.GetContainerInitStart().IsZero() {
+		t.Error("Expected non-zero start time after setting")
+	}
+
+	// Clear container initializing state
+	state.WithLock(func(s *SessionState) {
+		s.ContainerInitializing = false
+		s.ContainerInitStart = time.Time{}
+	})
+
+	// Verify state is cleared
+	if state.GetContainerInitializing() {
+		t.Error("Expected not initializing after clearing")
+	}
+	if !state.GetContainerInitStart().IsZero() {
+		t.Error("Expected zero start time after clearing")
+	}
+}
+
+func TestSessionStateManager_ContainerInitConcurrency(t *testing.T) {
+	m := NewSessionStateManager()
+	const numGoroutines = 10
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Multiple goroutines starting/stopping container init
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			m.StartContainerInit("session-1")
+			time.Sleep(time.Millisecond)
+			m.StopContainerInit("session-1")
+		}()
+	}
+
+	wg.Wait()
+
+	// Should end in stopped state
+	_, initializing := m.GetContainerInitStart("session-1")
+	if initializing {
+		t.Error("Expected not initializing after concurrent operations")
+	}
+}
+
 // Helper function for string contains check
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsImpl(s, substr))

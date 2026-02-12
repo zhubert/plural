@@ -163,6 +163,37 @@ func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, sta
 	return spinnerStyle.Render(frame) + " " + verbPart + " " + meta
 }
 
+// renderContainerInitStatus renders the container initialization status line
+func renderContainerInitStatus(frameIdx int, elapsed time.Duration) string {
+	// Get the current spinner frame
+	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
+
+	// Style for the spinner character - uses theme's user color
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(ColorUser).
+		Bold(true)
+
+	// Style for the message text - uses theme's primary color, italic
+	messageStyle := lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Italic(true)
+
+	// Style for the metadata - muted color
+	metaStyle := lipgloss.NewStyle().
+		Foreground(ColorTextMuted)
+
+	// Build message
+	message := messageStyle.Render("Starting container...")
+
+	// Build metadata: (usually takes 2-5s • 3s)
+	var parts []string
+	parts = append(parts, "usually takes 2-5s")
+	parts = append(parts, formatElapsed(elapsed))
+
+	meta := metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
+	return spinnerStyle.Render(frame) + " " + message + " " + meta
+}
+
 // formatElapsed formats a duration for display (e.g., "12s", "1m30s")
 func formatElapsed(d time.Duration) string {
 	secs := int(d.Seconds())
@@ -347,6 +378,22 @@ func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 // IsWaiting returns whether we're waiting for a response
 func (c *Chat) IsWaiting() bool {
 	return c.waiting
+}
+
+// SetContainerInitializing sets the container initialization state
+func (c *Chat) SetContainerInitializing(initializing bool, startTime time.Time) {
+	c.containerInitializing = initializing
+	if initializing {
+		c.containerInitStart = startTime
+	} else {
+		c.containerInitStart = time.Time{}
+	}
+	c.updateContent()
+}
+
+// IsContainerInitializing returns whether a container is initializing
+func (c *Chat) IsContainerInitializing() bool {
+	return c.containerInitializing
 }
 
 // handleStopwatchTick handles the spinner animation tick

@@ -108,12 +108,21 @@ type ProcessConfig struct {
 //	        // Send error to user via response channel
 //	        responseCh <- ResponseChunk{Error: err, Done: true}
 //	    },
+//	    OnContainerReady: func() {
+//	        // Signal that container initialization is complete
+//	        stateManager.StopContainerInit(sessionID)
+//	    },
 //	}
 type ProcessCallbacks struct {
 	// OnLine is called for each line read from stdout.
 	// The line includes the trailing newline.
 	// This callback is called synchronously from the output reader goroutine.
 	OnLine func(line string)
+
+	// OnContainerReady is called when a containerized session receives its init message.
+	// This signals that the container is fully initialized and ready to accept user messages.
+	// Not called for non-containerized sessions.
+	OnContainerReady func()
 
 	// OnProcessExit is called when the process exits unexpectedly.
 	// The error parameter contains the exit reason (may be nil for clean exit).
@@ -521,8 +530,14 @@ func (pm *ProcessManager) UpdateConfig(config ProcessConfig) {
 // MarkSessionStarted marks the session as started (for --resume flag on restart).
 func (pm *ProcessManager) MarkSessionStarted() {
 	pm.mu.Lock()
-	defer pm.mu.Unlock()
+	wasContainerized := pm.config.Containerized
 	pm.config.SessionStarted = true
+	pm.mu.Unlock()
+
+	// Notify that container is ready (if this was a containerized session)
+	if wasContainerized && pm.callbacks.OnContainerReady != nil {
+		pm.callbacks.OnContainerReady()
+	}
 }
 
 // readOutput continuously reads from stdout and invokes callbacks.

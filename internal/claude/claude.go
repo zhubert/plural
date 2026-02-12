@@ -219,6 +219,9 @@ type Runner struct {
 	// Container mode: when true, skip MCP and run inside a container
 	containerized  bool
 	containerImage string
+
+	// Container ready callback: invoked when containerized session receives init message
+	onContainerReady func()
 }
 
 // New creates a new Claude runner for a session
@@ -319,6 +322,14 @@ func (r *Runner) SetContainerized(containerized bool, image string) {
 	r.containerized = containerized
 	r.containerImage = image
 	r.log.Debug("set containerized mode", "containerized", containerized, "image", image)
+}
+
+// SetOnContainerReady sets the callback to invoke when a containerized session is ready.
+// This callback is called when the container initialization completes (init message received).
+func (r *Runner) SetOnContainerReady(callback func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onContainerReady = callback
 }
 
 // PermissionRequestChan returns the channel for receiving permission requests.
@@ -602,6 +613,7 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 		OnRestartAttempt: r.handleRestartAttempt,
 		OnRestartFailed:  r.handleRestartFailed,
 		OnFatalError:     r.handleFatalError,
+		OnContainerReady: r.handleContainerReady,
 	}
 }
 
@@ -1077,6 +1089,17 @@ func (r *Runner) handleFatalError(err error) {
 	}
 	r.streaming.Active = false
 	r.mu.Unlock()
+}
+
+// handleContainerReady is called when a containerized session is ready (init message received).
+func (r *Runner) handleContainerReady() {
+	r.mu.RLock()
+	callback := r.onContainerReady
+	r.mu.RUnlock()
+
+	if callback != nil {
+		callback()
+	}
 }
 
 // sendChunkWithTimeout sends a chunk to the response channel with timeout handling.
