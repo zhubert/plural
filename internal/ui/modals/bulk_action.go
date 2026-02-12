@@ -96,7 +96,7 @@ func (s *BulkActionState) Render() string {
 			confirmMsg = fmt.Sprintf("Move %d session(s) to \"%s\".", s.SessionCount, s.Workspaces[s.SelectedWSIdx].Name)
 		}
 	case BulkActionCreatePRs:
-		confirmMsg = fmt.Sprintf("Create PRs for %d session(s). Sessions with existing PRs or uncommitted changes will be skipped.", s.SessionCount)
+		confirmMsg = fmt.Sprintf("Create PRs for %d session(s). Sessions with existing PRs or that are already merged will be skipped.", s.SessionCount)
 	}
 	if confirmMsg != "" {
 		confirmStyle := lipgloss.NewStyle().
