@@ -1062,3 +1062,105 @@ func TestSidebar_MultiSelect_ExitClearsMode(t *testing.T) {
 		t.Error("checkboxes should not be visible after exiting multi-select mode")
 	}
 }
+
+// =============================================================================
+// Search mode tests
+// =============================================================================
+
+func TestSidebar_SelectSession_SearchMode(t *testing.T) {
+	sidebar := NewSidebar()
+
+	sessions := []config.Session{
+		{ID: "session-1", RepoPath: "/repo", Branch: "b1", Name: "apple"},
+		{ID: "session-2", RepoPath: "/repo", Branch: "b2", Name: "banana"},
+		{ID: "session-3", RepoPath: "/repo", Branch: "b3", Name: "cherry"},
+		{ID: "session-4", RepoPath: "/repo", Branch: "b4", Name: "apricot"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Enable search mode and filter for "ap" (should match "apple" and "apricot")
+	sidebar.searchMode = true
+	sidebar.searchInput.SetValue("ap")
+	sidebar.filteredSessions = []config.Session{
+		sessions[0], // apple
+		sessions[3], // apricot
+	}
+
+	// Select "apricot" (session-4)
+	sidebar.SelectSession("session-4")
+
+	// In filtered view, apricot should be at index 1
+	// Without the fix, this would incorrectly use index 3 from the full list
+	if sidebar.selectedIdx != 1 {
+		t.Errorf("Expected selectedIdx 1 in filtered view, got %d", sidebar.selectedIdx)
+	}
+
+	// Verify SelectedSession returns the correct session
+	selected := sidebar.SelectedSession()
+	if selected == nil {
+		t.Fatal("SelectedSession should not be nil")
+	}
+	if selected.ID != "session-4" {
+		t.Errorf("Expected selected session-4, got %s", selected.ID)
+	}
+}
+
+func TestSidebar_SelectSession_SearchMode_NotInFilteredList(t *testing.T) {
+	sidebar := NewSidebar()
+
+	sessions := []config.Session{
+		{ID: "session-1", RepoPath: "/repo", Branch: "b1", Name: "apple"},
+		{ID: "session-2", RepoPath: "/repo", Branch: "b2", Name: "banana"},
+		{ID: "session-3", RepoPath: "/repo", Branch: "b3", Name: "cherry"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Set initial selection to session-1
+	sidebar.selectedIdx = 0
+
+	// Enable search mode and filter for "ban" (should match only "banana")
+	sidebar.searchMode = true
+	sidebar.searchInput.SetValue("ban")
+	sidebar.filteredSessions = []config.Session{
+		sessions[1], // banana
+	}
+
+	// Try to select "cherry" which is not in the filtered list
+	sidebar.SelectSession("session-3")
+
+	// Selection should not change (should remain 0)
+	if sidebar.selectedIdx != 0 {
+		t.Errorf("Selection should not change when session not in filtered list, got %d", sidebar.selectedIdx)
+	}
+}
+
+func TestSidebar_SelectSession_NormalMode(t *testing.T) {
+	sidebar := NewSidebar()
+
+	sessions := []config.Session{
+		{ID: "session-1", RepoPath: "/repo", Branch: "b1", Name: "apple"},
+		{ID: "session-2", RepoPath: "/repo", Branch: "b2", Name: "banana"},
+		{ID: "session-3", RepoPath: "/repo", Branch: "b3", Name: "cherry"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Search mode is off (normal mode)
+	sidebar.searchMode = false
+
+	// Select session-2
+	sidebar.SelectSession("session-2")
+
+	// Should use index from full list
+	if sidebar.selectedIdx != 1 {
+		t.Errorf("Expected selectedIdx 1, got %d", sidebar.selectedIdx)
+	}
+
+	// Verify SelectedSession returns the correct session
+	selected := sidebar.SelectedSession()
+	if selected == nil {
+		t.Fatal("SelectedSession should not be nil")
+	}
+	if selected.ID != "session-2" {
+		t.Errorf("Expected selected session-2, got %s", selected.ID)
+	}
+}
