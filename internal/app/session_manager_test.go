@@ -740,8 +740,10 @@ func TestCopyClaudeSessionForFork_NoSessionFileCopyFallback(t *testing.T) {
 	}
 }
 
-func TestCopyClaudeSessionForFork_CleansUpOnCopyError(t *testing.T) {
-	// Test that partial destination file is cleaned up when io.Copy fails
+func TestCopyClaudeSessionForFork_CleansUpOnFailure(t *testing.T) {
+	// Test that partial destination file is cleaned up when copy fails
+	// We test this by making the destination directory read-only after creating it,
+	// which will cause os.Create to fail
 	tempDir := t.TempDir()
 	parentWorktree := filepath.Join(tempDir, "parent-worktree")
 	childWorktree := filepath.Join(tempDir, "child-worktree")
@@ -767,8 +769,7 @@ func TestCopyClaudeSessionForFork_CleansUpOnCopyError(t *testing.T) {
 		t.Fatalf("Failed to create test session file: %v", err)
 	}
 
-	// Make the child project directory read-only to force an error during file creation
-	// This will cause the copy to fail
+	// Make the child project directory read-only to force an error
 	os.MkdirAll(childProjectDir, 0500) // Read + execute only, no write
 	defer os.Chmod(childProjectDir, 0700) // Restore permissions for cleanup
 
@@ -777,17 +778,21 @@ func TestCopyClaudeSessionForFork_CleansUpOnCopyError(t *testing.T) {
 		t.Error("Expected error when destination directory is read-only")
 	}
 
-	// Verify no partial file was left behind (or it was cleaned up)
+	// Verify no partial file was left behind
 	copiedFile := filepath.Join(childProjectDir, "test-session.jsonl")
 	if _, err := os.Stat(copiedFile); err == nil {
 		t.Error("Expected partial file to be cleaned up on error")
 	}
 }
 
-func TestCopyClaudeSessionForFork_HandlesDiskFull(t *testing.T) {
-	// Test that we properly handle errors when Close() fails (e.g., disk full)
-	// This is harder to test without mocking the filesystem, but we can at least
-	// verify the function's structure handles the Close() error path
+func TestCopyClaudeSessionForFork_SuccessPath(t *testing.T) {
+	// Test the happy path: successful copy with proper content integrity
+	// This verifies that the refactored error handling doesn't break the normal case
+	//
+	// Note: Testing Close() errors specifically requires filesystem mocking infrastructure
+	// that doesn't exist in this codebase. The fix ensures Close() errors are caught and
+	// partial files are cleaned up, but we can't easily simulate disk-full scenarios in tests.
+	// The code review verified the logic is correct by inspection.
 
 	tempDir := t.TempDir()
 	parentWorktree := filepath.Join(tempDir, "parent-worktree")
@@ -815,7 +820,7 @@ func TestCopyClaudeSessionForFork_HandlesDiskFull(t *testing.T) {
 		t.Fatalf("Failed to create test session file: %v", err)
 	}
 
-	// Under normal conditions, the copy should succeed
+	// Copy should succeed
 	err := copyClaudeSessionForFork("test-session", parentWorktree, childWorktree)
 	if err != nil {
 		t.Fatalf("Expected successful copy, got error: %v", err)
