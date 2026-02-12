@@ -45,6 +45,9 @@ type MockRunner struct {
 	OnQuestionResp     func(resp mcp.QuestionResponse)
 	OnPlanApprovalResp func(resp mcp.PlanApprovalResponse)
 
+	// Fork tracking
+	forkFromSessionID string
+
 	stopped bool
 }
 
@@ -253,9 +256,18 @@ func (m *MockRunner) SetMCPServers(servers []MCPServer) {
 }
 
 // SetForkFromSession implements RunnerInterface.
-// In mock, this is a no-op since we don't spawn real processes.
+// In mock, this stores the parent session ID for test verification.
 func (m *MockRunner) SetForkFromSession(parentSessionID string) {
-	// No-op for mock
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.forkFromSessionID = parentSessionID
+}
+
+// GetForkFromSessionID returns the parent session ID if set (for testing).
+func (m *MockRunner) GetForkFromSessionID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.forkFromSessionID
 }
 
 // SetContainerized implements RunnerInterface.
