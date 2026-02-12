@@ -16,6 +16,10 @@ import (
 // the child session properly inherits the parent's conversation context in Claude, not just
 // the UI message history.
 func TestForkSessionInheritsContext(t *testing.T) {
+	// Set up a temporary home directory to avoid polluting ~/.plural/ during tests
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
 	// Create test config and repo
 	cfg := &config.Config{
 		Repos:    []string{},

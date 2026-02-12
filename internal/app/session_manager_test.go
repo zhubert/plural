@@ -693,51 +693,110 @@ func TestCopyClaudeSessionForFork_SourceNotFound(t *testing.T) {
 }
 
 func TestCopyClaudeSessionForFork_NoSessionFileCopyFallback(t *testing.T) {
-	// Test that when Claude session file copy fails, we gracefully fall back to starting fresh
-	// This tests the integration in getOrCreateRunner
+	// Test that when Claude session file copy fails, we create a synthetic session
+	// if there are saved messages, or fall back to starting fresh if there are no messages.
 
-	// Use paths that won't have any Claude session files
-	cfg := &config.Config{
-		Repos: []string{"/test/repo"},
-		Sessions: []config.Session{
-			{
-				ID:       "parent-session",
-				RepoPath: "/test/repo",
-				WorkTree: "/nonexistent/parent/worktree",
-				Branch:   "plural-parent",
-				Name:     "repo/parent",
-				Started:  true,
-			},
-			{
-				ID:       "child-session",
-				RepoPath: "/test/repo",
-				WorkTree: "/nonexistent/child/worktree",
-				Branch:   "plural-child",
-				Name:     "repo/child",
-				Started:  false,
-				ParentID: "parent-session",
-			},
-		},
-	}
-	sm := NewSessionManager(cfg, git.NewGitService())
+	// Set up a temporary home directory to avoid polluting ~/.claude/ during tests
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
 
-	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
-		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+	// Test case 1: No saved messages - should NOT call SetForkFromSession
+	t.Run("no_messages", func(t *testing.T) {
+		cfg := &config.Config{
+			Repos: []string{"/test/repo"},
+			Sessions: []config.Session{
+				{
+					ID:       "parent-session-1",
+					RepoPath: "/test/repo",
+					WorkTree: "/nonexistent/parent/worktree",
+					Branch:   "plural-parent",
+					Name:     "repo/parent",
+					Started:  true,
+				},
+				{
+					ID:       "child-session-1",
+					RepoPath: "/test/repo",
+					WorkTree: "/nonexistent/child/worktree",
+					Branch:   "plural-child",
+					Name:     "repo/child",
+					Started:  false,
+					ParentID: "parent-session-1",
+				},
+			},
+		}
+		sm := NewSessionManager(cfg, git.NewGitService())
+
+		sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+			return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+		})
+
+		childSess := sm.GetSession("child-session-1")
+		result := sm.Select(childSess, "", "", "")
+
+		trackingRunner, ok := result.Runner.(*trackingMockRunner)
+		if !ok {
+			t.Fatal("Expected trackingMockRunner")
+		}
+
+		// SetForkFromSession should NOT have been called because there are no messages
+		if trackingRunner.forkFromSessionID != "" {
+			t.Errorf("Expected SetForkFromSession NOT called when no messages exist, got %q", trackingRunner.forkFromSessionID)
+		}
 	})
 
-	childSess := sm.GetSession("child-session")
-	result := sm.Select(childSess, "", "", "")
+	// Test case 2: Has saved messages - SHOULD call SetForkFromSession with synthetic session
+	t.Run("with_messages", func(t *testing.T) {
+		cfg := &config.Config{
+			Repos: []string{"/test/repo"},
+			Sessions: []config.Session{
+				{
+					ID:       "parent-session-2",
+					RepoPath: "/test/repo",
+					WorkTree: "/nonexistent/parent/worktree2",
+					Branch:   "plural-parent",
+					Name:     "repo/parent",
+					Started:  true,
+				},
+				{
+					ID:       "child-session-2",
+					RepoPath: "/test/repo",
+					WorkTree: "/nonexistent/child/worktree2",
+					Branch:   "plural-child",
+					Name:     "repo/child",
+					Started:  false,
+					ParentID: "parent-session-2",
+				},
+			},
+		}
 
-	trackingRunner, ok := result.Runner.(*trackingMockRunner)
-	if !ok {
-		t.Fatal("Expected trackingMockRunner")
-	}
+		// Save some messages for the parent session
+		parentMsgs := []config.Message{
+			{Role: "user", Content: "Test message 1"},
+			{Role: "assistant", Content: "Test response 1"},
+		}
+		if err := config.SaveSessionMessages("parent-session-2", parentMsgs, config.MaxSessionMessageLines); err != nil {
+			t.Fatalf("Failed to save parent messages: %v", err)
+		}
 
-	// SetForkFromSession should NOT have been called because the copy failed
-	// This is the graceful fallback - session starts fresh instead of erroring
-	if trackingRunner.forkFromSessionID != "" {
-		t.Errorf("Expected SetForkFromSession NOT called when session file copy fails, got %q", trackingRunner.forkFromSessionID)
-	}
+		sm := NewSessionManager(cfg, git.NewGitService())
+
+		sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+			return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
+		})
+
+		childSess := sm.GetSession("child-session-2")
+		result := sm.Select(childSess, "", "", "")
+
+		trackingRunner, ok := result.Runner.(*trackingMockRunner)
+		if !ok {
+			t.Fatal("Expected trackingMockRunner")
+		}
+
+		// SetForkFromSession SHOULD have been called because we created a synthetic session
+		if trackingRunner.forkFromSessionID != "parent-session-2" {
+			t.Errorf("Expected SetForkFromSession called with 'parent-session-2' (synthetic session), got %q", trackingRunner.forkFromSessionID)
+		}
+	})
 }
 
 func TestCopyClaudeSessionForFork_CleansUpOnFailure(t *testing.T) {

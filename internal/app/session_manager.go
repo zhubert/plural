@@ -492,13 +492,7 @@ func createSyntheticClaudeSessionFile(parentSessionID, childWorktree string, mes
 		return err
 	}
 
-	// Claude escapes paths by replacing "/" and "." with "-"
-	escapePath := func(path string) string {
-		escaped := strings.ReplaceAll(path, "/", "-")
-		return strings.ReplaceAll(escaped, ".", "-")
-	}
-
-	childEscaped := escapePath(childWorktree)
+	childEscaped := escapeClaudePath(childWorktree)
 	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects")
 	childProjectDir := filepath.Join(claudeProjectsDir, childEscaped)
 	dstFile := filepath.Join(childProjectDir, parentSessionID+".jsonl")
@@ -558,6 +552,13 @@ func createSyntheticClaudeSessionFile(parentSessionID, childWorktree string, mes
 	return nil
 }
 
+// escapeClaudePath escapes a filesystem path for use in Claude's project directory structure.
+// Claude CLI replaces "/" and "." with "-" when creating project directories.
+func escapeClaudePath(path string) string {
+	escaped := strings.ReplaceAll(path, "/", "-")
+	return strings.ReplaceAll(escaped, ".", "-")
+}
+
 // copyClaudeSessionForFork copies Claude's session JSONL file from the parent's
 // project directory to the child's project directory so that --fork-session works.
 // Claude CLI stores sessions in ~/.claude/projects/<escaped-path>/<session-id>.jsonl
@@ -569,14 +570,8 @@ func copyClaudeSessionForFork(parentSessionID, parentWorktree, childWorktree str
 		return err
 	}
 
-	// Claude escapes paths by replacing "/" and "." with "-"
-	escapePath := func(path string) string {
-		escaped := strings.ReplaceAll(path, "/", "-")
-		return strings.ReplaceAll(escaped, ".", "-")
-	}
-
-	parentEscaped := escapePath(parentWorktree)
-	childEscaped := escapePath(childWorktree)
+	parentEscaped := escapeClaudePath(parentWorktree)
+	childEscaped := escapeClaudePath(childWorktree)
 
 	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects")
 	parentProjectDir := filepath.Join(claudeProjectsDir, parentEscaped)
