@@ -251,13 +251,6 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSidebar: true,
 		Handler:         shortcutQuit,
 	},
-	{
-		Key:         keys.CtrlD,
-		DisplayKey:  "ctrl-d",
-		Description: "Quit application",
-		Category:    CategoryGeneral,
-		Handler:     shortcutQuit,
-	},
 }
 
 // helpShortcut is defined separately to avoid initialization cycle.
@@ -275,6 +268,7 @@ var DisplayOnlyShortcuts = []Shortcut{
 	// Navigation (display-only)
 	{DisplayKey: "↑/↓ or j/k", Description: "Navigate session list", Category: CategoryNavigation},
 	{DisplayKey: "PgUp/PgDn", Description: "Scroll chat or session list", Category: CategoryNavigation},
+	{DisplayKey: "ctrl-u/ctrl-d", Description: "Scroll half page up/down", Category: CategoryNavigation},
 	{DisplayKey: "Enter", Description: "Select session / Send message", Category: CategoryNavigation},
 	{DisplayKey: "Esc", Description: "Cancel search / Stop streaming", Category: CategoryNavigation},
 
