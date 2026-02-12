@@ -549,7 +549,7 @@ func renderMarkdown(content string, width int) string {
 		inTable = false
 	}
 
-	for i, line := range lines {
+	for _, line := range lines {
 		// Check for code block start/end
 		if strings.HasPrefix(line, "```") {
 			// If we were in a table, flush it first
@@ -611,15 +611,6 @@ func renderMarkdown(content string, width int) string {
 		// If we were in a table but this line isn't a table row, flush the table
 		if inTable {
 			flushTable()
-		}
-
-		// Check if next line might be a table separator (lookahead for header detection)
-		// This handles the case where we see a row that looks like a table row
-		// but we haven't entered table mode yet
-		if i+1 < len(lines) && isTableRow(line) && isTableSeparator(lines[i+1]) {
-			inTable = true
-			tableRows = [][]string{parseTableRow(line)}
-			continue
 		}
 
 		// Render markdown line with wrapping
