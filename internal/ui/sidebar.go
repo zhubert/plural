@@ -301,20 +301,16 @@ func (s *Sidebar) SelectedSession() *config.Session {
 
 // SelectSession selects a session by ID
 func (s *Sidebar) SelectSession(id string) {
-	// Use index for O(1) lookup if available
-	if s.sessionIndex != nil {
-		if idx, ok := s.sessionIndex[id]; ok {
-			s.selectedIdx = idx
-			return
-		}
-	}
-	// Fallback to linear search
-	for i, sess := range s.sessions {
+	displaySessions := s.getDisplaySessions()
+
+	// Search in the appropriate list (filtered or full)
+	for i, sess := range displaySessions {
 		if sess.ID == id {
 			s.selectedIdx = i
 			return
 		}
 	}
+	// Session not found - don't change selection
 }
 
 // SetStreaming sets the streaming state for a session
