@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -3233,19 +3234,25 @@ func TestSendContent_ProcessStartFailure_ChannelCleanup(t *testing.T) {
 	ch := runner.SendContent(ctx, TextContent("test prompt"))
 
 	// Drain all chunks — should get an error chunk then channel closes
-	var gotError bool
+	var errMsg string
 	var gotDone bool
 	for chunk := range ch {
 		if chunk.Error != nil {
-			gotError = true
+			errMsg = chunk.Error.Error()
 		}
 		if chunk.Done {
 			gotDone = true
 		}
 	}
 
-	if !gotError {
-		t.Error("Expected at least one chunk with an error from process start failure")
+	if errMsg == "" {
+		t.Fatal("Expected at least one chunk with an error from process start failure")
+	}
+	// Verify the error comes from ensureProcessRunning (not ensureServerRunning).
+	// ensureServerRunning uses pure Go (socket server + file write) so PATH="" won't
+	// affect it. The process manager fails because "claude" can't be found in PATH.
+	if !strings.Contains(errMsg, "failed to start process") && !strings.Contains(errMsg, "executable file not found") {
+		t.Errorf("Expected process start error, got: %s", errMsg)
 	}
 	if !gotDone {
 		t.Error("Expected at least one chunk with Done=true")
