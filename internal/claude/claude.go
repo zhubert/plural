@@ -619,17 +619,23 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 
 // handleProcessLine processes a line of output from the Claude process.
 func (r *Runner) handleProcessLine(line string) {
+	// Snapshot streamLogFile under the lock to avoid racing with Stop(),
+	// which sets r.streamLogFile to nil after closing the file.
+	r.mu.RLock()
+	logFile := r.streamLogFile
+	r.mu.RUnlock()
+
 	// Write raw message to dedicated stream log file (pretty-printed JSON)
-	if r.streamLogFile != nil {
+	if logFile != nil {
 		var prettyJSON map[string]any
 		if err := json.Unmarshal([]byte(line), &prettyJSON); err == nil {
 			if formatted, err := json.MarshalIndent(prettyJSON, "", "  "); err == nil {
-				fmt.Fprintf(r.streamLogFile, "%s\n", formatted)
+				fmt.Fprintf(logFile, "%s\n", formatted)
 			} else {
-				fmt.Fprintf(r.streamLogFile, "%s\n", line)
+				fmt.Fprintf(logFile, "%s\n", line)
 			}
 		} else {
-			fmt.Fprintf(r.streamLogFile, "%s\n", line)
+			fmt.Fprintf(logFile, "%s\n", line)
 		}
 	}
 
