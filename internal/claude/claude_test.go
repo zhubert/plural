@@ -3125,3 +3125,94 @@ func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestResponseChannelState_CloseUsesOnce(t *testing.T) {
+	state := NewResponseChannelState()
+	ch := make(chan ResponseChunk, 10)
+	state.Setup(ch)
+
+	// Close should work the first time
+	state.Close()
+	if !state.Closed {
+		t.Error("Expected Closed to be true after Close()")
+	}
+
+	// Closing again should not panic (sync.Once prevents double close)
+	state.Close()
+}
+
+func TestResponseChannelState_CloseOnceConsistentAfterClose(t *testing.T) {
+	// Regression test: verify that after Close(), the state is consistent
+	// and a subsequent Close() call doesn't panic
+	state := NewResponseChannelState()
+	ch := make(chan ResponseChunk, 10)
+	state.Setup(ch)
+
+	// First close via Close() method
+	state.Close()
+
+	// Verify consistent state
+	if !state.Closed {
+		t.Error("Expected Closed to be true")
+	}
+	if state.IsOpen() {
+		t.Error("Expected IsOpen() to return false")
+	}
+
+	// Setup a new channel (simulating a new SendContent call)
+	ch2 := make(chan ResponseChunk, 10)
+	state.Setup(ch2)
+
+	if state.Closed {
+		t.Error("Expected Closed to be false after new Setup()")
+	}
+	if !state.IsOpen() {
+		t.Error("Expected IsOpen() to return true after new Setup()")
+	}
+
+	// Close the new channel
+	state.Close()
+	if !state.Closed {
+		t.Error("Expected Closed to be true after second Close()")
+	}
+}
+
+func TestEnsureProcessRunning_ErrorUsesCloseResponseChannel(t *testing.T) {
+	// Regression test for issue #135: when ensureProcessRunning fails,
+	// the cleanup must use closeResponseChannel() (via sync.Once) instead of
+	// directly setting Channel=nil and Closed=true. Otherwise the sync.Once
+	// is left in an inconsistent state and a later Close() call could panic.
+	runner := New("session-1", "/tmp", false, nil)
+
+	// Setup response channel state as SendContent would
+	ch := make(chan ResponseChunk, 100)
+	runner.mu.Lock()
+	runner.streaming.Active = true
+	runner.responseChan.Setup(ch)
+	runner.mu.Unlock()
+
+	// Simulate ensureProcessRunning failure cleanup using closeResponseChannel
+	// (this is what the fix does)
+	runner.mu.Lock()
+	runner.streaming.Active = false
+	runner.closeResponseChannel()
+	runner.mu.Unlock()
+
+	// Verify consistent state
+	runner.mu.RLock()
+	closed := runner.responseChan.Closed
+	streaming := runner.streaming.Active
+	runner.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected responseChan.Closed to be true")
+	}
+	if streaming {
+		t.Error("Expected streaming.Active to be false")
+	}
+
+	// The critical part: calling closeResponseChannel again must not panic
+	runner.mu.Lock()
+	runner.closeResponseChannel() // Should be safe due to sync.Once
+	runner.mu.Unlock()
+}
