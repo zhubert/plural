@@ -265,3 +265,39 @@ func TestCopySelectedText_NoSelection(t *testing.T) {
 		t.Error("expected nil cmd when no selection")
 	}
 }
+
+// =============================================================================
+// Regression: negative EndLine causing index out of range panic
+// =============================================================================
+
+func TestGetSelectedText_NegativeEndLine_NoPanic(t *testing.T) {
+	c := newTestChat()
+	// Simulate: valid start position but negative end position
+	// This can happen when dragging onto the panel border (mouse Y=0, adjusted to -1)
+	c.selection.StartCol = 5
+	c.selection.StartLine = 0
+	c.selection.EndCol = 0
+	c.selection.EndLine = -1
+
+	// HasTextSelection returns true because StartCol >= 0 && StartLine >= 0
+	// and (EndCol != StartCol || EndLine != StartLine)
+	if !c.HasTextSelection() {
+		t.Fatal("expected HasTextSelection=true for this edge case")
+	}
+
+	// This should not panic (previously caused: index out of range [-1])
+	text := c.GetSelectedText()
+	_ = text
+}
+
+func TestSelectionView_NegativeEndLine_NoPanic(t *testing.T) {
+	c := newTestChat()
+	c.selection.StartCol = 5
+	c.selection.StartLine = 0
+	c.selection.EndCol = 0
+	c.selection.EndLine = -1
+
+	// Should not panic when rendering selection with negative coordinates
+	view := c.selectionView("hello\nworld\n")
+	_ = view
+}

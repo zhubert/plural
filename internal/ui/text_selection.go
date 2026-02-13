@@ -291,6 +291,18 @@ func (c *Chat) GetSelectedText() string {
 
 	startCol, startLine, endCol, endLine := c.selectionArea()
 
+	// Clamp line coordinates to valid range
+	if startLine < 0 {
+		startLine = 0
+		startCol = 0
+	}
+	if endLine < 0 {
+		return ""
+	}
+	if endLine >= len(lines) {
+		endLine = len(lines) - 1
+	}
+
 	var result strings.Builder
 
 	for y := startLine; y <= endLine && y < len(lines); y++ {
@@ -379,6 +391,15 @@ func (c *Chat) selectionView(view string) string {
 
 	// Get normalized selection coordinates
 	startCol, startLine, endCol, endLine := c.selectionArea()
+
+	// Clamp to valid range
+	if startLine < 0 {
+		startLine = 0
+		startCol = 0
+	}
+	if endLine < 0 {
+		return view
+	}
 
 	// Get selection style colors - use flash style during copy animation
 	var selBg, selFg color.Color

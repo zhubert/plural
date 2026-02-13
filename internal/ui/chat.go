@@ -1457,9 +1457,9 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 
 	case tea.MouseMotionMsg:
 		if c.hasSession && c.selection.Active && msg.Button == tea.MouseLeft {
-			// Adjust coordinates for panel border
-			x := msg.X - 1
-			y := msg.Y - 1
+			// Adjust coordinates for panel border, clamping to 0
+			x := max(msg.X-1, 0)
+			y := max(msg.Y-1, 0)
 			c.EndSelection(x, y)
 		}
 		return c, nil
@@ -1468,9 +1468,9 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		// Note: Don't check msg.Button here - release events may not preserve the button that was released
 		// We rely on selection.Active which was set when we started selection with left click
 		if c.hasSession && c.selection.Active {
-			// Adjust coordinates for panel border
-			x := msg.X - 1
-			y := msg.Y - 1
+			// Adjust coordinates for panel border, clamping to 0
+			x := max(msg.X-1, 0)
+			y := max(msg.Y-1, 0)
 
 			// For drag selections, update the end position
 			if c.selection.Active {
