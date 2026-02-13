@@ -62,7 +62,7 @@ func (s *HelpState) Render() string {
 					Foreground(ColorTextInverse).
 					Background(ColorPrimary).
 					Bold(true).
-					Width(12).
+					Width(16).
 					Render(shortcut.Key)
 				desc = lipgloss.NewStyle().
 					Foreground(ColorTextInverse).
@@ -73,7 +73,7 @@ func (s *HelpState) Render() string {
 				key = lipgloss.NewStyle().
 					Foreground(ColorPrimary).
 					Bold(true).
-					Width(12).
+					Width(16).
 					Render(shortcut.Key)
 				desc = lipgloss.NewStyle().
 					Foreground(ColorText).
