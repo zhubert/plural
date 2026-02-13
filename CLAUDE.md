@@ -541,7 +541,7 @@ Sessions can optionally run Claude CLI inside Docker containers with `--dangerou
 - Wildcard `"*"` in `isToolAllowed()` matches any tool, but AskUserQuestion/ExitPlanMode are handled before the allowed check
 
 **Dockerfile** (repo root):
-- Multi-stage build: builder stage compiles plural from source, runtime stage uses `golang:1.25-alpine`
+- Multi-stage build: builder stage compiles plural and gopls from source, runtime stage uses `alpine`
 - Installs git, Claude CLI via npm, and builds plural binary at `/usr/local/bin/plural`
 - Supports multi-arch builds via `$TARGETOS`/`$TARGETARCH` build args
 - Build locally: `./scripts/build-container.sh` or `docker build -t ghcr.io/zhubert/plural-claude .`
