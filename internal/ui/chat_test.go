@@ -4517,6 +4517,35 @@ func TestPlanBoxWidthCapping(t *testing.T) {
 	}
 }
 
+// TestPlanBoxContentWrapsToBoxWidth verifies that plan content wraps
+// relative to the capped box width, not the full viewport width.
+// Regression test: previously content was wrapped to wrapWidth-OverlayBoxPadding
+// but the box was capped at PlanBoxMaxWidth, causing text to overflow the box.
+func TestPlanBoxContentWrapsToBoxWidth(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(300, 40) // Very wide terminal
+	chat.SetSession("test", nil)
+
+	// Use a long line that would fit within wrapWidth but not within PlanBoxMaxWidth
+	longLine := strings.Repeat("This is a long sentence that should be wrapped within the plan box width. ", 5)
+	chat.SetPendingPlanApproval("# Plan\n\n"+longLine, nil)
+
+	result := chat.renderPlanApprovalPrompt(250)
+	lines := strings.Split(result, "\n")
+
+	// The box border adds 2 chars (left + right). Content inside should not
+	// cause any line to exceed PlanBoxMaxWidth + border.
+	// PlanBoxMaxWidth is the lipgloss Width() which includes borders.
+	maxAllowed := PlanBoxMaxWidth + 2 // +2 for border characters
+	for i, line := range lines {
+		visualWidth := lipgloss.Width(line)
+		if visualWidth > maxAllowed {
+			t.Errorf("Plan box line %d has visual width %d, exceeds max allowed %d: %q",
+				i, visualWidth, maxAllowed, line)
+		}
+	}
+}
+
 // =============================================================================
 // Constants Consistency Tests
 // =============================================================================
