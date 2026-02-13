@@ -267,12 +267,16 @@ func wrapBodyText(body string, maxLen, maxLines int) []string {
 		isLastLine := len(lines) == maxLines-1
 		if isLastLine {
 			// Last allowed line: truncate with ellipsis
-			lines = append(lines, string(runes[:maxLen-3])+"...")
+			if maxLen <= 3 {
+				lines = append(lines, string(runes[:maxLen]))
+			} else {
+				lines = append(lines, string(runes[:maxLen-3])+"...")
+			}
 			break
 		}
 
-		// Find a word boundary to break at
-		breakAt := maxLen
+		// Find a word boundary to break at (scan backwards from last char that fits)
+		breakAt := maxLen - 1
 		for breakAt > 0 && runes[breakAt] != ' ' {
 			breakAt--
 		}
