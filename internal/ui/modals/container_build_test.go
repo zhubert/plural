@@ -24,8 +24,8 @@ func TestContainerCommandState_CLINotInstalled(t *testing.T) {
 			t.Errorf("Expected brew install command on macOS, got %q", s.GetCommand())
 		}
 	case "linux":
-		if s.GetCommand() != "curl -fsSL https://get.docker.com | sh" {
-			t.Errorf("Expected Docker install script on Linux, got %q", s.GetCommand())
+		if s.GetCommand() != "sudo apt-get install docker-ce docker-ce-cli containerd.io" {
+			t.Errorf("Expected Docker apt install command on Linux, got %q", s.GetCommand())
 		}
 	default:
 		if s.GetCommand() != "https://docs.docker.com/get-docker/" {
