@@ -3,7 +3,6 @@ package process
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -14,22 +13,22 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
-// ContainersSupported returns true if the host can run Apple containers (darwin/arm64).
+// ContainersSupported returns true if Docker is installed on the system.
 func ContainersSupported() bool {
-	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64"
+	return ContainerCLIInstalled()
 }
 
-// ContainerCLIInstalled returns true if the `container` CLI is on the PATH.
+// ContainerCLIInstalled returns true if the `docker` CLI is on the PATH.
 func ContainerCLIInstalled() bool {
-	_, err := exec.LookPath("container")
+	_, err := exec.LookPath("docker")
 	return err == nil
 }
 
 // containerCheckTimeout is the maximum time to wait for container CLI commands.
 const containerCheckTimeout = 5 * time.Second
 
-// ContainerSystemRunning returns true if the container system service is active.
-// Returns false if the CLI is not installed, the system is not running, or the
+// ContainerSystemRunning returns true if the Docker daemon is active.
+// Returns false if the CLI is not installed, the daemon is not running, or the
 // check times out (5s deadline to avoid blocking the UI).
 func ContainerSystemRunning() bool {
 	if !ContainerCLIInstalled() {
@@ -47,21 +46,21 @@ func ContainerImageExists(image string) bool {
 	return containerImageExists(image)
 }
 
-// containerSystemRunning checks if the container system is running.
+// containerSystemRunning checks if the Docker daemon is running.
 // Caller must verify CLI is installed first.
 func containerSystemRunning() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "container", "system", "status")
+	cmd := exec.CommandContext(ctx, "docker", "info")
 	return cmd.Run() == nil
 }
 
-// containerImageExists checks if a container image exists.
+// containerImageExists checks if a container image exists locally.
 // Caller must verify CLI is installed first.
 func containerImageExists(image string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), containerCheckTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "container", "image", "inspect", image)
+	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", image)
 	return cmd.Run() == nil
 }
 
@@ -258,27 +257,20 @@ type OrphanedContainer struct {
 	Name string // Container name (e.g., "plural-abc123")
 }
 
-// ListContainerNames returns a list of all container names using the Apple container CLI.
+// ListContainerNames returns a list of all container names using the Docker CLI.
+// Docker outputs NDJSON (one JSON object per line) with a "Names" field.
 func ListContainerNames() ([]string, error) {
-	cmd := exec.Command("container", "ls", "-a", "--format", "json")
+	cmd := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse JSON array of containers
-	var containers []map[string]interface{}
-	if err := json.Unmarshal(output, &containers); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON output: %w", err)
-	}
-
 	var names []string
-	for _, container := range containers {
-		// Extract ID from configuration.id field
-		if config, ok := container["configuration"].(map[string]interface{}); ok {
-			if id, ok := config["id"].(string); ok && id != "" {
-				names = append(names, id)
-			}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		name := strings.TrimSpace(line)
+		if name != "" {
+			names = append(names, name)
 		}
 	}
 
@@ -291,8 +283,8 @@ func FindOrphanedContainers(knownSessionIDs map[string]bool) ([]OrphanedContaine
 	log := logger.WithComponent("process")
 
 	// Check if container CLI is available
-	if _, err := exec.LookPath("container"); err != nil {
-		log.Debug("container CLI not found, skipping container orphan check")
+	if _, err := exec.LookPath("docker"); err != nil {
+		log.Debug("docker CLI not found, skipping container orphan check")
 		return nil, nil
 	}
 
@@ -333,7 +325,7 @@ func CleanupOrphanedContainers(knownSessionIDs map[string]bool) (int, error) {
 	removed := 0
 	for _, container := range orphans {
 		log.Info("removing orphaned container", "name", container.Name)
-		cmd := exec.Command("container", "rm", "-f", container.Name)
+		cmd := exec.Command("docker", "rm", "-f", container.Name)
 		if err := cmd.Run(); err != nil {
 			log.Error("failed to remove container", "name", container.Name, "error", err)
 			continue

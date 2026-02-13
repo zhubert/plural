@@ -29,7 +29,7 @@ type BroadcastState struct {
 	NameInput              textinput.Model  // Session name input (optional)
 	PromptInput            textarea.Model   // Multi-line prompt input
 	UseContainers          bool             // Whether to run sessions in containers
-	ContainersSupported    bool             // Whether the host supports Apple containers (darwin/arm64)
+	ContainersSupported    bool             // Whether Docker is available for container mode
 	ContainerAuthAvailable bool             // Whether API key credentials are available for container mode
 	Focus                  int              // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
 	ScrollOffset           int              // For scrolling the repo list

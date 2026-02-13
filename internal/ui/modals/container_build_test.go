@@ -12,38 +12,38 @@ import (
 func TestContainerCommandState_CLINotInstalled(t *testing.T) {
 	s := NewContainerCLINotInstalledState()
 
-	if s.Title() != "Container CLI Not Found" {
-		t.Errorf("Expected title 'Container CLI Not Found', got %q", s.Title())
+	if s.Title() != "Docker Not Found" {
+		t.Errorf("Expected title 'Docker Not Found', got %q", s.Title())
 	}
-	if s.GetCommand() != "brew install container" {
-		t.Errorf("Expected 'brew install container', got %q", s.GetCommand())
+	if s.GetCommand() != "https://docs.docker.com/get-docker/" {
+		t.Errorf("Expected Docker install URL, got %q", s.GetCommand())
 	}
 
 	rendered := s.Render()
-	if !strings.Contains(rendered, "brew install container") {
-		t.Error("Rendered output should contain the brew install command")
+	if !strings.Contains(rendered, "docs.docker.com") {
+		t.Error("Rendered output should contain Docker install URL")
 	}
-	if !strings.Contains(rendered, "container CLI is required") {
-		t.Error("Rendered output should explain that the CLI is required")
+	if !strings.Contains(rendered, "Docker is required") {
+		t.Error("Rendered output should explain that Docker is required")
 	}
 }
 
 func TestContainerCommandState_SystemNotRunning(t *testing.T) {
 	s := NewContainerSystemNotRunningState()
 
-	if s.Title() != "Container System Not Running" {
-		t.Errorf("Expected title 'Container System Not Running', got %q", s.Title())
+	if s.Title() != "Docker Not Running" {
+		t.Errorf("Expected title 'Docker Not Running', got %q", s.Title())
 	}
-	if s.GetCommand() != "container system start" {
-		t.Errorf("Expected 'container system start', got %q", s.GetCommand())
+	if s.GetCommand() != "sudo systemctl start docker" {
+		t.Errorf("Expected 'sudo systemctl start docker', got %q", s.GetCommand())
 	}
 
 	rendered := s.Render()
-	if !strings.Contains(rendered, "container system start") {
-		t.Error("Rendered output should contain the system start command")
+	if !strings.Contains(rendered, "sudo systemctl start docker") {
+		t.Error("Rendered output should contain the systemctl start command")
 	}
 	if !strings.Contains(rendered, "not running") {
-		t.Error("Rendered output should explain that the system is not running")
+		t.Error("Rendered output should explain that Docker is not running")
 	}
 }
 
@@ -81,57 +81,57 @@ func TestContainerCommandState_Render_ShowsCopiedMessage(t *testing.T) {
 // =============================================================================
 
 func TestContainerBuildState_Title(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
-	if s.Title() != "Container Image Not Built" {
-		t.Errorf("Expected title 'Container Image Not Built', got %q", s.Title())
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
+	if s.Title() != "Container Image Not Found" {
+		t.Errorf("Expected title 'Container Image Not Found', got %q", s.Title())
 	}
 }
 
-func TestContainerBuildState_GetBuildCommand(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
-	expected := "container build -t plural-claude ."
-	if cmd := s.GetBuildCommand(); cmd != expected {
-		t.Errorf("Expected build command %q, got %q", expected, cmd)
+func TestContainerBuildState_GetPullCommand(t *testing.T) {
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
+	expected := "docker pull ghcr.io/zhubert/plural-claude"
+	if cmd := s.GetPullCommand(); cmd != expected {
+		t.Errorf("Expected pull command %q, got %q", expected, cmd)
 	}
 }
 
-func TestContainerBuildState_GetBuildCommand_CustomImage(t *testing.T) {
+func TestContainerBuildState_GetPullCommand_CustomImage(t *testing.T) {
 	s := NewContainerBuildState("my-image")
-	expected := "container build -t my-image ."
-	if cmd := s.GetBuildCommand(); cmd != expected {
-		t.Errorf("Expected build command %q, got %q", expected, cmd)
+	expected := "docker pull my-image"
+	if cmd := s.GetPullCommand(); cmd != expected {
+		t.Errorf("Expected pull command %q, got %q", expected, cmd)
 	}
 }
 
-func TestContainerBuildState_Render_ShowsBuildCommand(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
+func TestContainerBuildState_Render_ShowsPullCommand(t *testing.T) {
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
 	rendered := s.Render()
 
-	if !strings.Contains(rendered, "container build -t plural-claude .") {
-		t.Error("Rendered output should contain the build command")
+	if !strings.Contains(rendered, "docker pull ghcr.io/zhubert/plural-claude") {
+		t.Error("Rendered output should contain the pull command")
 	}
 }
 
 func TestContainerBuildState_Render_DoesNotShowBrewInstall(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
 	rendered := s.Render()
 
-	if strings.Contains(rendered, "brew install container") {
-		t.Error("Simplified build modal should not contain brew install command")
+	if strings.Contains(rendered, "brew install") {
+		t.Error("Pull modal should not contain brew install command")
 	}
 }
 
 func TestContainerBuildState_Render_DoesNotShowSystemStart(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
 	rendered := s.Render()
 
-	if strings.Contains(rendered, "container system start") {
-		t.Error("Simplified build modal should not contain system start command")
+	if strings.Contains(rendered, "systemctl start") {
+		t.Error("Pull modal should not contain systemctl start command")
 	}
 }
 
 func TestContainerBuildState_Help_BeforeCopy(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
 	help := s.Help()
 
 	if !strings.Contains(help, "copy to clipboard") {
@@ -140,7 +140,7 @@ func TestContainerBuildState_Help_BeforeCopy(t *testing.T) {
 }
 
 func TestContainerBuildState_Help_AfterCopy(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
 	s.Copied = true
 	help := s.Help()
 
@@ -150,7 +150,7 @@ func TestContainerBuildState_Help_AfterCopy(t *testing.T) {
 }
 
 func TestContainerBuildState_Render_ShowsCopiedMessage(t *testing.T) {
-	s := NewContainerBuildState("plural-claude")
+	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
 	s.Copied = true
 	rendered := s.Render()
 
@@ -196,18 +196,18 @@ func TestValidateContainerImage(t *testing.T) {
 
 func TestNewContainerBuildState_SanitizesInvalidImage(t *testing.T) {
 	s := NewContainerBuildState("; rm -rf /")
-	if s.Image != "plural-claude" {
+	if s.Image != "ghcr.io/zhubert/plural-claude" {
 		t.Errorf("Invalid image name should be replaced with default, got %q", s.Image)
 	}
 }
 
-func TestGetBuildCommand_SanitizesInvalidImage(t *testing.T) {
+func TestGetPullCommand_SanitizesInvalidImage(t *testing.T) {
 	s := &ContainerBuildState{Image: "; rm -rf /"}
-	cmd := s.GetBuildCommand()
+	cmd := s.GetPullCommand()
 	if strings.Contains(cmd, "rm -rf") {
-		t.Error("GetBuildCommand should not include shell injection in output")
+		t.Error("GetPullCommand should not include shell injection in output")
 	}
-	if !strings.Contains(cmd, "plural-claude") {
-		t.Error("GetBuildCommand should fall back to default image for invalid names")
+	if !strings.Contains(cmd, "ghcr.io/zhubert/plural-claude") {
+		t.Error("GetPullCommand should fall back to default image for invalid names")
 	}
 }

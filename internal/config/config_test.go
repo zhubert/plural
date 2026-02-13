@@ -2045,9 +2045,9 @@ func TestConfig_ContainerImage(t *testing.T) {
 		Sessions: []Session{},
 	}
 
-	// Default should be "plural-claude"
-	if got := cfg.GetContainerImage(); got != "plural-claude" {
-		t.Errorf("GetContainerImage default = %q, want 'plural-claude'", got)
+	// Default should be "ghcr.io/zhubert/plural-claude"
+	if got := cfg.GetContainerImage(); got != "ghcr.io/zhubert/plural-claude" {
+		t.Errorf("GetContainerImage default = %q, want 'ghcr.io/zhubert/plural-claude'", got)
 	}
 
 	// Set custom image
@@ -2060,8 +2060,8 @@ func TestConfig_ContainerImage(t *testing.T) {
 	// Set empty string should revert to default
 	cfg.SetContainerImage("")
 
-	if got := cfg.GetContainerImage(); got != "plural-claude" {
-		t.Errorf("GetContainerImage after clearing = %q, want 'plural-claude'", got)
+	if got := cfg.GetContainerImage(); got != "ghcr.io/zhubert/plural-claude" {
+		t.Errorf("GetContainerImage after clearing = %q, want 'ghcr.io/zhubert/plural-claude'", got)
 	}
 }
 

@@ -867,16 +867,16 @@ func openTerminalInContainer(sess *config.Session) tea.Cmd {
 
 		switch runtime.GOOS {
 		case "darwin":
-			// macOS: use AppleScript to open Terminal.app with container exec command
-			// The container exec command will drop us into the /workspace directory
+			// macOS: use AppleScript to open Terminal.app with docker exec command
+			// The docker exec command will drop us into the /workspace directory
 			escapedContainer := strings.ReplaceAll(containerName, `\`, `\\`)
 			escapedContainer = strings.ReplaceAll(escapedContainer, `"`, `\"`)
 			script := fmt.Sprintf(`tell application "Terminal"
-	do script "container exec -it %s /bin/sh"
+	do script "docker exec -it %s /bin/sh"
 	activate
 end tell`, escapedContainer)
 			cmd := exec.Command("osascript", "-e", script)
-			log.Debug("running AppleScript to open Terminal with container exec")
+			log.Debug("running AppleScript to open Terminal with docker exec")
 
 			output, err := cmd.CombinedOutput()
 			if err != nil {
@@ -891,8 +891,8 @@ end tell`, escapedContainer)
 			return nil
 
 		case "linux":
-			// Linux: try common terminal emulators with container exec command
-			containerCmd := fmt.Sprintf("container exec -it %s /bin/sh", containerName)
+			// Linux: try common terminal emulators with docker exec command
+			containerCmd := fmt.Sprintf("docker exec -it %s /bin/sh", containerName)
 			terminals := []struct {
 				name string
 				args []string

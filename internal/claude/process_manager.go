@@ -22,7 +22,6 @@ import (
 var errChannelFull = fmt.Errorf("channel full")
 
 // containerMCPConfigPath is where the MCP config is mounted inside the container.
-// Must be short since Apple containers prepend /run/container/<name>/rootfs/ to paths.
 const containerMCPConfigPath = "/tmp/mcp.json"
 
 // readResult holds the result of a read operation for timeout handling.
@@ -73,7 +72,7 @@ type ProcessConfig struct {
 	MCPConfigPath     string
 	ForkFromSessionID string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
 	Containerized     bool   // When true, wraps Claude CLI in a container
-	ContainerImage    string // Container image name (e.g., "plural-claude")
+	ContainerImage    string // Container image name (e.g., "ghcr.io/zhubert/plural-claude")
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -303,8 +302,8 @@ func (pm *ProcessManager) Start() error {
 		} else {
 			pm.log.Warn("no auth credentials found for container")
 		}
-		pm.log.Debug("starting containerized process", "command", "container "+strings.Join(result.Args, " "))
-		cmd = exec.Command("container", result.Args...)
+		pm.log.Debug("starting containerized process", "command", "docker "+strings.Join(result.Args, " "))
+		cmd = exec.Command("docker", result.Args...)
 		// Don't set cmd.Dir — the container's -w flag handles the working directory
 	} else {
 		pm.log.Debug("starting process", "command", "claude "+strings.Join(args, " "))
@@ -342,7 +341,7 @@ func (pm *ProcessManager) Start() error {
 		stderr.Close()
 		pm.log.Error("failed to start process", "error", err)
 		if pm.config.Containerized {
-			return fmt.Errorf("failed to start container: %v (is the container system running?)", err)
+			return fmt.Errorf("failed to start container: %v (is Docker running?)", err)
 		}
 		return fmt.Errorf("failed to start process: %v", err)
 	}
@@ -433,7 +432,7 @@ func (pm *ProcessManager) Stop() {
 	if pm.config.Containerized {
 		containerName := "plural-" + pm.config.SessionID
 		pm.log.Debug("removing container", "name", containerName)
-		rmCmd := exec.Command("container", "rm", "-f", containerName)
+		rmCmd := exec.Command("docker", "rm", "-f", containerName)
 		if err := rmCmd.Run(); err != nil {
 			pm.log.Debug("container rm failed (may already be removed)", "error", err)
 		}
@@ -832,24 +831,25 @@ func (pm *ProcessManager) handleExit(err error) {
 
 // containerRunResult holds the result of building container run arguments.
 type containerRunResult struct {
-	Args       []string // Arguments for `container run`
+	Args       []string // Arguments for `docker run`
 	AuthSource string   // Credential source used (empty if none)
 }
 
-// buildContainerRunArgs constructs the arguments for `container run` that wraps
-// the Claude CLI process inside an Apple container.
+// buildContainerRunArgs constructs the arguments for `docker run` that wraps
+// the Claude CLI process inside a Docker container.
 func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerRunResult {
 	homeDir, _ := os.UserHomeDir()
 
 	containerName := "plural-" + config.SessionID
 	image := config.ContainerImage
 	if image == "" {
-		image = "plural-claude"
+		image = "ghcr.io/zhubert/plural-claude"
 	}
 
 	args := []string{
 		"run", "-i", "--rm",
 		"--name", containerName,
+		"--add-host", "host.docker.internal:host-gateway",
 		"-v", config.WorkingDir + ":/workspace",
 		"-v", homeDir + "/.claude:/home/claude/.claude-host:ro",
 		"-w", "/workspace",
@@ -867,7 +867,7 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerR
 
 	// Mount MCP config for AskUserQuestion/ExitPlanMode support.
 	// The MCP subprocess inside the container connects to the host via TCP
-	// (Unix sockets don't work across Apple's container boundary).
+	// (Unix sockets don't work across the Docker container boundary).
 	if config.MCPConfigPath != "" {
 		args = append(args, "-v", config.MCPConfigPath+":"+containerMCPConfigPath+":ro")
 	}
