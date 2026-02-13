@@ -250,10 +250,15 @@ func (s *BulkActionState) GetPrompt() string {
 func NewBulkActionState(sessionIDs []string, workspaces []config.Workspace) *BulkActionState {
 	promptInput := textarea.New()
 	promptInput.Placeholder = "Enter your prompt here..."
+	promptInput.CharLimit = 10000
 	promptInput.ShowLineNumbers = false
-	promptInput.SetWidth(60)
+	promptInput.SetWidth(ModalWidth - 6) // Account for padding/borders
 	promptInput.SetHeight(4)
+	promptInput.Prompt = "" // Remove default prompt to avoid double bar with focus border
 	// Don't focus immediately - focus when user navigates to Send Prompt action
+
+	// Apply transparent background styles
+	ApplyTextareaStyles(&promptInput)
 
 	return &BulkActionState{
 		SessionIDs:   sessionIDs,
