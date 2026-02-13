@@ -4,7 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
 )
 
 // stripANSI removes ANSI escape codes from a string for testing
@@ -284,6 +285,7 @@ func TestHeader_View_UnicodeSessionName(t *testing.T) {
 	header := NewHeader()
 	header.SetWidth(80)
 	// Session name with multi-byte Unicode characters (Japanese: "test")
+	// These are double-width in terminals (3 runes, 6 display columns)
 	header.SetSessionName("テスト")
 
 	view := stripANSI(header.View())
@@ -296,16 +298,17 @@ func TestHeader_View_UnicodeSessionName(t *testing.T) {
 		t.Errorf("Header should contain Unicode session name, got: %q", view)
 	}
 
-	// The rendered width in runes should match the header width
-	runeCount := utf8.RuneCountInString(view)
-	if runeCount != 80 {
-		t.Errorf("Header rune width should be 80, got %d", runeCount)
+	// Display width should match the header width (not rune count)
+	displayWidth := lipgloss.Width(view)
+	if displayWidth != 80 {
+		t.Errorf("Header display width should be 80, got %d", displayWidth)
 	}
 }
 
 func TestHeader_View_UnicodeSessionName_WithBaseBranch(t *testing.T) {
 	header := NewHeader()
 	header.SetWidth(80)
+	// 4 CJK chars = 8 display columns but only 4 runes
 	header.SetSessionName("功能分支")
 	header.SetBaseBranch("main")
 
@@ -319,15 +322,16 @@ func TestHeader_View_UnicodeSessionName_WithBaseBranch(t *testing.T) {
 		t.Errorf("Header should contain base branch, got: %q", view)
 	}
 
-	runeCount := utf8.RuneCountInString(view)
-	if runeCount != 80 {
-		t.Errorf("Header rune width should be 80, got %d", runeCount)
+	displayWidth := lipgloss.Width(view)
+	if displayWidth != 80 {
+		t.Errorf("Header display width should be 80, got %d", displayWidth)
 	}
 }
 
 func TestHeader_View_UnicodeWithDiffStats(t *testing.T) {
 	header := NewHeader()
 	header.SetWidth(120)
+	// 5 CJK chars = 10 display columns but only 5 runes
 	header.SetSessionName("ブランチ名")
 	header.SetDiffStats(&DiffStats{
 		FilesChanged: 2,
@@ -349,16 +353,16 @@ func TestHeader_View_UnicodeWithDiffStats(t *testing.T) {
 		t.Errorf("Header should contain deletions, got: %q", view)
 	}
 
-	runeCount := utf8.RuneCountInString(view)
-	if runeCount != 120 {
-		t.Errorf("Header rune width should be 120, got %d", runeCount)
+	displayWidth := lipgloss.Width(view)
+	if displayWidth != 120 {
+		t.Errorf("Header display width should be 120, got %d", displayWidth)
 	}
 }
 
 func TestHeader_View_MixedASCIIAndUnicode(t *testing.T) {
 	header := NewHeader()
 	header.SetWidth(100)
-	// Mix of ASCII and multi-byte characters
+	// Mix of ASCII and multi-byte characters (accented chars are single-width)
 	header.SetSessionName("feature-café-résumé")
 
 	view := stripANSI(header.View())
@@ -367,8 +371,8 @@ func TestHeader_View_MixedASCIIAndUnicode(t *testing.T) {
 		t.Errorf("Header should contain mixed session name, got: %q", view)
 	}
 
-	runeCount := utf8.RuneCountInString(view)
-	if runeCount != 100 {
-		t.Errorf("Header rune width should be 100, got %d", runeCount)
+	displayWidth := lipgloss.Width(view)
+	if displayWidth != 100 {
+		t.Errorf("Header display width should be 100, got %d", displayWidth)
 	}
 }
