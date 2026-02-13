@@ -10,9 +10,10 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
-// ContainerGatewayIP is the IP address of the host as seen from inside an Apple
-// container. This is the default gateway in the container's network namespace.
-const ContainerGatewayIP = "192.168.64.1"
+// ContainerGatewayIP is the hostname of the host as seen from inside a Docker
+// container. Docker Desktop provides this automatically; on Linux Docker Engine,
+// the --add-host flag maps it to the host gateway.
+const ContainerGatewayIP = "host.docker.internal"
 
 // MCPServer represents an external MCP server configuration
 type MCPServer struct {
@@ -25,8 +26,8 @@ type MCPServer struct {
 // This makes the MCP server persistent across multiple Send() calls within a session.
 //
 // For containerized sessions, the server listens on TCP instead of a Unix socket because
-// Unix sockets can't reliably cross the Apple container boundary. The MCP subprocess
-// inside the container connects back to the host via TCP using the container gateway IP.
+// Unix sockets can't reliably cross the Docker container boundary. The MCP subprocess
+// inside the container connects back to the host via TCP using host.docker.internal.
 func (r *Runner) ensureServerRunning() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -43,7 +44,7 @@ func (r *Runner) ensureServerRunning() error {
 
 	if r.containerized {
 		// Container sessions use TCP because Unix sockets don't work across
-		// Apple's container boundary (vsock proxy doesn't support client→host connections).
+		// the Docker container boundary.
 		socketServer, err = mcp.NewTCPSocketServer(r.sessionID,
 			r.mcp.PermissionReq, r.mcp.PermissionResp,
 			r.mcp.QuestionReq, r.mcp.QuestionResp,

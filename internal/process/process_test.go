@@ -1,8 +1,6 @@
 package process
 
 import (
-	"encoding/json"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -111,17 +109,11 @@ func TestFindClaudeProcesses(t *testing.T) {
 }
 
 func TestContainersSupported(t *testing.T) {
-	// ContainersSupported should return a boolean without panicking.
-	// On darwin/arm64 it returns true; on all other platforms it returns false.
-	result := ContainersSupported()
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
-		if !result {
-			t.Error("Expected ContainersSupported() to return true on darwin/arm64")
-		}
-	} else {
-		if result {
-			t.Error("Expected ContainersSupported() to return false on non-darwin/arm64")
-		}
+	// ContainersSupported delegates to ContainerCLIInstalled (docker).
+	// With PATH cleared, should return false.
+	t.Setenv("PATH", "/nonexistent")
+	if ContainersSupported() {
+		t.Error("Expected ContainersSupported() to return false when docker is not on PATH")
 	}
 }
 
@@ -129,7 +121,7 @@ func TestContainerCLIInstalled_NoPath(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 
 	if ContainerCLIInstalled() {
-		t.Error("Expected false when container CLI not on PATH")
+		t.Error("Expected false when docker CLI not on PATH")
 	}
 }
 
@@ -137,16 +129,16 @@ func TestContainerSystemRunning_NoCLI(t *testing.T) {
 	t.Setenv("PATH", "/nonexistent")
 
 	if ContainerSystemRunning() {
-		t.Error("Expected false when container CLI not installed")
+		t.Error("Expected false when docker CLI not installed")
 	}
 }
 
 func TestContainerImageExists_NoContainerCLI(t *testing.T) {
-	// With container CLI unavailable, should return false
+	// With docker CLI unavailable, should return false
 	t.Setenv("PATH", "/nonexistent")
 
-	if ContainerImageExists("plural-claude") {
-		t.Error("Expected false when container CLI not found")
+	if ContainerImageExists("ghcr.io/zhubert/plural-claude") {
+		t.Error("Expected false when docker CLI not found")
 	}
 }
 
@@ -248,86 +240,61 @@ func TestFindOrphanedContainers_NoContainerCLI(t *testing.T) {
 	}
 }
 
-func TestListContainerNamesJSON(t *testing.T) {
-	// NOTE: This test duplicates the JSON parsing logic from ListContainerNames
+func TestListContainerNamesParsing(t *testing.T) {
+	// NOTE: This test duplicates the line-based parsing logic from ListContainerNames
 	// rather than testing the function directly, because it depends on exec.Command.
+	// Docker outputs one container name per line with `docker ps -a --format {{.Names}}`.
 	tests := []struct {
-		name     string
-		json     string
-		wantIDs  []string
-		wantErr  bool
+		name      string
+		output    string
+		wantNames []string
 	}{
 		{
-			name: "single container",
-			json: `[{"configuration":{"id":"buildkit"}}]`,
-			wantIDs: []string{"buildkit"},
-			wantErr: false,
+			name:      "single container",
+			output:    "buildkit\n",
+			wantNames: []string{"buildkit"},
 		},
 		{
-			name: "multiple containers",
-			json: `[{"configuration":{"id":"plural-abc123"}},{"configuration":{"id":"plural-def456"}}]`,
-			wantIDs: []string{"plural-abc123", "plural-def456"},
-			wantErr: false,
+			name:      "multiple containers",
+			output:    "plural-abc123\nplural-def456\n",
+			wantNames: []string{"plural-abc123", "plural-def456"},
 		},
 		{
-			name: "mixed containers",
-			json: `[{"configuration":{"id":"buildkit"}},{"configuration":{"id":"plural-test"}}]`,
-			wantIDs: []string{"buildkit", "plural-test"},
-			wantErr: false,
+			name:      "mixed containers",
+			output:    "buildkit\nplural-test\n",
+			wantNames: []string{"buildkit", "plural-test"},
 		},
 		{
-			name: "empty array",
-			json: `[]`,
-			wantIDs: nil, // Consistent with actual implementation returning nil for empty
-			wantErr: false,
+			name:      "empty output",
+			output:    "",
+			wantNames: nil,
 		},
 		{
-			name: "missing id field",
-			json: `[{"configuration":{"other":"value"}}]`,
-			wantIDs: nil,
-			wantErr: false,
-		},
-		{
-			name: "invalid json",
-			json: `{invalid}`,
-			wantIDs: nil,
-			wantErr: true,
+			name:      "whitespace only",
+			output:    "  \n  \n",
+			wantNames: nil,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test the JSON parsing logic directly
-			var containers []map[string]interface{}
-			err := json.Unmarshal([]byte(tt.json), &containers)
-
-			if tt.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
+			// Replicate the parsing logic from ListContainerNames
+			var names []string
+			for _, line := range strings.Split(strings.TrimSpace(tt.output), "\n") {
+				name := strings.TrimSpace(line)
+				if name != "" {
+					names = append(names, name)
 				}
+			}
+
+			if len(names) != len(tt.wantNames) {
+				t.Errorf("Got %d names, want %d", len(names), len(tt.wantNames))
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-
-			var names []string
-			for _, container := range containers {
-				if config, ok := container["configuration"].(map[string]interface{}); ok {
-					if id, ok := config["id"].(string); ok && id != "" {
-						names = append(names, id)
-					}
-				}
-			}
-
-			if len(names) != len(tt.wantIDs) {
-				t.Errorf("Got %d names, want %d", len(names), len(tt.wantIDs))
-			}
-
-			for i, id := range names {
-				if i >= len(tt.wantIDs) || id != tt.wantIDs[i] {
-					t.Errorf("Name[%d] = %q, want %q", i, id, tt.wantIDs[i])
+			for i, name := range names {
+				if i >= len(tt.wantNames) || name != tt.wantNames[i] {
+					t.Errorf("Name[%d] = %q, want %q", i, name, tt.wantNames[i])
 				}
 			}
 		})

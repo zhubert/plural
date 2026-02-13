@@ -243,7 +243,7 @@ type SettingsState struct {
 
 	// Container image (only shown when ContainersSupported)
 	ContainerImageInput textinput.Model
-	ContainersSupported bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainersSupported bool // Whether Docker is available for container mode
 
 	AsanaPATSet          bool // Whether ASANA_PAT env var is set
 	Focus                int  // 0=theme, 1=branch prefix, 2=notifications, [3=container image if supported], then repo selector, asana
@@ -878,7 +878,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	prefixInput.SetValue(currentBranchPrefix)
 
 	containerImageInput := textinput.New()
-	containerImageInput.Placeholder = "plural-claude"
+	containerImageInput.Placeholder = "ghcr.io/zhubert/plural-claude"
 	containerImageInput.CharLimit = 100
 	containerImageInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
 	containerImageInput.SetValue(containerImage)

@@ -68,9 +68,7 @@ type SocketServer struct {
 // NewSocketServer creates a new socket server for the given session
 func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
 	// Use abbreviated session ID (first 12 chars) in the socket path to keep
-	// it short. Unix domain socket paths have a max of ~104 characters, and
-	// Apple containers proxy mounted sockets under a long rootfs path like
-	// /run/container/<name>/rootfs/..., which can exceed the limit with full UUIDs.
+	// it short. Unix domain socket paths have a max of ~104 characters.
 	// 12 hex chars gives ~2^48 combinations, making collisions negligible.
 	shortID := sessionID
 	if len(shortID) > 12 {
@@ -105,12 +103,12 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 // NewTCPSocketServer creates a socket server that listens on TCP instead of a
 // Unix socket. Used for container sessions where Unix sockets can't cross the
 // container boundary. Binds to 0.0.0.0 (all interfaces) because the container
-// connects via the host's gateway IP (192.168.64.1), not localhost.
+// connects via host.docker.internal, not localhost.
 func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
 	log := logger.WithSession(sessionID).With("component", "mcp-socket")
 
 	// Must bind to 0.0.0.0 (not 127.0.0.1) because the container connects via
-	// the host's gateway IP (192.168.64.1) on the virtual network interface.
+	// host.docker.internal which resolves to the host's IP on the Docker bridge.
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	if err != nil {
 		return nil, err

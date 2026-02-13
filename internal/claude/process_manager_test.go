@@ -1142,7 +1142,7 @@ func TestBuildContainerRunArgs(t *testing.T) {
 	config := ProcessConfig{
 		SessionID:      "test-session-123",
 		WorkingDir:     "/path/to/worktree",
-		ContainerImage: "plural-claude",
+		ContainerImage: "ghcr.io/zhubert/plural-claude",
 	}
 
 	claudeArgs := []string{"--print", "--session-id", "test-session-123", "--dangerously-skip-permissions"}
@@ -1159,6 +1159,14 @@ func TestBuildContainerRunArgs(t *testing.T) {
 	}
 	if !containsArg(args, "--rm") {
 		t.Error("Should have --rm flag for auto-cleanup")
+	}
+
+	// Verify --add-host for host.docker.internal
+	if !containsArg(args, "--add-host") {
+		t.Error("Should have --add-host flag for host.docker.internal")
+	}
+	if got := getArgValue(args, "--add-host"); got != "host.docker.internal:host-gateway" {
+		t.Errorf("--add-host = %q, want 'host.docker.internal:host-gateway'", got)
 	}
 
 	// Verify container name
@@ -1186,7 +1194,7 @@ func TestBuildContainerRunArgs(t *testing.T) {
 	// Verify image name appears before claude args (entrypoint handles running claude)
 	foundImage := false
 	for i, arg := range args {
-		if arg == "plural-claude" {
+		if arg == "ghcr.io/zhubert/plural-claude" {
 			// Next arg should be a claude flag (entrypoint invokes claude)
 			if i+1 < len(args) && args[i+1] == "--print" {
 				foundImage = true
@@ -1208,14 +1216,14 @@ func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
 	config := ProcessConfig{
 		SessionID:      "test-session",
 		WorkingDir:     "/tmp",
-		ContainerImage: "", // Empty should default to "plural-claude"
+		ContainerImage: "", // Empty should default to "ghcr.io/zhubert/plural-claude"
 	}
 
 	result := buildContainerRunArgs(config, []string{"--print"})
 
-	// Check that "plural-claude" is in the args (default image)
-	if !containsArg(result.Args, "plural-claude") {
-		t.Error("Empty ContainerImage should default to 'plural-claude'")
+	// Check that the default image is in the args
+	if !containsArg(result.Args, "ghcr.io/zhubert/plural-claude") {
+		t.Error("Empty ContainerImage should default to 'ghcr.io/zhubert/plural-claude'")
 	}
 }
 
@@ -1795,16 +1803,9 @@ func TestProcessManager_CleanupLocked_ClearsWaitDone(t *testing.T) {
 }
 
 func TestContainerSidePaths_ShortEnough(t *testing.T) {
-	// Apple containers prepend /run/container/<name>/rootfs/ to all mount paths.
-	// With a worst-case container name like "plural-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-	// (7 + 36 = 43 chars), the prefix is:
-	// /run/container/plural-<36-char-uuid>/rootfs/ = ~56 chars
 	// Verify the MCP config path is reasonable when mounted inside the container.
-	worstCasePrefix := "/run/container/plural-12345678-1234-1234-1234-123456789012/rootfs"
-	fullMCPPath := worstCasePrefix + containerMCPConfigPath
-	// MCP config path doesn't have the Unix socket ~104 char limit, but should still be reasonable
-	if len(fullMCPPath) > 200 {
-		t.Errorf("container MCP config path too long (%d chars): %s", len(fullMCPPath), fullMCPPath)
+	if len(containerMCPConfigPath) > 100 {
+		t.Errorf("container MCP config path too long (%d chars): %s", len(containerMCPConfigPath), containerMCPConfigPath)
 	}
 }
 

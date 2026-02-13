@@ -392,12 +392,12 @@ func (c *Config) HasAsanaProject(repoPath string) bool {
 
 
 
-// GetContainerImage returns the container image name, defaulting to "plural-claude"
+// GetContainerImage returns the container image name, defaulting to "ghcr.io/zhubert/plural-claude"
 func (c *Config) GetContainerImage() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if c.ContainerImage == "" {
-		return "plural-claude"
+		return "ghcr.io/zhubert/plural-claude"
 	}
 	return c.ContainerImage
 }

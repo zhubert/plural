@@ -1,3 +1,19 @@
+# Stage 1: Build the plural binary from source
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN apk add --no-cache git
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/plural .
+
+# Stage 2: Runtime image
 FROM golang:1.25-alpine
 
 # Install Node.js, npm, git, and su-exec (for user switching in entrypoint)
@@ -11,10 +27,8 @@ RUN apk add --no-cache \
 # Install Claude CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Copy pre-built plural binary for in-container MCP server.
-# Built on host by scripts/build-container.sh with:
-#   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o <tmpdir>/plural .
-COPY plural /usr/local/bin/plural
+# Copy plural binary from builder stage
+COPY --from=builder /out/plural /usr/local/bin/plural
 
 # Install gopls (Go language server) for code intelligence.
 RUN go install golang.org/x/tools/gopls@latest

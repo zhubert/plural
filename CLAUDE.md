@@ -494,14 +494,14 @@ Allows previewing a session's branch in the main repository so dev servers (puma
 - Only one preview can be active at a time across all sessions
 - Preview state persists across app restarts (stored in config)
 
-### Container Mode (Apple Containers)
+### Container Mode (Docker)
 
-Sessions can optionally run Claude CLI inside Apple containers with `--dangerously-skip-permissions`. The container IS the sandbox, so all regular tool permissions are auto-approved. However, interactive prompts (`AskUserQuestion`, `ExitPlanMode`) still route through the TUI via a lightweight MCP server running inside the container with `--auto-approve` (wildcard `"*"` allowed tools). The MCP socket server runs on the host and communicates with the in-container MCP subprocess via TCP (since Unix sockets can't cross the Apple container boundary).
+Sessions can optionally run Claude CLI inside Docker containers with `--dangerously-skip-permissions`. The container IS the sandbox, so all regular tool permissions are auto-approved. However, interactive prompts (`AskUserQuestion`, `ExitPlanMode`) still route through the TUI via a lightweight MCP server running inside the container with `--auto-approve` (wildcard `"*"` allowed tools). The MCP socket server runs on the host and communicates with the in-container MCP subprocess via TCP (since Unix sockets can't cross the Docker container boundary).
 
 **Authentication Requirement**: Container mode requires one of: `ANTHROPIC_API_KEY` (env var or macOS keychain `anthropic_api_key`), or `CLAUDE_CODE_OAUTH_TOKEN` (long-lived token from `claude setup-token`, ~1 year lifetime). The short-lived OAuth access token from the macOS keychain is NOT supported because it rotates every ~8-12 hours and would become invalid inside the container. The UI shows a warning when the container checkbox is checked without available credentials, and session creation is blocked.
 
 **Config** (`internal/config/config.go`):
-- `ContainerImage string`: Container image name (default: `"plural-claude"`)
+- `ContainerImage string`: Container image name (default: `"ghcr.io/zhubert/plural-claude"`)
 - `GetContainerImage`/`SetContainerImage`: Image name with default
 
 **Session** (`internal/config/session.go`):
@@ -511,10 +511,10 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 **ProcessManager** (`internal/claude/process_manager.go`):
 - `ProcessConfig.Containerized`/`ContainerImage`/`SocketPath`: Passed from Runner
 - `BuildCommandArgs()`: When containerized, uses `--dangerously-skip-permissions` plus `--mcp-config`/`--permission-prompt-tool` (when MCPConfigPath is set) for AskUserQuestion/ExitPlanMode routing
-- `Start()`: When containerized, checks `ContainerAuthAvailable()` first, then builds command as `container run -i --rm ...` wrapping `claude`
-- `Stop()`: Runs `container rm -f` as defense-in-depth cleanup
+- `Start()`: When containerized, checks `ContainerAuthAvailable()` first, then builds command as `docker run -i --rm ...` wrapping `claude`
+- `Stop()`: Runs `docker rm -f` as defense-in-depth cleanup
 - `ContainerAuthAvailable()`: Checks if credentials exist (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or keychain)
-- `buildContainerRunArgs()`: Constructs container run arguments with worktree mount, auth mount, socket mount, MCP config mount, working directory
+- `buildContainerRunArgs()`: Constructs `docker run` arguments with `--add-host host.docker.internal:host-gateway`, worktree mount, auth mount, MCP config mount, working directory
 - `writeContainerAuthFile()`: Writes credentials to temp file for container mount (API key, OAuth token, or keychain)
 
 **Runner** (`internal/claude/claude.go`):
@@ -524,13 +524,14 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - `Stop()`: Cleans up socket server and MCP config for all sessions
 
 **UI**:
-- New Session modal (`n`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
+- New Session modal (`n`): Container checkbox (focus index 3, when Docker is available), auth warning when no API key
 - Fork Session modal (`f`): Container checkbox (focus index 2, defaults to parent's state), auth warning when no API key
-- Broadcast modal (`Ctrl+B`): Container checkbox (focus index 3, only on Apple Silicon), auth warning when no API key
+- Broadcast modal (`Ctrl+B`): Container checkbox (focus index 3, when Docker is available), auth warning when no API key
 - Header: `[CONTAINER]` indicator in green when viewing a containerized session
 - Modal constructors accept `containerAuthAvailable bool` parameter for auth state
 
 **MCP Config** (`internal/claude/mcp_config.go`):
+- `ContainerGatewayIP`: `"host.docker.internal"` — hostname for reaching the host from inside Docker containers
 - `ensureServerRunning()`: Runs socket server on host for both container and non-container sessions
 - `createMCPConfigLocked()`: Host config pointing to current plural binary
 - `createContainerMCPConfigLocked()`: Container config pointing to `/usr/local/bin/plural` with `--auto-approve`
@@ -539,21 +540,27 @@ Sessions can optionally run Claude CLI inside Apple containers with `--dangerous
 - `--auto-approve` flag: When set, passes `[]string{"*"}` as allowedTools to auto-approve all regular permissions
 - Wildcard `"*"` in `isToolAllowed()` matches any tool, but AskUserQuestion/ExitPlanMode are handled before the allowed check
 
-**Containerfile** (repo root):
-- Builds `plural-claude` image using `golang:1.25-alpine` base
+**Dockerfile** (repo root):
+- Multi-stage build: builder stage compiles plural from source, runtime stage uses `golang:1.25-alpine`
 - Installs git, Claude CLI via npm, and builds plural binary at `/usr/local/bin/plural`
-- Build: `./scripts/build-container.sh` (cross-compiles plural binary, builds from clean temp dir)
+- Supports multi-arch builds via `$TARGETOS`/`$TARGETARCH` build args
+- Build locally: `./scripts/build-container.sh` or `docker build -t ghcr.io/zhubert/plural-claude .`
+- Pre-built images: `docker pull ghcr.io/zhubert/plural-claude`
+
+**GitHub Actions** (`.github/workflows/docker.yml`):
+- Triggers on version tags (`v*`)
+- Builds `linux/amd64,linux/arm64` and pushes to `ghcr.io/zhubert/plural-claude:{tag}` + `:latest`
 
 **Container orphan cleanup** (`internal/process/process.go`):
 - `OrphanedContainer` struct: `Name string` (e.g., `plural-abc123`)
-- `FindOrphanedContainers()`: Runs `container ls -a --format '{{.Names}}'`, filters `plural-*`, compares against known sessions
-- `CleanupOrphanedContainers()`: Calls find, then `container rm -f` for each orphan
-- Returns empty list (no error) if `container` CLI is not installed
+- `FindOrphanedContainers()`: Runs `docker ps -a --format '{{.Names}}'`, filters `plural-*`, compares against known sessions
+- `CleanupOrphanedContainers()`: Calls find, then `docker rm -f` for each orphan
+- Returns empty list (no error) if `docker` CLI is not installed
 - Integrated into `cmd/clean.go` as a 4th parallel cleanup goroutine
 
-**Platform gating** (`internal/process/process.go`):
-- `ContainersSupported()`: Returns true only on `darwin/arm64` (Apple Silicon)
-- New Session modal hides container checkbox on unsupported platforms
+**Platform support** (`internal/process/process.go`):
+- `ContainersSupported()`: Returns true when Docker is installed (all platforms)
+- New Session modal hides container checkbox when Docker is not installed
 - Warning displayed near checkbox: containers are defense in depth, not a complete security boundary
 
 **Known limitations (prototype)**:

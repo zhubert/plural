@@ -13,7 +13,7 @@ func TestCreateContainerMCPConfigLocked(t *testing.T) {
 	}
 
 	// Use a TCP address (what ensureServerRunning passes for container sessions)
-	tcpAddr := "192.168.64.1:12345"
+	tcpAddr := "host.docker.internal:12345"
 	configPath, err := r.createContainerMCPConfigLocked(tcpAddr)
 	if err != nil {
 		t.Fatalf("createContainerMCPConfigLocked() error = %v", err)
@@ -153,7 +153,7 @@ func TestCreateContainerMCPConfig_NoExternalServers(t *testing.T) {
 		},
 	}
 
-	tcpAddr := "192.168.64.1:54321"
+	tcpAddr := "host.docker.internal:54321"
 	configPath, err := r.createContainerMCPConfigLocked(tcpAddr)
 	if err != nil {
 		t.Fatalf("createContainerMCPConfigLocked() error = %v", err)

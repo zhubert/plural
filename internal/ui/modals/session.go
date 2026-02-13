@@ -27,7 +27,7 @@ type NewSessionState struct {
 	BaseIndex              int      // Selected base option index
 	BranchInput            textinput.Model
 	UseContainers          bool // Whether to run this session in a container
-	ContainersSupported    bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainersSupported    bool // Whether Docker is available for container mode
 	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
 	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported)
 }
@@ -319,7 +319,7 @@ type ForkSessionState struct {
 	BranchInput            textinput.Model
 	CopyMessages           bool // Whether to copy conversation history
 	UseContainers          bool // Whether to run this session in a container
-	ContainersSupported    bool // Whether the host supports Apple containers (darwin/arm64)
+	ContainersSupported    bool // Whether Docker is available for container mode
 	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
 	Focus                  int  // 0=copy messages toggle, 1=branch input, 2=containers (if supported)
 }

@@ -81,37 +81,37 @@ func (s *ContainerCommandState) GetCommand() string {
 	return s.Command
 }
 
-// NewContainerCLINotInstalledState creates a modal for when the container CLI is not installed.
+// NewContainerCLINotInstalledState creates a modal for when Docker is not installed.
 func NewContainerCLINotInstalledState() *ContainerCommandState {
 	return &ContainerCommandState{
-		ModalTitle: "Container CLI Not Found",
-		Message:    "Apple's container CLI is required for container mode. Install it with Homebrew:",
-		Command:    "brew install container",
+		ModalTitle: "Docker Not Found",
+		Message:    "Docker is required for container mode. Install it from https://docs.docker.com/get-docker/",
+		Command:    "https://docs.docker.com/get-docker/",
 	}
 }
 
-// NewContainerSystemNotRunningState creates a modal for when the container system is not running.
+// NewContainerSystemNotRunningState creates a modal for when the Docker daemon is not running.
 func NewContainerSystemNotRunningState() *ContainerCommandState {
 	return &ContainerCommandState{
-		ModalTitle: "Container System Not Running",
-		Message:    "The container system service is not running. Start it with:",
-		Command:    "container system start",
+		ModalTitle: "Docker Not Running",
+		Message:    "The Docker daemon is not running. Start Docker Desktop or run:",
+		Command:    "sudo systemctl start docker",
 	}
 }
 
 // =============================================================================
-// ContainerBuildState - Container image not built
+// ContainerBuildState - Container image not found
 // =============================================================================
 
-// ContainerBuildState shows the user how to build the container image.
+// ContainerBuildState shows the user how to pull the container image.
 type ContainerBuildState struct {
-	Image  string // Image name (e.g., "plural-claude")
+	Image  string // Image name (e.g., "ghcr.io/zhubert/plural-claude")
 	Copied bool   // Whether the command was copied to clipboard
 }
 
 func (*ContainerBuildState) modalState() {}
 
-func (s *ContainerBuildState) Title() string { return "Container Image Not Built" }
+func (s *ContainerBuildState) Title() string { return "Container Image Not Found" }
 
 func (s *ContainerBuildState) Help() string {
 	if s.Copied {
@@ -127,7 +127,7 @@ func (s *ContainerBuildState) Render() string {
 		Foreground(ColorText).
 		Width(55).
 		MarginBottom(1).
-		Render("The container image '" + s.Image + "' was not found. Build it from the Plural repo root:")
+		Render("The container image '" + s.Image + "' was not found. Pull it with:")
 
 	cmdStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -136,7 +136,7 @@ func (s *ContainerBuildState) Render() string {
 		Padding(0, 1).
 		MarginBottom(1)
 
-	cmd := cmdStyle.Render("container build -t " + s.Image + " .")
+	cmd := cmdStyle.Render("docker pull " + s.Image)
 
 	var statusView string
 	if s.Copied {
@@ -161,14 +161,14 @@ func (s *ContainerBuildState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	return s, nil
 }
 
-// GetBuildCommand returns the build command for clipboard copying.
+// GetPullCommand returns the pull command for clipboard copying.
 // The image name is validated before inclusion to prevent shell injection.
-func (s *ContainerBuildState) GetBuildCommand() string {
+func (s *ContainerBuildState) GetPullCommand() string {
 	image := s.Image
 	if !validContainerImage.MatchString(image) {
-		image = "plural-claude" // fall back to default for invalid names
+		image = "ghcr.io/zhubert/plural-claude" // fall back to default for invalid names
 	}
-	return "container build -t " + image + " ."
+	return "docker pull " + image
 }
 
 // ValidateContainerImage checks if the given image name is safe.
@@ -180,7 +180,7 @@ func ValidateContainerImage(image string) bool {
 // Invalid image names are replaced with the default to prevent shell injection.
 func NewContainerBuildState(image string) *ContainerBuildState {
 	if !validContainerImage.MatchString(image) {
-		image = "plural-claude"
+		image = "ghcr.io/zhubert/plural-claude"
 	}
 	return &ContainerBuildState{
 		Image: image,
