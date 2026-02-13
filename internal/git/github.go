@@ -89,6 +89,63 @@ func (s *GitService) GetBatchPRStates(ctx context.Context, repoPath string, bran
 	return result, nil
 }
 
+// PRBatchResult holds the state and comment count for a PR from a batch query.
+type PRBatchResult struct {
+	State        PRState
+	CommentCount int // len(comments) + len(reviews) from gh pr list
+}
+
+// GetBatchPRStatesWithComments returns PR states and comment counts for multiple branches.
+// Uses a single `gh pr list` call per repo. The comment count is len(comments) + len(reviews),
+// which captures top-level PR comments and review submissions.
+func (s *GitService) GetBatchPRStatesWithComments(ctx context.Context, repoPath string, branches []string) (map[string]PRBatchResult, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "list",
+		"--state", "all",
+		"--json", "state,headRefName,comments,reviews",
+		"--limit", "200",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("gh pr list failed: %w", err)
+	}
+
+	var prs []struct {
+		State       string            `json:"state"`
+		HeadRefName string            `json:"headRefName"`
+		Comments    []json.RawMessage `json:"comments"`
+		Reviews     []json.RawMessage `json:"reviews"`
+	}
+	if err := json.Unmarshal(output, &prs); err != nil {
+		return nil, fmt.Errorf("failed to parse PR list: %w", err)
+	}
+
+	// Build a lookup set for the branches we care about
+	branchSet := make(map[string]struct{}, len(branches))
+	for _, b := range branches {
+		branchSet[b] = struct{}{}
+	}
+
+	// Match PRs to requested branches
+	result := make(map[string]PRBatchResult, len(branches))
+	for _, pr := range prs {
+		if _, ok := branchSet[pr.HeadRefName]; !ok {
+			continue
+		}
+		var state PRState
+		switch PRState(pr.State) {
+		case PRStateOpen, PRStateMerged, PRStateClosed:
+			state = PRState(pr.State)
+		default:
+			state = PRStateOpen
+		}
+		result[pr.HeadRefName] = PRBatchResult{
+			State:        state,
+			CommentCount: len(pr.Comments) + len(pr.Reviews),
+		}
+	}
+
+	return result, nil
+}
+
 // PRReviewComment represents a single review comment from a GitHub pull request.
 // This can be a top-level PR comment, a review body, or an inline code review comment.
 type PRReviewComment struct {

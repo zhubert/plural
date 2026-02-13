@@ -385,3 +385,135 @@ func TestFetchPRReviewComments_ReviewBodyOnly(t *testing.T) {
 		t.Errorf("unexpected body: %s", comments[0].Body)
 	}
 }
+
+// =============================================================================
+// GetBatchPRStatesWithComments Tests
+// =============================================================================
+
+func TestGetBatchPRStatesWithComments_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[
+			{
+				"state": "OPEN",
+				"headRefName": "branch-a",
+				"comments": [{"body": "comment1"}, {"body": "comment2"}],
+				"reviews": [{"body": "review1"}]
+			},
+			{
+				"state": "MERGED",
+				"headRefName": "branch-b",
+				"comments": [],
+				"reviews": []
+			}
+		]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"branch-a", "branch-b"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	// branch-a: OPEN, 2 comments + 1 review = 3
+	if results["branch-a"].State != PRStateOpen {
+		t.Errorf("expected branch-a OPEN, got %s", results["branch-a"].State)
+	}
+	if results["branch-a"].CommentCount != 3 {
+		t.Errorf("expected branch-a CommentCount 3, got %d", results["branch-a"].CommentCount)
+	}
+
+	// branch-b: MERGED, 0 comments + 0 reviews = 0
+	if results["branch-b"].State != PRStateMerged {
+		t.Errorf("expected branch-b MERGED, got %s", results["branch-b"].State)
+	}
+	if results["branch-b"].CommentCount != 0 {
+		t.Errorf("expected branch-b CommentCount 0, got %d", results["branch-b"].CommentCount)
+	}
+}
+
+func TestGetBatchPRStatesWithComments_NoComments(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[{"state": "OPEN", "headRefName": "branch-a", "comments": [], "reviews": []}]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"branch-a"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results["branch-a"].CommentCount != 0 {
+		t.Errorf("expected CommentCount 0, got %d", results["branch-a"].CommentCount)
+	}
+}
+
+func TestGetBatchPRStatesWithComments_CLIError(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Err: fmt.Errorf("not a git repository"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"branch-a"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if results != nil {
+		t.Errorf("expected nil results on error, got %v", results)
+	}
+}
+
+func TestGetBatchPRStatesWithComments_InvalidJSON(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`not valid json`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"branch-a"})
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+	if results != nil {
+		t.Errorf("expected nil results on error, got %v", results)
+	}
+}
+
+func TestGetBatchPRStatesWithComments_MissingBranch(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[{"state": "OPEN", "headRefName": "other-branch", "comments": [{"body": "c"}], "reviews": []}]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"my-branch"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for missing branch, got %d", len(results))
+	}
+}
+
+func TestGetBatchPRStatesWithComments_DraftTreatedAsOpen(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[{"state": "DRAFT", "headRefName": "draft-branch", "comments": [{"body": "c"}], "reviews": []}]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"draft-branch"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if results["draft-branch"].State != PRStateOpen {
+		t.Errorf("expected DRAFT to be treated as OPEN, got %s", results["draft-branch"].State)
+	}
+	if results["draft-branch"].CommentCount != 1 {
+		t.Errorf("expected CommentCount 1, got %d", results["draft-branch"].CommentCount)
+	}
+}

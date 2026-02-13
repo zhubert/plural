@@ -2309,3 +2309,59 @@ func TestConfig_Save_ConcurrentWrites(t *testing.T) {
 		t.Errorf("Unexpected repos after concurrent saves: %v", loaded.Repos)
 	}
 }
+
+func TestConfig_UpdateSessionPRCommentCount(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/repo", Branch: "b1"},
+			{ID: "s2", RepoPath: "/repo", Branch: "b2", PRCommentCount: 5},
+		},
+	}
+
+	// Update existing session
+	if !cfg.UpdateSessionPRCommentCount("s1", 3) {
+		t.Error("UpdateSessionPRCommentCount should return true for existing session")
+	}
+	sess := cfg.GetSession("s1")
+	if sess.PRCommentCount != 3 {
+		t.Errorf("expected PRCommentCount 3, got %d", sess.PRCommentCount)
+	}
+
+	// Update to higher value
+	if !cfg.UpdateSessionPRCommentCount("s2", 10) {
+		t.Error("UpdateSessionPRCommentCount should return true for existing session")
+	}
+	sess = cfg.GetSession("s2")
+	if sess.PRCommentCount != 10 {
+		t.Errorf("expected PRCommentCount 10, got %d", sess.PRCommentCount)
+	}
+
+	// Non-existent session
+	if cfg.UpdateSessionPRCommentCount("nonexistent", 1) {
+		t.Error("UpdateSessionPRCommentCount should return false for non-existent session")
+	}
+}
+
+func TestConfig_UpdateSessionPRCommentCount_ThreadSafe(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "s1", RepoPath: "/repo", Branch: "b1"},
+		},
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(count int) {
+			defer wg.Done()
+			cfg.UpdateSessionPRCommentCount("s1", count)
+		}(i)
+	}
+	wg.Wait()
+
+	// Should not panic and should have a valid value
+	sess := cfg.GetSession("s1")
+	if sess == nil {
+		t.Fatal("session should exist")
+	}
+}

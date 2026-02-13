@@ -91,6 +91,46 @@ func TestCheckPRStatuses_ReturnsCmdWhenEligible(t *testing.T) {
 	}
 }
 
+func TestCheckPRStatuses_PropagatesCommentCount(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[
+			{
+				"state": "OPEN",
+				"headRefName": "b1",
+				"comments": [{"body": "c1"}, {"body": "c2"}],
+				"reviews": [{"body": "r1"}]
+			}
+		]`),
+	})
+	gitSvc := git.NewGitServiceWithExecutor(mock)
+
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo1", Branch: "b1", PRCreated: true},
+	}
+
+	cmd := checkPRStatuses(sessions, gitSvc)
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd")
+	}
+
+	// Execute the command to get the message
+	msg := cmd()
+	batchMsg, ok := msg.(PRBatchStatusCheckMsg)
+	if !ok {
+		t.Fatalf("expected PRBatchStatusCheckMsg, got %T", msg)
+	}
+	if len(batchMsg.Results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(batchMsg.Results))
+	}
+	if batchMsg.Results[0].CommentCount != 3 {
+		t.Errorf("expected CommentCount 3, got %d", batchMsg.Results[0].CommentCount)
+	}
+	if batchMsg.Results[0].State != git.PRStateOpen {
+		t.Errorf("expected OPEN state, got %s", batchMsg.Results[0].State)
+	}
+}
+
 func TestCheckPRStatuses_GroupsByRepo(t *testing.T) {
 	// Verify that sessions from the same repo are grouped together
 	// by checking that getEligibleSessions preserves repo info
