@@ -1827,12 +1827,32 @@ func TestHandleRestartAttempt_ClosedChannel(t *testing.T) {
 	runner.responseChan.Setup(ch)
 	runner.mu.Unlock()
 
-	// Close the underlying channel without updating Closed flag to simulate
-	// the race where Stop() closes the channel between the flag check and the send.
+	// Close the underlying channel to verify safeSendChannel recovers
+	// from the panic without crashing.
 	close(ch)
 
 	// Should not panic thanks to safeSendChannel
 	runner.handleRestartAttempt(1)
+}
+
+func TestHandleRestartAttempt_MarkedClosed(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.responseChan.Closed = true
+	runner.mu.Unlock()
+
+	// Should skip the send entirely when channel is marked closed
+	runner.handleRestartAttempt(1)
+
+	select {
+	case <-ch:
+		t.Error("Should not receive chunk when channel is marked closed")
+	default:
+		// Expected
+	}
 }
 
 func TestHandleRestartAttempt_NormalSend(t *testing.T) {
@@ -1857,6 +1877,34 @@ func TestHandleRestartAttempt_NormalSend(t *testing.T) {
 	default:
 		t.Error("Expected chunk from channel")
 	}
+}
+
+// TestCallbackHandlers_ConcurrentWithStop verifies that calling handler callbacks
+// concurrently with Stop() does not panic or race. Run with -race to detect issues.
+func TestCallbackHandlers_ConcurrentWithStop(t *testing.T) {
+	runner := New("race-test", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 100)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.mu.Unlock()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := range 50 {
+			runner.handleRestartAttempt(i%MaxProcessRestartAttempts + 1)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		runner.Stop()
+	}()
+
+	wg.Wait()
 }
 
 func TestErrorVariables(t *testing.T) {

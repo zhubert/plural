@@ -1049,7 +1049,9 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 
 	// Mark streaming as done
 	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{Done: true})
+		if !safeSendChannel(ch, ResponseChunk{Done: true}) {
+			r.log.Warn("handleProcessExit: failed to send Done chunk, channel closed or full")
+		}
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false
@@ -1064,14 +1066,16 @@ func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Lock()
 	ch := r.responseChan.Channel
 	chClosed := r.responseChan.Closed
-	r.mu.Unlock()
 
 	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{
+		if !safeSendChannel(ch, ResponseChunk{
 			Type:    ChunkTypeText,
 			Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", attemptNum, MaxProcessRestartAttempts),
-		})
+		}) {
+			r.log.Warn("handleRestartAttempt: failed to send restart message, channel closed or full")
+		}
 	}
+	r.mu.Unlock()
 }
 
 // handleRestartFailed is called when restart fails.
@@ -1086,7 +1090,9 @@ func (r *Runner) handleFatalError(err error) {
 	chClosed := r.responseChan.Closed
 
 	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{Error: err, Done: true})
+		if !safeSendChannel(ch, ResponseChunk{Error: err, Done: true}) {
+			r.log.Warn("handleFatalError: failed to send error chunk, channel closed or full")
+		}
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false
