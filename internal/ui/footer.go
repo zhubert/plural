@@ -303,7 +303,7 @@ func (f *Footer) View() string {
 		// Chat focused, not streaming - show enter and ctrl+v
 		chatBindings := []KeyBinding{
 			{Key: "enter", Desc: "send"},
-			{Key: "shift+enter", Desc: "newline"},
+			{Key: "opt+enter", Desc: "newline"},
 		}
 		// Show ctrl+o when options are detected
 		if f.hasDetectedOptions {
