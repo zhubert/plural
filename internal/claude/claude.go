@@ -647,10 +647,13 @@ func (r *Runner) handleProcessLine(line string) {
 	if !r.sessionStarted && strings.Contains(line, `"type":"system"`) && strings.Contains(line, `"subtype":"init"`) {
 		r.mu.Lock()
 		r.sessionStarted = true
-		if r.processManager != nil {
-			r.processManager.MarkSessionStarted()
-		}
+		pm := r.processManager
 		r.mu.Unlock()
+		// Call MarkSessionStarted outside r.mu to avoid deadlock:
+		// MarkSessionStarted -> OnContainerReady -> handleContainerReady acquires r.mu.RLock
+		if pm != nil {
+			pm.MarkSessionStarted()
+		}
 		r.log.Info("session marked as started on init message")
 	}
 
@@ -827,10 +830,15 @@ func (r *Runner) handleProcessLine(line string) {
 			r.mu.Lock()
 			r.sessionStarted = true
 			r.streaming.Complete = true // Mark that response finished - process exit after this is expected
-			if r.processManager != nil {
-				r.processManager.MarkSessionStarted()
-				r.processManager.ResetRestartAttempts()
+			pm := r.processManager
+			r.mu.Unlock()
+			// Call MarkSessionStarted outside r.mu to avoid deadlock:
+			// MarkSessionStarted -> OnContainerReady -> handleContainerReady acquires r.mu.RLock
+			if pm != nil {
+				pm.MarkSessionStarted()
+				pm.ResetRestartAttempts()
 			}
+			r.mu.Lock()
 
 			// Determine error message from Result, Error, or Errors fields
 			errorText := msg.Result

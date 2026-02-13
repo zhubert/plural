@@ -1314,6 +1314,54 @@ func TestRunner_SessionStartedOnInitMessage_WithProcessManager(t *testing.T) {
 	}
 }
 
+func TestRunner_SessionStartedOnInitMessage_ContainerNoDeadlock(t *testing.T) {
+	// Regression test: MarkSessionStarted calls OnContainerReady which calls
+	// handleContainerReady which acquires r.mu.RLock(). If handleProcessLine
+	// holds r.mu.Lock() when calling MarkSessionStarted, this deadlocks.
+	runner := New("session-container-deadlock", "/tmp", false, nil)
+
+	// Set up containerized mode with OnContainerReady callback
+	runner.SetContainerized(true, "test-image")
+	callbackCalled := false
+	runner.SetOnContainerReady(func() {
+		callbackCalled = true
+	})
+
+	// Set up a real ProcessManager with containerized=true so MarkSessionStarted
+	// invokes the OnContainerReady callback chain
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:      "session-container-deadlock",
+		SessionStarted: false,
+		Containerized:  true,
+	}, ProcessCallbacks{
+		OnContainerReady: runner.handleContainerReady,
+	}, testLogger())
+	runner.processManager = pm
+
+	// This would deadlock before the fix (handleProcessLine held r.mu.Lock,
+	// then MarkSessionStarted -> OnContainerReady -> handleContainerReady -> r.mu.RLock)
+	done := make(chan bool, 1)
+	go func() {
+		initMsg := `{"type":"system","subtype":"init","session_id":"session-container-deadlock"}`
+		runner.handleProcessLine(initMsg)
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Good - no deadlock
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleProcessLine deadlocked on containerized init message")
+	}
+
+	if !runner.SessionStarted() {
+		t.Error("Runner should be marked as started")
+	}
+	if !callbackCalled {
+		t.Error("OnContainerReady callback should have been called")
+	}
+}
+
 func TestRunner_SessionStartedOnInitMessage_AlreadyStarted(t *testing.T) {
 	// If already started, the init check should be a no-op (no panic, no double-set)
 	runner := New("session-already", "/tmp", true, nil)
