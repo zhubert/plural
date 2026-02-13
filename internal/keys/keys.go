@@ -24,13 +24,14 @@ var (
 
 // Action keys
 var (
-	Enter     = tea.KeyPressMsg{Code: tea.KeyEnter}.String()                     // "enter"
-	Tab       = tea.KeyPressMsg{Code: tea.KeyTab}.String()                       // "tab"
-	ShiftTab  = (tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}).String()  // "shift+tab"
-	Space     = tea.KeyPressMsg{Code: tea.KeySpace}.String()                     // "space"
-	Backspace = tea.KeyPressMsg{Code: tea.KeyBackspace}.String()                 // "backspace"
-	Delete    = tea.KeyPressMsg{Code: tea.KeyDelete}.String()                    // "delete"
-	Escape    = tea.KeyPressMsg{Code: tea.KeyEscape}.String()                    // "esc"
+	Enter      = tea.KeyPressMsg{Code: tea.KeyEnter}.String()                      // "enter"
+	ShiftEnter = (tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}).String() // "shift+enter"
+	Tab        = tea.KeyPressMsg{Code: tea.KeyTab}.String()                        // "tab"
+	ShiftTab   = (tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}).String()   // "shift+tab"
+	Space      = tea.KeyPressMsg{Code: tea.KeySpace}.String()                      // "space"
+	Backspace  = tea.KeyPressMsg{Code: tea.KeyBackspace}.String()                  // "backspace"
+	Delete     = tea.KeyPressMsg{Code: tea.KeyDelete}.String()                     // "delete"
+	Escape     = tea.KeyPressMsg{Code: tea.KeyEscape}.String()                     // "esc"
 )
 
 // Ctrl combinations

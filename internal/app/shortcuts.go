@@ -273,6 +273,7 @@ var DisplayOnlyShortcuts = []Shortcut{
 	{DisplayKey: "Esc", Description: "Cancel search / Stop streaming", Category: CategoryNavigation},
 
 	// Chat (display-only, context-sensitive)
+	{DisplayKey: "Shift+Enter", Description: "Insert newline", Category: CategoryChat},
 	{DisplayKey: "ctrl-v", Description: "Paste image", Category: CategoryChat},
 	{DisplayKey: "ctrl-o", Description: "Fork detected options", Category: CategoryChat},
 	{DisplayKey: "Mouse drag", Description: "Select text (auto-copies)", Category: CategoryChat},
