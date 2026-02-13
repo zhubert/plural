@@ -408,6 +408,27 @@ func TestWrapBodyText(t *testing.T) {
 			maxLines: 3,
 			want:     []string{"aaa bbb", "ccc ddd", "eee fff"},
 		},
+		{
+			name:     "very small maxLen no panic",
+			body:     "abc def ghi",
+			maxLen:   3,
+			maxLines: 2,
+			want:     []string{"abc", "def"},
+		},
+		{
+			name:     "maxLen of 1",
+			body:     "hello",
+			maxLen:   1,
+			maxLines: 2,
+			want:     []string{"h", "e"},
+		},
+		{
+			name:     "space at wrap boundary",
+			body:     "hello world foo bar",
+			maxLen:   6,
+			maxLines: 3,
+			want:     []string{"hello", "world", "foo..."},
+		},
 	}
 
 	for _, tt := range tests {
