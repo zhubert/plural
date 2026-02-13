@@ -95,7 +95,7 @@ func NewContainerCLINotInstalledState() *ContainerCommandState {
 	case "linux":
 		return &ContainerCommandState{
 			ModalTitle: "Docker Not Found",
-			Message:    "Docker is required for container mode. See https://docs.docker.com/engine/install/ or install with:",
+			Message:    "Docker is required for container mode. Install via https://docs.docker.com/engine/install/ — for Debian/Ubuntu:",
 			Command:    "sudo apt-get install docker-ce docker-ce-cli containerd.io",
 		}
 	default:
