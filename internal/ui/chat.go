@@ -1082,13 +1082,19 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 
 	var sb strings.Builder
 
+	// Calculate final box width first (capped at max width for readability)
+	boxWidth := wrapWidth
+	if boxWidth > PlanBoxMaxWidth {
+		boxWidth = PlanBoxMaxWidth
+	}
+
 	// Title
 	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
 	sb.WriteString(titleStyle.Render("Plan Approval Required"))
 	sb.WriteString("\n\n")
 
-	// Render plan as markdown, accounting for box padding
-	renderedPlan := renderMarkdown(c.planApproval.Plan, wrapWidth-OverlayBoxPadding)
+	// Render plan as markdown, accounting for box padding, using final box width
+	renderedPlan := renderMarkdown(c.planApproval.Plan, boxWidth-OverlayBoxPadding)
 	planLines := strings.Split(renderedPlan, "\n")
 	maxVisibleLines := PlanApprovalMaxVisible
 
@@ -1153,12 +1159,6 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 		sb.WriteString(hintStyle.Render(" Scroll"))
 	}
 
-	// Wrap in a box, capped at max width for readability
-	// Plans use a wider max since they often contain code
-	boxWidth := wrapWidth
-	if boxWidth > PlanBoxMaxWidth {
-		boxWidth = PlanBoxMaxWidth
-	}
 	return PlanApprovalBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
