@@ -217,7 +217,7 @@ func TestFooter_MultiSelectMode(t *testing.T) {
 	footer.SetWidth(120)
 
 	// Default view should not show multi-select bindings
-	footer.SetContext(true, true, false, false, false, false, false, false, false)
+	footer.SetContext(true, true, false, false, false, false, false, false, false, false)
 	defaultView := footer.View()
 	if strings.Contains(defaultView, "toggle") {
 		t.Error("Default view should not contain multi-select 'toggle' binding")
@@ -227,7 +227,7 @@ func TestFooter_MultiSelectMode(t *testing.T) {
 	}
 
 	// Multi-select mode should show multi-select-specific bindings
-	footer.SetContext(true, true, false, false, false, false, false, true, false)
+	footer.SetContext(true, true, false, false, false, false, false, true, false, false)
 	multiSelectView := footer.View()
 
 	expectedBindings := []string{"toggle", "select all", "deselect all", "bulk action", "navigate", "exit", "help"}
@@ -251,7 +251,7 @@ func TestFooter_MultiSelectMode_FlashTakesPriority(t *testing.T) {
 	footer.SetWidth(120)
 
 	// Flash message should take priority over multi-select bindings
-	footer.SetContext(true, true, false, false, false, false, false, true, false)
+	footer.SetContext(true, true, false, false, false, false, false, true, false, false)
 	footer.SetFlash("Error occurred", FlashError)
 
 	view := footer.View()
@@ -260,5 +260,30 @@ func TestFooter_MultiSelectMode_FlashTakesPriority(t *testing.T) {
 	}
 	if strings.Contains(view, "toggle") {
 		t.Error("Multi-select bindings should not show when flash is active")
+	}
+}
+
+func TestFooter_NewlineShortcutDisplay(t *testing.T) {
+	footer := NewFooter()
+	footer.SetWidth(120)
+
+	// Without kitty keyboard, should show opt+enter
+	footer.SetContext(true, false, false, false, false, false, false, false, false, false)
+	view := footer.View()
+	if !strings.Contains(view, "opt+enter") {
+		t.Error("Without kitty keyboard, should show opt+enter")
+	}
+	if strings.Contains(view, "shift+enter") {
+		t.Error("Without kitty keyboard, should not show shift+enter")
+	}
+
+	// With kitty keyboard, should show shift+enter
+	footer.SetContext(true, false, false, false, false, false, false, false, false, true)
+	view = footer.View()
+	if !strings.Contains(view, "shift+enter") {
+		t.Error("With kitty keyboard, should show shift+enter")
+	}
+	if strings.Contains(view, "opt+enter") {
+		t.Error("With kitty keyboard, should not show opt+enter")
 	}
 }
