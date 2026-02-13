@@ -514,8 +514,8 @@ Sessions can optionally run Claude CLI inside Docker containers with `--dangerou
 - `Start()`: When containerized, checks `ContainerAuthAvailable()` first, then builds command as `docker run -i --rm ...` wrapping `claude`
 - `Stop()`: Runs `docker rm -f` as defense-in-depth cleanup
 - `ContainerAuthAvailable()`: Checks if credentials exist (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or keychain)
-- `buildContainerRunArgs()`: Constructs `docker run` arguments with `--add-host host.docker.internal:host-gateway`, worktree mount, auth mount, MCP config mount, working directory
-- `writeContainerAuthFile()`: Writes credentials to temp file for container mount (API key, OAuth token, or keychain)
+- `buildContainerRunArgs()`: Constructs `docker run` arguments with `--add-host host.docker.internal:host-gateway`, worktree mount, `--env-file` for auth, MCP config mount, working directory
+- `writeContainerAuthFile()`: Writes credentials to temp file in Docker env-file format for `--env-file` flag (API key, OAuth token, or keychain)
 
 **Runner** (`internal/claude/claude.go`):
 - `SetContainerized(bool, string)`: Stores container mode and image
