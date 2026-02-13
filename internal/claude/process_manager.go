@@ -858,14 +858,15 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerR
 		"-w", "/workspace",
 	}
 
-	// Mount auth credentials file into the container.
+	// Pass auth credentials via --env-file.
 	// On macOS, Claude Code stores auth in the system keychain which isn't
 	// accessible inside a Linux container. We write the key to a temp file
-	// (0600 permissions) and mount it read-only, rather than passing via -e
-	// which would expose the key in `ps` output.
+	// (0600 permissions) and pass it via --env-file, which sets the env var
+	// directly in the container process. This is safer than -e which would
+	// expose the key in `ps` output on the host.
 	auth := writeContainerAuthFile(config.SessionID)
 	if auth.Path != "" {
-		args = append(args, "-v", auth.Path+":/home/claude/.auth:ro")
+		args = append(args, "--env-file", auth.Path)
 	}
 
 	// Mount MCP config for AskUserQuestion/ExitPlanMode support.
@@ -929,9 +930,10 @@ type containerAuthResult struct {
 
 // writeContainerAuthFile writes credentials to a file in ~/.plural/ with
 // restricted permissions (0600) and returns the file path and source.
-// The entrypoint script reads this file and exports the variable.
+// The file is passed to Docker via --env-file, which sets the env var
+// directly in the container process.
 //
-// File format: ENV_VAR_NAME='value'
+// File format: ENV_VAR_NAME=value (Docker env-file format, no quotes)
 //
 // Credential sources (in priority order):
 //  1. ANTHROPIC_API_KEY from environment
@@ -964,16 +966,12 @@ func writeContainerAuthFile(sessionID string) containerAuthResult {
 		return containerAuthResult{}
 	}
 
-	// Validate credential value has no newlines or single quotes that could
-	// break the entrypoint's source command. Values are single-quoted in the
-	// auth file so shell metacharacters like $ are safe.
+	// Validate credential value has no newlines that would break Docker env-file format
+	// (Docker env-file doesn't support multiline values)
 	parts := strings.SplitN(content, "=", 2)
-	if len(parts) == 2 && strings.ContainsAny(parts[1], "\n\r'") {
+	if len(parts) == 2 && strings.ContainsAny(parts[1], "\n\r") {
 		return containerAuthResult{}
 	}
-
-	// Single-quote the value to prevent shell expansion
-	content = parts[0] + "='" + parts[1] + "'"
 
 	path := containerAuthFilePath(sessionID)
 	if path == "" {

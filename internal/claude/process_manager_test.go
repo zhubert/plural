@@ -1245,13 +1245,24 @@ func TestBuildContainerRunArgs_ReportsAuthSource(t *testing.T) {
 	if result.AuthSource != "ANTHROPIC_API_KEY env var" {
 		t.Errorf("AuthSource = %q, want %q", result.AuthSource, "ANTHROPIC_API_KEY env var")
 	}
+
+	// Verify --env-file is used instead of -v mount for auth
+	if !containsArg(result.Args, "--env-file") {
+		t.Error("Should use --env-file for auth credentials")
+	}
+	// Should NOT have the old -v mount for auth
+	for _, arg := range result.Args {
+		if strings.Contains(arg, ".auth:ro") {
+			t.Error("Should not mount auth file via -v (use --env-file instead)")
+		}
+	}
 }
 
 func TestProcessManager_HandleExit_CleansUpAuthFileOnFatalError(t *testing.T) {
 	// Create a temporary auth file to simulate what writeContainerAuthFile creates
 	sessionID := "test-auth-cleanup"
 	authFile := containerAuthFilePath(sessionID)
-	if err := os.WriteFile(authFile, []byte("ANTHROPIC_API_KEY=test-key"), 0600); err != nil {
+	if err := os.WriteFile(authFile, []byte("ANTHROPIC_API_KEY=sk-ant-test-key"), 0600); err != nil {
 		t.Fatalf("failed to create test auth file: %v", err)
 	}
 	defer os.Remove(authFile) // cleanup in case test fails
@@ -1332,11 +1343,11 @@ func TestProcessManager_HandleExit_NoAuthCleanupForNonContainerized(t *testing.T
 	// No auth file assertion needed — just verify non-containerized path doesn't panic
 }
 
-func TestWriteContainerAuthFile_SingleQuotesValue(t *testing.T) {
-	sessionID := "test-single-quote"
+func TestWriteContainerAuthFile_DockerEnvFileFormat(t *testing.T) {
+	sessionID := "test-env-file-format"
 	defer os.Remove(containerAuthFilePath(sessionID))
 
-	// Set env var with a value containing $ which should be preserved
+	// Set env var with a value containing $ — Docker env-file format is plain KEY=VALUE
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-$pecial-key")
 
 	result := writeContainerAuthFile(sessionID)
@@ -1349,7 +1360,7 @@ func TestWriteContainerAuthFile_SingleQuotesValue(t *testing.T) {
 		t.Fatalf("failed to read auth file: %v", err)
 	}
 
-	expected := "ANTHROPIC_API_KEY='sk-ant-$pecial-key'"
+	expected := "ANTHROPIC_API_KEY=sk-ant-$pecial-key"
 	if string(content) != expected {
 		t.Errorf("auth file content = %q, want %q", string(content), expected)
 	}
@@ -1371,16 +1382,26 @@ func TestWriteContainerAuthFile_RejectsNewlines(t *testing.T) {
 	}
 }
 
-func TestWriteContainerAuthFile_RejectsSingleQuotes(t *testing.T) {
-	sessionID := "test-quote-reject"
+func TestWriteContainerAuthFile_AllowsSingleQuotes(t *testing.T) {
+	sessionID := "test-quote-allow"
 	defer os.Remove(containerAuthFilePath(sessionID))
 
-	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-key'; echo pwned")
+	// Single quotes are fine in Docker env-file format (no shell sourcing)
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-key'-with-quote")
 
 	result := writeContainerAuthFile(sessionID)
-	if result.Path != "" {
-		t.Error("writeContainerAuthFile should reject values with single quotes")
-		os.Remove(result.Path)
+	if result.Path == "" {
+		t.Fatal("writeContainerAuthFile should allow values with single quotes in env-file format")
+	}
+
+	content, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatalf("failed to read auth file: %v", err)
+	}
+
+	expected := "ANTHROPIC_API_KEY=sk-ant-key'-with-quote"
+	if string(content) != expected {
+		t.Errorf("auth file content = %q, want %q", string(content), expected)
 	}
 }
 
@@ -1440,8 +1461,9 @@ func TestWriteContainerAuthFile_APIKeyPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read auth file: %v", err)
 	}
-	if !strings.Contains(string(content), "ANTHROPIC_API_KEY=") {
-		t.Error("should use ANTHROPIC_API_KEY when both are set")
+	expected := "ANTHROPIC_API_KEY=sk-ant-test-key"
+	if string(content) != expected {
+		t.Errorf("auth file content = %q, want %q", string(content), expected)
 	}
 	if result.Source != "ANTHROPIC_API_KEY env var" {
 		t.Errorf("source = %q, want %q", result.Source, "ANTHROPIC_API_KEY env var")
@@ -1468,9 +1490,9 @@ func TestWriteContainerAuthFile_OAuthTokenFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read auth file: %v", err)
 	}
-	contentStr := string(content)
-	if !strings.Contains(contentStr, "CLAUDE_CODE_OAUTH_TOKEN=") {
-		t.Errorf("expected CLAUDE_CODE_OAUTH_TOKEN in auth file, got: %s", contentStr)
+	expected := "CLAUDE_CODE_OAUTH_TOKEN=oauth-test-token"
+	if string(content) != expected {
+		t.Errorf("auth file content = %q, want %q", string(content), expected)
 	}
 	if result.Source != "CLAUDE_CODE_OAUTH_TOKEN env var" {
 		t.Errorf("source = %q, want %q", result.Source, "CLAUDE_CODE_OAUTH_TOKEN env var")

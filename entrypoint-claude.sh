@@ -29,15 +29,4 @@ if command -v gopls >/dev/null 2>&1 && [ ! -f "$DEST_DIR/plugins/gopls/plugin.js
 EOF
 fi
 
-# Read auth credentials from mounted secrets file (not passed via -e to
-# avoid exposing the key in `ps` output on the host).
-# File format: ANTHROPIC_API_KEY='value' or CLAUDE_CODE_OAUTH_TOKEN='value'
-# Uses set -a to auto-export all variables, then sources the file.
-# This is safer than export "$(cat ...)" which breaks on newlines.
-if [ -f /home/claude/.auth ]; then
-    set -a
-    . /home/claude/.auth
-    set +a
-fi
-
 exec claude "$@"
