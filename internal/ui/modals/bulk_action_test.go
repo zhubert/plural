@@ -28,6 +28,11 @@ func TestNewBulkActionState(t *testing.T) {
 	if len(state.Workspaces) != 1 {
 		t.Errorf("expected 1 workspace, got %d", len(state.Workspaces))
 	}
+
+	// Check textarea has line numbers disabled
+	if state.PromptInput.ShowLineNumbers {
+		t.Error("expected ShowLineNumbers to be false")
+	}
 }
 
 func TestBulkActionState_SwitchAction(t *testing.T) {
