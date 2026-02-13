@@ -849,6 +849,9 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerR
 	args := []string{
 		"run", "-i", "--rm",
 		"--name", containerName,
+		// Maps host.docker.internal to the host's gateway IP. This is primarily
+		// needed for Linux Docker Engine; on Docker Desktop (macOS/Windows) the
+		// mapping is provided automatically by the VM and this is a harmless no-op.
 		"--add-host", "host.docker.internal:host-gateway",
 		"-v", config.WorkingDir + ":/workspace",
 		"-v", homeDir + "/.claude:/home/claude/.claude-host:ro",

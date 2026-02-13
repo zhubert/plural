@@ -17,11 +17,15 @@ func TestContainerCommandState_CLINotInstalled(t *testing.T) {
 		t.Errorf("Expected title 'Docker Not Found', got %q", s.Title())
 	}
 
-	// Platform-specific: macOS gets brew command, others get URL
+	// Platform-specific: macOS gets brew command, Linux gets install script, others get URL
 	switch runtime.GOOS {
 	case "darwin":
 		if s.GetCommand() != "brew install --cask docker" {
 			t.Errorf("Expected brew install command on macOS, got %q", s.GetCommand())
+		}
+	case "linux":
+		if s.GetCommand() != "curl -fsSL https://get.docker.com | sh" {
+			t.Errorf("Expected Docker install script on Linux, got %q", s.GetCommand())
 		}
 	default:
 		if s.GetCommand() != "https://docs.docker.com/get-docker/" {
@@ -42,15 +46,19 @@ func TestContainerCommandState_SystemNotRunning(t *testing.T) {
 		t.Errorf("Expected title 'Docker Not Running', got %q", s.Title())
 	}
 
-	// Platform-specific: macOS gets open -a Docker, others get systemctl
+	// Platform-specific: macOS gets open -a Docker, Linux gets systemctl, others get docker info
 	switch runtime.GOOS {
 	case "darwin":
 		if s.GetCommand() != "open -a Docker" {
 			t.Errorf("Expected 'open -a Docker' on macOS, got %q", s.GetCommand())
 		}
-	default:
+	case "linux":
 		if s.GetCommand() != "sudo systemctl start docker" {
-			t.Errorf("Expected 'sudo systemctl start docker', got %q", s.GetCommand())
+			t.Errorf("Expected 'sudo systemctl start docker' on Linux, got %q", s.GetCommand())
+		}
+	default:
+		if s.GetCommand() != "docker info" {
+			t.Errorf("Expected 'docker info' on other platforms, got %q", s.GetCommand())
 		}
 	}
 
