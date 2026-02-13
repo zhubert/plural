@@ -288,9 +288,7 @@ level=DEBUG msg="debug info"`
 
 // Helper function to check if text contains a substring (ignoring ANSI codes)
 func containsText(s, substr string) bool {
-	// Simple check - just verify the substring exists somewhere
-	// ANSI codes may be interspersed, so we do a basic contains check
-	return len(s) >= len(substr) && (s == substr || len(s) > 0)
+	return strings.Contains(s, substr)
 }
 
 func TestRenderLogNavBar_UsesVisualWidth(t *testing.T) {

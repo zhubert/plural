@@ -291,7 +291,7 @@ func (c *Chat) renderLogNavBar(width int) string {
 	refreshHint := " " + refreshStyle.Render("[r: refresh]")
 
 	// Calculate available width for filename
-	fixedWidth := len(leftArrow) + lipgloss.Width(counter) + len(rightArrow) + lipgloss.Width(followIndicator) + lipgloss.Width(refreshHint) + 1 // arrows, counter, follow/refresh indicators, space
+	fixedWidth := lipgloss.Width(leftArrow) + lipgloss.Width(counter) + lipgloss.Width(rightArrow) + lipgloss.Width(followIndicator) + lipgloss.Width(refreshHint) + 1 // arrows, counter, follow/refresh indicators, space
 	maxFilenameWidth := width - fixedWidth
 	if maxFilenameWidth < 10 {
 		maxFilenameWidth = 10
