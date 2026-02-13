@@ -16,12 +16,13 @@ This integration enables features that wouldn't be possible with a tmux wrapper:
 - **Automatic permission handling** with inline prompts and "always allow" memory
 - **Git-aware merge workflow** that understands session branches and creates PRs
 - **Token cost tracking** parsed from Claude's session data
+- **PR review comments** imported directly into sessions for iterating on feedback
 
 ## Requirements
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
-- GitHub CLI (`gh`) for PR creation (optional)
+- GitHub CLI (`gh`) for PR creation and issue import (optional)
 
 Run `plural help` to see all available commands and options.
 
@@ -58,15 +59,13 @@ Each session runs in its own git worktree with a dedicated branch. Claude can ed
 
 ### Parallel Exploration
 
-When Claude offers multiple approaches ("Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), fork the session and explore them all at once. Child sessions appear indented in the sidebar. Try different solutions in parallel and merge the winner.
+When Claude offers multiple approaches ("Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), press `Ctrl+O` to detect options and fork into parallel sessions automatically. Each approach gets its own branch. Compare results and merge the winner.
 
-### Broadcast Across Repos
+You can also fork manually with `f` to branch off any session at any point.
 
-Send the same prompt to multiple repositories at once. Plural creates a session for each repo and sends your prompt in parallel—perfect for applying the same change across a fleet of services. Later, use the broadcast group modal to send follow-up prompts or create PRs for all sessions at once.
+### Import Issues in Parallel
 
-### Issue & Task Import
-
-Press `i` to import issues or tasks and create sessions from them. Plural creates a session for each with full context, and Claude starts working immediately.
+Press `i` to import issues or tasks. Select multiple and Plural creates a session for each—Claude starts working on all of them simultaneously.
 
 **GitHub Issues** — Always available (uses the `gh` CLI). When you create a PR from an issue session, "Fixes #N" is automatically added to close the issue on merge.
 
@@ -89,24 +88,34 @@ Press `i` to import issues or tasks and create sessions from them. Plural create
 
 When both GitHub and Asana are configured for a repository, Plural will prompt you to choose a source before importing.
 
+### Broadcast Across Repos
+
+Send the same prompt to multiple repositories at once with `Ctrl+B`. Plural creates a session for each repo and sends your prompt in parallel—perfect for applying the same change across a fleet of services.
+
+Later, use the broadcast group modal (`Ctrl+Shift+B`) to send follow-up prompts or create PRs for all sessions at once.
+
+### Open PRs in Parallel
+
+When sessions are part of a broadcast group, you can create PRs for all of them in one action via `Ctrl+Shift+B`. For individual sessions, press `m` and choose "Create PR". Uncommitted changes are auto-committed.
+
+### PR Review Comments
+
+After a PR is created, the sidebar shows an indicator when new review comments arrive. Press `Ctrl+R` to import comments into the session so Claude can address the feedback directly.
+
 ### Merge & PR Workflow
 
-When a session's work is ready, merge directly to your main branch or create a GitHub PR. Uncommitted changes are auto-committed. If there are merge conflicts, Claude can help resolve them.
+When a session's work is ready, merge directly to your main branch or create a GitHub PR. Uncommitted changes are auto-committed. If there are merge conflicts, Claude can help resolve them. Optionally enable squash-on-merge per repository in settings.
 
 ### Preview Changes
 
-Preview a session's branch in your main repository so dev servers pick up the changes without merging. The header shows a `[PREVIEW]` indicator while active.
+Preview a session's branch in your main repository (`p`) so dev servers pick up the changes without merging. The header shows a `[PREVIEW]` indicator while active. Press `p` again to restore your original branch.
 
 ### Container Mode (Sandboxed Execution)
 
-**Apple Silicon only.** Run Claude CLI inside an isolated container for defense-in-depth security. The container serves as the sandbox, eliminating the MCP permission system entirely—Claude can freely use tools within the container without prompting.
+Run Claude CLI inside a Docker container for defense-in-depth security. The container serves as the sandbox—Claude can freely use tools without permission prompts.
 
 **Requirements:**
-- Apple Silicon Mac (arm64)
-- [Apple's lightweight container runtime](https://apple.github.io/container/documentation/):
-  ```bash
-  brew install container
-  ```
+- Docker installed
 - Authentication via one of:
   - `ANTHROPIC_API_KEY` environment variable
   - API key in macOS keychain (`anthropic_api_key`)
@@ -116,35 +125,32 @@ Preview a session's branch in your main repository so dev servers pick up the ch
 - Check the "Run in container" box when creating a new session
 - Forked sessions inherit their parent's container setting
 - Sessions show a `[CONTAINER]` indicator in the header
+- Press `ctrl-e` to open a terminal inside the container for debugging
 
 **Tradeoffs:**
-- ✅ No permission prompts for tool use
-- ✅ Filesystem isolation from your host
-- ❌ External MCP servers not supported
-- ⚠️ Containers are defense-in-depth, not a complete security boundary
+- No permission prompts for tool use
+- Filesystem isolation from your host
+- External MCP servers not supported
+- Containers are defense-in-depth, not a complete security boundary
 
 **Building the default image:**
 ```bash
-container build -t plural-claude .
+docker build -t ghcr.io/zhubert/plural-claude .
 ```
 
-The container image includes Node.js, git, and Claude CLI. You can customize the image name in Plural's settings.
-
-**Debugging containerized sessions:**
-- Press `ctrl-e` to open a terminal inside the container (automatically detects containerized sessions)
-- The terminal opens at `/workspace` which is the worktree directory
-- Use this for troubleshooting container issues, inspecting Claude's environment, or running commands manually
+Pre-built images are available: `docker pull ghcr.io/zhubert/plural-claude`
 
 ### Rich Chat Features
 
 - **Image pasting**: Share screenshots and diagrams directly with Claude
-- **Message search**: Find anything in your conversation history
-- **Text selection**: Select and copy text from the chat
-- **Tool use rollup**: Collapsed view of Claude's tool operations, expandable on demand
+- **Message search** (`Ctrl+/`): Find anything in your conversation history
+- **Text selection**: Select and copy text from the chat (click+drag, double-click for word, triple-click for paragraph)
+- **Tool use rollup**: Collapsed view of Claude's tool operations, expandable with `ctrl-t`
+- **Log viewer** (`ctrl-l`): View debug, MCP, and stream logs in an overlay
 
 ### Customization
 
-Choose from 8 built-in themes, configure branch naming prefixes, set up desktop notifications, and extend Claude's capabilities with MCP servers and plugins.
+Choose from 8 built-in themes (`t`), configure branch naming prefixes, set up desktop notifications, and extend Claude's capabilities with MCP servers and plugins. Open settings with `,`.
 
 ### Slash Commands
 
@@ -164,15 +170,23 @@ plural                  # Start the application
 plural --debug          # Enable debug logging
 plural --version        # Show version
 plural help             # Show help
-plural clean            # Remove all sessions, logs, and orphaned worktrees (prompts for confirmation)
+plural clean            # Remove all sessions, logs, orphaned worktrees, and containers
 plural clean -y         # Clear without confirmation prompt
-plural demo list        # List available demo scenarios
-plural demo run <name>  # Run demo scenario
 ```
 
 ### Data Storage
 
-Configuration and session history are stored in `~/.plural/`.
+By default, configuration and session data are stored in `~/.plural/`.
+
+Plural also supports the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/). If XDG environment variables are set and `~/.plural/` doesn't exist, files are organized as:
+
+| Purpose | XDG Directory | Contents |
+|---------|--------------|----------|
+| Config | `$XDG_CONFIG_HOME/plural/` | `config.json` |
+| Data | `$XDG_DATA_HOME/plural/` | `sessions/*.json` |
+| State | `$XDG_STATE_HOME/plural/` | `logs/` |
+
+Existing `~/.plural/` installations continue to work as-is.
 
 ---
 
