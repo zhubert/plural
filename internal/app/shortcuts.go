@@ -184,6 +184,15 @@ var ShortcutRegistry = []Shortcut{
 		RequiresSession: true,
 		Handler:         shortcutPreviewInMain,
 	},
+	{
+		Key:             keys.CtrlR,
+		DisplayKey:      "ctrl-r",
+		Description:     "Import PR review comments",
+		Category:        CategoryGit,
+		RequiresSession: true,
+		RequiresSidebar: true,
+		Handler:         shortcutReviewComments,
+	},
 
 	// Configuration
 	{
@@ -695,6 +704,17 @@ func shortcutToggleLogViewer(m *Model) (tea.Model, tea.Cmd) {
 	m.chat.SetFocused(true)
 
 	return m, nil
+}
+
+func shortcutReviewComments(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	// Select the session if not already active
+	if m.activeSession == nil || m.activeSession.ID != sess.ID {
+		m.selectSession(sess)
+	}
+	// Show the review comments modal in loading state
+	m.modal.Show(ui.NewReviewCommentsState(sess.ID, sess.Branch))
+	return m, m.fetchReviewComments(sess.ID, sess.RepoPath, sess.Branch)
 }
 
 func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {

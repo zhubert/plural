@@ -386,6 +386,102 @@ func (m *Model) handleManualResolve(state *ui.MergeConflictState) (tea.Model, te
 	return m, nil
 }
 
+// handleReviewCommentsModal handles key events for the PR Review Comments modal.
+func (m *Model) handleReviewCommentsModal(key string, msg tea.KeyPressMsg, state *ui.ReviewCommentsState) (tea.Model, tea.Cmd) {
+	// Don't handle keys while loading
+	if state.Loading {
+		return m, nil
+	}
+
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		selected := state.GetSelectedComments()
+		if len(selected) == 0 {
+			return m, nil
+		}
+		m.modal.Hide()
+		return m.sendReviewCommentsToSession(state.SessionID, selected)
+	case keys.Up, "k", keys.Down, "j", keys.Space, "a":
+		// Forward navigation, toggle, and select-all keys to modal
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+	return m, nil
+}
+
+// sendReviewCommentsToSession formats selected review comments and sends them to Claude.
+func (m *Model) sendReviewCommentsToSession(sessionID string, comments []ui.ReviewCommentItem) (tea.Model, tea.Cmd) {
+	sess := m.config.GetSession(sessionID)
+	if sess == nil {
+		return m, m.ShowFlashError("Session not found")
+	}
+
+	// Make sure this session is active
+	if m.activeSession == nil || m.activeSession.ID != sess.ID {
+		m.selectSession(sess)
+	}
+
+	// Build the prompt from selected comments
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("The following PR review comments need to be addressed (%d comment(s)):\n\n", len(comments)))
+
+	for i, c := range comments {
+		sb.WriteString(fmt.Sprintf("--- Comment %d", i+1))
+		if c.Author != "" {
+			sb.WriteString(fmt.Sprintf(" by @%s", c.Author))
+		}
+		sb.WriteString(" ---\n")
+		if c.Path != "" {
+			if c.Line > 0 {
+				sb.WriteString(fmt.Sprintf("File: %s:%d\n", c.Path, c.Line))
+			} else {
+				sb.WriteString(fmt.Sprintf("File: %s\n", c.Path))
+			}
+		}
+		sb.WriteString(c.Body)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("Please address each of these review comments. For code changes, make the necessary edits. For questions, provide a response and make any relevant code changes.")
+
+	prompt := sb.String()
+
+	logger.WithSession(sess.ID).Debug("sending review comments to Claude", "commentCount", len(comments))
+	m.chat.AddUserMessage(prompt)
+
+	// Get runner
+	runner := m.sessionMgr.GetRunner(sess.ID)
+	if runner == nil {
+		m.chat.AppendStreaming("[Error: Could not get Claude runner]\n")
+		return m, nil
+	}
+
+	m.claudeRunner = runner
+
+	// Create context for this request
+	ctx, cancel := context.WithCancel(context.Background())
+	m.sessionState().StartWaiting(sess.ID, cancel)
+	startTime, _ := m.sessionState().GetWaitStart(sess.ID)
+	m.chat.SetWaitingWithStart(true, startTime)
+	m.sidebar.SetStreaming(sess.ID, true)
+	m.sidebar.SetIdleWithResponse(sess.ID, false)
+	m.setState(StateStreamingClaude)
+
+	// Send to Claude
+	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: prompt}}
+	responseChan := runner.SendContent(ctx, content)
+
+	cmds := append(m.sessionListeners(sess.ID, runner, responseChan),
+		ui.SidebarTick(),
+		ui.StopwatchTick(),
+	)
+	return m, tea.Batch(cmds...)
+}
+
 // checkConflictResolution checks if Claude resolved a pending merge conflict.
 // If there was a pending conflict for this session and the merge is no longer in progress,
 // mark the session as merged and clear the pending conflict state.

@@ -23,6 +23,7 @@ type (
 	HelpSection              = modals.HelpSection
 	SearchResult             = modals.SearchResult
 	RepoItem                 = modals.RepoItem
+	ReviewCommentItem        = modals.ReviewCommentItem
 
 	AddRepoState             = modals.AddRepoState
 	SelectRepoForIssuesState = modals.SelectRepoForIssuesState
@@ -58,6 +59,7 @@ type (
 	NewWorkspaceState        = modals.NewWorkspaceState
 	BulkActionState          = modals.BulkActionState
 	BulkAction               = modals.BulkAction
+	ReviewCommentsState      = modals.ReviewCommentsState
 	ContainerBuildState      = modals.ContainerBuildState
 	ContainerCommandState    = modals.ContainerCommandState
 	AsanaProjectOption       = modals.AsanaProjectOption
@@ -113,6 +115,7 @@ var (
 	NewWorkspaceListState      = modals.NewWorkspaceListState
 	NewNewWorkspaceState       = modals.NewNewWorkspaceState
 	NewRenameWorkspaceState    = modals.NewRenameWorkspaceState
+	NewReviewCommentsState             = modals.NewReviewCommentsState
 	NewContainerBuildState             = modals.NewContainerBuildState
 	NewContainerCLINotInstalledState   = modals.NewContainerCLINotInstalledState
 	NewContainerSystemNotRunningState  = modals.NewContainerSystemNotRunningState

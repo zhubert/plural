@@ -550,6 +550,30 @@ func (m *Model) handleIssuesFetchedMsg(msg IssuesFetchedMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+// handleReviewCommentsFetchedMsg handles fetched PR review comments.
+func (m *Model) handleReviewCommentsFetchedMsg(msg ReviewCommentsFetchedMsg) (tea.Model, tea.Cmd) {
+	if state, ok := m.modal.State.(*ui.ReviewCommentsState); ok {
+		if msg.Error != nil {
+			state.SetError(msg.Error.Error())
+		} else {
+			// Convert git.PRReviewComment to ui.ReviewCommentItem
+			items := make([]ui.ReviewCommentItem, len(msg.Comments))
+			for i, c := range msg.Comments {
+				items[i] = ui.ReviewCommentItem{
+					Author:   c.Author,
+					Body:     c.Body,
+					Path:     c.Path,
+					Line:     c.Line,
+					URL:      c.URL,
+					Selected: true, // Pre-select all comments by default
+				}
+			}
+			state.SetComments(items)
+		}
+	}
+	return m, nil
+}
+
 // handlePRBatchStatusCheckMsg handles the batch result of checking all eligible sessions' PR states.
 func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Model, tea.Cmd) {
 	if msg.Error != nil {

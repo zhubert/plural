@@ -69,6 +69,16 @@ type IssueItem struct {
 	Selected bool
 }
 
+// ReviewCommentItem represents a PR review comment for display in the modal.
+type ReviewCommentItem struct {
+	Author   string // GitHub username
+	Body     string // Comment text
+	Path     string // File path (empty for top-level/review body comments)
+	Line     int    // Line number (0 for top-level/review body comments)
+	URL      string // Permalink
+	Selected bool   // Whether selected for addressing
+}
+
 // HelpShortcut represents a single keyboard shortcut for display
 type HelpShortcut struct {
 	Key  string
