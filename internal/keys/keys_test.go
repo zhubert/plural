@@ -23,6 +23,7 @@ func TestKeyStringValues(t *testing.T) {
 
 		// Actions
 		{"Enter", Enter, "enter"},
+		{"ShiftEnter", ShiftEnter, "shift+enter"},
 		{"Tab", Tab, "tab"},
 		{"ShiftTab", ShiftTab, "shift+tab"},
 		{"Space", Space, "space"},
