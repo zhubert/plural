@@ -140,24 +140,19 @@ func (s *ReviewCommentsState) Render() string {
 		headerLine := fmt.Sprintf("%s %s", checkbox, strings.Join(headerParts, "  "))
 		commentList += style.Render(prefix+headerLine) + "\n"
 
-		// Second line: truncated body (indented to align with header text)
+		// Body lines: wrap comment body to show more context (up to 3 lines)
 		bodyText := strings.TrimSpace(comment.Body)
-		// Replace newlines with spaces for compact display
-		bodyText = strings.ReplaceAll(bodyText, "\n", " ")
-		// Truncate body to fit in available width
-		// Overhead: "  " prefix + "      " indent = 8 chars
-		maxBodyLen := contentWidth - 8
-		if maxBodyLen < 10 {
-			maxBodyLen = 10
-		}
-		bodyRunes := []rune(bodyText)
-		if len(bodyRunes) > maxBodyLen {
-			bodyText = string(bodyRunes[:maxBodyLen-3]) + "..."
-		}
-
 		bodyStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
 		indent := "      " // Align with text after checkbox
-		commentList += bodyStyle.Render(prefix+indent+bodyText) + "\n"
+		// Overhead: "  " prefix + "      " indent = 8 chars
+		maxLineLen := contentWidth - 8
+		if maxLineLen < 10 {
+			maxLineLen = 10
+		}
+		bodyLines := wrapBodyText(bodyText, maxLineLen, 3)
+		for _, line := range bodyLines {
+			commentList += bodyStyle.Render(prefix+indent+line) + "\n"
+		}
 	}
 
 	// Scroll indicators
@@ -247,6 +242,54 @@ func (s *ReviewCommentsState) SetComments(comments []ReviewCommentItem) {
 func (s *ReviewCommentsState) SetError(err string) {
 	s.LoadError = err
 	s.Loading = false
+}
+
+// wrapBodyText wraps a comment body into lines of at most maxLen runes,
+// returning up to maxLines lines. The last line is truncated with "..." if
+// the full text doesn't fit.
+func wrapBodyText(body string, maxLen, maxLines int) []string {
+	// Normalize whitespace: collapse newlines and multiple spaces
+	body = strings.Join(strings.Fields(body), " ")
+	if body == "" {
+		return nil
+	}
+
+	runes := []rune(body)
+	var lines []string
+
+	for len(runes) > 0 && len(lines) < maxLines {
+		if len(runes) <= maxLen {
+			lines = append(lines, string(runes))
+			runes = nil
+			break
+		}
+
+		isLastLine := len(lines) == maxLines-1
+		if isLastLine {
+			// Last allowed line: truncate with ellipsis
+			lines = append(lines, string(runes[:maxLen-3])+"...")
+			break
+		}
+
+		// Find a word boundary to break at
+		breakAt := maxLen
+		for breakAt > 0 && runes[breakAt] != ' ' {
+			breakAt--
+		}
+		if breakAt == 0 {
+			// No space found, hard break
+			breakAt = maxLen
+		}
+
+		lines = append(lines, string(runes[:breakAt]))
+		runes = runes[breakAt:]
+		// Skip leading space on next line
+		if len(runes) > 0 && runes[0] == ' ' {
+			runes = runes[1:]
+		}
+	}
+
+	return lines
 }
 
 // NewReviewCommentsState creates a new ReviewCommentsState in loading state.

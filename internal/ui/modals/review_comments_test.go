@@ -330,3 +330,98 @@ func TestReviewCommentsState_SetSize(t *testing.T) {
 	}
 }
 
+func TestWrapBodyText(t *testing.T) {
+	tests := []struct {
+		name     string
+		body     string
+		maxLen   int
+		maxLines int
+		want     []string
+	}{
+		{
+			name:     "empty body",
+			body:     "",
+			maxLen:   40,
+			maxLines: 3,
+			want:     nil,
+		},
+		{
+			name:     "short body fits in one line",
+			body:     "Fix this bug",
+			maxLen:   40,
+			maxLines: 3,
+			want:     []string{"Fix this bug"},
+		},
+		{
+			name:     "body wraps to two lines",
+			body:     "This is a longer comment that needs wrapping",
+			maxLen:   25,
+			maxLines: 3,
+			want:     []string{"This is a longer comment", "that needs wrapping"},
+		},
+		{
+			name:     "body truncated at max lines",
+			body:     "This is a very long comment that will need to be wrapped across multiple lines and eventually truncated",
+			maxLen:   25,
+			maxLines: 2,
+			want:     []string{"This is a very long", "comment that will need..."},
+		},
+		{
+			name:     "newlines collapsed to spaces",
+			body:     "First line\nSecond line\nThird line",
+			maxLen:   50,
+			maxLines: 3,
+			want:     []string{"First line Second line Third line"},
+		},
+		{
+			name:     "multiline body wraps after collapsing",
+			body:     "First line\nSecond line\nThird line",
+			maxLen:   20,
+			maxLines: 3,
+			want:     []string{"First line Second", "line Third line"},
+		},
+		{
+			name:     "whitespace only body",
+			body:     "   \n  \n  ",
+			maxLen:   40,
+			maxLines: 3,
+			want:     nil,
+		},
+		{
+			name:     "long word with no break point",
+			body:     "abcdefghijklmnopqrstuvwxyz more text",
+			maxLen:   10,
+			maxLines: 3,
+			want:     []string{"abcdefghij", "klmnopqrst", "uvwxyz ..."},
+		},
+		{
+			name:     "exactly max length",
+			body:     "1234567890",
+			maxLen:   10,
+			maxLines: 3,
+			want:     []string{"1234567890"},
+		},
+		{
+			name:     "three full lines",
+			body:     "aaa bbb ccc ddd eee fff",
+			maxLen:   8,
+			maxLines: 3,
+			want:     []string{"aaa bbb", "ccc ddd", "eee fff"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapBodyText(tt.body, tt.maxLen, tt.maxLines)
+			if len(got) != len(tt.want) {
+				t.Fatalf("wrapBodyText() returned %d lines, want %d\ngot:  %q\nwant: %q", len(got), len(tt.want), got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("line %d: got %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+

@@ -190,7 +190,6 @@ var ShortcutRegistry = []Shortcut{
 		Description:     "Import PR review comments",
 		Category:        CategoryGit,
 		RequiresSession: true,
-		RequiresSidebar: true,
 		Handler:         shortcutReviewComments,
 	},
 
