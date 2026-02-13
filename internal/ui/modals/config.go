@@ -879,7 +879,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 
 	containerImageInput := textinput.New()
 	containerImageInput.Placeholder = "ghcr.io/zhubert/plural-claude"
-	containerImageInput.CharLimit = 100
+	containerImageInput.CharLimit = 200
 	containerImageInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
 	containerImageInput.SetValue(containerImage)
 

@@ -2,6 +2,7 @@ package modals
 
 import (
 	"regexp"
+	"runtime"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -82,20 +83,40 @@ func (s *ContainerCommandState) GetCommand() string {
 }
 
 // NewContainerCLINotInstalledState creates a modal for when Docker is not installed.
+// Shows a platform-appropriate install command or URL.
 func NewContainerCLINotInstalledState() *ContainerCommandState {
-	return &ContainerCommandState{
-		ModalTitle: "Docker Not Found",
-		Message:    "Docker is required for container mode. Install it from https://docs.docker.com/get-docker/",
-		Command:    "https://docs.docker.com/get-docker/",
+	switch runtime.GOOS {
+	case "darwin":
+		return &ContainerCommandState{
+			ModalTitle: "Docker Not Found",
+			Message:    "Docker is required for container mode. Install Docker Desktop with Homebrew:",
+			Command:    "brew install --cask docker",
+		}
+	default:
+		return &ContainerCommandState{
+			ModalTitle: "Docker Not Found",
+			Message:    "Docker is required for container mode. Install it from:",
+			Command:    "https://docs.docker.com/get-docker/",
+		}
 	}
 }
 
 // NewContainerSystemNotRunningState creates a modal for when the Docker daemon is not running.
+// Shows a platform-appropriate start command.
 func NewContainerSystemNotRunningState() *ContainerCommandState {
-	return &ContainerCommandState{
-		ModalTitle: "Docker Not Running",
-		Message:    "The Docker daemon is not running. Start Docker Desktop or run:",
-		Command:    "sudo systemctl start docker",
+	switch runtime.GOOS {
+	case "darwin":
+		return &ContainerCommandState{
+			ModalTitle: "Docker Not Running",
+			Message:    "The Docker daemon is not running. Start Docker Desktop:",
+			Command:    "open -a Docker",
+		}
+	default:
+		return &ContainerCommandState{
+			ModalTitle: "Docker Not Running",
+			Message:    "The Docker daemon is not running. Start it with:",
+			Command:    "sudo systemctl start docker",
+		}
 	}
 }
 

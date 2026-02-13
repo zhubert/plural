@@ -1,6 +1,7 @@
 package modals
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -15,14 +16,20 @@ func TestContainerCommandState_CLINotInstalled(t *testing.T) {
 	if s.Title() != "Docker Not Found" {
 		t.Errorf("Expected title 'Docker Not Found', got %q", s.Title())
 	}
-	if s.GetCommand() != "https://docs.docker.com/get-docker/" {
-		t.Errorf("Expected Docker install URL, got %q", s.GetCommand())
+
+	// Platform-specific: macOS gets brew command, others get URL
+	switch runtime.GOOS {
+	case "darwin":
+		if s.GetCommand() != "brew install --cask docker" {
+			t.Errorf("Expected brew install command on macOS, got %q", s.GetCommand())
+		}
+	default:
+		if s.GetCommand() != "https://docs.docker.com/get-docker/" {
+			t.Errorf("Expected Docker install URL, got %q", s.GetCommand())
+		}
 	}
 
 	rendered := s.Render()
-	if !strings.Contains(rendered, "docs.docker.com") {
-		t.Error("Rendered output should contain Docker install URL")
-	}
 	if !strings.Contains(rendered, "Docker is required") {
 		t.Error("Rendered output should explain that Docker is required")
 	}
@@ -34,14 +41,20 @@ func TestContainerCommandState_SystemNotRunning(t *testing.T) {
 	if s.Title() != "Docker Not Running" {
 		t.Errorf("Expected title 'Docker Not Running', got %q", s.Title())
 	}
-	if s.GetCommand() != "sudo systemctl start docker" {
-		t.Errorf("Expected 'sudo systemctl start docker', got %q", s.GetCommand())
+
+	// Platform-specific: macOS gets open -a Docker, others get systemctl
+	switch runtime.GOOS {
+	case "darwin":
+		if s.GetCommand() != "open -a Docker" {
+			t.Errorf("Expected 'open -a Docker' on macOS, got %q", s.GetCommand())
+		}
+	default:
+		if s.GetCommand() != "sudo systemctl start docker" {
+			t.Errorf("Expected 'sudo systemctl start docker', got %q", s.GetCommand())
+		}
 	}
 
 	rendered := s.Render()
-	if !strings.Contains(rendered, "sudo systemctl start docker") {
-		t.Error("Rendered output should contain the systemctl start command")
-	}
 	if !strings.Contains(rendered, "not running") {
 		t.Error("Rendered output should explain that Docker is not running")
 	}
@@ -174,6 +187,8 @@ func TestValidateContainerImage(t *testing.T) {
 		{"valid with underscores", "my_image", true},
 		{"valid with tag", "plural-claude:latest", true},
 		{"valid with namespace", "registry/image:v1", true},
+		{"valid ghcr.io image", "ghcr.io/zhubert/plural-claude", true},
+		{"valid ghcr.io with tag", "ghcr.io/zhubert/plural-claude:v1.2.3", true},
 		{"valid uppercase", "MyImage", true},
 		{"empty string", "", false},
 		{"shell injection semicolon", "image; rm -rf /", false},
