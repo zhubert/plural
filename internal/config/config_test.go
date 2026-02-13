@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2259,5 +2260,52 @@ func TestSession_PRMergedClosed_JSON(t *testing.T) {
 	}
 	if strings.Contains(string(data3), "pr_closed") {
 		t.Error("PRClosed=false should be omitted from JSON (omitempty)")
+	}
+}
+
+func TestConfig_Save_ConcurrentWrites(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "plural-config-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "config.json")
+
+	cfg := &Config{
+		Repos:    []string{"/path/to/repo"},
+		Sessions: []Session{},
+		filePath: configPath,
+	}
+
+	// Run many concurrent Save() calls. With RLock this could corrupt the file;
+	// with Lock they are serialized and the file stays valid.
+	var wg sync.WaitGroup
+	const goroutines = 20
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := cfg.Save(); err != nil {
+				t.Errorf("Save failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Verify the file is valid JSON after all concurrent writes
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	var loaded Config
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("Config file is corrupted after concurrent saves: %v", err)
+	}
+
+	if len(loaded.Repos) != 1 || loaded.Repos[0] != "/path/to/repo" {
+		t.Errorf("Unexpected repos after concurrent saves: %v", loaded.Repos)
 	}
 }
