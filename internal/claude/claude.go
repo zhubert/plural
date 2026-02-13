@@ -621,6 +621,9 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 func (r *Runner) handleProcessLine(line string) {
 	// Snapshot streamLogFile under the lock to avoid racing with Stop(),
 	// which sets r.streamLogFile to nil after closing the file.
+	// Note: if Stop() closes the file between our snapshot and the write below,
+	// fmt.Fprintf on a closed *os.File returns an error silently — acceptable
+	// for a log file during shutdown.
 	r.mu.RLock()
 	logFile := r.streamLogFile
 	r.mu.RUnlock()

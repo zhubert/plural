@@ -2997,12 +2997,16 @@ func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
 
 	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}`
 
-	// Run handleProcessLine and Stop concurrently to trigger the race.
+	// Use a barrier channel to ensure both goroutines are running before
+	// either proceeds, avoiding reliance on time.Sleep for overlap.
+	barrier := make(chan struct{})
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
+		<-barrier
 		for range 100 {
 			runner.handleProcessLine(line)
 		}
@@ -3010,10 +3014,11 @@ func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		// Give handleProcessLine a head start so calls overlap
-		time.Sleep(time.Millisecond)
+		<-barrier
 		runner.Stop()
 	}()
 
+	// Release both goroutines simultaneously.
+	close(barrier)
 	wg.Wait()
 }
