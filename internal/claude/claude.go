@@ -1194,15 +1194,14 @@ func (r *Runner) SendContent(cmdCtx context.Context, content []ContentBlock) <-c
 
 		// Start process manager if not running
 		if err := r.ensureProcessRunning(); err != nil {
-			// Clean up state since we're aborting
+			// Send error before closing channel
+			ch <- ResponseChunk{Error: err, Done: true}
+
+			// Clean up state using Close() to keep sync.Once consistent
 			r.mu.Lock()
 			r.streaming.Active = false
-			r.responseChan.Channel = nil
-			r.responseChan.Closed = true
+			r.closeResponseChannel()
 			r.mu.Unlock()
-
-			ch <- ResponseChunk{Error: err, Done: true}
-			close(ch)
 			return
 		}
 
