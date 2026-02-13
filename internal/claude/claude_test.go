@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -3083,4 +3085,43 @@ func TestTokenTracking_NoRaceCondition(t *testing.T) {
 
 	<-done
 	close(ch)
+}
+
+func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
+	// This test verifies that concurrent calls to handleProcessLine and Stop
+	// do not race on r.streamLogFile. Run with -race to detect the issue.
+	runner := New("race-test", "/tmp", false, nil)
+
+	// Set a stream log file (use a temp file so writes succeed)
+	tmpFile, err := os.CreateTemp("", "stream-log-race-test-*.log")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	runner.mu.Lock()
+	runner.streamLogFile = tmpFile
+	runner.mu.Unlock()
+
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}`
+
+	// Run handleProcessLine and Stop concurrently to trigger the race.
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			runner.handleProcessLine(line)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		// Give handleProcessLine a head start so calls overlap
+		time.Sleep(time.Millisecond)
+		runner.Stop()
+	}()
+
+	wg.Wait()
 }
