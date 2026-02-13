@@ -76,15 +76,7 @@ Press `i` to import issues or tasks. Select multiple and Plural creates a sessio
    ```bash
    export ASANA_PAT="your-token-here"
    ```
-3. Map a repository to an Asana project. In `~/.plural/config.json`, add:
-   ```json
-   {
-     "repo_asana_project": {
-       "/path/to/your/repo": "your-asana-project-gid"
-     }
-   }
-   ```
-   You can find the project GID in the Asana project URL: `https://app.asana.com/0/<project-gid>/...`
+3. Map a repository to an Asana project by pressing `,` to open Settings, then select an Asana project from the list for the current repo
 
 When both GitHub and Asana are configured for a repository, Plural will prompt you to choose a source before importing.
 
