@@ -22,52 +22,60 @@ jobs:
             const pr = context.payload.pull_request;
             const review = context.payload.review;
 
-            let state, description, targetUrl;
-
-            if (review && review.user.login === 'shipitai[bot]') {
-              // Bot review submitted - set success, failure, or pending
-              // Webhook payload uses lowercase state ('approved'), REST API uses uppercase ('APPROVED')
-              const reviewState = review.state.toUpperCase();
-              if (reviewState === 'APPROVED') {
-                state = 'success';
-                description = 'Bot approved the changes';
-              } else if (reviewState === 'CHANGES_REQUESTED') {
-                state = 'failure';
-                description = 'Bot requested changes';
-              } else {
-                // COMMENTED - not a decision, keep waiting
-                state = 'pending';
-                description = 'Bot commented, waiting for approval or rejection';
+            // Helper: map review state to commit status
+            function resolveReviewState(reviewState, reviewUrl) {
+              const s = reviewState.toUpperCase();
+              if (s === 'APPROVED') {
+                return { state: 'success', description: 'Bot approved the changes', targetUrl: reviewUrl };
+              } else if (s === 'CHANGES_REQUESTED') {
+                return { state: 'failure', description: 'Bot requested changes', targetUrl: reviewUrl };
               }
-              targetUrl = review.html_url;
-            } else {
-              // PR opened/updated - check for existing bot review
+              return null; // COMMENTED or other non-decisive states
+            }
+
+            // Helper: find the most recent decisive bot review via API
+            async function findDecisiveReview() {
               const reviews = await github.rest.pulls.listReviews({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: pr.number
               });
 
-              const botReview = reviews.data
+              const botReviews = reviews.data
                 .filter(r => r.user.login === 'shipitai[bot]')
-                .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))[0];
+                .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
 
-              if (botReview) {
-                // Use existing bot review
-                if (botReview.state === 'APPROVED') {
-                  state = 'success';
-                  description = 'Bot approved the changes';
-                } else if (botReview.state === 'CHANGES_REQUESTED') {
-                  state = 'failure';
-                  description = 'Bot requested changes';
+              for (const r of botReviews) {
+                const result = resolveReviewState(r.state, r.html_url);
+                if (result) return result;
+              }
+              return null;
+            }
+
+            let state, description, targetUrl;
+
+            if (review && review.user.login === 'shipitai[bot]') {
+              // Bot review submitted - check if it's a decisive review
+              const result = resolveReviewState(review.state, review.html_url);
+              if (result) {
+                ({ state, description, targetUrl } = result);
+              } else {
+                // COMMENTED - not a decision, check for prior decisive review
+                const prior = await findDecisiveReview();
+                if (prior) {
+                  ({ state, description, targetUrl } = prior);
                 } else {
-                  // COMMENTED - not a decision, keep waiting
                   state = 'pending';
                   description = 'Bot commented, waiting for approval or rejection';
+                  targetUrl = review.html_url;
                 }
-                targetUrl = botReview.html_url;
+              }
+            } else {
+              // PR opened/updated - find most recent decisive bot review
+              const result = await findDecisiveReview();
+              if (result) {
+                ({ state, description, targetUrl } = result);
               } else {
-                // No bot review yet - set pending
                 state = 'pending';
                 description = 'Waiting for bot review';
                 targetUrl = pr.html_url;
