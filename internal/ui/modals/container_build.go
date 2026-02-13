@@ -92,10 +92,16 @@ func NewContainerCLINotInstalledState() *ContainerCommandState {
 			Message:    "Docker is required for container mode. Install Docker Desktop with Homebrew:",
 			Command:    "brew install --cask docker",
 		}
+	case "linux":
+		return &ContainerCommandState{
+			ModalTitle: "Docker Not Found",
+			Message:    "Docker is required for container mode. Install it with:",
+			Command:    "curl -fsSL https://get.docker.com | sh",
+		}
 	default:
 		return &ContainerCommandState{
 			ModalTitle: "Docker Not Found",
-			Message:    "Docker is required for container mode. Install it from:",
+			Message:    "Docker is required for container mode. Visit https://docs.docker.com/get-docker/ to install.",
 			Command:    "https://docs.docker.com/get-docker/",
 		}
 	}
@@ -111,11 +117,17 @@ func NewContainerSystemNotRunningState() *ContainerCommandState {
 			Message:    "The Docker daemon is not running. Start Docker Desktop:",
 			Command:    "open -a Docker",
 		}
-	default:
+	case "linux":
 		return &ContainerCommandState{
 			ModalTitle: "Docker Not Running",
 			Message:    "The Docker daemon is not running. Start it with:",
 			Command:    "sudo systemctl start docker",
+		}
+	default:
+		return &ContainerCommandState{
+			ModalTitle: "Docker Not Running",
+			Message:    "The Docker daemon is not running. Start Docker Desktop from your applications.",
+			Command:    "docker info",
 		}
 	}
 }

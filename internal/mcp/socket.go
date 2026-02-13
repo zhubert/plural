@@ -116,7 +116,10 @@ func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh
 
 	// On macOS/Windows (Docker Desktop), bind to loopback for security.
 	// On Linux, bind to all interfaces since host.docker.internal resolves
-	// to the bridge gateway IP, not 127.0.0.1.
+	// to the bridge gateway IP, not 127.0.0.1. Note: the ephemeral port is
+	// exposed to the local network on Linux for the lifetime of the session.
+	// This is acceptable for local development; production deployments on
+	// shared Linux hosts should use firewall rules to restrict access.
 	bindAddr := "127.0.0.1:0"
 	if runtime.GOOS == "linux" {
 		bindAddr = "0.0.0.0:0"
