@@ -275,13 +275,18 @@ func wrapBodyText(body string, maxLen, maxLines int) []string {
 			break
 		}
 
-		// Find a word boundary to break at (scan backwards from last char that fits)
-		breakAt := maxLen - 1
-		for breakAt > 0 && runes[breakAt] != ' ' {
-			breakAt--
+		// Find a word boundary to break at by scanning backwards within the
+		// line. We know len(runes) > maxLen here, so indices 0..maxLen-1 are
+		// the characters that would fit on this line.
+		breakAt := -1
+		for i := maxLen - 1; i > 0; i-- {
+			if runes[i] == ' ' {
+				breakAt = i
+				break
+			}
 		}
-		if breakAt == 0 {
-			// No space found, hard break
+		if breakAt <= 0 {
+			// No space found within the line, hard break at maxLen
 			breakAt = maxLen
 		}
 
