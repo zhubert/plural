@@ -3,9 +3,11 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestGetLogFiles_MainDebugLog(t *testing.T) {
@@ -289,6 +291,53 @@ func containsText(s, substr string) bool {
 	// Simple check - just verify the substring exists somewhere
 	// ANSI codes may be interspersed, so we do a basic contains check
 	return len(s) >= len(substr) && (s == substr || len(s) > 0)
+}
+
+func TestRenderLogNavBar_UsesVisualWidth(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 40)
+
+	chat.EnterLogViewerMode([]LogFile{
+		{Name: "Debug Log", Path: "/tmp/test1.log", Content: "content1"},
+		{Name: "MCP Log (session-abc123)", Path: "/tmp/test2.log", Content: "content2"},
+		{Name: "Stream Log (session-abc123)", Path: "/tmp/test3.log", Content: "content3"},
+	})
+
+	result := chat.renderLogNavBar(80)
+	visibleWidth := lipgloss.Width(result)
+
+	// The rendered nav bar's visible width should not exceed the requested width
+	if visibleWidth > 80 {
+		t.Errorf("renderLogNavBar visible width %d exceeds requested width 80", visibleWidth)
+	}
+}
+
+func TestRenderLogNavBar_FilenameNotOverTruncated(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(120, 40)
+
+	// Short name that should fit easily at width 120
+	chat.EnterLogViewerMode([]LogFile{
+		{Name: "Debug Log", Path: "/tmp/test.log", Content: "content"},
+	})
+
+	result := chat.renderLogNavBar(120)
+
+	// The name should appear in the output without truncation
+	stripped := stripANSI(result)
+	if !strings.Contains(stripped, "Debug Log") {
+		t.Errorf("renderLogNavBar at width 120 should contain full name 'Debug Log', got: %q", stripped)
+	}
+}
+
+func TestRenderLogNavBar_NoFiles(t *testing.T) {
+	chat := NewChat()
+	chat.SetSize(80, 40)
+
+	result := chat.renderLogNavBar(80)
+	if result == "" {
+		t.Error("renderLogNavBar should return something even with no files")
+	}
 }
 
 // keyPressMsg creates a tea.KeyPressMsg for the given key string
