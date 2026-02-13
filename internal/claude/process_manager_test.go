@@ -1710,6 +1710,10 @@ func TestProcessManager_MonitorExit_NaturalExit(t *testing.T) {
 	pm.waitDone = make(chan struct{})
 	pm.running = true
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	// Capture waitDone under the lock before goroutines start.
+	// handleExit -> cleanupLocked sets pm.waitDone = nil, so reading
+	// pm.waitDone without the lock after goroutines start would race.
+	waitDone := pm.waitDone
 	pm.mu.Unlock()
 
 	pm.wg.Add(3)
@@ -1726,12 +1730,25 @@ func TestProcessManager_MonitorExit_NaturalExit(t *testing.T) {
 		pm.monitorExit()
 	}()
 
-	// Wait for waitDone to be closed (monitorExit handled natural exit)
+	// Wait for waitDone to be closed (monitorExit called cmd.Wait())
 	select {
-	case <-pm.waitDone:
+	case <-waitDone:
 		// Good - monitorExit closed waitDone after cmd.Wait() completed
 	case <-time.After(5 * time.Second):
 		t.Fatal("waitDone was not closed after natural process exit")
+	}
+
+	// Wait for monitorExit goroutine to finish (including handleExit)
+	// before checking the callback, since waitDone is closed before handleExit runs.
+	wgDone := make(chan struct{})
+	go func() {
+		pm.wg.Wait()
+		close(wgDone)
+	}()
+	select {
+	case <-wgDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("goroutines did not complete after natural process exit")
 	}
 
 	// OnProcessExit should have been called
