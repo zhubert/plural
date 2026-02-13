@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 )
 
 // DiffStats holds file change statistics for display in the header
@@ -139,8 +140,8 @@ func (h *Header) View() string {
 		rightText += " "
 	}
 
-	// Calculate padding using rune count to match gradient renderer
-	paddingLen := h.width - utf8.RuneCountInString(titleText) - utf8.RuneCountInString(rightText)
+	// Calculate padding using display width (accounts for double-width CJK characters)
+	paddingLen := h.width - lipgloss.Width(titleText) - lipgloss.Width(rightText)
 	if paddingLen < 0 {
 		paddingLen = 0
 	}
@@ -198,12 +199,15 @@ func (h *Header) renderGradient(content string, regions []headerRegion) string {
 	}
 
 	runes := []rune(content)
-	width := len(runes)
+	// Use display width for gradient interpolation so double-width characters
+	// get proportionally sized gradient steps
+	displayWidth := lipgloss.Width(content)
 	var result strings.Builder
 
+	col := 0 // current display column
 	for i, r := range runes {
-		// Calculate interpolation factor (0.0 to 1.0)
-		t := float64(i) / float64(width)
+		// Calculate interpolation factor based on display column position
+		t := float64(col) / float64(displayWidth)
 
 		// Interpolate colors
 		cr := int(float64(startR)*(1-t) + float64(endR)*t)
@@ -235,6 +239,7 @@ func (h *Header) renderGradient(content string, regions []headerRegion) string {
 		}
 
 		result.WriteString(style.Render(string(r)))
+		col += runewidth.RuneWidth(r)
 	}
 
 	return result.String()
