@@ -213,3 +213,175 @@ func TestGetBatchPRStates_EmptyList(t *testing.T) {
 		t.Errorf("expected 0 results for empty PR list, got %d", len(states))
 	}
 }
+
+// =============================================================================
+// FetchPRReviewComments Tests
+// =============================================================================
+
+func TestFetchPRReviewComments_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [{
+				"author": {"login": "reviewer1"},
+				"body": "Overall looks good but needs changes",
+				"state": "CHANGES_REQUESTED",
+				"comments": [{
+					"author": {"login": "reviewer1"},
+					"body": "Use a mutex here",
+					"path": "internal/app.go",
+					"line": 42,
+					"url": "https://github.com/repo/pull/1#discussion_r1"
+				}]
+			}],
+			"comments": [{
+				"author": {"login": "someone"},
+				"body": "What about edge case?",
+				"url": "https://github.com/repo/pull/1#issuecomment-1"
+			}]
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 1 top-level comment + 1 review body + 1 inline = 3
+	if len(comments) != 3 {
+		t.Fatalf("expected 3 comments, got %d", len(comments))
+	}
+
+	// Top-level comment
+	if comments[0].Author != "someone" {
+		t.Errorf("expected author 'someone', got '%s'", comments[0].Author)
+	}
+	if comments[0].Body != "What about edge case?" {
+		t.Errorf("unexpected body: %s", comments[0].Body)
+	}
+	if comments[0].Path != "" {
+		t.Errorf("expected empty path for top-level comment, got '%s'", comments[0].Path)
+	}
+
+	// Review body
+	if comments[1].Author != "reviewer1" {
+		t.Errorf("expected author 'reviewer1', got '%s'", comments[1].Author)
+	}
+	if comments[1].Body != "Overall looks good but needs changes" {
+		t.Errorf("unexpected review body: %s", comments[1].Body)
+	}
+
+	// Inline comment
+	if comments[2].Path != "internal/app.go" {
+		t.Errorf("expected path 'internal/app.go', got '%s'", comments[2].Path)
+	}
+	if comments[2].Line != 42 {
+		t.Errorf("expected line 42, got %d", comments[2].Line)
+	}
+	if comments[2].Body != "Use a mutex here" {
+		t.Errorf("unexpected inline body: %s", comments[2].Body)
+	}
+}
+
+func TestFetchPRReviewComments_CLIError(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Err: fmt.Errorf("no pull requests found for branch feature-branch"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if comments != nil {
+		t.Errorf("expected nil comments on error, got %v", comments)
+	}
+}
+
+func TestFetchPRReviewComments_InvalidJSON(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`not valid json`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err == nil {
+		t.Fatal("expected error for invalid JSON, got nil")
+	}
+	if comments != nil {
+		t.Errorf("expected nil comments on error, got %v", comments)
+	}
+}
+
+func TestFetchPRReviewComments_EmptyReviews(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{"reviews": [], "comments": []}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments for empty reviews, got %d", len(comments))
+	}
+}
+
+func TestFetchPRReviewComments_EmptyReviewBody(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [{
+				"author": {"login": "reviewer"},
+				"body": "",
+				"state": "APPROVED",
+				"comments": []
+			}],
+			"comments": []
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Empty review body should be skipped
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments (empty review body skipped), got %d", len(comments))
+	}
+}
+
+func TestFetchPRReviewComments_ReviewBodyOnly(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [{
+				"author": {"login": "reviewer"},
+				"body": "Please fix the formatting",
+				"state": "CHANGES_REQUESTED",
+				"comments": []
+			}],
+			"comments": []
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment (review body), got %d", len(comments))
+	}
+	if comments[0].Author != "reviewer" {
+		t.Errorf("expected author 'reviewer', got '%s'", comments[0].Author)
+	}
+	if comments[0].Body != "Please fix the formatting" {
+		t.Errorf("unexpected body: %s", comments[0].Body)
+	}
+}

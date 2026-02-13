@@ -158,6 +158,14 @@ type IssuesFetchedMsg struct {
 	Error     error
 }
 
+// ReviewCommentsFetchedMsg is sent when PR review comments have been fetched
+type ReviewCommentsFetchedMsg struct {
+	SessionID string
+	Branch    string
+	Comments  []git.PRReviewComment
+	Error     error
+}
+
 // ChangelogFetchedMsg is sent when changelog has been fetched from GitHub
 type ChangelogFetchedMsg struct {
 	Entries  []changelog.Entry
@@ -646,6 +654,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case IssuesFetchedMsg:
 		return m.handleIssuesFetchedMsg(msg)
+
+	case ReviewCommentsFetchedMsg:
+		return m.handleReviewCommentsFetchedMsg(msg)
 
 	case ChangelogFetchedMsg:
 		return m.handleChangelogFetchedMsg(msg)
@@ -1577,6 +1588,23 @@ func (m *Model) fetchIssues(repoPath, source, projectID string) tea.Cmd {
 			Source:    source,
 			ProjectID: projectID,
 			Issues:    fetchedIssues,
+			Error:     err,
+		}
+	}
+}
+
+// fetchReviewComments creates a command to fetch PR review comments asynchronously
+func (m *Model) fetchReviewComments(sessionID, repoPath, branch string) tea.Cmd {
+	gitSvc := m.gitService
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		comments, err := gitSvc.FetchPRReviewComments(ctx, repoPath, branch)
+		return ReviewCommentsFetchedMsg{
+			SessionID: sessionID,
+			Branch:    branch,
+			Comments:  comments,
 			Error:     err,
 		}
 	}

@@ -51,6 +51,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleEditCommitModal(key, msg, s)
 	case *ui.MergeConflictState:
 		return m.handleMergeConflictModal(key, msg, s)
+	case *ui.ReviewCommentsState:
+		return m.handleReviewCommentsModal(key, msg, s)
 
 	// Workspace modals (modal_handlers_config.go)
 	case *ui.WorkspaceListState:

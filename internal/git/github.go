@@ -89,6 +89,95 @@ func (s *GitService) GetBatchPRStates(ctx context.Context, repoPath string, bran
 	return result, nil
 }
 
+// PRReviewComment represents a single review comment from a GitHub pull request.
+// This can be a top-level PR comment, a review body, or an inline code review comment.
+type PRReviewComment struct {
+	Author string // GitHub username
+	Body   string // Comment text
+	Path   string // File path (empty for top-level/review body comments)
+	Line   int    // Line number (0 for top-level/review body comments)
+	URL    string // Permalink
+}
+
+// JSON types for gh pr view --json reviews,comments response
+type ghPRReviewsResponse struct {
+	Reviews  []ghReview  `json:"reviews"`
+	Comments []ghComment `json:"comments"`
+}
+
+type ghReview struct {
+	Author   ghAuthor    `json:"author"`
+	Body     string      `json:"body"`
+	State    string      `json:"state"`
+	Comments []ghComment `json:"comments"`
+}
+
+type ghComment struct {
+	Author ghAuthor `json:"author"`
+	Body   string   `json:"body"`
+	Path   string   `json:"path"`
+	Line   int      `json:"line"`
+	URL    string   `json:"url"`
+}
+
+type ghAuthor struct {
+	Login string `json:"login"`
+}
+
+// FetchPRReviewComments fetches review comments from a pull request using the gh CLI.
+// Returns top-level PR comments, review body comments, and inline code review comments
+// as a flattened slice. The repoPath is used as the working directory.
+func (s *GitService) FetchPRReviewComments(ctx context.Context, repoPath, branch string) ([]PRReviewComment, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "view", branch, "--json", "reviews,comments")
+	if err != nil {
+		return nil, fmt.Errorf("gh pr view failed: %w", err)
+	}
+
+	var response ghPRReviewsResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse PR review data: %w", err)
+	}
+
+	var comments []PRReviewComment
+
+	// Top-level PR comments
+	for _, c := range response.Comments {
+		if c.Body == "" {
+			continue
+		}
+		comments = append(comments, PRReviewComment{
+			Author: c.Author.Login,
+			Body:   c.Body,
+			URL:    c.URL,
+		})
+	}
+
+	// Review-level body comments and inline code review comments
+	for _, review := range response.Reviews {
+		// Include review body if non-empty (skip empty state-only reviews)
+		if review.Body != "" {
+			comments = append(comments, PRReviewComment{
+				Author: review.Author.Login,
+				Body:   review.Body,
+			})
+		}
+		for _, c := range review.Comments {
+			if c.Body == "" {
+				continue
+			}
+			comments = append(comments, PRReviewComment{
+				Author: c.Author.Login,
+				Body:   c.Body,
+				Path:   c.Path,
+				Line:   c.Line,
+				URL:    c.URL,
+			})
+		}
+	}
+
+	return comments, nil
+}
+
 // GitHubIssue represents a GitHub issue fetched via the gh CLI
 type GitHubIssue struct {
 	Number int    `json:"number"`
