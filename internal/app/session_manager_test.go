@@ -897,3 +897,117 @@ func TestCopyClaudeSessionForFork_SuccessPath(t *testing.T) {
 	}
 }
 
+func TestSessionManager_SaveMessages_NoRunner(t *testing.T) {
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// No runner exists - should return nil (no error)
+	err := sm.SaveMessages("nonexistent")
+	if err != nil {
+		t.Errorf("SaveMessages with no runner should return nil, got %v", err)
+	}
+}
+
+func TestSessionManager_SaveMessages_Success(t *testing.T) {
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	// Create a mock runner with messages
+	runner := claude.NewMockRunner("session-1", true, []claude.Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there"},
+	})
+	sm.SetRunner("session-1", runner)
+
+	err := sm.SaveMessages("session-1")
+	if err != nil {
+		t.Errorf("SaveMessages should succeed, got %v", err)
+	}
+
+	// Verify messages were saved
+	msgs, loadErr := config.LoadSessionMessages("session-1")
+	if loadErr != nil {
+		t.Fatalf("Failed to load saved messages: %v", loadErr)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(msgs))
+	}
+}
+
+func TestSessionManager_SaveMessages_Error(t *testing.T) {
+	// Set HOME to a read-only path to trigger a write error
+	tempDir := t.TempDir()
+	readOnlyDir := filepath.Join(tempDir, "readonly")
+	os.MkdirAll(readOnlyDir, 0500)
+	defer os.Chmod(readOnlyDir, 0700)
+	t.Setenv("HOME", readOnlyDir)
+
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	runner := claude.NewMockRunner("session-1", true, []claude.Message{
+		{Role: "user", Content: "Hello"},
+	})
+	sm.SetRunner("session-1", runner)
+
+	err := sm.SaveMessages("session-1")
+	if err == nil {
+		t.Error("SaveMessages should return error when write fails")
+	}
+}
+
+func TestSessionManager_SaveRunnerMessages_NilRunner(t *testing.T) {
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	err := sm.SaveRunnerMessages("session-1", nil)
+	if err != nil {
+		t.Errorf("SaveRunnerMessages with nil runner should return nil, got %v", err)
+	}
+}
+
+func TestSessionManager_SaveRunnerMessages_Success(t *testing.T) {
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	runner := claude.NewMockRunner("session-1", true, []claude.Message{
+		{Role: "user", Content: "Test message"},
+		{Role: "assistant", Content: "Test response"},
+	})
+
+	err := sm.SaveRunnerMessages("session-1", runner)
+	if err != nil {
+		t.Errorf("SaveRunnerMessages should succeed, got %v", err)
+	}
+
+	// Verify messages were saved
+	msgs, loadErr := config.LoadSessionMessages("session-1")
+	if loadErr != nil {
+		t.Fatalf("Failed to load saved messages: %v", loadErr)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(msgs))
+	}
+}
+
+func TestSessionManager_SaveRunnerMessages_Error(t *testing.T) {
+	// Set HOME to a read-only path to trigger a write error
+	tempDir := t.TempDir()
+	readOnlyDir := filepath.Join(tempDir, "readonly")
+	os.MkdirAll(readOnlyDir, 0500)
+	defer os.Chmod(readOnlyDir, 0700)
+	t.Setenv("HOME", readOnlyDir)
+
+	cfg := createTestConfig()
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	runner := claude.NewMockRunner("session-1", true, []claude.Message{
+		{Role: "user", Content: "Hello"},
+	})
+
+	err := sm.SaveRunnerMessages("session-1", runner)
+	if err == nil {
+		t.Error("SaveRunnerMessages should return error when write fails")
+	}
+}
+
