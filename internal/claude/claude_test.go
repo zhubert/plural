@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -3214,5 +3215,57 @@ func TestEnsureProcessRunning_ErrorUsesCloseResponseChannel(t *testing.T) {
 	// The critical part: calling closeResponseChannel again must not panic
 	runner.mu.Lock()
 	runner.closeResponseChannel() // Should be safe due to sync.Once
+	runner.mu.Unlock()
+}
+
+func TestSendContent_ProcessStartFailure_ChannelCleanup(t *testing.T) {
+	// End-to-end regression test for issue #135: call SendContent on a runner
+	// where the claude binary doesn't exist, causing ensureProcessRunning to fail.
+	// Verify the returned channel delivers the error and is properly closed with
+	// consistent sync.Once state.
+	runner := New("session-e2e", t.TempDir(), false, nil)
+	defer runner.Stop()
+
+	// Clear PATH so "claude" binary can't be found, forcing ensureProcessRunning to fail
+	t.Setenv("PATH", "")
+
+	ctx := context.Background()
+	ch := runner.SendContent(ctx, TextContent("test prompt"))
+
+	// Drain all chunks — should get an error chunk then channel closes
+	var gotError bool
+	var gotDone bool
+	for chunk := range ch {
+		if chunk.Error != nil {
+			gotError = true
+		}
+		if chunk.Done {
+			gotDone = true
+		}
+	}
+
+	if !gotError {
+		t.Error("Expected at least one chunk with an error from process start failure")
+	}
+	if !gotDone {
+		t.Error("Expected at least one chunk with Done=true")
+	}
+
+	// Verify runner state is consistent after the error path
+	runner.mu.RLock()
+	closed := runner.responseChan.Closed
+	streaming := runner.streaming.Active
+	runner.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected responseChan.Closed to be true after process start failure")
+	}
+	if streaming {
+		t.Error("Expected streaming.Active to be false after process start failure")
+	}
+
+	// Calling closeResponseChannel again must not panic (sync.Once consistency)
+	runner.mu.Lock()
+	runner.closeResponseChannel()
 	runner.mu.Unlock()
 }
