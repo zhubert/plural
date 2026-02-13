@@ -171,6 +171,11 @@ type ProcessManager struct {
 	restartAttempts int
 	lastRestartTime time.Time
 
+	// waitDone is closed by monitorExit when cmd.Wait() completes.
+	// Stop() selects on this channel instead of calling cmd.Wait() again,
+	// preventing undefined behavior from double Wait().
+	waitDone chan struct{}
+
 	// Context for process goroutines
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -348,6 +353,7 @@ func (pm *ProcessManager) Start() error {
 	pm.stderr = stderr
 	pm.stderrContent = ""
 	pm.stderrDone = make(chan struct{})
+	pm.waitDone = make(chan struct{})
 	pm.running = true
 
 	// Create context for process goroutines
@@ -405,22 +411,21 @@ func (pm *ProcessManager) Stop() {
 	}
 
 	cmd := pm.cmd
+	waitDone := pm.waitDone
 	pm.mu.Unlock()
 
-	// Kill the process if it doesn't exit gracefully
-	if cmd != nil && cmd.Process != nil {
-		done := make(chan struct{})
-		go func() {
-			cmd.Wait()
-			close(done)
-		}()
-
+	// Wait for the process to exit using the waitDone channel from monitorExit.
+	// monitorExit is the sole caller of cmd.Wait(), and signals waitDone when
+	// it completes. This avoids calling cmd.Wait() twice (undefined behavior).
+	if cmd != nil && cmd.Process != nil && waitDone != nil {
 		select {
-		case <-done:
+		case <-waitDone:
 			pm.log.Debug("process exited gracefully")
 		case <-time.After(2 * time.Second):
 			pm.log.Debug("force killing process")
 			cmd.Process.Kill()
+			// Wait for monitorExit's cmd.Wait() to finish after kill
+			<-waitDone
 		}
 	}
 
@@ -654,16 +659,25 @@ func (pm *ProcessManager) drainStderr() {
 }
 
 // monitorExit waits for the process to exit and handles cleanup.
+// It is the sole caller of cmd.Wait() — Stop() coordinates via the
+// waitDone channel instead of calling cmd.Wait() itself, preventing
+// undefined behavior from double Wait().
 func (pm *ProcessManager) monitorExit() {
 	pm.mu.Lock()
 	cmd := pm.cmd
+	waitDone := pm.waitDone
 	pm.mu.Unlock()
 
 	if cmd == nil {
+		if waitDone != nil {
+			close(waitDone)
+		}
 		return
 	}
 
-	// Use a channel to detect when Wait() completes
+	// Wait for cmd.Wait() in a goroutine so we can also select on context.
+	// The goroutine's result is always consumed — either for handleExit
+	// or just to ensure cmd.Wait() completes before signaling waitDone.
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
@@ -673,9 +687,21 @@ func (pm *ProcessManager) monitorExit() {
 	select {
 	case err := <-done:
 		pm.log.Debug("process exited", "error", err)
+		// Signal that cmd.Wait() has completed before handling exit,
+		// so Stop() can proceed while handleExit runs
+		if waitDone != nil {
+			close(waitDone)
+		}
 		pm.handleExit(err)
 	case <-pm.ctx.Done():
-		pm.log.Debug("process monitor exiting - context cancelled")
+		pm.log.Debug("process monitor - context cancelled, waiting for cmd.Wait()")
+		// Context was cancelled (Stop() called). We must still consume
+		// cmd.Wait() to avoid a goroutine leak and ensure proper cleanup.
+		// Stop() closes stdin and may kill the process, which unblocks Wait().
+		<-done
+		if waitDone != nil {
+			close(waitDone)
+		}
 	}
 }
 
@@ -983,6 +1009,7 @@ func (pm *ProcessManager) cleanupLocked() {
 	pm.stdout = nil
 	pm.stderrContent = ""
 	pm.stderrDone = nil
+	pm.waitDone = nil
 	pm.running = false
 }
 

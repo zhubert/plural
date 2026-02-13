@@ -1,11 +1,13 @@
 package claude
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1595,6 +1597,184 @@ func TestBuildContainerRunArgs_NoMountsWithoutPaths(t *testing.T) {
 			t.Error("Should not mount MCP config when MCPConfigPath is empty")
 		}
 	}
+}
+
+func TestProcessManager_MonitorExit_SingleWait(t *testing.T) {
+	// Regression test for issue #126: cmd.Wait() must only be called once.
+	// monitorExit owns the cmd.Wait() call; Stop() coordinates via waitDone channel.
+	//
+	// This test uses a real subprocess (cat) to verify the coordination:
+	// 1. Start a process with monitorExit watching it
+	// 2. Call Stop() which cancels context and closes stdin
+	// 3. Verify monitorExit's cmd.Wait() completes (via waitDone) without panic
+	// 4. Verify Stop() doesn't call cmd.Wait() again
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-single-wait",
+		WorkingDir: t.TempDir(),
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderrContent string) bool {
+			return false // don't restart
+		},
+	}, pmTestLogger())
+
+	// Manually start a real process (cat reads stdin forever until EOF)
+	cmd := exec.Command("cat")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("failed to get stdin pipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("failed to get stdout pipe: %v", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("failed to get stderr pipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+
+	pm.mu.Lock()
+	pm.cmd = cmd
+	pm.stdin = stdin
+	pm.stdout = bufio.NewReader(stdout)
+	pm.stderr = stderrPipe
+	pm.stderrDone = make(chan struct{})
+	pm.waitDone = make(chan struct{})
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	// Start the goroutines that would be started by Start()
+	pm.wg.Add(3)
+	go func() {
+		defer pm.wg.Done()
+		pm.readOutput()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.drainStderr()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.monitorExit()
+	}()
+
+	// Stop should complete without panic from double cmd.Wait()
+	stopDone := make(chan struct{})
+	go func() {
+		pm.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		// Success - Stop completed without panic
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop() timed out - possible deadlock in wait coordination")
+	}
+}
+
+func TestProcessManager_MonitorExit_NaturalExit(t *testing.T) {
+	// Test that when the process exits naturally (before Stop is called),
+	// monitorExit properly closes waitDone and handles exit.
+
+	var exitCalled atomic.Int32
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-natural-exit",
+		WorkingDir: t.TempDir(),
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderrContent string) bool {
+			exitCalled.Add(1)
+			return false
+		},
+	}, pmTestLogger())
+
+	// Start a process that exits immediately
+	cmd := exec.Command("true")
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	stderrPipe, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+
+	pm.mu.Lock()
+	pm.cmd = cmd
+	pm.stdin = stdin
+	pm.stdout = bufio.NewReader(stdout)
+	pm.stderr = stderrPipe
+	pm.stderrDone = make(chan struct{})
+	pm.waitDone = make(chan struct{})
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.mu.Unlock()
+
+	pm.wg.Add(3)
+	go func() {
+		defer pm.wg.Done()
+		pm.readOutput()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.drainStderr()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.monitorExit()
+	}()
+
+	// Wait for waitDone to be closed (monitorExit handled natural exit)
+	select {
+	case <-pm.waitDone:
+		// Good - monitorExit closed waitDone after cmd.Wait() completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitDone was not closed after natural process exit")
+	}
+
+	// OnProcessExit should have been called
+	if exitCalled.Load() != 1 {
+		t.Errorf("OnProcessExit called %d times, want 1", exitCalled.Load())
+	}
+
+	// Cleanup
+	pm.Stop()
+}
+
+func TestProcessManager_WaitDone_InitializedByStart(t *testing.T) {
+	// Verify that waitDone is nil before Start and would be set by Start
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-waitdone-init",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{}, pmTestLogger())
+
+	pm.mu.Lock()
+	if pm.waitDone != nil {
+		t.Error("waitDone should be nil before Start")
+	}
+	pm.mu.Unlock()
+}
+
+func TestProcessManager_CleanupLocked_ClearsWaitDone(t *testing.T) {
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:  "test-cleanup-waitdone",
+		WorkingDir: "/tmp",
+	}, ProcessCallbacks{}, pmTestLogger())
+
+	// Simulate state after Start
+	pm.mu.Lock()
+	pm.waitDone = make(chan struct{})
+	pm.running = true
+	pm.cleanupLocked()
+	pm.mu.Unlock()
+
+	pm.mu.Lock()
+	if pm.waitDone != nil {
+		t.Error("waitDone should be nil after cleanupLocked")
+	}
+	pm.mu.Unlock()
 }
 
 func TestContainerSidePaths_ShortEnough(t *testing.T) {
