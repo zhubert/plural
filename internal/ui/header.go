@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 )
@@ -87,17 +88,17 @@ func (h *Header) View() string {
 	if h.sessionName != "" {
 		// Add container indicator if active
 		if h.containerActive {
-			containerStart := len(rightText)
+			containerStart := utf8.RuneCountInString(rightText)
 			rightText += "[CONTAINER] "
-			containerEnd := len(rightText)
+			containerEnd := utf8.RuneCountInString(rightText)
 			regions = append(regions, headerRegion{start: containerStart, end: containerEnd, style: "container"})
 		}
 
 		// Add preview indicator if active
 		if h.previewActive {
-			previewStart := len(rightText)
+			previewStart := utf8.RuneCountInString(rightText)
 			rightText += "[PREVIEW] "
-			previewEnd := len(rightText)
+			previewEnd := utf8.RuneCountInString(rightText)
 			regions = append(regions, headerRegion{start: previewStart, end: previewEnd, style: "preview"})
 		}
 
@@ -114,15 +115,15 @@ func (h *Header) View() string {
 
 			// Build the stats string and track regions
 			rightText += filesText + ", "
-			addStart := len(rightText)
+			addStart := utf8.RuneCountInString(rightText)
 			rightText += additionsText
-			addEnd := len(rightText)
+			addEnd := utf8.RuneCountInString(rightText)
 			regions = append(regions, headerRegion{start: addStart, end: addEnd, style: "added"})
 
 			rightText += ", "
-			delStart := len(rightText)
+			delStart := utf8.RuneCountInString(rightText)
 			rightText += deletionsText
-			delEnd := len(rightText)
+			delEnd := utf8.RuneCountInString(rightText)
 			regions = append(regions, headerRegion{start: delStart, end: delEnd, style: "deleted"})
 
 			rightText += "  " // Spacing before session name
@@ -130,16 +131,16 @@ func (h *Header) View() string {
 
 		rightText += h.sessionName
 		if h.baseBranch != "" {
-			branchStart := len(rightText)
+			branchStart := utf8.RuneCountInString(rightText)
 			rightText += " (" + h.baseBranch + ")"
-			branchEnd := len(rightText)
+			branchEnd := utf8.RuneCountInString(rightText)
 			regions = append(regions, headerRegion{start: branchStart, end: branchEnd, style: "muted"})
 		}
 		rightText += " "
 	}
 
-	// Calculate padding
-	paddingLen := h.width - len(titleText) - len(rightText)
+	// Calculate padding using rune count to match gradient renderer
+	paddingLen := h.width - utf8.RuneCountInString(titleText) - utf8.RuneCountInString(rightText)
 	if paddingLen < 0 {
 		paddingLen = 0
 	}
@@ -147,7 +148,7 @@ func (h *Header) View() string {
 	fullContent := titleText + strings.Repeat(" ", paddingLen) + rightText
 
 	// Adjust region positions to account for the left side content
-	leftOffset := len(titleText) + paddingLen
+	leftOffset := utf8.RuneCountInString(titleText) + paddingLen
 	for i := range regions {
 		regions[i].start += leftOffset
 		regions[i].end += leftOffset

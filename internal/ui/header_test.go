@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // stripANSI removes ANSI escape codes from a string for testing
@@ -276,5 +277,98 @@ func TestHeader_View_WithDiffStatsAndBaseBranch(t *testing.T) {
 
 	if !strings.Contains(view, "(main)") {
 		t.Error("Header should contain base branch")
+	}
+}
+
+func TestHeader_View_UnicodeSessionName(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(80)
+	// Session name with multi-byte Unicode characters (Japanese: "test")
+	header.SetSessionName("テスト")
+
+	view := stripANSI(header.View())
+
+	if !strings.Contains(view, "plural") {
+		t.Error("Header should contain 'plural' title")
+	}
+
+	if !strings.Contains(view, "テスト") {
+		t.Errorf("Header should contain Unicode session name, got: %q", view)
+	}
+
+	// The rendered width in runes should match the header width
+	runeCount := utf8.RuneCountInString(view)
+	if runeCount != 80 {
+		t.Errorf("Header rune width should be 80, got %d", runeCount)
+	}
+}
+
+func TestHeader_View_UnicodeSessionName_WithBaseBranch(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(80)
+	header.SetSessionName("功能分支")
+	header.SetBaseBranch("main")
+
+	view := stripANSI(header.View())
+
+	if !strings.Contains(view, "功能分支") {
+		t.Errorf("Header should contain Unicode session name, got: %q", view)
+	}
+
+	if !strings.Contains(view, "(main)") {
+		t.Errorf("Header should contain base branch, got: %q", view)
+	}
+
+	runeCount := utf8.RuneCountInString(view)
+	if runeCount != 80 {
+		t.Errorf("Header rune width should be 80, got %d", runeCount)
+	}
+}
+
+func TestHeader_View_UnicodeWithDiffStats(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(120)
+	header.SetSessionName("ブランチ名")
+	header.SetDiffStats(&DiffStats{
+		FilesChanged: 2,
+		Additions:    30,
+		Deletions:    10,
+	})
+
+	view := stripANSI(header.View())
+
+	if !strings.Contains(view, "ブランチ名") {
+		t.Errorf("Header should contain Unicode session name, got: %q", view)
+	}
+
+	if !strings.Contains(view, "+30") {
+		t.Errorf("Header should contain additions, got: %q", view)
+	}
+
+	if !strings.Contains(view, "-10") {
+		t.Errorf("Header should contain deletions, got: %q", view)
+	}
+
+	runeCount := utf8.RuneCountInString(view)
+	if runeCount != 120 {
+		t.Errorf("Header rune width should be 120, got %d", runeCount)
+	}
+}
+
+func TestHeader_View_MixedASCIIAndUnicode(t *testing.T) {
+	header := NewHeader()
+	header.SetWidth(100)
+	// Mix of ASCII and multi-byte characters
+	header.SetSessionName("feature-café-résumé")
+
+	view := stripANSI(header.View())
+
+	if !strings.Contains(view, "feature-café-résumé") {
+		t.Errorf("Header should contain mixed session name, got: %q", view)
+	}
+
+	runeCount := utf8.RuneCountInString(view)
+	if runeCount != 100 {
+		t.Errorf("Header rune width should be 100, got %d", runeCount)
 	}
 }
