@@ -17,8 +17,9 @@ type PRPollTickMsg time.Time
 
 // PRStatusResult carries the result of checking a single session's PR state within a batch
 type PRStatusResult struct {
-	SessionID string
-	State     git.PRState
+	SessionID    string
+	State        git.PRState
+	CommentCount int // Total comments + reviews from gh pr list
 }
 
 // PRBatchStatusCheckMsg carries the results of checking all eligible sessions' PR states
@@ -86,7 +87,7 @@ func checkPRStatuses(sessions []config.Session, gitSvc *git.GitService) tea.Cmd 
 				branches[i] = s.Branch
 			}
 
-			states, err := gitSvc.GetBatchPRStates(ctx, repoPath, branches)
+			batchResults, err := gitSvc.GetBatchPRStatesWithComments(ctx, repoPath, branches)
 			if err != nil {
 				log.Debug("batch PR status check failed", "repo", repoPath, "error", err)
 				continue
@@ -94,10 +95,11 @@ func checkPRStatuses(sessions []config.Session, gitSvc *git.GitService) tea.Cmd 
 
 			// Build a branch->sessionID lookup for this repo
 			for _, s := range sessions {
-				if state, ok := states[s.Branch]; ok {
+				if br, ok := batchResults[s.Branch]; ok {
 					results = append(results, PRStatusResult{
-						SessionID: s.ID,
-						State:     state,
+						SessionID:    s.ID,
+						State:        br.State,
+						CommentCount: br.CommentCount,
 					})
 				}
 			}

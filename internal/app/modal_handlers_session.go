@@ -370,6 +370,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			m.sidebar.SetPendingQuestion(sess.ID, false)
 			m.sidebar.SetIdleWithResponse(sess.ID, false)
 			m.sidebar.SetUncommittedChanges(sess.ID, false)
+			m.sidebar.SetHasNewComments(sess.ID, false)
 			activeSessionID := "<nil>"
 			if m.activeSession != nil {
 				activeSessionID = m.activeSession.ID
@@ -1108,6 +1109,7 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 		m.sidebar.SetPendingQuestion(id, false)
 		m.sidebar.SetIdleWithResponse(id, false)
 		m.sidebar.SetUncommittedChanges(id, false)
+		m.sidebar.SetHasNewComments(id, false)
 
 		// Clear active session if deleted
 		if m.activeSession != nil && m.activeSession.ID == id {

@@ -569,6 +569,14 @@ func (m *Model) handleReviewCommentsFetchedMsg(msg ReviewCommentsFetchedMsg) (te
 				}
 			}
 			state.SetComments(items)
+
+			// Update last-seen count and clear indicator (viewing = acknowledging)
+			m.config.UpdateSessionPRCommentCount(msg.SessionID, len(msg.Comments))
+			if err := m.config.Save(); err != nil {
+				logger.WithSession(msg.SessionID).Error("failed to save comment count", "error", err)
+			}
+			m.sidebar.SetHasNewComments(msg.SessionID, false)
+			m.sidebar.SetSessions(m.getFilteredSessions())
 		}
 	}
 	return m, nil
@@ -605,6 +613,17 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 			m.config.MarkSessionPRClosed(result.SessionID)
 			changed = true
 			cmds = append(cmds, m.ShowFlashWarning("PR closed: "+sessionName))
+
+		case git.PRStateOpen:
+			// Check for new comments on open PRs
+			if result.CommentCount > sess.PRCommentCount {
+				log.Info("new PR comments detected",
+					"session", sessionName,
+					"previous", sess.PRCommentCount,
+					"current", result.CommentCount,
+				)
+				m.sidebar.SetHasNewComments(result.SessionID, true)
+			}
 		}
 	}
 
@@ -612,8 +631,10 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 		if err := m.config.Save(); err != nil {
 			logger.WithComponent("pr-poller").Error("failed to save config after PR state change", "error", err)
 		}
-		m.sidebar.SetSessions(m.getFilteredSessions())
 	}
+
+	// Always refresh sidebar to pick up attention state changes (new comments indicator)
+	m.sidebar.SetSessions(m.getFilteredSessions())
 
 	if len(cmds) > 0 {
 		return m, tea.Batch(cmds...)

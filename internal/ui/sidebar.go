@@ -57,6 +57,7 @@ type Sidebar struct {
 	pendingQuestions   map[string]bool // Map of session IDs that have pending questions
 	idleWithResponse   map[string]bool // Map of session IDs that finished streaming (user hasn't responded)
 	uncommittedChanges map[string]bool // Map of session IDs that have uncommitted changes
+	hasNewComments     map[string]bool // Map of session IDs that have new PR review comments
 	spinnerFrame       int             // Current spinner animation frame
 	spinnerTick        int             // Tick counter for frame hold timing
 
@@ -86,6 +87,7 @@ func NewSidebar() *Sidebar {
 		pendingQuestions:   make(map[string]bool),
 		idleWithResponse:   make(map[string]bool),
 		uncommittedChanges: make(map[string]bool),
+		hasNewComments:     make(map[string]bool),
 		selectedSessions:   make(map[string]bool),
 		searchInput:        ti,
 	}
@@ -186,6 +188,7 @@ func (s *Sidebar) hashAttention() uint64 {
 	hashMap('S', s.streamingSessions)
 	hashMap('I', s.idleWithResponse)
 	hashMap('U', s.uncommittedChanges)
+	hashMap('C', s.hasNewComments)
 	return h.Sum64()
 }
 
@@ -379,13 +382,28 @@ func (s *Sidebar) SetUncommittedChanges(sessionID string, has bool) {
 	}
 }
 
+// SetHasNewComments sets whether a session has new PR review comments
+func (s *Sidebar) SetHasNewComments(sessionID string, has bool) {
+	if has {
+		s.hasNewComments[sessionID] = true
+	} else {
+		delete(s.hasNewComments, sessionID)
+	}
+}
+
+// HasNewComments returns whether a session has new PR review comments
+func (s *Sidebar) HasNewComments(sessionID string) bool {
+	return s.hasNewComments[sessionID]
+}
+
 // Attention priority levels (lower = higher priority, needs attention sooner)
 const (
-	priorityPermission  = 0 // Pending permission/question/plan approval
-	priorityStreaming   = 1 // Actively streaming
-	priorityIdle        = 2 // Idle with response (streaming finished, user hasn't responded)
-	priorityUncommitted = 3 // Has uncommitted changes to review
-	priorityNormal      = 4 // Normal session
+	priorityPermission   = 0 // Pending permission/question/plan approval
+	priorityStreaming     = 1 // Actively streaming
+	priorityIdle         = 2 // Idle with response (streaming finished, user hasn't responded)
+	priorityUncommitted  = 3 // Has uncommitted changes to review
+	priorityNewComments  = 4 // Has unread PR review comments
+	priorityNormal       = 5 // Normal session
 )
 
 // sessionPriority returns the attention priority for a given session ID.
@@ -401,6 +419,9 @@ func (s *Sidebar) sessionPriority(sessionID string) int {
 	}
 	if s.uncommittedChanges[sessionID] {
 		return priorityUncommitted
+	}
+	if s.hasNewComments[sessionID] {
+		return priorityNewComments
 	}
 	return priorityNormal
 }
@@ -995,6 +1016,16 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 	}
 
 	displayName := styledPrefix + name
+
+	// Show new comments indicator
+	if s.hasNewComments[sess.ID] {
+		if isSelected {
+			displayName += " *"
+		} else {
+			commentStyle := lipgloss.NewStyle().Foreground(ColorInfo)
+			displayName += commentStyle.Render(" *")
+		}
+	}
 
 	// In multi-select mode, prepend a checkbox
 	if s.multiSelectMode {

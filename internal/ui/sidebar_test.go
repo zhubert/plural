@@ -1182,6 +1182,120 @@ func TestSidebar_RenderSessionNode_PRClosedSymbol(t *testing.T) {
 	}
 }
 
+func TestSidebar_HasNewComments(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Initially no new comments
+	if sidebar.HasNewComments("s1") {
+		t.Error("Should not have new comments initially")
+	}
+
+	// Set new comments
+	sidebar.SetHasNewComments("s1", true)
+	if !sidebar.HasNewComments("s1") {
+		t.Error("Should have new comments after set")
+	}
+	if sidebar.HasNewComments("s2") {
+		t.Error("s2 should not have new comments")
+	}
+
+	// Clear new comments
+	sidebar.SetHasNewComments("s1", false)
+	if sidebar.HasNewComments("s1") {
+		t.Error("Should not have new comments after clear")
+	}
+}
+
+func TestSidebar_HasNewComments_Priority(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// New comments priority should be between uncommitted and normal
+	sidebar.SetHasNewComments("s1", true)
+	if sidebar.sessionPriority("s1") != priorityNewComments {
+		t.Errorf("Expected priorityNewComments (%d), got %d", priorityNewComments, sidebar.sessionPriority("s1"))
+	}
+
+	// Uncommitted should take priority over new comments
+	sidebar.SetUncommittedChanges("s1", true)
+	if sidebar.sessionPriority("s1") != priorityUncommitted {
+		t.Errorf("Uncommitted should take priority over new comments, got %d", sidebar.sessionPriority("s1"))
+	}
+
+	// Clear uncommitted, new comments should still be there
+	sidebar.SetUncommittedChanges("s1", false)
+	if sidebar.sessionPriority("s1") != priorityNewComments {
+		t.Errorf("Expected priorityNewComments after clearing uncommitted, got %d", sidebar.sessionPriority("s1"))
+	}
+
+	// Clear new comments, should return to normal
+	sidebar.SetHasNewComments("s1", false)
+	if sidebar.sessionPriority("s1") != priorityNormal {
+		t.Errorf("Should return to normal after clearing new comments, got %d", sidebar.sessionPriority("s1"))
+	}
+}
+
+func TestSidebar_HasNewComments_Sorting(t *testing.T) {
+	sidebar := NewSidebar()
+
+	sidebar.SetHasNewComments("s-comments", true)
+
+	sessions := []config.Session{
+		{ID: "s-normal", RepoPath: "/repo", Branch: "b1", Name: "normal"},
+		{ID: "s-comments", RepoPath: "/repo", Branch: "b2", Name: "comments"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Session with new comments should sort before normal
+	if sidebar.sessions[0].ID != "s-comments" {
+		t.Errorf("sessions[0]: expected s-comments, got %s", sidebar.sessions[0].ID)
+	}
+	if sidebar.sessions[1].ID != "s-normal" {
+		t.Errorf("sessions[1]: expected s-normal, got %s", sidebar.sessions[1].ID)
+	}
+}
+
+func TestSidebar_HasNewComments_HashChange(t *testing.T) {
+	sidebar := NewSidebar()
+
+	h1 := sidebar.hashAttention()
+
+	sidebar.SetHasNewComments("s1", true)
+	h2 := sidebar.hashAttention()
+
+	if h1 == h2 {
+		t.Error("Hash should change when new comments state changes")
+	}
+
+	sidebar.SetHasNewComments("s1", false)
+	h3 := sidebar.hashAttention()
+
+	if h2 == h3 {
+		t.Error("Hash should change when new comments state is cleared")
+	}
+
+	if h1 != h3 {
+		t.Error("Hash should be same after setting and clearing new comments")
+	}
+}
+
+func TestSidebar_RenderSessionNode_NewCommentsIndicator(t *testing.T) {
+	sidebar := NewSidebar()
+	session := config.Session{ID: "s1", Name: "test", PRCreated: true}
+
+	// Without new comments - should not have *
+	result := sidebar.renderSessionNode(session, 0, false, false, true)
+	if strings.Contains(result, " *") {
+		t.Errorf("Should not show * without new comments, got %q", result)
+	}
+
+	// With new comments - should have *
+	sidebar.SetHasNewComments("s1", true)
+	result = sidebar.renderSessionNode(session, 0, false, false, true)
+	if !strings.Contains(result, "*") {
+		t.Errorf("Should show * for new comments, got %q", result)
+	}
+}
+
 func TestSidebar_SelectSession_NormalMode(t *testing.T) {
 	sidebar := NewSidebar()
 
