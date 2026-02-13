@@ -63,6 +63,7 @@ type Footer struct {
 	searchMode         bool // Whether sidebar is in search mode
 	multiSelectMode    bool // Whether sidebar is in multi-select mode
 	hasDetectedOptions bool // Whether chat has detected options for parallel exploration
+	kittyKeyboard      bool // Terminal supports Kitty keyboard protocol
 	flashMessage       *FlashMessage // Current flash message, if any
 }
 
@@ -84,7 +85,7 @@ func NewFooter() *Footer {
 }
 
 // SetContext updates the footer's context for conditional bindings
-func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions bool) {
+func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendingQuestion, streaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions, kittyKeyboard bool) {
 	f.hasSession = hasSession
 	f.sidebarFocused = sidebarFocused
 	f.pendingPermission = pendingPermission
@@ -94,6 +95,7 @@ func (f *Footer) SetContext(hasSession, sidebarFocused, pendingPermission, pendi
 	f.searchMode = searchMode
 	f.multiSelectMode = multiSelectMode
 	f.hasDetectedOptions = hasDetectedOptions
+	f.kittyKeyboard = kittyKeyboard
 }
 
 // SetWidth sets the footer width
@@ -300,10 +302,14 @@ func (f *Footer) View() string {
 			parts = append(parts, key+desc)
 		}
 	} else if !f.sidebarFocused && f.hasSession {
-		// Chat focused, not streaming - show enter and ctrl+v
+		// Chat focused, not streaming - show enter and newline shortcut
+		newlineKey := "opt+enter"
+		if f.kittyKeyboard {
+			newlineKey = "shift+enter"
+		}
 		chatBindings := []KeyBinding{
 			{Key: "enter", Desc: "send"},
-			{Key: "opt+enter", Desc: "newline"},
+			{Key: newlineKey, Desc: "newline"},
 		}
 		// Show ctrl+o when options are detected
 		if f.hasDetectedOptions {

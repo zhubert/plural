@@ -91,6 +91,9 @@ type Model struct {
 
 	// Pending container action to execute after async prerequisite checks pass (nil when inactive)
 	pendingContainerAction func() (tea.Model, tea.Cmd)
+
+	// Terminal capability flags
+	kittyKeyboard bool // Terminal supports Kitty keyboard protocol (Shift+Enter distinguishable)
 }
 
 // StartupModalMsg is sent on app start to trigger welcome/changelog modals
@@ -353,6 +356,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BlurMsg:
 		m.windowFocused = false
 		logger.Get().Debug("window blurred")
+
+	case tea.KeyboardEnhancementsMsg:
+		m.kittyKeyboard = msg.SupportsKeyDisambiguation()
+		logger.Get().Debug("keyboard enhancements detected", "kitty", m.kittyKeyboard, "flags", msg.Flags)
 
 	case tea.PasteStartMsg:
 		// Handle paste events - check for images in clipboard when paste starts

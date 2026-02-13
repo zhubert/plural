@@ -44,7 +44,7 @@ func (m *Model) View() tea.View {
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
 	multiSelectMode := m.sidebar.IsMultiSelectMode()
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions)
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions, m.kittyKeyboard)
 
 	header := m.header.View()
 	footer := m.footer.View()
@@ -104,7 +104,7 @@ func (m *Model) RenderToString() string {
 	viewChangesMode := m.chat.IsInViewChangesMode()
 	searchMode := m.sidebar.IsSearchMode()
 	multiSelectMode := m.sidebar.IsMultiSelectMode()
-	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions)
+	m.footer.SetContext(hasSession, sidebarFocused, hasPendingPermission, hasPendingQuestion, isStreaming, viewChangesMode, searchMode, multiSelectMode, hasDetectedOptions, m.kittyKeyboard)
 
 	header := m.header.View()
 	footer := m.footer.View()

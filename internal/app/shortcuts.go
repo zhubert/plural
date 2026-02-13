@@ -575,7 +575,21 @@ func shortcutPlugins(m *Model) (tea.Model, tea.Cmd) {
 func shortcutHelp(m *Model) (tea.Model, tea.Cmd) {
 	// Include help shortcut in the registry for display purposes
 	allShortcuts := append(ShortcutRegistry, helpShortcut)
-	sections := m.getApplicableHelpSections(allShortcuts, DisplayOnlyShortcuts)
+
+	// Override newline shortcut display based on terminal capabilities
+	displayOnly := DisplayOnlyShortcuts
+	if m.kittyKeyboard {
+		displayOnly = make([]Shortcut, len(DisplayOnlyShortcuts))
+		copy(displayOnly, DisplayOnlyShortcuts)
+		for i := range displayOnly {
+			if displayOnly[i].DisplayKey == "Opt+Enter" && displayOnly[i].Description == "Insert newline" {
+				displayOnly[i].DisplayKey = "Shift+Enter"
+				break
+			}
+		}
+	}
+
+	sections := m.getApplicableHelpSections(allShortcuts, displayOnly)
 	m.modal.Show(ui.NewHelpStateFromSections(sections))
 	return m, nil
 }
