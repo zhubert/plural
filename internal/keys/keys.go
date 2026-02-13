@@ -26,6 +26,7 @@ var (
 var (
 	Enter      = tea.KeyPressMsg{Code: tea.KeyEnter}.String()                      // "enter"
 	ShiftEnter = (tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}).String() // "shift+enter"
+	AltEnter   = (tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}).String()   // "alt+enter"
 	Tab        = tea.KeyPressMsg{Code: tea.KeyTab}.String()                        // "tab"
 	ShiftTab   = (tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}).String()   // "shift+tab"
 	Space      = tea.KeyPressMsg{Code: tea.KeySpace}.String()                      // "space"

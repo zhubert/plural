@@ -1781,14 +1781,46 @@ func TestChat_ShiftEnterInsertsNewline(t *testing.T) {
 	}
 }
 
-func TestChat_ShiftEnterKeyStringDiffersFromEnter(t *testing.T) {
-	// Verify that Shift+Enter produces a different key string than Enter,
-	// ensuring the app-level Enter handler won't intercept it.
+func TestChat_AltEnterInsertsNewline(t *testing.T) {
+	chat := NewChat()
+	chat.SetSession("test", nil)
+	chat.SetSize(80, 24)
+	chat.SetFocused(true)
+
+	// Type some text first
+	chat.SetInput("line one")
+
+	// Send Alt+Enter — should insert a newline (works in all terminals)
+	altEnter := tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
+	chat, _ = chat.Update(altEnter)
+
+	// Type more text after the newline
+	for _, ch := range "line two" {
+		chat, _ = chat.Update(tea.KeyPressMsg{Code: -1, Text: string(ch)})
+	}
+
+	// The input should contain both lines separated by a newline.
+	raw := chat.input.Value()
+	if !strings.Contains(raw, "\n") {
+		t.Errorf("Expected newline in textarea after Alt+Enter, got %q", raw)
+	}
+	if !strings.Contains(raw, "line one") || !strings.Contains(raw, "line two") {
+		t.Errorf("Expected both lines in textarea, got %q", raw)
+	}
+}
+
+func TestChat_NewlineKeyStringsDifferFromEnter(t *testing.T) {
+	// Verify that Shift+Enter and Alt+Enter produce different key strings than Enter,
+	// ensuring the app-level Enter handler won't intercept them.
 	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
 	shiftEnter := tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}
+	altEnter := tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt}
 
 	if enter.String() == shiftEnter.String() {
 		t.Errorf("Enter and Shift+Enter should have different key strings, both are %q", enter.String())
+	}
+	if enter.String() == altEnter.String() {
+		t.Errorf("Enter and Alt+Enter should have different key strings, both are %q", enter.String())
 	}
 }
 

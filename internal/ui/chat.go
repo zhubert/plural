@@ -1546,10 +1546,11 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 			case keys.Tab:
 				// Don't let textarea consume Tab - let it bubble up for focus switching
 				return c, tea.Batch(cmds...)
-			case keys.ShiftEnter:
-				// Convert Shift+Enter to plain Enter so textarea inserts a newline.
-				// Plain Enter is intercepted by the app to send messages, so
-				// Shift+Enter is the way users can add newlines to their input.
+			case keys.ShiftEnter, keys.AltEnter:
+				// Convert Shift+Enter or Option+Enter to plain Enter so textarea inserts a newline.
+				// Plain Enter is intercepted by the app to send messages, so these
+				// modified-Enter combos are the way users can add newlines to their input.
+				// Option+Enter works in all terminals; Shift+Enter requires Kitty keyboard protocol.
 				msg = tea.KeyPressMsg{Code: tea.KeyEnter}
 			case keys.Escape:
 				// Clear text selection if there is one
