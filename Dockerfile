@@ -13,8 +13,12 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/plural .
 
+# Build gopls in the builder stage so we don't need the Go toolchain at runtime
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install golang.org/x/tools/gopls@latest && \
+    cp /go/bin/${TARGETOS}_${TARGETARCH}/gopls /out/gopls 2>/dev/null || cp /go/bin/gopls /out/gopls
+
 # Stage 2: Runtime image
-FROM golang:1.25-alpine
+FROM alpine
 
 # Install Node.js, npm, git, and su-exec (for user switching in entrypoint)
 # Node.js is needed for Claude CLI, git for worktree operations
@@ -27,22 +31,12 @@ RUN apk add --no-cache \
 # Install Claude CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
-# Copy plural binary from builder stage
+# Copy plural binary and gopls from builder stage
 COPY --from=builder /out/plural /usr/local/bin/plural
-
-# Install gopls (Go language server) for code intelligence.
-RUN go install golang.org/x/tools/gopls@latest
+COPY --from=builder /out/gopls /usr/local/bin/gopls
 
 # Create non-root user
 RUN adduser -D -s /bin/sh claude
-
-# Copy gopls binary to claude user's Go bin directory
-RUN mkdir -p /home/claude/go/bin && \
-    cp /go/bin/gopls /home/claude/go/bin/gopls && \
-    chown -R claude:claude /home/claude/go
-
-# Add Go bin directory to PATH for gopls
-ENV PATH="/home/claude/go/bin:${PATH}"
 
 # Entrypoint runs as root to fix socket permissions, then switches to claude user.
 # entrypoint.sh: root-level setup (socket chmod, user switch via su-exec)
