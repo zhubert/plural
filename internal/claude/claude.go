@@ -619,17 +619,23 @@ func (r *Runner) createProcessCallbacks() ProcessCallbacks {
 
 // handleProcessLine processes a line of output from the Claude process.
 func (r *Runner) handleProcessLine(line string) {
+	// Snapshot streamLogFile under the lock to avoid racing with Stop(),
+	// which sets r.streamLogFile to nil after closing the file.
+	r.mu.RLock()
+	logFile := r.streamLogFile
+	r.mu.RUnlock()
+
 	// Write raw message to dedicated stream log file (pretty-printed JSON)
-	if r.streamLogFile != nil {
+	if logFile != nil {
 		var prettyJSON map[string]any
 		if err := json.Unmarshal([]byte(line), &prettyJSON); err == nil {
 			if formatted, err := json.MarshalIndent(prettyJSON, "", "  "); err == nil {
-				fmt.Fprintf(r.streamLogFile, "%s\n", formatted)
+				fmt.Fprintf(logFile, "%s\n", formatted)
 			} else {
-				fmt.Fprintf(r.streamLogFile, "%s\n", line)
+				fmt.Fprintf(logFile, "%s\n", line)
 			}
 		} else {
-			fmt.Fprintf(r.streamLogFile, "%s\n", line)
+			fmt.Fprintf(logFile, "%s\n", line)
 		}
 	}
 
@@ -1043,10 +1049,7 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 
 	// Mark streaming as done
 	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{Done: true}:
-		default:
-		}
+		safeSendChannel(ch, ResponseChunk{Done: true})
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false
@@ -1064,13 +1067,10 @@ func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Unlock()
 
 	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{
+		safeSendChannel(ch, ResponseChunk{
 			Type:    ChunkTypeText,
 			Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", attemptNum, MaxProcessRestartAttempts),
-		}:
-		default:
-		}
+		})
 	}
 }
 
@@ -1086,10 +1086,7 @@ func (r *Runner) handleFatalError(err error) {
 	chClosed := r.responseChan.Closed
 
 	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{Error: err, Done: true}:
-		default:
-		}
+		safeSendChannel(ch, ResponseChunk{Error: err, Done: true})
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false

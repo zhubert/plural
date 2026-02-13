@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -1749,6 +1751,114 @@ func TestHandleFatalError_NilChannel(t *testing.T) {
 	runner.handleFatalError(fmt.Errorf("test error"))
 }
 
+func TestHandleProcessExit_AlreadyMarkedClosed(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.responseChan.Closed = true
+	runner.mu.Unlock()
+
+	// Should not send anything since channel is marked closed
+	shouldRestart := runner.handleProcessExit(fmt.Errorf("crash"), "stderr output")
+	if !shouldRestart {
+		t.Error("Expected handleProcessExit to return true (should restart)")
+	}
+
+	select {
+	case <-ch:
+		t.Error("Should not receive chunk when channel is marked closed")
+	default:
+		// Expected
+	}
+}
+
+func TestHandleProcessExit_NormalSend(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.mu.Unlock()
+
+	shouldRestart := runner.handleProcessExit(fmt.Errorf("crash"), "stderr output")
+	if !shouldRestart {
+		t.Error("Expected handleProcessExit to return true")
+	}
+
+	// Should receive a Done chunk
+	select {
+	case chunk := <-ch:
+		if !chunk.Done {
+			t.Error("Expected Done=true in chunk")
+		}
+	default:
+		t.Error("Expected chunk from channel")
+	}
+
+	// Channel should be closed
+	runner.mu.RLock()
+	closed := runner.responseChan.Closed
+	runner.mu.RUnlock()
+	if !closed {
+		t.Error("Expected responseChan.Closed to be true")
+	}
+}
+
+func TestHandleProcessExit_Stopped(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	runner.mu.Lock()
+	runner.stopped = true
+	runner.mu.Unlock()
+
+	shouldRestart := runner.handleProcessExit(fmt.Errorf("crash"), "stderr")
+	if shouldRestart {
+		t.Error("Expected handleProcessExit to return false when stopped")
+	}
+}
+
+func TestHandleRestartAttempt_ClosedChannel(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.mu.Unlock()
+
+	// Close the underlying channel without updating Closed flag to simulate
+	// the race where Stop() closes the channel between the flag check and the send.
+	close(ch)
+
+	// Should not panic thanks to safeSendChannel
+	runner.handleRestartAttempt(1)
+}
+
+func TestHandleRestartAttempt_NormalSend(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.mu.Unlock()
+
+	runner.handleRestartAttempt(2)
+
+	select {
+	case chunk := <-ch:
+		if chunk.Type != ChunkTypeText {
+			t.Errorf("Expected ChunkTypeText, got %v", chunk.Type)
+		}
+		expected := "\n[Process crashed, attempting restart 2/3...]\n"
+		if chunk.Content != expected {
+			t.Errorf("Expected %q, got %q", expected, chunk.Content)
+		}
+	default:
+		t.Error("Expected chunk from channel")
+	}
+}
+
 func TestErrorVariables(t *testing.T) {
 	// Verify error variables are defined
 	if errChannelFull == nil {
@@ -2975,4 +3085,43 @@ func TestTokenTracking_NoRaceCondition(t *testing.T) {
 
 	<-done
 	close(ch)
+}
+
+func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
+	// This test verifies that concurrent calls to handleProcessLine and Stop
+	// do not race on r.streamLogFile. Run with -race to detect the issue.
+	runner := New("race-test", "/tmp", false, nil)
+
+	// Set a stream log file (use a temp file so writes succeed)
+	tmpFile, err := os.CreateTemp("", "stream-log-race-test-*.log")
+	if err != nil {
+		t.Fatalf("failed to create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	runner.mu.Lock()
+	runner.streamLogFile = tmpFile
+	runner.mu.Unlock()
+
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}`
+
+	// Run handleProcessLine and Stop concurrently to trigger the race.
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for range 100 {
+			runner.handleProcessLine(line)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		// Give handleProcessLine a head start so calls overlap
+		time.Sleep(time.Millisecond)
+		runner.Stop()
+	}()
+
+	wg.Wait()
 }
