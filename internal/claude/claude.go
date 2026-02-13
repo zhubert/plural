@@ -1043,10 +1043,7 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 
 	// Mark streaming as done
 	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{Done: true}:
-		default:
-		}
+		safeSendChannel(ch, ResponseChunk{Done: true})
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false
@@ -1064,13 +1061,10 @@ func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Unlock()
 
 	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{
+		safeSendChannel(ch, ResponseChunk{
 			Type:    ChunkTypeText,
 			Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", attemptNum, MaxProcessRestartAttempts),
-		}:
-		default:
-		}
+		})
 	}
 }
 
@@ -1086,10 +1080,7 @@ func (r *Runner) handleFatalError(err error) {
 	chClosed := r.responseChan.Closed
 
 	if ch != nil && !chClosed {
-		select {
-		case ch <- ResponseChunk{Error: err, Done: true}:
-		default:
-		}
+		safeSendChannel(ch, ResponseChunk{Error: err, Done: true})
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false
