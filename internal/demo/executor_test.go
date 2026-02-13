@@ -145,7 +145,7 @@ func TestKeyPress(t *testing.T) {
 		key      string
 		wantCode any
 	}{
-		{"enter", nil},   // Just checking it doesn't panic
+		{"enter", nil}, // Just checking it doesn't panic
 		{"tab", nil},
 		{"escape", nil},
 		{"esc", nil},
@@ -315,9 +315,9 @@ func TestExecutorStepWithoutSession(t *testing.T) {
 			errMatch: "no active session",
 		},
 		{
-			name:     "Flash without session (should work)",
-			step:     Flash("message", ui.FlashInfo),
-			wantErr:  false,
+			name:    "Flash without session (should work)",
+			step:    Flash("message", ui.FlashInfo),
+			wantErr: false,
 		},
 	}
 

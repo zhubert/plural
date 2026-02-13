@@ -245,13 +245,13 @@ type SettingsState struct {
 	ContainerImageInput textinput.Model
 	ContainersSupported bool // Whether Docker is available for container mode
 
-	AsanaPATSet          bool // Whether ASANA_PAT env var is set
-	Focus                int  // 0=theme, 1=branch prefix, 2=notifications, [3=container image if supported], then repo selector, asana
+	AsanaPATSet bool // Whether ASANA_PAT env var is set
+	Focus       int  // 0=theme, 1=branch prefix, 2=notifications, [3=container image if supported], then repo selector, asana
 
 	// Multi-repo support
 	Repos             []string          // All registered repos
 	SelectedRepoIndex int               // Currently displayed repo
-	AsanaSelectedGIDs map[string]string  // Per-repo selected Asana project GIDs
+	AsanaSelectedGIDs map[string]string // Per-repo selected Asana project GIDs
 
 	// Asana project selector (replaces text input)
 	AsanaProjectOptions []AsanaProjectOption // All fetched projects (cached for modal lifetime)

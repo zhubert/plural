@@ -832,7 +832,7 @@ func TestCopyClaudeSessionForFork_CleansUpOnFailure(t *testing.T) {
 	}
 
 	// Make the child project directory read-only to force an error
-	os.MkdirAll(childProjectDir, 0500) // Read + execute only, no write
+	os.MkdirAll(childProjectDir, 0500)    // Read + execute only, no write
 	defer os.Chmod(childProjectDir, 0700) // Restore permissions for cleanup
 
 	err := copyClaudeSessionForFork("test-session", parentWorktree, childWorktree)
@@ -1017,4 +1017,3 @@ func TestSessionManager_SaveRunnerMessages_Error(t *testing.T) {
 		t.Error("SaveRunnerMessages should return error when write fails")
 	}
 }
-

@@ -281,6 +281,7 @@ func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branc
 // If issueRef is provided, it will add appropriate link text based on the source:
 //   - GitHub: adds "Fixes #{number}" to auto-close the issue
 //   - Asana: no auto-close support (Asana doesn't use commit message keywords)
+//
 // baseBranch is the branch this PR will be compared against (typically the session's BaseBranch or main).
 func (s *GitService) GeneratePRTitleAndBodyWithIssueRef(ctx context.Context, repoPath, branch, baseBranch string, issueRef *config.IssueRef) (title, body string, err error) {
 	log := logger.WithComponent("git")

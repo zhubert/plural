@@ -16,7 +16,7 @@ import (
 type BulkAction int
 
 const (
-	BulkActionDelete          BulkAction = iota
+	BulkActionDelete BulkAction = iota
 	BulkActionMoveToWorkspace
 	BulkActionCreatePRs
 	BulkActionSendPrompt

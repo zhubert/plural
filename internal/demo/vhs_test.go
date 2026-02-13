@@ -190,4 +190,3 @@ func TestGenerateASCIICast(t *testing.T) {
 		t.Error("Frame should have output type")
 	}
 }
-

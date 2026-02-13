@@ -147,9 +147,9 @@ func TestBuildToolDescription(t *testing.T) {
 			expected: "CustomTool: some command",
 		},
 		{
-			name: "Empty input returns empty string",
-			tool: "Edit",
-			input: map[string]interface{}{},
+			name:     "Empty input returns empty string",
+			tool:     "Edit",
+			input:    map[string]interface{}{},
 			expected: "",
 		},
 	}
@@ -602,8 +602,8 @@ func TestTruncateString_EdgeCases(t *testing.T) {
 		expected string
 	}{
 		{"", 10, ""},
-		{"a", 0, "a"},    // Zero maxLen means no limit
-		{"ab", 1, "a"},   // Very short truncation
+		{"a", 0, "a"},     // Zero maxLen means no limit
+		{"ab", 1, "a"},    // Very short truncation
 		{"abc", 3, "abc"}, // Exact length
 	}
 

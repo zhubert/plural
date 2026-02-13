@@ -9,8 +9,8 @@ import (
 
 // testThemes and testThemeNames are used across settings tests.
 var (
-	testThemes      = []string{"dark-purple", "nord", "dracula"}
-	testThemeNames  = []string{"Dark Purple", "Nord", "Dracula"}
+	testThemes       = []string{"dark-purple", "nord", "dracula"}
+	testThemeNames   = []string{"Dark Purple", "Nord", "Dracula"}
 	testCurrentTheme = "dark-purple"
 )
 

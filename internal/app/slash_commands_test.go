@@ -76,7 +76,6 @@ func TestHandlePluginsCommand(t *testing.T) {
 	}
 }
 
-
 func TestGetSlashCommands(t *testing.T) {
 	commands := getSlashCommands()
 
@@ -288,11 +287,11 @@ func TestHandleSlashCommand_Dispatcher(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	tests := []struct {
-		name          string
-		input         string
-		wantHandled   bool
-		wantAction    SlashCommandAction
-		wantResponse  string // substring expected in response
+		name         string
+		input        string
+		wantHandled  bool
+		wantAction   SlashCommandAction
+		wantResponse string // substring expected in response
 	}{
 		{
 			name:        "non-slash input is not handled",
@@ -358,11 +357,11 @@ func TestFormatNumber_EdgeCases(t *testing.T) {
 		input    int64
 		expected string
 	}{
-		{-1, "-1"},                            // Negative
-		{-1234, "-1,234"},                     // Negative with commas
-		{999, "999"},                          // Just under threshold
-		{1000, "1,000"},                       // Exactly at threshold
-		{10000000000, "10,000,000,000"},       // Large number
+		{-1, "-1"},                      // Negative
+		{-1234, "-1,234"},               // Negative with commas
+		{999, "999"},                    // Just under threshold
+		{1000, "1,000"},                 // Exactly at threshold
+		{10000000000, "10,000,000,000"}, // Large number
 	}
 
 	for _, tt := range tests {

@@ -544,16 +544,16 @@ func (t *ToolResultInfo) Summary() string {
 
 // ResponseChunk represents a chunk of streaming response
 type ResponseChunk struct {
-	Type              ChunkType           // Type of this chunk
-	Content           string              // Text content (for text chunks and status)
-	ToolName          string              // Tool being used (for tool_use chunks)
-	ToolInput         string              // Brief description of tool input
-	ToolUseID         string              // Unique ID for tool use (for matching tool_use to tool_result)
-	ResultInfo        *ToolResultInfo     // Details about tool result (for tool_result chunks)
-	TodoList          *TodoList           // Todo list (for ChunkTypeTodoUpdate)
-	Stats             *StreamStats        // Streaming statistics (for ChunkTypeStreamStats)
-	SubagentModel     string              // Model name when this is from a subagent (e.g., "claude-haiku-4-5-20251001")
-	PermissionDenials []PermissionDenial  // Permission denials (for ChunkTypePermissionDenials)
+	Type              ChunkType          // Type of this chunk
+	Content           string             // Text content (for text chunks and status)
+	ToolName          string             // Tool being used (for tool_use chunks)
+	ToolInput         string             // Brief description of tool input
+	ToolUseID         string             // Unique ID for tool use (for matching tool_use to tool_result)
+	ResultInfo        *ToolResultInfo    // Details about tool result (for tool_result chunks)
+	TodoList          *TodoList          // Todo list (for ChunkTypeTodoUpdate)
+	Stats             *StreamStats       // Streaming statistics (for ChunkTypeStreamStats)
+	SubagentModel     string             // Model name when this is from a subagent (e.g., "claude-haiku-4-5-20251001")
+	PermissionDenials []PermissionDenial // Permission denials (for ChunkTypePermissionDenials)
 	Done              bool
 	Error             error
 }

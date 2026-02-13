@@ -91,9 +91,9 @@ func TestSelectionClear(t *testing.T) {
 
 func TestHasTextSelection(t *testing.T) {
 	tests := []struct {
-		name                               string
+		name                                 string
 		startCol, startLine, endCol, endLine int
-		want                               bool
+		want                                 bool
 	}{
 		{"no selection (default)", -1, -1, -1, -1, false},
 		{"same point", 5, 5, 5, 5, false},

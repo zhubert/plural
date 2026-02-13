@@ -1515,34 +1515,34 @@ func TestChat_ToolUseFlushBlankLineBeforeToolUses(t *testing.T) {
 // normalizes various trailing newline patterns to exactly one blank line.
 func TestChat_ToolUseFlushNormalizesTrailingNewlines(t *testing.T) {
 	tests := []struct {
-		name            string
+		name             string
 		initialStreaming string
-		wantBlankLine   bool
+		wantBlankLine    bool
 	}{
 		{
-			name:            "no trailing newline",
+			name:             "no trailing newline",
 			initialStreaming: "Some text",
-			wantBlankLine:   true,
+			wantBlankLine:    true,
 		},
 		{
-			name:            "single trailing newline",
+			name:             "single trailing newline",
 			initialStreaming: "Some text\n",
-			wantBlankLine:   true,
+			wantBlankLine:    true,
 		},
 		{
-			name:            "already has blank line",
+			name:             "already has blank line",
 			initialStreaming: "Some text\n\n",
-			wantBlankLine:   true,
+			wantBlankLine:    true,
 		},
 		{
-			name:            "multiple trailing newlines",
+			name:             "multiple trailing newlines",
 			initialStreaming: "Some text\n\n\n",
-			wantBlankLine:   true,
+			wantBlankLine:    true,
 		},
 		{
-			name:            "empty streaming",
+			name:             "empty streaming",
 			initialStreaming: "",
-			wantBlankLine:   false, // no blank line needed when empty
+			wantBlankLine:    false, // no blank line needed when empty
 		},
 	}
 
@@ -2070,7 +2070,7 @@ func TestChat_PendingQuestion(t *testing.T) {
 	}
 
 	// Test wrap-around
-	chat.MoveQuestionSelection(-1) // Should wrap to last
+	chat.MoveQuestionSelection(-1)           // Should wrap to last
 	expectedIdx := len(questions[0].Options) // +1 for "Other" option
 	if chat.question.SelectedOption != expectedIdx {
 		t.Errorf("Expected wrap to %d, got %d", expectedIdx, chat.question.SelectedOption)
@@ -2397,35 +2397,35 @@ func TestChat_SelectionArea(t *testing.T) {
 	chat := NewChat()
 
 	tests := []struct {
-		name                                     string
-		startCol, startLine, endCol, endLine     int
-		wantStartCol, wantStartLine              int
-		wantEndCol, wantEndLine                  int
+		name                                 string
+		startCol, startLine, endCol, endLine int
+		wantStartCol, wantStartLine          int
+		wantEndCol, wantEndLine              int
 	}{
 		{
-			name:          "already normalized - same line",
-			startCol:      5, startLine: 10, endCol: 15, endLine: 10,
-			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 10,
+			name:     "already normalized - same line",
+			startCol: 5, startLine: 10, endCol: 15, endLine: 10,
+			wantStartCol: 5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 10,
 		},
 		{
-			name:          "already normalized - multi line",
-			startCol:      5, startLine: 10, endCol: 15, endLine: 20,
-			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 20,
+			name:     "already normalized - multi line",
+			startCol: 5, startLine: 10, endCol: 15, endLine: 20,
+			wantStartCol: 5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 20,
 		},
 		{
-			name:          "needs normalization - same line reversed",
-			startCol:      15, startLine: 10, endCol: 5, endLine: 10,
-			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 10,
+			name:     "needs normalization - same line reversed",
+			startCol: 15, startLine: 10, endCol: 5, endLine: 10,
+			wantStartCol: 5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 10,
 		},
 		{
-			name:          "needs normalization - multi line reversed",
-			startCol:      15, startLine: 20, endCol: 5, endLine: 10,
-			wantStartCol:  5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 20,
+			name:     "needs normalization - multi line reversed",
+			startCol: 15, startLine: 20, endCol: 5, endLine: 10,
+			wantStartCol: 5, wantStartLine: 10, wantEndCol: 15, wantEndLine: 20,
 		},
 		{
-			name:          "drag selection upward",
-			startCol:      10, startLine: 15, endCol: 3, endLine: 5,
-			wantStartCol:  3, wantStartLine: 5, wantEndCol: 10, wantEndLine: 15,
+			name:     "drag selection upward",
+			startCol: 10, startLine: 15, endCol: 3, endLine: 5,
+			wantStartCol: 3, wantStartLine: 5, wantEndCol: 10, wantEndLine: 15,
 		},
 	}
 
@@ -3805,10 +3805,10 @@ func TestWidthConstants(t *testing.T) {
 // continuation lines align with the first line.
 func TestListItemWrapping(t *testing.T) {
 	tests := []struct {
-		name     string
-		line     string
-		width    int
-		checkFn  func(result string) error
+		name    string
+		line    string
+		width   int
+		checkFn func(result string) error
 	}{
 		{
 			name:  "unordered list wraps at correct width",
@@ -4858,9 +4858,9 @@ func TestRenderFinalStats_WithCacheEfficiency(t *testing.T) {
 	// Test with cache read (high cache hit rate)
 	stats := &claude.StreamStats{
 		OutputTokens:        100,
-		CacheReadTokens:     80000,  // 80k tokens read from cache
-		CacheCreationTokens: 10000,  // 10k tokens created
-		InputTokens:         10000,  // 10k direct input
+		CacheReadTokens:     80000, // 80k tokens read from cache
+		CacheCreationTokens: 10000, // 10k tokens created
+		InputTokens:         10000, // 10k direct input
 	}
 	result := renderFinalStats(stats)
 	// Total input = 80000 + 10000 + 10000 = 100000

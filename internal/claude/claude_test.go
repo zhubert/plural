@@ -1105,8 +1105,8 @@ func TestTruncateString(t *testing.T) {
 	}{
 		{"hello", 10, "hello"},
 		{"hello", 5, "hello"},
-		{"hello world", 8, "hello..."},  // 8 chars: "hello" + "..."
-		{"hello world", 5, "he..."},     // 5 chars: "he" + "..."
+		{"hello world", 8, "hello..."}, // 8 chars: "hello" + "..."
+		{"hello world", 5, "he..."},    // 5 chars: "he" + "..."
 		{"", 10, ""},
 	}
 
@@ -1540,11 +1540,11 @@ func TestTruncateString_EdgeCases(t *testing.T) {
 		maxLen   int
 		expected string
 	}{
-		{"abc", 3, "abc"},   // Exactly at limit
-		{"abcd", 3, "abc"},  // One over limit, maxLen<=3 means no room for ellipsis
-		{"ab", 3, "ab"},     // Under limit
-		{"a", 1, "a"},       // Single char at limit
-		{"ab", 1, "a"},      // maxLen<=3, just truncate
+		{"abc", 3, "abc"},    // Exactly at limit
+		{"abcd", 3, "abc"},   // One over limit, maxLen<=3 means no room for ellipsis
+		{"ab", 3, "ab"},      // Under limit
+		{"a", 1, "a"},        // Single char at limit
+		{"ab", 1, "a"},       // maxLen<=3, just truncate
 		{"abcde", 4, "a..."}, // maxLen=4, room for 1 char + "..."
 	}
 
@@ -1594,10 +1594,10 @@ func TestFormatToolInput_EdgeCases(t *testing.T) {
 		maxLen   int
 		expected string
 	}{
-		{"", false, 0, ""},           // Empty string
-		{"", true, 0, ""},            // Empty with shorten
+		{"", false, 0, ""},              // Empty string
+		{"", true, 0, ""},               // Empty with shorten
 		{"file.go", true, 0, "file.go"}, // Already short
-		{"/a/b/c", true, 100, "c"},   // Shorten with high limit
+		{"/a/b/c", true, 100, "c"},      // Shorten with high limit
 	}
 
 	for _, tt := range tests {

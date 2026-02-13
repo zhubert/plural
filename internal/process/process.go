@@ -66,10 +66,10 @@ func containerImageExists(image string) bool {
 
 // ContainerPrerequisites holds the results of all container prerequisite checks.
 type ContainerPrerequisites struct {
-	CLIInstalled   bool
-	SystemRunning  bool
-	ImageExists    bool
-	AuthAvailable  bool
+	CLIInstalled  bool
+	SystemRunning bool
+	ImageExists   bool
+	AuthAvailable bool
 }
 
 // CheckContainerPrerequisites runs all container prerequisite checks with short-circuiting.

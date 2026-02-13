@@ -40,30 +40,30 @@ const (
 
 // SocketMessage wraps permission, question, or plan approval requests/responses
 type SocketMessage struct {
-	Type      MessageType          `json:"type"`
-	PermReq   *PermissionRequest   `json:"permReq,omitempty"`
-	PermResp  *PermissionResponse  `json:"permResp,omitempty"`
-	QuestReq  *QuestionRequest     `json:"questReq,omitempty"`
-	QuestResp *QuestionResponse    `json:"questResp,omitempty"`
+	Type      MessageType           `json:"type"`
+	PermReq   *PermissionRequest    `json:"permReq,omitempty"`
+	PermResp  *PermissionResponse   `json:"permResp,omitempty"`
+	QuestReq  *QuestionRequest      `json:"questReq,omitempty"`
+	QuestResp *QuestionResponse     `json:"questResp,omitempty"`
 	PlanReq   *PlanApprovalRequest  `json:"planReq,omitempty"`
 	PlanResp  *PlanApprovalResponse `json:"planResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
 type SocketServer struct {
-	socketPath    string         // Unix socket path (empty for TCP servers)
-	listener      net.Listener
-	isTCP         bool           // True if listening on TCP instead of Unix socket
-	requestCh     chan<- PermissionRequest
-	responseCh    <-chan PermissionResponse
-	questionCh    chan<- QuestionRequest
-	answerCh      <-chan QuestionResponse
-	planReqCh     chan<- PlanApprovalRequest
-	planRespCh    <-chan PlanApprovalResponse
-	closed        bool           // Set to true when Close() is called
-	closedMu      sync.RWMutex   // Guards closed flag
-	wg            sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
-	log           *slog.Logger   // Logger with session context
+	socketPath string // Unix socket path (empty for TCP servers)
+	listener   net.Listener
+	isTCP      bool // True if listening on TCP instead of Unix socket
+	requestCh  chan<- PermissionRequest
+	responseCh <-chan PermissionResponse
+	questionCh chan<- QuestionRequest
+	answerCh   <-chan QuestionResponse
+	planReqCh  chan<- PlanApprovalRequest
+	planRespCh <-chan PlanApprovalResponse
+	closed     bool           // Set to true when Close() is called
+	closedMu   sync.RWMutex   // Guards closed flag
+	wg         sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
+	log        *slog.Logger   // Logger with session context
 }
 
 // NewSocketServer creates a new socket server for the given session

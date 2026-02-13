@@ -7,11 +7,11 @@ import (
 
 func TestParseTodoWriteInput(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       string
-		wantErr     bool
-		wantItems   int
-		checkFirst  func(*testing.T, *TodoList)
+		name       string
+		input      string
+		wantErr    bool
+		wantItems  int
+		checkFirst func(*testing.T, *TodoList)
 	}{
 		{
 			name: "valid single todo",
@@ -114,25 +114,25 @@ func TestParseTodoWriteInput(t *testing.T) {
 
 func TestTodoList_CountByStatus(t *testing.T) {
 	tests := []struct {
-		name              string
-		list              *TodoList
-		wantPending       int
-		wantInProgress    int
-		wantCompleted     int
+		name           string
+		list           *TodoList
+		wantPending    int
+		wantInProgress int
+		wantCompleted  int
 	}{
 		{
-			name: "nil list",
-			list: nil,
-			wantPending: 0,
+			name:           "nil list",
+			list:           nil,
+			wantPending:    0,
 			wantInProgress: 0,
-			wantCompleted: 0,
+			wantCompleted:  0,
 		},
 		{
-			name: "empty items",
-			list: &TodoList{Items: []TodoItem{}},
-			wantPending: 0,
+			name:           "empty items",
+			list:           &TodoList{Items: []TodoItem{}},
+			wantPending:    0,
 			wantInProgress: 0,
-			wantCompleted: 0,
+			wantCompleted:  0,
 		},
 		{
 			name: "mixed statuses",
@@ -145,9 +145,9 @@ func TestTodoList_CountByStatus(t *testing.T) {
 					{Content: "Task 5", Status: TodoStatusCompleted},
 				},
 			},
-			wantPending: 2,
+			wantPending:    2,
 			wantInProgress: 1,
-			wantCompleted: 2,
+			wantCompleted:  2,
 		},
 	}
 

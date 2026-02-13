@@ -22,7 +22,7 @@ const ContainerAuthHelp = "Set ANTHROPIC_API_KEY env var, run 'claude setup-toke
 type NewSessionState struct {
 	RepoOptions            []string
 	RepoIndex              int
-	ScrollOffset           int // For scrolling the repo list
+	ScrollOffset           int      // For scrolling the repo list
 	BaseOptions            []string // Options for base branch selection
 	BaseIndex              int      // Selected base option index
 	BranchInput            textinput.Model
@@ -293,9 +293,9 @@ func NewNewSessionState(repos []string, containersSupported bool, containerAuthA
 	branchInput.SetWidth(ModalInputWidth)
 
 	return &NewSessionState{
-		RepoOptions:         repos,
-		RepoIndex:           0,
-		ScrollOffset:        0,
+		RepoOptions:  repos,
+		RepoIndex:    0,
+		ScrollOffset: 0,
 		BaseOptions: []string{
 			"From current local branch",
 			"From remote default branch (latest)",

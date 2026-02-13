@@ -10,7 +10,7 @@ import (
 
 func TestGetEligibleSessions(t *testing.T) {
 	sessions := []config.Session{
-		{ID: "s1", RepoPath: "/repo1", Branch: "b1", PRCreated: true},                                // eligible
+		{ID: "s1", RepoPath: "/repo1", Branch: "b1", PRCreated: true},                                 // eligible
 		{ID: "s2", RepoPath: "/repo2", Branch: "b2", PRCreated: true, PRMerged: true},                 // already merged, skip
 		{ID: "s3", RepoPath: "/repo3", Branch: "b3", PRCreated: true, PRClosed: true},                 // already closed, skip
 		{ID: "s4", RepoPath: "/repo4", Branch: "b4", PRCreated: true, Merged: true},                   // locally merged, skip
@@ -33,10 +33,10 @@ func TestGetEligibleSessions(t *testing.T) {
 
 func TestGetEligibleSessions_None(t *testing.T) {
 	sessions := []config.Session{
-		{ID: "s1", RepoPath: "/repo", Branch: "b1"},                                    // no PR
-		{ID: "s2", RepoPath: "/repo", Branch: "b2", PRCreated: true, Merged: true},     // locally merged
-		{ID: "s3", RepoPath: "/repo", Branch: "b3", PRCreated: true, PRMerged: true},   // already PR merged
-		{ID: "s4", RepoPath: "/repo", Branch: "b4", PRCreated: true, PRClosed: true},   // already PR closed
+		{ID: "s1", RepoPath: "/repo", Branch: "b1"},                                  // no PR
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", PRCreated: true, Merged: true},   // locally merged
+		{ID: "s3", RepoPath: "/repo", Branch: "b3", PRCreated: true, PRMerged: true}, // already PR merged
+		{ID: "s4", RepoPath: "/repo", Branch: "b4", PRCreated: true, PRClosed: true}, // already PR closed
 	}
 
 	eligible := getEligibleSessions(sessions)

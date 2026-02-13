@@ -71,11 +71,11 @@ type StreamingState struct {
 	Complete  bool               // Whether result message was received
 
 	// Response building
-	Response          strings.Builder // Accumulates response content
-	LastWasToolUse    bool            // Track if last chunk was tool use
-	EndsWithNewline   bool            // Track if response ends with \n
-	EndsWithDoubleNL  bool            // Track if response ends with \n\n
-	FirstChunk        bool            // Track if this is first chunk
+	Response         strings.Builder // Accumulates response content
+	LastWasToolUse   bool            // Track if last chunk was tool use
+	EndsWithNewline  bool            // Track if response ends with \n
+	EndsWithDoubleNL bool            // Track if response ends with \n\n
+	FirstChunk       bool            // Track if this is first chunk
 
 	// Subagent tracking
 	CurrentSubagentModel string // Model of active subagent (empty when no subagent)

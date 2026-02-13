@@ -16,7 +16,7 @@ import (
 type HelpState struct {
 	Sections      []HelpSection
 	ScrollOffset  int
-	SelectedIndex int          // Currently selected shortcut index (flattened across all sections)
+	SelectedIndex int            // Currently selected shortcut index (flattened across all sections)
 	FlatShortcuts []HelpShortcut // Flattened list of all shortcuts for selection
 	totalLines    int
 	maxVisible    int

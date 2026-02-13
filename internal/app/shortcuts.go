@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
@@ -17,7 +18,6 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/ui"
-	"github.com/google/uuid"
 )
 
 // Shortcut represents a keyboard shortcut with its metadata and handler.

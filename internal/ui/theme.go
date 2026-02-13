@@ -89,14 +89,14 @@ type ThemeName string
 
 // Available theme names
 const (
-	ThemeDarkPurple    ThemeName = "dark-purple"
-	ThemeNord          ThemeName = "nord"
-	ThemeDracula       ThemeName = "dracula"
-	ThemeGruvbox       ThemeName = "gruvbox"
-	ThemeTokyoNight    ThemeName = "tokyo-night"
-	ThemeCatppuccin    ThemeName = "catppuccin"
+	ThemeDarkPurple     ThemeName = "dark-purple"
+	ThemeNord           ThemeName = "nord"
+	ThemeDracula        ThemeName = "dracula"
+	ThemeGruvbox        ThemeName = "gruvbox"
+	ThemeTokyoNight     ThemeName = "tokyo-night"
+	ThemeCatppuccin     ThemeName = "catppuccin"
 	ThemeScienceFiction ThemeName = "science-fiction"
-	ThemeLight         ThemeName = "light"
+	ThemeLight          ThemeName = "light"
 )
 
 // DefaultTheme is the default theme name

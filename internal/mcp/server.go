@@ -35,15 +35,15 @@ const (
 type Server struct {
 	reader           *bufio.Reader
 	writer           io.Writer
-	requestChan      chan<- PermissionRequest      // Send permission requests to TUI
-	responseChan     <-chan PermissionResponse     // Receive responses from TUI
-	questionChan     chan<- QuestionRequest        // Send question requests to TUI
-	answerChan       <-chan QuestionResponse       // Receive answers from TUI
-	planApprovalChan chan<- PlanApprovalRequest    // Send plan approval requests to TUI
-	planResponseChan <-chan PlanApprovalResponse   // Receive plan approval responses from TUI
-	allowedTools     []string                      // Pre-allowed tools for this session
+	requestChan      chan<- PermissionRequest    // Send permission requests to TUI
+	responseChan     <-chan PermissionResponse   // Receive responses from TUI
+	questionChan     chan<- QuestionRequest      // Send question requests to TUI
+	answerChan       <-chan QuestionResponse     // Receive answers from TUI
+	planApprovalChan chan<- PlanApprovalRequest  // Send plan approval requests to TUI
+	planResponseChan <-chan PlanApprovalResponse // Receive plan approval responses from TUI
+	allowedTools     []string                    // Pre-allowed tools for this session
 	mu               sync.Mutex
-	log              *slog.Logger                  // Logger with session context
+	log              *slog.Logger // Logger with session context
 }
 
 // NewServer creates a new MCP server

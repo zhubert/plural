@@ -35,17 +35,17 @@ type SelectResult struct {
 	DiffStats  *DiffStats // Git diff statistics for the worktree
 
 	// State to restore
-	WaitStart              time.Time
-	IsWaiting              bool
-	ContainerInitializing  bool      // true during container startup
-	ContainerInitStart     time.Time // When container init started
-	Permission             *mcp.PermissionRequest
-	Question               *mcp.QuestionRequest
-	PlanApproval           *mcp.PlanApprovalRequest
-	TodoList               *claude.TodoList
-	Streaming              string
-	SavedInput             string
-	SubagentModel          string // Active subagent model (empty if none)
+	WaitStart             time.Time
+	IsWaiting             bool
+	ContainerInitializing bool      // true during container startup
+	ContainerInitStart    time.Time // When container init started
+	Permission            *mcp.PermissionRequest
+	Question              *mcp.QuestionRequest
+	PlanApproval          *mcp.PlanApprovalRequest
+	TodoList              *claude.TodoList
+	Streaming             string
+	SavedInput            string
+	SubagentModel         string // Active subagent model (empty if none)
 }
 
 // RunnerFactory creates a runner for a session.
@@ -61,13 +61,13 @@ func defaultRunnerFactory(sessionID, workingDir string, sessionStarted bool, ini
 // state coordination, and message persistence. It encapsulates the relationship
 // between sessions, runners, and per-session state.
 type SessionManager struct {
-	config           *config.Config
-	stateManager     *SessionStateManager
-	runners          map[string]claude.RunnerInterface
-	runnerFactory    RunnerFactory
-	skipMessageLoad  bool // Skip loading messages from disk (for demos/tests)
-	gitService       *git.GitService
-	mu               sync.RWMutex // Protects runners map
+	config          *config.Config
+	stateManager    *SessionStateManager
+	runners         map[string]claude.RunnerInterface
+	runnerFactory   RunnerFactory
+	skipMessageLoad bool // Skip loading messages from disk (for demos/tests)
+	gitService      *git.GitService
+	mu              sync.RWMutex // Protects runners map
 }
 
 // NewSessionManager creates a new session manager.

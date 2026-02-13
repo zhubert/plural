@@ -113,10 +113,10 @@ type LogFile struct {
 // LogViewerState tracks the log viewer overlay state.
 // Non-nil when the log viewer is displayed.
 type LogViewerState struct {
-	Viewport  viewport.Model // Viewport for log scrolling
-	Files     []LogFile      // List of available log files
-	FileIndex int            // Currently selected file index
-	FollowTail bool          // Whether to auto-scroll to bottom on updates
+	Viewport   viewport.Model // Viewport for log scrolling
+	Files      []LogFile      // List of available log files
+	FileIndex  int            // Currently selected file index
+	FollowTail bool           // Whether to auto-scroll to bottom on updates
 }
 
 // PendingImage tracks an attached image waiting to be sent.
@@ -133,11 +133,11 @@ func (p *PendingImage) SizeKB() int {
 
 // SpinnerState tracks the waiting/streaming spinner animation.
 type SpinnerState struct {
-	Idx         int    // Current spinner frame index
-	Tick        int    // Tick counter for frame hold timing
-	Verb        string // Random verb to display while waiting (e.g., "Thinking")
-	StartTime   time.Time
-	FlashFrame  int // Completion flash animation: -1 = inactive, 0-2 = animation frames
+	Idx        int    // Current spinner frame index
+	Tick       int    // Tick counter for frame hold timing
+	Verb       string // Random verb to display while waiting (e.g., "Thinking")
+	StartTime  time.Time
+	FlashFrame int // Completion flash animation: -1 = inactive, 0-2 = animation frames
 }
 
 // NewSpinnerState creates a new SpinnerState.

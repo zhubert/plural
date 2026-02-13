@@ -20,17 +20,17 @@ type streamMessage struct {
 	Subtype         string `json:"subtype"`            // "init", "success", etc.
 	ParentToolUseID string `json:"parent_tool_use_id"` // Non-empty when message is from a subagent (e.g., Haiku via Task)
 	Message         struct {
-		ID      string `json:"id,omitempty"` // Message ID for tracking API calls
+		ID      string `json:"id,omitempty"`    // Message ID for tracking API calls
 		Model   string `json:"model,omitempty"` // Model that generated this message (e.g., "claude-haiku-4-5-20251001")
 		Content []struct {
-			Type      string          `json:"type"` // "text", "tool_use", "tool_result"
-			ID        string          `json:"id,omitempty"`         // tool use ID (for tool_use)
+			Type      string          `json:"type"`         // "text", "tool_use", "tool_result"
+			ID        string          `json:"id,omitempty"` // tool use ID (for tool_use)
 			Text      string          `json:"text,omitempty"`
-			Name      string          `json:"name,omitempty"`       // tool name
-			Input     json.RawMessage `json:"input,omitempty"`      // tool input
+			Name      string          `json:"name,omitempty"`        // tool name
+			Input     json.RawMessage `json:"input,omitempty"`       // tool input
 			ToolUseID string          `json:"tool_use_id,omitempty"` // tool use ID reference (for tool_result)
-			ToolUseId string          `json:"toolUseId,omitempty"`  // camelCase variant from Claude CLI
-			Content   json.RawMessage `json:"content,omitempty"`    // tool result content (can be string or array)
+			ToolUseId string          `json:"toolUseId,omitempty"`   // camelCase variant from Claude CLI
+			Content   json.RawMessage `json:"content,omitempty"`     // tool result content (can be string or array)
 		} `json:"content"`
 		Usage *StreamUsage `json:"usage,omitempty"` // Token usage (for assistant messages)
 	} `json:"message"`
@@ -45,12 +45,12 @@ type streamMessage struct {
 	Errors            []string                    `json:"errors,omitempty"`             // Error messages array (used by error_during_execution)
 	PermissionDenials []PermissionDenial          `json:"permission_denials,omitempty"` // Permissions denied during session
 	SessionID         string                      `json:"session_id,omitempty"`
-	DurationMs        int                         `json:"duration_ms,omitempty"`        // Total duration in milliseconds
-	DurationAPIMs     int                         `json:"duration_api_ms,omitempty"`    // API duration in milliseconds
-	NumTurns          int                         `json:"num_turns,omitempty"`          // Number of conversation turns
-	TotalCostUSD      float64                     `json:"total_cost_usd,omitempty"`     // Total cost in USD
-	Usage             *StreamUsage                `json:"usage,omitempty"`              // Token usage breakdown
-	ModelUsage        map[string]*ModelUsageEntry `json:"modelUsage,omitempty"`         // Per-model usage breakdown (includes sub-agents)
+	DurationMs        int                         `json:"duration_ms,omitempty"`     // Total duration in milliseconds
+	DurationAPIMs     int                         `json:"duration_api_ms,omitempty"` // API duration in milliseconds
+	NumTurns          int                         `json:"num_turns,omitempty"`       // Number of conversation turns
+	TotalCostUSD      float64                     `json:"total_cost_usd,omitempty"`  // Total cost in USD
+	Usage             *StreamUsage                `json:"usage,omitempty"`           // Token usage breakdown
+	ModelUsage        map[string]*ModelUsageEntry `json:"modelUsage,omitempty"`      // Per-model usage breakdown (includes sub-agents)
 }
 
 // toolUseResultData represents the tool_use_result field in user messages.

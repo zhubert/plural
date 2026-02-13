@@ -355,8 +355,8 @@ func (c *Chat) SetWaiting(waiting bool) {
 		c.spinner.Idx = 0
 		c.spinner.Tick = 0
 		c.streamStartTime = time.Now()
-		c.streamStats = nil  // Reset stats for new request
-		c.finalStats = nil   // Clear previous final stats
+		c.streamStats = nil // Reset stats for new request
+		c.finalStats = nil  // Clear previous final stats
 	}
 	c.updateContent()
 }
@@ -369,8 +369,8 @@ func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 		c.spinner.Idx = 0
 		c.spinner.Tick = 0
 		c.streamStartTime = startTime
-		c.streamStats = nil  // Reset stats for new request
-		c.finalStats = nil   // Clear previous final stats
+		c.streamStats = nil // Reset stats for new request
+		c.finalStats = nil  // Clear previous final stats
 	}
 	c.updateContent()
 }

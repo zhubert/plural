@@ -14,11 +14,11 @@ type ViewContext struct {
 	TerminalHeight int
 
 	// Calculated dimensions
-	HeaderHeight   int
-	FooterHeight   int
-	ContentHeight  int
-	SidebarWidth   int
-	ChatWidth      int
+	HeaderHeight  int
+	FooterHeight  int
+	ContentHeight int
+	SidebarWidth  int
+	ChatWidth     int
 
 	mu sync.Mutex
 }

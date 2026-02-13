@@ -43,16 +43,16 @@ const (
 )
 
 type PluginsState struct {
-	ActiveTab      int
-	Marketplaces   []MarketplaceDisplay
-	Plugins        []PluginDisplay
-	SelectedIndex  int
-	ScrollOffset   int // For keeping selection visible
-	Loading        bool
-	Error          string
-	SearchInput    textinput.Model
-	SearchQuery    string
-	SearchFocused  bool // true = search box focused, false = list focused
+	ActiveTab     int
+	Marketplaces  []MarketplaceDisplay
+	Plugins       []PluginDisplay
+	SelectedIndex int
+	ScrollOffset  int // For keeping selection visible
+	Loading       bool
+	Error         string
+	SearchInput   textinput.Model
+	SearchQuery   string
+	SearchFocused bool // true = search box focused, false = list focused
 }
 
 func (*PluginsState) modalState() {}

@@ -398,12 +398,12 @@ func (s *Sidebar) HasNewComments(sessionID string) bool {
 
 // Attention priority levels (lower = higher priority, needs attention sooner)
 const (
-	priorityPermission   = 0 // Pending permission/question/plan approval
-	priorityStreaming     = 1 // Actively streaming
-	priorityIdle         = 2 // Idle with response (streaming finished, user hasn't responded)
-	priorityUncommitted  = 3 // Has uncommitted changes to review
-	priorityNewComments  = 4 // Has unread PR review comments
-	priorityNormal       = 5 // Normal session
+	priorityPermission  = 0 // Pending permission/question/plan approval
+	priorityStreaming   = 1 // Actively streaming
+	priorityIdle        = 2 // Idle with response (streaming finished, user hasn't responded)
+	priorityUncommitted = 3 // Has uncommitted changes to review
+	priorityNewComments = 4 // Has unread PR review comments
+	priorityNormal      = 5 // Normal session
 )
 
 // sessionPriority returns the attention priority for a given session ID.
@@ -705,7 +705,6 @@ func (s *Sidebar) ensureVisible() {
 func (s *Sidebar) ensureVisibleFiltered(displaySessions []config.Session) {
 	// Scroll adjustment happens in View() with actual rendered line counts
 }
-
 
 // View renders the sidebar
 func (s *Sidebar) View() string {

@@ -54,10 +54,10 @@ type ClientInfo struct {
 
 // InitializeResult for the initialize response
 type InitializeResult struct {
-	ProtocolVersion string       `json:"protocolVersion"`
-	Capabilities    Capability   `json:"capabilities"`
-	ServerInfo      ServerInfo   `json:"serverInfo"`
-	Instructions    string       `json:"instructions,omitempty"`
+	ProtocolVersion string     `json:"protocolVersion"`
+	Capabilities    Capability `json:"capabilities"`
+	ServerInfo      ServerInfo `json:"serverInfo"`
+	Instructions    string     `json:"instructions,omitempty"`
 }
 
 // ServerInfo represents server information
@@ -111,18 +111,18 @@ type ContentItem struct {
 
 // PermissionRequest represents a permission request sent to the TUI
 type PermissionRequest struct {
-	ID          interface{}            `json:"id"`           // JSON-RPC request ID for response correlation
-	Tool        string                 `json:"tool"`         // Tool name (e.g., "Edit", "Bash")
-	Description string                 `json:"description"`  // Human-readable description
-	Arguments   map[string]interface{} `json:"arguments"`    // Tool arguments for context
+	ID          interface{}            `json:"id"`          // JSON-RPC request ID for response correlation
+	Tool        string                 `json:"tool"`        // Tool name (e.g., "Edit", "Bash")
+	Description string                 `json:"description"` // Human-readable description
+	Arguments   map[string]interface{} `json:"arguments"`   // Tool arguments for context
 }
 
 // PermissionResponse represents the user's response to a permission request
 type PermissionResponse struct {
-	ID       interface{} `json:"id"`       // Correlates with request ID
-	Allowed  bool        `json:"allowed"`  // Whether permission was granted
-	Always   bool        `json:"always"`   // Whether to remember this decision
-	Message  string      `json:"message"`  // Optional denial message
+	ID      interface{} `json:"id"`      // Correlates with request ID
+	Allowed bool        `json:"allowed"` // Whether permission was granted
+	Always  bool        `json:"always"`  // Whether to remember this decision
+	Message string      `json:"message"` // Optional denial message
 }
 
 // PermissionResult is the format expected by Claude Code's permission-prompt-tool
@@ -166,10 +166,10 @@ type AllowedPrompt struct {
 
 // PlanApprovalRequest represents an ExitPlanMode request sent to the TUI
 type PlanApprovalRequest struct {
-	ID             interface{}     `json:"id"`             // JSON-RPC request ID for response correlation
-	Plan           string          `json:"plan"`           // The plan content (markdown)
-	AllowedPrompts []AllowedPrompt `json:"allowedPrompts"` // Bash permissions being requested
-	Arguments      map[string]interface{} `json:"arguments"` // Original arguments for the response
+	ID             interface{}            `json:"id"`             // JSON-RPC request ID for response correlation
+	Plan           string                 `json:"plan"`           // The plan content (markdown)
+	AllowedPrompts []AllowedPrompt        `json:"allowedPrompts"` // Bash permissions being requested
+	Arguments      map[string]interface{} `json:"arguments"`      // Original arguments for the response
 }
 
 // PlanApprovalResponse represents the user's response to a plan approval request

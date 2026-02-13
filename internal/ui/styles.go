@@ -20,154 +20,155 @@ var (
 	ColorError       = lipgloss.Color("#EF4444") // Red for errors
 	ColorSuccess     = lipgloss.Color("#10B981") // Green for success
 )
+
 // Header styles
 var (
 	HeaderStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorText).
-		Background(ColorPrimary).
-		Padding(0, 1)
+			Bold(true).
+			Foreground(ColorText).
+			Background(ColorPrimary).
+			Padding(0, 1)
 
 	HeaderTitleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorText)
+				Bold(true).
+				Foreground(ColorText)
 )
 
 // Footer styles
 var (
 	FooterStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Padding(0, 1)
+			Foreground(ColorTextMuted).
+			Padding(0, 1)
 
 	FooterKeyStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorSecondary)
+			Bold(true).
+			Foreground(ColorSecondary)
 
 	FooterDescStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted)
+			Foreground(ColorTextMuted)
 )
 
 // Panel styles
 var (
 	PanelStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorBorder)
 
 	PanelFocusedStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorderFocus)
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorBorderFocus)
 
 	PanelTitleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Padding(0, 1)
+			Bold(true).
+			Foreground(ColorPrimary).
+			Padding(0, 1)
 )
 
 // Sidebar styles
 var (
 	SidebarItemStyle = lipgloss.NewStyle().
-		Padding(0, 1)
+				Padding(0, 1)
 
 	// SidebarSelectedStyle uses theme's BgSelected color - initialized properly in regenerateStyles()
 	SidebarSelectedStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color(BuiltinThemes[DefaultTheme].GetBgSelected())).
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].Text)).
-		Bold(true).
-		Padding(0, 1)
+				Background(lipgloss.Color(BuiltinThemes[DefaultTheme].GetBgSelected())).
+				Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].Text)).
+				Bold(true).
+				Padding(0, 1)
 
 	SidebarRepoStyle = lipgloss.NewStyle().
-		Foreground(ColorMuted).
-		Italic(true)
+				Foreground(ColorMuted).
+				Italic(true)
 )
 
 // Chat styles
 var (
 	ChatUserStyle = lipgloss.NewStyle().
-		Foreground(ColorUser).
-		Bold(true)
+			Foreground(ColorUser).
+			Bold(true)
 
 	ChatAssistantStyle = lipgloss.NewStyle().
-		Foreground(ColorAssistant).
-		Bold(true)
+				Foreground(ColorAssistant).
+				Bold(true)
 
 	ChatMessageStyle = lipgloss.NewStyle().
-		Foreground(ColorText)
+				Foreground(ColorText)
 
 	ChatInputStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder).
-		Padding(0, 1)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorBorder).
+			Padding(0, 1)
 
 	ChatInputFocusedStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorderFocus).
-		Padding(0, 1)
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorBorderFocus).
+				Padding(0, 1)
 )
 
 // Modal styles
 var (
 	ModalStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorPrimary).
-		Padding(1, 2).
-		Width(ModalWidth)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorPrimary).
+			Padding(1, 2).
+			Width(ModalWidth)
 
 	ModalTitleStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		MarginBottom(1)
+			Bold(true).
+			Foreground(ColorPrimary).
+			MarginBottom(1)
 
 	ModalHelpStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true).
-		MarginTop(1)
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginTop(1)
 )
 
 // Status styles
 var (
 	StatusLoadingStyle = lipgloss.NewStyle().
-		Foreground(ColorSecondary).
-		Italic(true)
+				Foreground(ColorSecondary).
+				Italic(true)
 
 	StatusErrorStyle = lipgloss.NewStyle().
-		Foreground(ColorError).
-		Bold(true)
+				Foreground(ColorError).
+				Bold(true)
 )
 
 // Tool use marker styles
 var (
 	ToolUseInProgressStyle = lipgloss.NewStyle().
-		Foreground(ColorText) // White circle for in-progress
+				Foreground(ColorText) // White circle for in-progress
 
 	ToolUseCompleteStyle = lipgloss.NewStyle().
-		Foreground(ColorSecondary) // Green circle for completed
+				Foreground(ColorSecondary) // Green circle for completed
 )
 
 // Permission prompt styles
 var (
 	PermissionBoxStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorWarning).
-		Padding(0, 1)
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorWarning).
+				Padding(0, 1)
 
 	PermissionTitleStyle = lipgloss.NewStyle().
-		Foreground(ColorWarning).
-		Bold(true)
+				Foreground(ColorWarning).
+				Bold(true)
 
 	PermissionToolStyle = lipgloss.NewStyle().
-		Foreground(ColorText).
-		Bold(true)
+				Foreground(ColorText).
+				Bold(true)
 
 	PermissionDescStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted)
+				Foreground(ColorTextMuted)
 
 	PermissionHintStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true)
+				Foreground(ColorTextMuted).
+				Italic(true)
 
 	PermissionIndicatorStyle = lipgloss.NewStyle().
-		Foreground(ColorWarning).
-		Bold(true)
+					Foreground(ColorWarning).
+					Bold(true)
 )
 
 // Question prompt styles
@@ -190,14 +191,14 @@ var (
 var (
 	// Box style for the todo list container (used when inline)
 	TodoListBoxStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorInfo).
-		Padding(0, 1)
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorInfo).
+				Padding(0, 1)
 
 	// TodoSidebarStyle is for the todo list when shown as a sidebar panel.
 	// Uses left border only to connect visually with the chat panel.
 	TodoSidebarStyle = lipgloss.NewStyle().
-		Border(lipgloss.Border{
+				Border(lipgloss.Border{
 			Top:         "─",
 			Bottom:      "─",
 			Left:        "│",
@@ -211,86 +212,86 @@ var (
 
 	// Marker styles for different states (updated by regenerateStyles)
 	TodoCompletedMarkerStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffAdded))
+					Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffAdded))
 
 	TodoInProgressMarkerStyle = lipgloss.NewStyle().
-		Foreground(ColorSecondary) // Cyan hourglass
+					Foreground(ColorSecondary) // Cyan hourglass
 
 	TodoPendingMarkerStyle = lipgloss.NewStyle().
-		Foreground(ColorMuted) // Gray circle
+				Foreground(ColorMuted) // Gray circle
 
 	// Content styles for different states
 	TodoCompletedContentStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Strikethrough(true)
+					Foreground(ColorTextMuted).
+					Strikethrough(true)
 
 	TodoInProgressContentStyle = lipgloss.NewStyle().
-		Foreground(ColorText).
-		Bold(true)
+					Foreground(ColorText).
+					Bold(true)
 
 	TodoPendingContentStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted)
+				Foreground(ColorTextMuted)
 )
 
 // Markdown rendering styles (updated by regenerateStyles)
 var (
 	// Headers
 	MarkdownH1Style = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH1)).
-		MarginTop(1)
+			Bold(true).
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH1)).
+			MarginTop(1)
 
 	MarkdownH2Style = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH2)).
-		MarginTop(1)
+			Bold(true).
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH2)).
+			MarginTop(1)
 
 	MarkdownH3Style = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH3))
+			Bold(true).
+			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownH3))
 
 	MarkdownH4Style = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorTextMuted)
+			Bold(true).
+			Foreground(ColorTextMuted)
 
 	// Inline styles
 	MarkdownBoldStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorText)
+				Bold(true).
+				Foreground(ColorText)
 
 	MarkdownItalicStyle = lipgloss.NewStyle().
-		Italic(true).
-		Foreground(ColorText)
+				Italic(true).
+				Foreground(ColorText)
 
 	MarkdownInlineCodeStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCode)).
-		Background(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCodeBg))
+				Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCode)).
+				Background(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCodeBg))
 
 	// Code block
 	MarkdownCodeBlockStyle = lipgloss.NewStyle().
-		Background(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCodeBg))
+				Background(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownCodeBg))
 
 	// List
 	MarkdownListBulletStyle = lipgloss.NewStyle().
-		Foreground(ColorSecondary)
+				Foreground(ColorSecondary)
 
 	// Blockquote
 	MarkdownBlockquoteStyle = lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true).
-		BorderLeft(true).
-		BorderStyle(lipgloss.ThickBorder()).
-		BorderForeground(ColorMuted).
-		PaddingLeft(1)
+				Foreground(ColorTextMuted).
+				Italic(true).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(ColorMuted).
+				PaddingLeft(1)
 
 	// Horizontal rule
 	MarkdownHRStyle = lipgloss.NewStyle().
-		Foreground(ColorBorder)
+			Foreground(ColorBorder)
 
 	// Link
 	MarkdownLinkStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownLink)).
-		Underline(true)
+				Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].MarkdownLink)).
+				Underline(true)
 
 	// Table
 	MarkdownTableBorderStyle = lipgloss.NewStyle().
@@ -310,7 +311,7 @@ var (
 			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffAdded))
 
 	DiffRemovedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffRemoved))
+				Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffRemoved))
 
 	DiffHeaderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(BuiltinThemes[DefaultTheme].DiffHeader)).

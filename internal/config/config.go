@@ -11,15 +11,15 @@ import (
 
 // Config holds the application configuration
 type Config struct {
-	Repos            []string               `json:"repos"`
-	Sessions         []Session              `json:"sessions"`
-	MCPServers       []MCPServer            `json:"mcp_servers,omitempty"`        // Global MCP servers
-	RepoMCP          map[string][]MCPServer `json:"repo_mcp,omitempty"`           // Per-repo MCP servers
-	AllowedTools      []string               `json:"allowed_tools,omitempty"`       // Global allowed tools
-	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`  // Per-repo allowed tools
+	Repos             []string               `json:"repos"`
+	Sessions          []Session              `json:"sessions"`
+	MCPServers        []MCPServer            `json:"mcp_servers,omitempty"`          // Global MCP servers
+	RepoMCP           map[string][]MCPServer `json:"repo_mcp,omitempty"`             // Per-repo MCP servers
+	AllowedTools      []string               `json:"allowed_tools,omitempty"`        // Global allowed tools
+	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`   // Per-repo allowed tools
 	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
-	RepoAsanaProject   map[string]string      `json:"repo_asana_project,omitempty"`   // Per-repo Asana project GID mapping
-	ContainerImage     string                 `json:"container_image,omitempty"`      // Container image for containerized sessions
+	RepoAsanaProject  map[string]string      `json:"repo_asana_project,omitempty"`   // Per-repo Asana project GID mapping
+	ContainerImage    string                 `json:"container_image,omitempty"`      // Container image for containerized sessions
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
 	LastSeenVersion      string `json:"last_seen_version,omitempty"`     // Last version user has seen changelog for
@@ -389,8 +389,6 @@ func (c *Config) SetAsanaProject(repoPath, projectGID string) {
 func (c *Config) HasAsanaProject(repoPath string) bool {
 	return c.GetAsanaProject(repoPath) != ""
 }
-
-
 
 // GetContainerImage returns the container image name, defaulting to "ghcr.io/zhubert/plural-claude"
 func (c *Config) GetContainerImage() string {

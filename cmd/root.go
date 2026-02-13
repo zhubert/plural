@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	debugMode            bool
+	debugMode             bool
 	version, commit, date string
 )
 

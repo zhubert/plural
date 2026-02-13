@@ -54,16 +54,16 @@ type KeyBinding struct {
 type Footer struct {
 	width              int
 	bindings           []KeyBinding
-	hasSession         bool // Whether a session is selected
-	sidebarFocused     bool // Whether sidebar has focus
-	pendingPermission  bool // Whether chat has a pending permission prompt
-	pendingQuestion    bool // Whether chat has a pending question prompt
-	streaming          bool // Whether active session is streaming
-	viewChangesMode    bool // Whether showing view changes overlay
-	searchMode         bool // Whether sidebar is in search mode
-	multiSelectMode    bool // Whether sidebar is in multi-select mode
-	hasDetectedOptions bool // Whether chat has detected options for parallel exploration
-	kittyKeyboard      bool // Terminal supports Kitty keyboard protocol
+	hasSession         bool          // Whether a session is selected
+	sidebarFocused     bool          // Whether sidebar has focus
+	pendingPermission  bool          // Whether chat has a pending permission prompt
+	pendingQuestion    bool          // Whether chat has a pending question prompt
+	streaming          bool          // Whether active session is streaming
+	viewChangesMode    bool          // Whether showing view changes overlay
+	searchMode         bool          // Whether sidebar is in search mode
+	multiSelectMode    bool          // Whether sidebar is in multi-select mode
+	hasDetectedOptions bool          // Whether chat has detected options for parallel exploration
+	kittyKeyboard      bool          // Terminal supports Kitty keyboard protocol
 	flashMessage       *FlashMessage // Current flash message, if any
 }
 

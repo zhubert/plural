@@ -261,4 +261,3 @@ func TestCheckResult_Fields(t *testing.T) {
 		t.Error("Version field mismatch")
 	}
 }
-

@@ -703,7 +703,7 @@ func TestBuildCommandArgs_ForkedSession_CanResumeAfterInterrupt(t *testing.T) {
 	// Step 3: Second message needs to resume
 	resumeConfig := ProcessConfig{
 		SessionID:         childSessionID,
-		SessionStarted:    true, // Marked as started after first response
+		SessionStarted:    true,            // Marked as started after first response
 		ForkFromSessionID: parentSessionID, // Still set, but shouldn't matter
 		MCPConfigPath:     "/tmp/mcp.json",
 	}
@@ -726,7 +726,7 @@ func TestBuildCommandArgs_SessionStarted_TakesPriority(t *testing.T) {
 	// This ensures we resume our own session, not try to fork again
 	config := ProcessConfig{
 		SessionID:         "child-uuid",
-		SessionStarted:    true, // Takes priority
+		SessionStarted:    true,          // Takes priority
 		ForkFromSessionID: "parent-uuid", // Should be ignored
 		MCPConfigPath:     "/tmp/mcp.json",
 	}
@@ -1830,4 +1830,3 @@ func TestContainerSidePaths_ShortEnough(t *testing.T) {
 		t.Errorf("container MCP config path too long (%d chars): %s", len(containerMCPConfigPath), containerMCPConfigPath)
 	}
 }
-

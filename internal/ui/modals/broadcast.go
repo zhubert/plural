@@ -25,14 +25,14 @@ type RepoItem struct {
 // BroadcastState is the state for the broadcast modal
 type BroadcastState struct {
 	Repos                  []RepoItem
-	SelectedIndex          int              // Currently highlighted repo
-	NameInput              textinput.Model  // Session name input (optional)
-	PromptInput            textarea.Model   // Multi-line prompt input
-	UseContainers          bool             // Whether to run sessions in containers
-	ContainersSupported    bool             // Whether Docker is available for container mode
-	ContainerAuthAvailable bool             // Whether API key credentials are available for container mode
-	Focus                  int              // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
-	ScrollOffset           int              // For scrolling the repo list
+	SelectedIndex          int             // Currently highlighted repo
+	NameInput              textinput.Model // Session name input (optional)
+	PromptInput            textarea.Model  // Multi-line prompt input
+	UseContainers          bool            // Whether to run sessions in containers
+	ContainersSupported    bool            // Whether Docker is available for container mode
+	ContainerAuthAvailable bool            // Whether API key credentials are available for container mode
+	Focus                  int             // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
+	ScrollOffset           int             // For scrolling the repo list
 }
 
 func (*BroadcastState) modalState() {}
@@ -415,11 +415,11 @@ type SessionItem struct {
 type BroadcastGroupState struct {
 	GroupID       string
 	Sessions      []SessionItem
-	SelectedIndex int             // Currently highlighted session
+	SelectedIndex int // Currently highlighted session
 	Action        BroadcastGroupAction
-	PromptInput   textarea.Model  // Multi-line prompt input (only for SendPrompt action)
-	Focus         int             // 0=action selector, 1=session list, 2=prompt textarea
-	ScrollOffset  int             // For scrolling the session list
+	PromptInput   textarea.Model // Multi-line prompt input (only for SendPrompt action)
+	Focus         int            // 0=action selector, 1=session list, 2=prompt textarea
+	ScrollOffset  int            // For scrolling the session list
 }
 
 func (*BroadcastGroupState) modalState() {}

@@ -94,8 +94,8 @@ type Step struct {
 type Scenario struct {
 	Name        string
 	Description string
-	Width       int           // Terminal width (default 120)
-	Height      int           // Terminal height (default 40)
+	Width       int // Terminal width (default 120)
+	Height      int // Terminal height (default 40)
 	Setup       *ScenarioSetup
 	Steps       []Step
 }
