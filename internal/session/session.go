@@ -570,6 +570,23 @@ func findOrphansInDir(worktreesDir string, knownSessions map[string]bool, repoPa
 	return orphans, nil
 }
 
+// detectWorktreeBranch determines the actual branch name for a worktree by
+// running "git rev-parse --abbrev-ref HEAD" inside it. This handles all branch
+// naming patterns: default (plural-<UUID>), prefixed (user/plural-<UUID>), and
+// renamed branches.
+func detectWorktreeBranch(ctx context.Context, s *SessionService, orphan OrphanedWorktree) string {
+	stdout, _, err := s.executor.Run(ctx, orphan.Path, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return ""
+	}
+	branch := strings.TrimSpace(string(stdout))
+	if branch == "" || branch == "HEAD" {
+		// "HEAD" means detached HEAD state - no branch to delete
+		return ""
+	}
+	return branch
+}
+
 // PruneOrphanedWorktrees removes all orphaned worktrees and their branches.
 // Pruning operations are parallelized across repos, but serialized within each repo
 // to avoid concurrent git operations on the same repository.
@@ -604,6 +621,11 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 			for _, orphan := range repoOrphans {
 				log.Info("pruning orphaned worktree", "path", orphan.Path)
 
+				// Detect the actual branch name before removing the worktree.
+				// Sessions can have prefixed branches (e.g., "zhubert/plural-<UUID>")
+				// or custom names after rename, so we can't assume "plural-<UUID>".
+				branchName := detectWorktreeBranch(ctx, s, orphan)
+
 				// Try to remove via git worktree remove first
 				_, _, err := s.executor.Run(ctx, orphan.RepoPath, "git", "worktree", "remove", orphan.Path, "--force")
 				if err != nil {
@@ -621,9 +643,12 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 				}
 
 				// Try to delete the branch
-				branchName := fmt.Sprintf("plural-%s", orphan.ID)
-				if _, _, branchErr := s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName); branchErr != nil {
-					log.Warn("failed to delete branch (may already be deleted)", "branch", branchName, "error", branchErr)
+				if branchName != "" {
+					if _, _, branchErr := s.executor.Run(ctx, orphan.RepoPath, "git", "branch", "-D", branchName); branchErr != nil {
+						log.Warn("failed to delete branch (may already be deleted)", "branch", branchName, "error", branchErr)
+					}
+				} else {
+					log.Warn("could not detect branch name for orphan, skipping branch deletion", "sessionID", orphan.ID)
 				}
 
 				// Delete session messages file
