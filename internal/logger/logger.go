@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/zhubert/plural/internal/paths"
 )
 
 var (
@@ -17,18 +19,9 @@ var (
 	initDone bool
 )
 
-// logsDir returns the path to the logs directory (~/.plural/logs)
-func logsDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".plural", "logs"), nil
-}
-
 // DefaultLogPath returns the default log file path for the main process
 func DefaultLogPath() (string, error) {
-	dir, err := logsDir()
+	dir, err := paths.LogsDir()
 	if err != nil {
 		return "", err
 	}
@@ -37,7 +30,7 @@ func DefaultLogPath() (string, error) {
 
 // MCPLogPath returns the log path for an MCP session
 func MCPLogPath(sessionID string) (string, error) {
-	dir, err := logsDir()
+	dir, err := paths.LogsDir()
 	if err != nil {
 		return "", err
 	}
@@ -46,7 +39,7 @@ func MCPLogPath(sessionID string) (string, error) {
 
 // StreamLogPath returns the log path for Claude stream messages
 func StreamLogPath(sessionID string) (string, error) {
-	dir, err := logsDir()
+	dir, err := paths.LogsDir()
 	if err != nil {
 		return "", err
 	}

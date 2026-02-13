@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zhubert/plural/internal/paths"
 )
 
 func TestConfig_AddRepo(t *testing.T) {
@@ -1055,7 +1057,11 @@ func TestLoad_NewConfig(t *testing.T) {
 	// Save original HOME and set temp dir
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	paths.Reset()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		paths.Reset()
+	}()
 
 	// Load should create a new config when none exists
 	cfg, err := Load()
@@ -1093,7 +1099,11 @@ func TestLoad_ExistingConfig(t *testing.T) {
 	// Save original HOME and set temp dir
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	paths.Reset()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		paths.Reset()
+	}()
 
 	// Create config directory and file
 	pluralDir := filepath.Join(tmpDir, ".plural")
@@ -1155,7 +1165,11 @@ func TestLoad_InvalidJSON(t *testing.T) {
 	// Save original HOME and set temp dir
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	paths.Reset()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		paths.Reset()
+	}()
 
 	// Create config directory and invalid file
 	pluralDir := filepath.Join(tmpDir, ".plural")
@@ -1186,7 +1200,11 @@ func TestLoad_InvalidConfig(t *testing.T) {
 	// Save original HOME and set temp dir
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", origHome)
+	paths.Reset()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		paths.Reset()
+	}()
 
 	// Create config directory and file with duplicate session IDs
 	pluralDir := filepath.Join(tmpDir, ".plural")

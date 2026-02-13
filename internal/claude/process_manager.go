@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // errChannelFull is returned when the response channel is full for too long.
@@ -850,15 +852,14 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerR
 }
 
 // containerAuthDir returns the directory for storing container auth files.
-// Uses ~/.plural/ which is user-private, unlike /tmp which is world-readable.
-// Returns empty string if home directory cannot be determined (credentials
+// Uses the config directory which is user-private, unlike /tmp which is world-readable.
+// Returns empty string if the config directory cannot be determined (credentials
 // will not be written rather than falling back to an insecure location).
 func containerAuthDir() string {
-	homeDir, err := os.UserHomeDir()
+	dir, err := paths.ConfigDir()
 	if err != nil {
 		return ""
 	}
-	dir := filepath.Join(homeDir, ".plural")
 	os.MkdirAll(dir, 0700)
 	return dir
 }
