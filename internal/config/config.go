@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
+
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // Config holds the application configuration
@@ -39,27 +40,9 @@ type Config struct {
 	filePath string
 }
 
-// configDir returns the path to the config directory
-func configDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".plural"), nil
-}
-
-// configPath returns the path to the config file
-func configPath() (string, error) {
-	dir, err := configDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "config.json"), nil
-}
-
 // Load reads the config from disk, or creates a new one if it doesn't exist
 func Load() (*Config, error) {
-	path, err := configPath()
+	path, err := paths.ConfigFilePath()
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +168,7 @@ func (c *Config) Save() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	dir, err := configDir()
+	dir, err := paths.ConfigDir()
 	if err != nil {
 		return err
 	}

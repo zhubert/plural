@@ -447,9 +447,9 @@ func TestMCPLogPath(t *testing.T) {
 		t.Errorf("MCPLogPath(%q) = %q, should contain 'mcp-test-session-123.log'", sessionID, got)
 	}
 
-	// Should be in ~/.plural/logs directory
-	if !strings.Contains(got, ".plural/logs") {
-		t.Errorf("MCPLogPath(%q) = %q, should be in .plural/logs directory", sessionID, got)
+	// Should be in a logs directory
+	if !strings.Contains(got, "/logs/") {
+		t.Errorf("MCPLogPath(%q) = %q, should be in a logs directory", sessionID, got)
 	}
 }
 
@@ -466,8 +466,8 @@ func TestStreamLogPath(t *testing.T) {
 		t.Errorf("StreamLogPath(%q) = %q, should contain 'stream-test-session-456.log'", sessionID, got)
 	}
 
-	// Should be in ~/.plural/logs directory
-	if !strings.Contains(got, ".plural/logs") {
-		t.Errorf("StreamLogPath(%q) = %q, should be in .plural/logs directory", sessionID, got)
+	// Should be in a logs directory
+	if !strings.Contains(got, "/logs/") {
+		t.Errorf("StreamLogPath(%q) = %q, should be in a logs directory", sessionID, got)
 	}
 }

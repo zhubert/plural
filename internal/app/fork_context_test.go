@@ -9,6 +9,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/paths"
 	"github.com/zhubert/plural/internal/session"
 )
 
@@ -19,6 +20,8 @@ func TestForkSessionInheritsContext(t *testing.T) {
 	// Set up a temporary home directory to avoid polluting ~/.plural/ during tests
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	paths.Reset()
+	t.Cleanup(paths.Reset)
 
 	// Create test config and repo
 	cfg := &config.Config{

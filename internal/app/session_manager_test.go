@@ -11,6 +11,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/paths"
 )
 
 func createTestConfig() *config.Config {
@@ -699,6 +700,8 @@ func TestCopyClaudeSessionForFork_NoSessionFileCopyFallback(t *testing.T) {
 	// Set up a temporary home directory to avoid polluting ~/.claude/ during tests
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
+	paths.Reset()
+	t.Cleanup(paths.Reset)
 
 	// Test case 1: No saved messages - should NOT call SetForkFromSession
 	t.Run("no_messages", func(t *testing.T) {
@@ -941,6 +944,8 @@ func TestSessionManager_SaveMessages_Error(t *testing.T) {
 	os.MkdirAll(readOnlyDir, 0500)
 	defer os.Chmod(readOnlyDir, 0700)
 	t.Setenv("HOME", readOnlyDir)
+	paths.Reset()
+	t.Cleanup(paths.Reset)
 
 	cfg := createTestConfig()
 	sm := NewSessionManager(cfg, git.NewGitService())
@@ -997,6 +1002,8 @@ func TestSessionManager_SaveRunnerMessages_Error(t *testing.T) {
 	os.MkdirAll(readOnlyDir, 0500)
 	defer os.Chmod(readOnlyDir, 0700)
 	t.Setenv("HOME", readOnlyDir)
+	paths.Reset()
+	t.Cleanup(paths.Reset)
 
 	cfg := createTestConfig()
 	sm := NewSessionManager(cfg, git.NewGitService())

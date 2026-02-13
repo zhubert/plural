@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/paths"
 	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 )
@@ -107,7 +108,11 @@ func runCleanWithReader(input io.Reader) error {
 			fmt.Printf("      %s\n", c.Name)
 		}
 	}
-	fmt.Println("  - All log files in ~/.plural/logs")
+	if logsDir, err := paths.LogsDir(); err == nil {
+		fmt.Printf("  - All log files in %s\n", logsDir)
+	} else {
+		fmt.Println("  - All log files")
+	}
 
 	// Confirm unless --yes flag is set
 	if !skipConfirm {

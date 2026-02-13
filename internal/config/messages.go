@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // Configuration constants
@@ -19,18 +21,9 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-// sessionsDir returns the path to the sessions directory
-func sessionsDir() (string, error) {
-	dir, err := configDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "sessions"), nil
-}
-
 // SaveSessionMessages saves messages for a session (keeps last maxLines lines)
 func SaveSessionMessages(sessionID string, messages []Message, maxLines int) error {
-	dir, err := sessionsDir()
+	dir, err := paths.SessionsDir()
 	if err != nil {
 		return err
 	}
@@ -66,7 +59,7 @@ func SaveSessionMessages(sessionID string, messages []Message, maxLines int) err
 
 // LoadSessionMessages loads messages for a session
 func LoadSessionMessages(sessionID string) ([]Message, error) {
-	dir, err := sessionsDir()
+	dir, err := paths.SessionsDir()
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +83,7 @@ func LoadSessionMessages(sessionID string) ([]Message, error) {
 
 // DeleteSessionMessages deletes the messages file for a session
 func DeleteSessionMessages(sessionID string) error {
-	dir, err := sessionsDir()
+	dir, err := paths.SessionsDir()
 	if err != nil {
 		return err
 	}
@@ -106,7 +99,7 @@ func DeleteSessionMessages(sessionID string) error {
 // ClearAllSessionMessages deletes all session message files.
 // Returns the number of files deleted.
 func ClearAllSessionMessages() (int, error) {
-	dir, err := sessionsDir()
+	dir, err := paths.SessionsDir()
 	if err != nil {
 		return 0, err
 	}
@@ -137,7 +130,7 @@ func ClearAllSessionMessages() (int, error) {
 // FindOrphanedSessionMessages finds session message files that don't have
 // a matching session in the config. Returns the session IDs of orphaned files.
 func FindOrphanedSessionMessages(cfg *Config) ([]string, error) {
-	dir, err := sessionsDir()
+	dir, err := paths.SessionsDir()
 	if err != nil {
 		return nil, err
 	}
