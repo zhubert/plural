@@ -13,7 +13,7 @@ COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o /out/plural .
 
-# Build gopls in the builder stage so we don't need the Go toolchain at runtime
+# Build gopls in the builder stage
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install golang.org/x/tools/gopls@latest && \
     cp /go/bin/${TARGETOS}_${TARGETARCH}/gopls /out/gopls 2>/dev/null || cp /go/bin/gopls /out/gopls
 
@@ -31,12 +31,21 @@ RUN apk add --no-cache \
 # Install Claude CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
+# Copy Go toolchain from builder stage (exact version matching go.mod)
+COPY --from=builder /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:$PATH"
+
 # Copy plural binary and gopls from builder stage
 COPY --from=builder /out/plural /usr/local/bin/plural
 COPY --from=builder /out/gopls /usr/local/bin/gopls
 
-# Create non-root user
-RUN adduser -D -s /bin/sh claude
+# Create non-root user with Go environment
+RUN adduser -D -s /bin/sh claude && \
+    mkdir -p /home/claude/go && \
+    chown claude:claude /home/claude/go
+
+ENV GOPATH=/home/claude/go
+ENV PATH="$GOPATH/bin:$PATH"
 
 # Entrypoint runs as root to fix socket permissions, then switches to claude user.
 # entrypoint.sh: root-level setup (socket chmod, user switch via su-exec)
