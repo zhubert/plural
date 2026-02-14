@@ -301,6 +301,17 @@ func (pm *ProcessManager) Start() error {
 
 	var cmd *exec.Cmd
 	if pm.config.Containerized {
+		// Remove any stale container with the same name from a previous crash.
+		// docker run --rm only cleans up on clean exit, so a crashed container
+		// may still be lingering and block the new docker run.
+		containerName := "plural-" + pm.config.SessionID
+		rmCmd := exec.Command("docker", "rm", "-f", containerName)
+		if rmOut, rmErr := rmCmd.CombinedOutput(); rmErr != nil {
+			pm.log.Debug("pre-start container cleanup (may not exist)", "name", containerName, "output", strings.TrimSpace(string(rmOut)))
+		} else {
+			pm.log.Info("removed stale container before start", "name", containerName)
+		}
+
 		result, err := buildContainerRunArgs(pm.config, args)
 		if err != nil {
 			return err
@@ -825,7 +836,8 @@ func (pm *ProcessManager) handleExit(err error) {
 
 	var exitErr error
 	if stderrContent != "" {
-		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %s", MaxProcessRestartAttempts, stderrContent)
+		friendly := friendlyContainerError(stderrContent, pm.config.Containerized)
+		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %s", MaxProcessRestartAttempts, friendly)
 	} else if err != nil {
 		exitErr = fmt.Errorf("process crashed repeatedly (max %d restarts): %v", MaxProcessRestartAttempts, err)
 	} else {
@@ -1023,6 +1035,26 @@ func (pm *ProcessManager) cleanupLocked() {
 	pm.stderrDone = nil
 	pm.waitDone = nil
 	pm.running = false
+}
+
+// friendlyContainerError translates known container stderr patterns into
+// user-friendly error messages. Returns the original message if no pattern matches.
+func friendlyContainerError(stderr string, containerized bool) string {
+	if !containerized {
+		return stderr
+	}
+
+	if strings.Contains(stderr, "MCP tool") && strings.Contains(stderr, "not found") {
+		return "The container image is outdated and missing required features. " +
+			"Please update the container image (rebuild or pull the latest version)."
+	}
+
+	if strings.Contains(stderr, "container name") && strings.Contains(stderr, "already in use") {
+		return "A container from a previous session is still running. " +
+			"Try deleting the session and creating a new one, or run 'plural clean'."
+	}
+
+	return stderr
 }
 
 // Ensure ProcessManager implements ProcessManagerInterface at compile time.
