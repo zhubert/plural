@@ -11,6 +11,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/notification"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -711,4 +712,268 @@ func (m *Model) handleAutoMergeResultMsg(msg AutoMergeResultMsg) (tea.Model, tea
 func contextWithTimeout(d time.Duration) context.Context {
 	ctx, _ := context.WithTimeout(context.Background(), d)
 	return ctx
+}
+
+// handleCreateChildRequestMsg handles a create_child_session MCP tool call from the supervisor.
+func (m *Model) handleCreateChildRequestMsg(msg CreateChildRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("create child request for unknown session")
+		return m, nil
+	}
+
+	sess := m.config.GetSession(msg.SessionID)
+	if sess == nil || !sess.IsSupervisor {
+		runner.SendCreateChildResponse(mcp.CreateChildResponse{
+			ID:    msg.Request.ID,
+			Error: "Session is not a supervisor",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	// Create the child session synchronously
+	ctx := context.Background()
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+	branchName := fmt.Sprintf("child-%s", time.Now().Format("20060102-150405"))
+
+	childSess, err := m.sessionService.CreateFromBranch(ctx, sess.RepoPath, sess.Branch, branchName, branchPrefix)
+	if err != nil {
+		log.Error("failed to create child session", "error", err)
+		runner.SendCreateChildResponse(mcp.CreateChildResponse{
+			ID:    msg.Request.ID,
+			Error: fmt.Sprintf("Failed to create child session: %v", err),
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	childSess.Autonomous = true
+	childSess.Containerized = sess.Containerized
+	childSess.SupervisorID = msg.SessionID
+	childSess.ParentID = msg.SessionID
+
+	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
+		childSess.WorkspaceID = activeWS
+	}
+
+	m.config.AddSession(*childSess)
+	m.config.AddChildSession(msg.SessionID, childSess.ID)
+
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after creating child session", "error", err)
+	}
+	m.sidebar.SetSessions(m.getFilteredSessions())
+
+	log.Info("created child session via MCP tool", "childID", childSess.ID, "branch", childSess.Branch)
+
+	// Send response immediately so the supervisor can continue
+	runner.SendCreateChildResponse(mcp.CreateChildResponse{
+		ID:      msg.Request.ID,
+		Success: true,
+		ChildID: childSess.ID,
+		Branch:  childSess.Branch,
+	})
+
+	// Start the child session asynchronously
+	childResult := m.sessionMgr.Select(childSess, "", "", "")
+	if childResult == nil || childResult.Runner == nil {
+		logger.WithSession(childSess.ID).Error("failed to get runner for child session")
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	childRunner := childResult.Runner
+	sendCtx, cancel := context.WithCancel(context.Background())
+	m.sessionState().StartWaiting(childSess.ID, cancel)
+	m.sidebar.SetStreaming(childSess.ID, true)
+
+	initialMsg := fmt.Sprintf("You are a child session working on a specific task assigned by a supervisor session.\n\nTask: %s\n\nPlease complete this task. When you are done, make sure all changes are committed.", msg.Request.Task)
+	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}
+	responseChan := childRunner.SendContent(sendCtx, content)
+
+	var cmds []tea.Cmd
+	// Re-register supervisor listeners
+	cmds = append(cmds, m.sessionListeners(msg.SessionID, runner, nil)...)
+	// Register child listeners
+	cmds = append(cmds, m.sessionListeners(childSess.ID, childRunner, responseChan)...)
+	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+
+	return m, tea.Batch(cmds...)
+}
+
+// handleListChildrenRequestMsg handles a list_child_sessions MCP tool call from the supervisor.
+func (m *Model) handleListChildrenRequestMsg(msg ListChildrenRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("list children request for unknown session")
+		return m, nil
+	}
+
+	children := m.config.GetChildSessions(msg.SessionID)
+	var childInfos []mcp.ChildSessionInfo
+	for _, child := range children {
+		status := "idle"
+		childRunner := m.sessionMgr.GetRunner(child.ID)
+		if childRunner != nil && childRunner.IsStreaming() {
+			status = "running"
+		} else if child.MergedToParent {
+			status = "merged"
+		} else if child.PRCreated {
+			status = "pr_created"
+		} else {
+			// Check if waiting/in-progress
+			childState := m.sessionState().GetIfExists(child.ID)
+			if childState != nil && childState.GetIsWaiting() {
+				status = "running"
+			}
+		}
+		childInfos = append(childInfos, mcp.ChildSessionInfo{
+			ID:     child.ID,
+			Branch: child.Branch,
+			Status: status,
+		})
+	}
+
+	runner.SendListChildrenResponse(mcp.ListChildrenResponse{
+		ID:       msg.Request.ID,
+		Children: childInfos,
+	})
+
+	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+}
+
+// handleMergeChildRequestMsg handles a merge_child_to_parent MCP tool call from the supervisor.
+func (m *Model) handleMergeChildRequestMsg(msg MergeChildRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("merge child request for unknown session")
+		return m, nil
+	}
+
+	sess := m.config.GetSession(msg.SessionID)
+	if sess == nil {
+		runner.SendMergeChildResponse(mcp.MergeChildResponse{
+			ID:    msg.Request.ID,
+			Error: "Supervisor session not found",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	childSess := m.config.GetSession(msg.Request.ChildSessionID)
+	if childSess == nil {
+		runner.SendMergeChildResponse(mcp.MergeChildResponse{
+			ID:    msg.Request.ID,
+			Error: "Child session not found",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	if childSess.SupervisorID != msg.SessionID {
+		runner.SendMergeChildResponse(mcp.MergeChildResponse{
+			ID:    msg.Request.ID,
+			Error: "Child session does not belong to this supervisor",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	if childSess.MergedToParent {
+		runner.SendMergeChildResponse(mcp.MergeChildResponse{
+			ID:    msg.Request.ID,
+			Error: "Child session already merged",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	log.Info("merging child to parent via MCP tool", "childID", childSess.ID, "childBranch", childSess.Branch)
+
+	// Capture values for closure
+	supervisorID := msg.SessionID
+	childID := childSess.ID
+	childWorkTree := childSess.WorkTree
+	childBranch := childSess.Branch
+	supervisorWorkTree := sess.WorkTree
+	supervisorBranch := sess.Branch
+	requestID := msg.Request.ID
+	gitSvc := m.gitService
+
+	// Re-register supervisor listeners first
+	cmds := m.sessionListeners(msg.SessionID, runner, nil)
+
+	// Run merge asynchronously
+	mergeCmd := func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		resultCh := gitSvc.MergeToParent(ctx, childWorkTree, childBranch, supervisorWorkTree, supervisorBranch, "")
+
+		var lastResult git.Result
+		for result := range resultCh {
+			lastResult = result
+		}
+
+		if lastResult.Error != nil {
+			return MergeChildCompleteMsg{
+				SessionID: supervisorID,
+				ChildID:   childID,
+				Error:     lastResult.Error,
+			}
+		}
+
+		return MergeChildCompleteMsg{
+			SessionID: supervisorID,
+			ChildID:   childID,
+			Success:   true,
+			Message:   fmt.Sprintf("Successfully merged %s into %s", childBranch, supervisorBranch),
+		}
+	}
+
+	// Store the request ID so the completion handler can send the response
+	state := m.sessionState().GetOrCreate(supervisorID)
+	state.SetPendingMergeChildRequestID(requestID)
+
+	cmds = append(cmds, mergeCmd)
+	return m, tea.Batch(cmds...)
+}
+
+// handleMergeChildCompleteMsg handles the completion of a child-to-parent merge.
+func (m *Model) handleMergeChildCompleteMsg(msg MergeChildCompleteMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("merge child complete for unknown session")
+		return m, nil
+	}
+
+	// Get the stored request ID
+	state := m.sessionState().GetIfExists(msg.SessionID)
+	var requestID interface{}
+	if state != nil {
+		requestID = state.GetPendingMergeChildRequestID()
+		state.SetPendingMergeChildRequestID(nil)
+	}
+
+	if msg.Error != nil {
+		log.Error("merge child failed", "childID", msg.ChildID, "error", msg.Error)
+		runner.SendMergeChildResponse(mcp.MergeChildResponse{
+			ID:    requestID,
+			Error: msg.Error.Error(),
+		})
+	} else {
+		log.Info("merge child succeeded", "childID", msg.ChildID)
+		// Mark child as merged
+		m.config.MarkSessionMergedToParent(msg.ChildID)
+		if err := m.config.Save(); err != nil {
+			log.Error("failed to save config after merge", "error", err)
+		}
+		m.sidebar.SetSessions(m.getFilteredSessions())
+
+		runner.SendMergeChildResponse(mcp.MergeChildResponse{
+			ID:      requestID,
+			Success: true,
+			Message: msg.Message,
+		})
+	}
+
+	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
 }

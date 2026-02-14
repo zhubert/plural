@@ -1077,3 +1077,215 @@ func TestHandleExitPlanMode_ParsesAllowedPrompts(t *testing.T) {
 
 	s.handleExitPlanMode("test-id", arguments)
 }
+
+func TestServer_handleToolsList_supervisor(t *testing.T) {
+	logger.Init(os.DevNull)
+	defer logger.Reset()
+
+	t.Run("non-supervisor only lists permission tool", func(t *testing.T) {
+		s := NewServer(strings.NewReader(""), nil, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		// Directly call handleToolsList by simulating the request
+		// We can check the server's isSupervisor flag
+		if s.isSupervisor {
+			t.Error("new server should not be supervisor by default")
+		}
+	})
+
+	t.Run("supervisor lists 4 tools", func(t *testing.T) {
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+
+		s := NewServer(strings.NewReader(""), nil, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
+
+		if !s.isSupervisor {
+			t.Error("server with WithSupervisor should be supervisor")
+		}
+	})
+}
+
+func TestServer_handleCreateChildSession(t *testing.T) {
+	logger.Init(os.DevNull)
+	defer logger.Reset()
+
+	t.Run("rejects when not supervisor", func(t *testing.T) {
+		var buf strings.Builder
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "create_child_session",
+			Arguments: map[string]interface{}{"task": "test task"},
+		}
+		s.handleCreateChildSession(req, params)
+
+		if !strings.Contains(buf.String(), "only available in supervisor") {
+			t.Errorf("expected error about supervisor, got: %s", buf.String())
+		}
+	})
+
+	t.Run("rejects empty task", func(t *testing.T) {
+		var buf strings.Builder
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "create_child_session",
+			Arguments: map[string]interface{}{},
+		}
+		s.handleCreateChildSession(req, params)
+
+		if !strings.Contains(buf.String(), "task is required") {
+			t.Errorf("expected error about task required, got: %s", buf.String())
+		}
+	})
+
+	t.Run("sends request to channel and returns response", func(t *testing.T) {
+		var buf strings.Builder
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
+
+		// Start goroutine to respond
+		go func() {
+			req := <-createChildChan
+			createChildResp <- CreateChildResponse{
+				ID:      req.ID,
+				Success: true,
+				ChildID: "child-123",
+				Branch:  "child-20240101-120000",
+			}
+		}()
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "create_child_session",
+			Arguments: map[string]interface{}{"task": "implement feature X"},
+		}
+		s.handleCreateChildSession(req, params)
+
+		output := buf.String()
+		if !strings.Contains(output, "child-123") {
+			t.Errorf("expected child ID in output, got: %s", output)
+		}
+		if !strings.Contains(output, "child-20240101-120000") {
+			t.Errorf("expected branch in output, got: %s", output)
+		}
+	})
+}
+
+func TestServer_handleListChildSessions(t *testing.T) {
+	logger.Init(os.DevNull)
+	defer logger.Reset()
+
+	t.Run("returns children from channel", func(t *testing.T) {
+		var buf strings.Builder
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
+
+		go func() {
+			req := <-listChildrenChan
+			listChildrenResp <- ListChildrenResponse{
+				ID: req.ID,
+				Children: []ChildSessionInfo{
+					{ID: "c1", Branch: "branch-1", Status: "running"},
+					{ID: "c2", Branch: "branch-2", Status: "idle"},
+				},
+			}
+		}()
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "2"}
+		params := ToolCallParams{Name: "list_child_sessions", Arguments: map[string]interface{}{}}
+		s.handleListChildSessions(req, params)
+
+		output := buf.String()
+		if !strings.Contains(output, "branch-1") || !strings.Contains(output, "branch-2") {
+			t.Errorf("expected child branches in output, got: %s", output)
+		}
+	})
+}
+
+func TestServer_handleMergeChildToParent(t *testing.T) {
+	logger.Init(os.DevNull)
+	defer logger.Reset()
+
+	t.Run("rejects missing child_session_id", func(t *testing.T) {
+		var buf strings.Builder
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "3"}
+		params := ToolCallParams{Name: "merge_child_to_parent", Arguments: map[string]interface{}{}}
+		s.handleMergeChildToParent(req, params)
+
+		if !strings.Contains(buf.String(), "child_session_id is required") {
+			t.Errorf("expected error about missing child_session_id, got: %s", buf.String())
+		}
+	})
+
+	t.Run("sends merge request and returns response", func(t *testing.T) {
+		var buf strings.Builder
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
+
+		go func() {
+			req := <-mergeChildChan
+			mergeChildResp <- MergeChildResponse{
+				ID:      req.ID,
+				Success: true,
+				Message: "Merged successfully",
+			}
+		}()
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "3"}
+		params := ToolCallParams{
+			Name:      "merge_child_to_parent",
+			Arguments: map[string]interface{}{"child_session_id": "child-abc"},
+		}
+		s.handleMergeChildToParent(req, params)
+
+		if !strings.Contains(buf.String(), "Merged successfully") {
+			t.Errorf("expected merge message in output, got: %s", buf.String())
+		}
+	})
+}

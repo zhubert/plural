@@ -12,6 +12,7 @@ import (
 // MCPChannels groups all MCP communication channels for interactive prompts.
 // Each prompt type (permission, question, plan approval) has a request/response pair.
 // Request channels are populated by the MCP server, response channels by the TUI.
+// Supervisor channels are only used when the session is a supervisor session.
 type MCPChannels struct {
 	PermissionReq  chan mcp.PermissionRequest
 	PermissionResp chan mcp.PermissionResponse
@@ -19,6 +20,14 @@ type MCPChannels struct {
 	QuestionResp   chan mcp.QuestionResponse
 	PlanReq        chan mcp.PlanApprovalRequest
 	PlanResp       chan mcp.PlanApprovalResponse
+
+	// Supervisor tool channels (nil when not a supervisor session)
+	CreateChildReq   chan mcp.CreateChildRequest
+	CreateChildResp  chan mcp.CreateChildResponse
+	ListChildrenReq  chan mcp.ListChildrenRequest
+	ListChildrenResp chan mcp.ListChildrenResponse
+	MergeChildReq    chan mcp.MergeChildRequest
+	MergeChildResp   chan mcp.MergeChildResponse
 }
 
 // NewMCPChannels creates a new MCPChannels with buffered channels.
@@ -31,6 +40,17 @@ func NewMCPChannels() *MCPChannels {
 		PlanReq:        make(chan mcp.PlanApprovalRequest, PermissionChannelBuffer),
 		PlanResp:       make(chan mcp.PlanApprovalResponse, PermissionChannelBuffer),
 	}
+}
+
+// InitSupervisorChannels initializes the supervisor tool channels.
+// These are only created when the session is a supervisor session.
+func (m *MCPChannels) InitSupervisorChannels() {
+	m.CreateChildReq = make(chan mcp.CreateChildRequest, PermissionChannelBuffer)
+	m.CreateChildResp = make(chan mcp.CreateChildResponse, PermissionChannelBuffer)
+	m.ListChildrenReq = make(chan mcp.ListChildrenRequest, PermissionChannelBuffer)
+	m.ListChildrenResp = make(chan mcp.ListChildrenResponse, PermissionChannelBuffer)
+	m.MergeChildReq = make(chan mcp.MergeChildRequest, PermissionChannelBuffer)
+	m.MergeChildResp = make(chan mcp.MergeChildResponse, PermissionChannelBuffer)
 }
 
 // Close closes all channels. Safe to call multiple times.
@@ -58,6 +78,30 @@ func (m *MCPChannels) Close() {
 	if m.PlanResp != nil {
 		close(m.PlanResp)
 		m.PlanResp = nil
+	}
+	if m.CreateChildReq != nil {
+		close(m.CreateChildReq)
+		m.CreateChildReq = nil
+	}
+	if m.CreateChildResp != nil {
+		close(m.CreateChildResp)
+		m.CreateChildResp = nil
+	}
+	if m.ListChildrenReq != nil {
+		close(m.ListChildrenReq)
+		m.ListChildrenReq = nil
+	}
+	if m.ListChildrenResp != nil {
+		close(m.ListChildrenResp)
+		m.ListChildrenResp = nil
+	}
+	if m.MergeChildReq != nil {
+		close(m.MergeChildReq)
+		m.MergeChildReq = nil
+	}
+	if m.MergeChildResp != nil {
+		close(m.MergeChildResp)
+		m.MergeChildResp = nil
 	}
 }
 
