@@ -647,34 +647,16 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
-	repos := m.config.GetRepos()
-
-	// Build map of all repos' Asana project GIDs
-	asanaProjects := make(map[string]string, len(repos))
-	for _, repo := range repos {
-		asanaProjects[repo] = m.config.GetAsanaProject(repo)
+	// If a repo is selected in the sidebar, show repo-specific settings
+	if m.sidebar.IsRepoSelected() {
+		repoPath := m.sidebar.SelectedRepo()
+		return m.showRepoSettings(repoPath)
 	}
 
-	// Default to the active session's repo if one exists
-	defaultRepoIndex := 0
-	if m.activeSession != nil {
-		for i, repo := range repos {
-			if repo == m.activeSession.RepoPath {
-				defaultRepoIndex = i
-				break
-			}
-		}
-	}
-
-	asanaPATSet := os.Getenv("ASANA_PAT") != ""
-
+	// Otherwise show global settings
 	settingsState := ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
-		repos,
-		asanaProjects,
-		defaultRepoIndex,
-		asanaPATSet,
 		process.ContainersSupported(),
 		m.config.GetContainerImage(),
 	)
@@ -685,24 +667,24 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	settingsState.AutoMaxTurnsInput.SetValue(strconv.Itoa(m.config.GetAutoMaxTurns()))
 	settingsState.AutoMaxDurationInput.SetValue(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
 	settingsState.IssueMaxConcurrentInput.SetValue(strconv.Itoa(m.config.GetIssueMaxConcurrent()))
-	// Populate per-repo autonomous settings
-	for _, repo := range repos {
-		if m.config.GetRepoIssuePolling(repo) {
-			settingsState.RepoIssuePolling[repo] = true
-		}
-		if label := m.config.GetRepoIssueLabels(repo); label != "" {
-			settingsState.RepoIssueLabels[repo] = label
-		}
-		if m.config.GetRepoAutoMerge(repo) {
-			settingsState.RepoAutoMerge[repo] = true
-		}
-	}
-	// Load values for the initially selected repo
-	if len(repos) > 0 {
-		initialRepo := repos[defaultRepoIndex]
-		settingsState.IssueLabelInput.SetValue(settingsState.RepoIssueLabels[initialRepo])
-	}
 	m.modal.Show(settingsState)
+	return m, nil
+}
+
+// showRepoSettings opens the repo-specific settings modal for the given repo.
+func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
+	asanaPATSet := os.Getenv("ASANA_PAT") != ""
+
+	repoState := ui.NewRepoSettingsState(
+		repoPath,
+		process.ContainersSupported(),
+		asanaPATSet,
+		m.config.GetRepoIssuePolling(repoPath),
+		m.config.GetRepoIssueLabels(repoPath),
+		m.config.GetRepoAutoMerge(repoPath),
+		m.config.GetAsanaProject(repoPath),
+	)
+	m.modal.Show(repoState)
 
 	// Kick off async fetch of Asana projects if PAT is set
 	if asanaPATSet {

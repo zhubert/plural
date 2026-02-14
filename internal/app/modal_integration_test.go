@@ -655,7 +655,7 @@ func TestSettingsModal_TabSwitchesFocus(t *testing.T) {
 		t.Errorf("Expected focus 1 after tab, got %d", state.Focus)
 	}
 
-	// Config has repos (no ASANA_PAT), so 4 fields: prefix, notif, repo selector, squash
+	// Without containers: fields are theme, prefix, notifications, auto-cleanup, auto-broadcast
 	m = sendKey(m, "tab")
 	state = m.modal.State.(*ui.SettingsState)
 	if state.Focus != 2 {
@@ -673,28 +673,14 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		m := testModelWithSize(cfg, 120, 40)
 		m.sidebar.SetSessions(cfg.Sessions)
 
-		// Select a session so we have a repo path
-		m = sendKey(m, "enter")
-		m = sendKey(m, "tab") // Back to sidebar
-
 		// Show settings modal directly with containersSupported=false
-		repos := cfg.GetRepos()
-		asanaProjects := make(map[string]string, len(repos))
-		for _, repo := range repos {
-			asanaProjects[repo] = cfg.GetAsanaProject(repo)
-		}
 		m.modal.Show(ui.NewSettingsState(
 			cfg.GetDefaultBranchPrefix(),
 			cfg.GetNotificationsEnabled(),
-			repos, asanaProjects, 0, false,
 			false, "", // containersSupported=false
 		))
 
 		state := m.modal.State.(*ui.SettingsState)
-
-		if len(state.Repos) == 0 {
-			t.Fatal("Expected Repos to be populated")
-		}
 
 		// Focus 0: theme selector
 		if state.Focus != 0 {
@@ -729,14 +715,7 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			t.Errorf("Expected focus 4 (auto-broadcast-PR), got %d", state.Focus)
 		}
 
-		// Focus 5: repo selector (repos exist in test config)
-		m = sendKey(m, "tab")
-		state = m.modal.State.(*ui.SettingsState)
-		if state.Focus != 5 {
-			t.Errorf("Expected focus 5 (repo selector), got %d", state.Focus)
-		}
-
-		// Wrap around to theme
+		// Wrap around to theme (no per-repo fields in global settings)
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
 		if state.Focus != 0 {
@@ -749,20 +728,10 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 		m := testModelWithSize(cfg, 120, 40)
 		m.sidebar.SetSessions(cfg.Sessions)
 
-		// Select a session so we have a repo path
-		m = sendKey(m, "enter")
-		m = sendKey(m, "tab") // Back to sidebar
-
 		// Show settings modal directly with containersSupported=true
-		repos := cfg.GetRepos()
-		asanaProjects := make(map[string]string, len(repos))
-		for _, repo := range repos {
-			asanaProjects[repo] = cfg.GetAsanaProject(repo)
-		}
 		m.modal.Show(ui.NewSettingsState(
 			cfg.GetDefaultBranchPrefix(),
 			cfg.GetNotificationsEnabled(),
-			repos, asanaProjects, 0, false,
 			true, "", // containersSupported=true
 		))
 
@@ -817,23 +786,7 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			}
 		}
 
-		// Focus 10: repo selector (repos exist in test config)
-		m = sendKey(m, "tab")
-		state = m.modal.State.(*ui.SettingsState)
-		if state.Focus != 10 {
-			t.Errorf("Expected focus 10 (repo selector), got %d", state.Focus)
-		}
-
-		// Focus 11-13: per-repo autonomous fields (issue polling, issue label, auto-merge)
-		for i := 11; i <= 13; i++ {
-			m = sendKey(m, "tab")
-			state = m.modal.State.(*ui.SettingsState)
-			if state.Focus != i {
-				t.Errorf("Expected focus %d (per-repo autonomous field), got %d", i, state.Focus)
-			}
-		}
-
-		// Wrap around to theme
+		// Wrap around to theme (no per-repo fields in global settings)
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
 		if state.Focus != 0 {
@@ -869,21 +822,20 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 	}
 }
 
-func TestSettingsModal_AsanaProjectGID(t *testing.T) {
+func TestRepoSettingsModal_AsanaProjectGID(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	// Select a session so we have a repo path
-	m = sendKey(m, "enter")
-	repoPath := m.activeSession.RepoPath
-	m = sendKey(m, "tab") // Back to sidebar
+	// Get a repo path from config
+	repoPath := cfg.Sessions[0].RepoPath
 
-	m = sendKey(m, ",")
-	state := m.modal.State.(*ui.SettingsState)
+	// Show repo settings modal directly
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, false, false, "", false, ""))
+	state := m.modal.State.(*ui.RepoSettingsState)
 
 	// Set the Asana project GID via the selector
-	state.AsanaSelectedGIDs[repoPath] = "1234567890123"
+	state.AsanaSelectedGID = "1234567890123"
 
 	// Save
 	m = sendKey(m, "enter")
@@ -894,7 +846,7 @@ func TestSettingsModal_AsanaProjectGID(t *testing.T) {
 	}
 }
 
-func TestSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
+func TestRepoSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 	cfg := testConfigWithSessions()
 	// Pre-set an Asana project GID
 	repoPath := cfg.Sessions[0].RepoPath
@@ -902,12 +854,9 @@ func TestSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	// Select a session
-	m = sendKey(m, "enter")
-	m = sendKey(m, "tab") // Back to sidebar
-
-	m = sendKey(m, ",")
-	state := m.modal.State.(*ui.SettingsState)
+	// Show repo settings modal directly (pass pre-set asana GID)
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, false, false, "", false, "9999999999999"))
+	state := m.modal.State.(*ui.RepoSettingsState)
 
 	// Verify it was loaded
 	if state.GetAsanaProject() != "9999999999999" {
@@ -915,7 +864,7 @@ func TestSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 	}
 
 	// Clear the value via the selector (selecting "(none)")
-	state.AsanaSelectedGIDs[repoPath] = ""
+	state.AsanaSelectedGID = ""
 
 	// Save
 	m = sendKey(m, "enter")
