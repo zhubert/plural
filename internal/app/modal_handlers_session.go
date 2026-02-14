@@ -324,6 +324,7 @@ func (m *Model) createNewSession(repoPath, branchName, branchPrefix string, base
 	}
 	if autonomous {
 		sess.Autonomous = true
+		sess.IsSupervisor = true
 	}
 	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 		sess.WorkspaceID = activeWS
@@ -760,6 +761,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 			}
 			if autonomous {
 				sess.Autonomous = true
+				sess.IsSupervisor = true
 			}
 
 			mu.Lock()

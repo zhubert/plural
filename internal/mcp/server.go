@@ -42,13 +42,40 @@ type Server struct {
 	planApprovalChan chan<- PlanApprovalRequest  // Send plan approval requests to TUI
 	planResponseChan <-chan PlanApprovalResponse // Receive plan approval responses from TUI
 	allowedTools     []string                    // Pre-allowed tools for this session
+	isSupervisor     bool                        // Whether to expose supervisor tools
+	createChildChan  chan<- CreateChildRequest   // Send create child requests to TUI
+	createChildResp  <-chan CreateChildResponse  // Receive create child responses from TUI
+	listChildrenChan chan<- ListChildrenRequest  // Send list children requests to TUI
+	listChildrenResp <-chan ListChildrenResponse // Receive list children responses from TUI
+	mergeChildChan   chan<- MergeChildRequest    // Send merge child requests to TUI
+	mergeChildResp   <-chan MergeChildResponse   // Receive merge child responses from TUI
 	mu               sync.Mutex
 	log              *slog.Logger // Logger with session context
 }
 
+// ServerOption is a functional option for configuring Server
+type ServerOption func(*Server)
+
+// WithSupervisor enables supervisor tools and sets supervisor channels
+func WithSupervisor(
+	createChildChan chan<- CreateChildRequest, createChildResp <-chan CreateChildResponse,
+	listChildrenChan chan<- ListChildrenRequest, listChildrenResp <-chan ListChildrenResponse,
+	mergeChildChan chan<- MergeChildRequest, mergeChildResp <-chan MergeChildResponse,
+) ServerOption {
+	return func(s *Server) {
+		s.isSupervisor = true
+		s.createChildChan = createChildChan
+		s.createChildResp = createChildResp
+		s.listChildrenChan = listChildrenChan
+		s.listChildrenResp = listChildrenResp
+		s.mergeChildChan = mergeChildChan
+		s.mergeChildResp = mergeChildResp
+	}
+}
+
 // NewServer creates a new MCP server
-func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, planApprovalChan chan<- PlanApprovalRequest, planResponseChan <-chan PlanApprovalResponse, allowedTools []string, sessionID string) *Server {
-	return &Server{
+func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respChan <-chan PermissionResponse, questionChan chan<- QuestionRequest, answerChan <-chan QuestionResponse, planApprovalChan chan<- PlanApprovalRequest, planResponseChan <-chan PlanApprovalResponse, allowedTools []string, sessionID string, opts ...ServerOption) *Server {
+	s := &Server{
 		reader:           bufio.NewReader(r),
 		writer:           w,
 		requestChan:      reqChan,
@@ -60,6 +87,10 @@ func NewServer(r io.Reader, w io.Writer, reqChan chan<- PermissionRequest, respC
 		allowedTools:     allowedTools,
 		log:              logger.WithSession(sessionID).With("component", "mcp"),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Run starts the MCP server loop
@@ -129,34 +160,73 @@ func (s *Server) handleInitialize(req *JSONRPCRequest) {
 }
 
 func (s *Server) handleToolsList(req *JSONRPCRequest) {
-	result := ToolsListResult{
-		Tools: []ToolDefinition{
-			{
-				Name:        ToolName,
-				Description: "Handle permission prompts for Claude Code operations",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]Property{
-						"tool": {
-							Type:        "string",
-							Description: "The tool requesting permission (e.g., Edit, Bash, Read)",
-						},
-						"description": {
-							Type:        "string",
-							Description: "Human-readable description of the operation",
-						},
-						"arguments": {
-							Type:        "object",
-							Description: "The arguments to the tool",
-						},
+	tools := []ToolDefinition{
+		{
+			Name:        ToolName,
+			Description: "Handle permission prompts for Claude Code operations",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"tool": {
+						Type:        "string",
+						Description: "The tool requesting permission (e.g., Edit, Bash, Read)",
 					},
-					Required: []string{"tool", "description"},
+					"description": {
+						Type:        "string",
+						Description: "Human-readable description of the operation",
+					},
+					"arguments": {
+						Type:        "object",
+						Description: "The arguments to the tool",
+					},
 				},
+				Required: []string{"tool", "description"},
 			},
 		},
 	}
 
-	s.sendResult(req.ID, result)
+	if s.isSupervisor {
+		tools = append(tools,
+			ToolDefinition{
+				Name:        "create_child_session",
+				Description: "Create an autonomous child session that works on a specific task. The child session runs independently and branches off the supervisor's branch.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"task": {
+							Type:        "string",
+							Description: "Description of the task for the child session to work on",
+						},
+					},
+					Required: []string{"task"},
+				},
+			},
+			ToolDefinition{
+				Name:        "list_child_sessions",
+				Description: "List all child sessions created by this supervisor session, including their current status.",
+				InputSchema: InputSchema{
+					Type:       "object",
+					Properties: map[string]Property{},
+				},
+			},
+			ToolDefinition{
+				Name:        "merge_child_to_parent",
+				Description: "Merge a completed child session's branch into the supervisor's branch.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"child_session_id": {
+							Type:        "string",
+							Description: "The ID of the child session to merge",
+						},
+					},
+					Required: []string{"child_session_id"},
+				},
+			},
+		)
+	}
+
+	s.sendResult(req.ID, ToolsListResult{Tools: tools})
 }
 
 func (s *Server) handleToolsCall(req *JSONRPCRequest) {
@@ -167,12 +237,22 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 		return
 	}
 
-	if params.Name != ToolName {
+	switch params.Name {
+	case ToolName:
+		s.handlePermissionToolCall(req, params)
+	case "create_child_session":
+		s.handleCreateChildSession(req, params)
+	case "list_child_sessions":
+		s.handleListChildSessions(req, params)
+	case "merge_child_to_parent":
+		s.handleMergeChildToParent(req, params)
+	default:
 		s.log.Warn("unknown tool", "tool", params.Name)
 		s.sendError(req.ID, -32602, "Unknown tool", nil)
-		return
 	}
+}
 
+func (s *Server) handlePermissionToolCall(req *JSONRPCRequest, params ToolCallParams) {
 	// Log the full arguments for debugging
 	argsJSON, err := json.Marshal(params.Arguments)
 	if err != nil {
@@ -438,6 +518,108 @@ func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]inte
 	} else {
 		s.sendPermissionResult(reqID, false, arguments, "Plan rejected by user")
 	}
+}
+
+// handleCreateChildSession handles the create_child_session supervisor tool
+func (s *Server) handleCreateChildSession(req *JSONRPCRequest, params ToolCallParams) {
+	if !s.isSupervisor || s.createChildChan == nil {
+		s.sendToolResult(req.ID, true, `{"error":"create_child_session is only available in supervisor sessions"}`)
+		return
+	}
+
+	task, _ := params.Arguments["task"].(string)
+	if task == "" {
+		s.sendToolResult(req.ID, true, `{"error":"task is required"}`)
+		return
+	}
+
+	s.log.Info("create_child_session called", "task", task)
+
+	childReq := CreateChildRequest{ID: req.ID, Task: task}
+
+	select {
+	case s.createChildChan <- childReq:
+	case <-time.After(ChannelSendTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
+		return
+	}
+
+	select {
+	case resp := <-s.createChildResp:
+		resultJSON, _ := json.Marshal(resp)
+		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
+	case <-time.After(ChannelReceiveTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for child session creation"}`)
+	}
+}
+
+// handleListChildSessions handles the list_child_sessions supervisor tool
+func (s *Server) handleListChildSessions(req *JSONRPCRequest, params ToolCallParams) {
+	if !s.isSupervisor || s.listChildrenChan == nil {
+		s.sendToolResult(req.ID, true, `{"error":"list_child_sessions is only available in supervisor sessions"}`)
+		return
+	}
+
+	s.log.Info("list_child_sessions called")
+
+	listReq := ListChildrenRequest{ID: req.ID}
+
+	select {
+	case s.listChildrenChan <- listReq:
+	case <-time.After(ChannelSendTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
+		return
+	}
+
+	select {
+	case resp := <-s.listChildrenResp:
+		resultJSON, _ := json.Marshal(resp)
+		s.sendToolResult(req.ID, false, string(resultJSON))
+	case <-time.After(ChannelReceiveTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for child session list"}`)
+	}
+}
+
+// handleMergeChildToParent handles the merge_child_to_parent supervisor tool
+func (s *Server) handleMergeChildToParent(req *JSONRPCRequest, params ToolCallParams) {
+	if !s.isSupervisor || s.mergeChildChan == nil {
+		s.sendToolResult(req.ID, true, `{"error":"merge_child_to_parent is only available in supervisor sessions"}`)
+		return
+	}
+
+	childSessionID, _ := params.Arguments["child_session_id"].(string)
+	if childSessionID == "" {
+		s.sendToolResult(req.ID, true, `{"error":"child_session_id is required"}`)
+		return
+	}
+
+	s.log.Info("merge_child_to_parent called", "childSessionID", childSessionID)
+
+	mergeReq := MergeChildRequest{ID: req.ID, ChildSessionID: childSessionID}
+
+	select {
+	case s.mergeChildChan <- mergeReq:
+	case <-time.After(ChannelSendTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
+		return
+	}
+
+	select {
+	case resp := <-s.mergeChildResp:
+		resultJSON, _ := json.Marshal(resp)
+		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
+	case <-time.After(ChannelReceiveTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for merge result"}`)
+	}
+}
+
+// sendToolResult sends a tool call result with text content
+func (s *Server) sendToolResult(id interface{}, isError bool, text string) {
+	result := ToolCallResult{
+		Content: []ContentItem{{Type: "text", Text: text}},
+		IsError: isError,
+	}
+	s.sendResult(id, result)
 }
 
 func (s *Server) isToolAllowed(tool string) bool {

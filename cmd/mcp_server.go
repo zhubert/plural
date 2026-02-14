@@ -17,6 +17,7 @@ var socketPath string
 var tcpAddr string
 var autoApprove bool
 var mcpSessionID string
+var mcpSupervisor bool
 
 var mcpServerCmd = &cobra.Command{
 	Use:    "mcp-server",
@@ -30,6 +31,7 @@ func init() {
 	mcpServerCmd.Flags().StringVar(&tcpAddr, "tcp", "", "TCP address for TUI communication (host:port)")
 	mcpServerCmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Auto-approve all tool permissions (used in container mode)")
 	mcpServerCmd.Flags().StringVar(&mcpSessionID, "session-id", "", "Session ID for logging")
+	mcpServerCmd.Flags().BoolVar(&mcpSupervisor, "supervisor", false, "Enable supervisor tools (create/list/merge child sessions)")
 	rootCmd.AddCommand(mcpServerCmd)
 }
 
@@ -146,12 +148,74 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
+	// Supervisor channels and forwarding goroutines
+	var serverOpts []mcp.ServerOption
+	var createChildChan chan mcp.CreateChildRequest
+	var createChildRespChan chan mcp.CreateChildResponse
+	var listChildrenChan chan mcp.ListChildrenRequest
+	var listChildrenRespChan chan mcp.ListChildrenResponse
+	var mergeChildChan chan mcp.MergeChildRequest
+	var mergeChildRespChan chan mcp.MergeChildResponse
+
+	if mcpSupervisor {
+		createChildChan = make(chan mcp.CreateChildRequest)
+		createChildRespChan = make(chan mcp.CreateChildResponse, 1)
+		listChildrenChan = make(chan mcp.ListChildrenRequest)
+		listChildrenRespChan = make(chan mcp.ListChildrenResponse, 1)
+		mergeChildChan = make(chan mcp.MergeChildRequest)
+		mergeChildRespChan = make(chan mcp.MergeChildResponse, 1)
+
+		wg.Add(3)
+
+		go func() {
+			defer wg.Done()
+			for req := range createChildChan {
+				resp, fwdErr := client.SendCreateChildRequest(req)
+				if fwdErr != nil {
+					createChildRespChan <- mcp.CreateChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				} else {
+					createChildRespChan <- resp
+				}
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			for req := range listChildrenChan {
+				resp, fwdErr := client.SendListChildrenRequest(req)
+				if fwdErr != nil {
+					listChildrenRespChan <- mcp.ListChildrenResponse{ID: req.ID, Children: []mcp.ChildSessionInfo{}}
+				} else {
+					listChildrenRespChan <- resp
+				}
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			for req := range mergeChildChan {
+				resp, fwdErr := client.SendMergeChildRequest(req)
+				if fwdErr != nil {
+					mergeChildRespChan <- mcp.MergeChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				} else {
+					mergeChildRespChan <- resp
+				}
+			}
+		}()
+
+		serverOpts = append(serverOpts, mcp.WithSupervisor(
+			createChildChan, createChildRespChan,
+			listChildrenChan, listChildrenRespChan,
+			mergeChildChan, mergeChildRespChan,
+		))
+	}
+
 	// Run MCP server on stdin/stdout
 	var allowedTools []string
 	if autoApprove {
 		allowedTools = []string{"*"}
 	}
-	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID)
+	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID, serverOpts...)
 	err = server.Run()
 
 	// Close request channels so the forwarding goroutines exit their range loops,
@@ -159,10 +223,20 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	close(reqChan)
 	close(questionChan)
 	close(planApprovalChan)
+	if mcpSupervisor {
+		close(createChildChan)
+		close(listChildrenChan)
+		close(mergeChildChan)
+	}
 	wg.Wait()
 	close(respChan)
 	close(answerChan)
 	close(planResponseChan)
+	if mcpSupervisor {
+		close(createChildRespChan)
+		close(listChildrenRespChan)
+		close(mergeChildRespChan)
+	}
 
 	if err != nil {
 		return fmt.Errorf("MCP server error: %w", err)

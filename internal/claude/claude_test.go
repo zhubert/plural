@@ -3324,3 +3324,126 @@ func TestSendContent_ProcessStartFailure_ChannelCleanup(t *testing.T) {
 	runner.closeResponseChannel()
 	runner.mu.Unlock()
 }
+
+func TestRunner_SetSupervisor(t *testing.T) {
+	runner := New("test-supervisor", "/tmp/test", false, nil)
+	defer runner.Stop()
+
+	// Initially no supervisor channels
+	if ch := runner.CreateChildRequestChan(); ch != nil {
+		t.Error("expected nil CreateChildRequestChan before SetSupervisor")
+	}
+
+	// Enable supervisor mode
+	runner.SetSupervisor(true)
+
+	// Supervisor channels should now be initialized
+	if ch := runner.CreateChildRequestChan(); ch == nil {
+		t.Error("expected non-nil CreateChildRequestChan after SetSupervisor")
+	}
+	if ch := runner.ListChildrenRequestChan(); ch == nil {
+		t.Error("expected non-nil ListChildrenRequestChan after SetSupervisor")
+	}
+	if ch := runner.MergeChildRequestChan(); ch == nil {
+		t.Error("expected non-nil MergeChildRequestChan after SetSupervisor")
+	}
+
+	// Test send/receive on supervisor channels
+	go func() {
+		runner.mcp.CreateChildReq <- mcp.CreateChildRequest{ID: "test", Task: "do something"}
+	}()
+
+	select {
+	case req := <-runner.CreateChildRequestChan():
+		if req.Task != "do something" {
+			t.Errorf("expected task 'do something', got %q", req.Task)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for create child request")
+	}
+
+	// Test response sending
+	runner.SendCreateChildResponse(mcp.CreateChildResponse{ID: "test", Success: true, ChildID: "child-1"})
+	select {
+	case resp := <-runner.mcp.CreateChildResp:
+		if resp.ChildID != "child-1" {
+			t.Errorf("expected child-1, got %q", resp.ChildID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for create child response")
+	}
+}
+
+func TestRunner_SupervisorChannels_Stopped(t *testing.T) {
+	runner := New("test-supervisor-stop", "/tmp/test", false, nil)
+	runner.SetSupervisor(true)
+	runner.Stop()
+
+	// All channels should return nil after stop
+	if ch := runner.CreateChildRequestChan(); ch != nil {
+		t.Error("expected nil CreateChildRequestChan after Stop")
+	}
+	if ch := runner.ListChildrenRequestChan(); ch != nil {
+		t.Error("expected nil ListChildrenRequestChan after Stop")
+	}
+	if ch := runner.MergeChildRequestChan(); ch != nil {
+		t.Error("expected nil MergeChildRequestChan after Stop")
+	}
+
+	// Send methods should not panic on stopped runner
+	runner.SendCreateChildResponse(mcp.CreateChildResponse{})
+	runner.SendListChildrenResponse(mcp.ListChildrenResponse{})
+	runner.SendMergeChildResponse(mcp.MergeChildResponse{})
+}
+
+func TestMockRunner_SetSupervisor(t *testing.T) {
+	mock := NewMockRunner("test-mock-super", true, nil)
+
+	// Initially no supervisor channels
+	if ch := mock.CreateChildRequestChan(); ch != nil {
+		t.Error("expected nil CreateChildRequestChan before SetSupervisor")
+	}
+
+	mock.SetSupervisor(true)
+
+	if ch := mock.CreateChildRequestChan(); ch == nil {
+		t.Error("expected non-nil CreateChildRequestChan after SetSupervisor")
+	}
+	if ch := mock.ListChildrenRequestChan(); ch == nil {
+		t.Error("expected non-nil ListChildrenRequestChan after SetSupervisor")
+	}
+	if ch := mock.MergeChildRequestChan(); ch == nil {
+		t.Error("expected non-nil MergeChildRequestChan after SetSupervisor")
+	}
+
+	// Channels should return nil after stop
+	mock.Stop()
+	if ch := mock.CreateChildRequestChan(); ch != nil {
+		t.Error("expected nil CreateChildRequestChan after Stop")
+	}
+}
+
+func TestMCPChannels_SupervisorClose(t *testing.T) {
+	ch := NewMCPChannels()
+	ch.InitSupervisorChannels()
+
+	if ch.CreateChildReq == nil {
+		t.Error("expected non-nil CreateChildReq after InitSupervisorChannels")
+	}
+
+	// Close should not panic and should nil out channels
+	ch.Close()
+
+	if ch.CreateChildReq != nil {
+		t.Error("expected nil CreateChildReq after Close")
+	}
+	if ch.ListChildrenReq != nil {
+		t.Error("expected nil ListChildrenReq after Close")
+	}
+	if ch.MergeChildReq != nil {
+		t.Error("expected nil MergeChildReq after Close")
+	}
+
+	// Double close should not panic
+	ch.Close()
+}

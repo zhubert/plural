@@ -42,18 +42,28 @@ func (r *Runner) ensureServerRunning() error {
 	var socketServer *mcp.SocketServer
 	var err error
 
+	// Build optional socket server options for supervisor channels
+	var socketOpts []mcp.SocketServerOption
+	if r.supervisor && r.mcp.CreateChildReq != nil {
+		socketOpts = append(socketOpts, mcp.WithSupervisorChannels(
+			r.mcp.CreateChildReq, r.mcp.CreateChildResp,
+			r.mcp.ListChildrenReq, r.mcp.ListChildrenResp,
+			r.mcp.MergeChildReq, r.mcp.MergeChildResp,
+		))
+	}
+
 	if r.containerized {
 		// Container sessions use TCP because Unix sockets don't work across
 		// the Docker container boundary.
 		socketServer, err = mcp.NewTCPSocketServer(r.sessionID,
 			r.mcp.PermissionReq, r.mcp.PermissionResp,
 			r.mcp.QuestionReq, r.mcp.QuestionResp,
-			r.mcp.PlanReq, r.mcp.PlanResp)
+			r.mcp.PlanReq, r.mcp.PlanResp, socketOpts...)
 	} else {
 		socketServer, err = mcp.NewSocketServer(r.sessionID,
 			r.mcp.PermissionReq, r.mcp.PermissionResp,
 			r.mcp.QuestionReq, r.mcp.QuestionResp,
-			r.mcp.PlanReq, r.mcp.PlanResp)
+			r.mcp.PlanReq, r.mcp.PlanResp, socketOpts...)
 	}
 	if err != nil {
 		r.log.Error("failed to create socket server", "error", err)
@@ -106,10 +116,14 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 	}
 
 	// Start with the plural permission handler
+	mcpArgs := []string{"mcp-server", "--socket", socketPath}
+	if r.supervisor {
+		mcpArgs = append(mcpArgs, "--supervisor")
+	}
 	mcpServers := map[string]interface{}{
 		"plural": map[string]interface{}{
 			"command": execPath,
-			"args":    []string{"mcp-server", "--socket", socketPath},
+			"args":    mcpArgs,
 		},
 	}
 
@@ -144,10 +158,14 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 // routing AskUserQuestion and ExitPlanMode through the TUI via TCP.
 // Must be called with mu held.
 func (r *Runner) createContainerMCPConfigLocked(tcpAddr string) (string, error) {
+	args := []string{"mcp-server", "--tcp", tcpAddr, "--auto-approve", "--session-id", r.sessionID}
+	if r.supervisor {
+		args = append(args, "--supervisor")
+	}
 	mcpServers := map[string]interface{}{
 		"plural": map[string]interface{}{
 			"command": "/usr/local/bin/plural",
-			"args":    []string{"mcp-server", "--tcp", tcpAddr, "--auto-approve", "--session-id", r.sessionID},
+			"args":    args,
 		},
 	}
 

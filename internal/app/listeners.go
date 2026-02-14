@@ -22,12 +22,23 @@ func (m *Model) sessionListeners(sessionID string, runner claude.RunnerInterface
 		ch = runner.GetResponseChan()
 	}
 
-	return []tea.Cmd{
+	cmds := []tea.Cmd{
 		m.listenForSessionResponse(sessionID, ch),
 		m.listenForSessionPermission(sessionID, runner),
 		m.listenForSessionQuestion(sessionID, runner),
 		m.listenForSessionPlanApproval(sessionID, runner),
 	}
+
+	// Add supervisor tool listeners if this runner has supervisor channels
+	if runner.CreateChildRequestChan() != nil {
+		cmds = append(cmds,
+			m.listenForCreateChildRequest(sessionID, runner),
+			m.listenForListChildrenRequest(sessionID, runner),
+			m.listenForMergeChildRequest(sessionID, runner),
+		)
+	}
+
+	return cmds
 }
 
 // listenForSessionResponse creates a command to listen for responses from a specific session
@@ -102,6 +113,51 @@ func (m *Model) listenForSessionPlanApproval(sessionID string, runner claude.Run
 			return nil
 		}
 		return PlanApprovalRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// listenForCreateChildRequest creates a command to listen for create child requests from a supervisor session
+func (m *Model) listenForCreateChildRequest(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	ch := runner.CreateChildRequestChan()
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return CreateChildRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// listenForListChildrenRequest creates a command to listen for list children requests from a supervisor session
+func (m *Model) listenForListChildrenRequest(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	ch := runner.ListChildrenRequestChan()
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return ListChildrenRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// listenForMergeChildRequest creates a command to listen for merge child requests from a supervisor session
+func (m *Model) listenForMergeChildRequest(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	ch := runner.MergeChildRequestChan()
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return MergeChildRequestMsg{SessionID: sessionID, Request: req}
 	}
 }
 

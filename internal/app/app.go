@@ -212,6 +212,33 @@ type AutonomousLimitReachedMsg struct {
 	Reason    string // "turn_limit" or "duration_limit"
 }
 
+// CreateChildRequestMsg is sent when the supervisor's MCP tool create_child_session is called
+type CreateChildRequestMsg struct {
+	SessionID string
+	Request   mcp.CreateChildRequest
+}
+
+// ListChildrenRequestMsg is sent when the supervisor's MCP tool list_child_sessions is called
+type ListChildrenRequestMsg struct {
+	SessionID string
+	Request   mcp.ListChildrenRequest
+}
+
+// MergeChildRequestMsg is sent when the supervisor's MCP tool merge_child_to_parent is called
+type MergeChildRequestMsg struct {
+	SessionID string
+	Request   mcp.MergeChildRequest
+}
+
+// MergeChildCompleteMsg is sent when a child-to-parent merge operation completes
+type MergeChildCompleteMsg struct {
+	SessionID string // Supervisor session ID
+	ChildID   string
+	Success   bool
+	Message   string
+	Error     error
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -716,6 +743,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AutoMergeResultMsg:
 		return m.handleAutoMergeResultMsg(msg)
+
+	case CreateChildRequestMsg:
+		return m.handleCreateChildRequestMsg(msg)
+
+	case ListChildrenRequestMsg:
+		return m.handleListChildrenRequestMsg(msg)
+
+	case MergeChildRequestMsg:
+		return m.handleMergeChildRequestMsg(msg)
+
+	case MergeChildCompleteMsg:
+		return m.handleMergeChildCompleteMsg(msg)
 
 	case PRPollTickMsg:
 		// Re-schedule next tick and check PR statuses for eligible sessions

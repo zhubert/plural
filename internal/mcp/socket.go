@@ -36,38 +36,53 @@ const (
 	MessageTypePermission   MessageType = "permission"
 	MessageTypeQuestion     MessageType = "question"
 	MessageTypePlanApproval MessageType = "planApproval"
+	MessageTypeCreateChild  MessageType = "createChild"
+	MessageTypeListChildren MessageType = "listChildren"
+	MessageTypeMergeChild   MessageType = "mergeChild"
 )
 
-// SocketMessage wraps permission, question, or plan approval requests/responses
+// SocketMessage wraps permission, question, plan approval, or supervisor requests/responses
 type SocketMessage struct {
-	Type      MessageType           `json:"type"`
-	PermReq   *PermissionRequest    `json:"permReq,omitempty"`
-	PermResp  *PermissionResponse   `json:"permResp,omitempty"`
-	QuestReq  *QuestionRequest      `json:"questReq,omitempty"`
-	QuestResp *QuestionResponse     `json:"questResp,omitempty"`
-	PlanReq   *PlanApprovalRequest  `json:"planReq,omitempty"`
-	PlanResp  *PlanApprovalResponse `json:"planResp,omitempty"`
+	Type              MessageType           `json:"type"`
+	PermReq           *PermissionRequest    `json:"permReq,omitempty"`
+	PermResp          *PermissionResponse   `json:"permResp,omitempty"`
+	QuestReq          *QuestionRequest      `json:"questReq,omitempty"`
+	QuestResp         *QuestionResponse     `json:"questResp,omitempty"`
+	PlanReq           *PlanApprovalRequest  `json:"planReq,omitempty"`
+	PlanResp          *PlanApprovalResponse `json:"planResp,omitempty"`
+	CreateChildReq    *CreateChildRequest   `json:"createChildReq,omitempty"`
+	CreateChildResp   *CreateChildResponse  `json:"createChildResp,omitempty"`
+	ListChildrenReq   *ListChildrenRequest  `json:"listChildrenReq,omitempty"`
+	ListChildrenResp  *ListChildrenResponse `json:"listChildrenResp,omitempty"`
+	MergeChildReq     *MergeChildRequest    `json:"mergeChildReq,omitempty"`
+	MergeChildResp    *MergeChildResponse   `json:"mergeChildResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
 type SocketServer struct {
-	socketPath string // Unix socket path (empty for TCP servers)
-	listener   net.Listener
-	isTCP      bool // True if listening on TCP instead of Unix socket
-	requestCh  chan<- PermissionRequest
-	responseCh <-chan PermissionResponse
-	questionCh chan<- QuestionRequest
-	answerCh   <-chan QuestionResponse
-	planReqCh  chan<- PlanApprovalRequest
-	planRespCh <-chan PlanApprovalResponse
-	closed     bool           // Set to true when Close() is called
-	closedMu   sync.RWMutex   // Guards closed flag
-	wg         sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
-	log        *slog.Logger   // Logger with session context
+	socketPath       string // Unix socket path (empty for TCP servers)
+	listener         net.Listener
+	isTCP            bool // True if listening on TCP instead of Unix socket
+	requestCh        chan<- PermissionRequest
+	responseCh       <-chan PermissionResponse
+	questionCh       chan<- QuestionRequest
+	answerCh         <-chan QuestionResponse
+	planReqCh        chan<- PlanApprovalRequest
+	planRespCh       <-chan PlanApprovalResponse
+	createChildReq   chan<- CreateChildRequest
+	createChildResp  <-chan CreateChildResponse
+	listChildrenReq  chan<- ListChildrenRequest
+	listChildrenResp <-chan ListChildrenResponse
+	mergeChildReq    chan<- MergeChildRequest
+	mergeChildResp   <-chan MergeChildResponse
+	closed           bool           // Set to true when Close() is called
+	closedMu         sync.RWMutex   // Guards closed flag
+	wg               sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
+	log              *slog.Logger   // Logger with session context
 }
 
 // NewSocketServer creates a new socket server for the given session
-func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
+func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse, opts ...SocketServerOption) (*SocketServer, error) {
 	// Use abbreviated session ID (first 12 chars) in the socket path to keep
 	// it short. Unix domain socket paths have a max of ~104 characters.
 	// 12 hex chars gives ~2^48 combinations, making collisions negligible.
@@ -88,7 +103,7 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 
 	log.Info("listening", "socketPath", socketPath)
 
-	return &SocketServer{
+	s := &SocketServer{
 		socketPath: socketPath,
 		listener:   listener,
 		requestCh:  reqCh,
@@ -98,7 +113,30 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 		planReqCh:  planReqCh,
 		planRespCh: planRespCh,
 		log:        log,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
+}
+
+// SocketServerOption is a functional option for configuring SocketServer
+type SocketServerOption func(*SocketServer)
+
+// WithSupervisorChannels sets the supervisor tool channels on a SocketServer
+func WithSupervisorChannels(
+	createChildReq chan<- CreateChildRequest, createChildResp <-chan CreateChildResponse,
+	listChildrenReq chan<- ListChildrenRequest, listChildrenResp <-chan ListChildrenResponse,
+	mergeChildReq chan<- MergeChildRequest, mergeChildResp <-chan MergeChildResponse,
+) SocketServerOption {
+	return func(s *SocketServer) {
+		s.createChildReq = createChildReq
+		s.createChildResp = createChildResp
+		s.listChildrenReq = listChildrenReq
+		s.listChildrenResp = listChildrenResp
+		s.mergeChildReq = mergeChildReq
+		s.mergeChildResp = mergeChildResp
+	}
 }
 
 // NewTCPSocketServer creates a socket server that listens on TCP instead of a
@@ -111,7 +149,7 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 //   - Linux: 0.0.0.0 — Docker bridge networking requires the host to listen
 //     on an interface reachable from the bridge (host-gateway maps to the
 //     bridge gateway IP, not 127.0.0.1). The port is ephemeral and short-lived.
-func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse) (*SocketServer, error) {
+func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse, opts ...SocketServerOption) (*SocketServer, error) {
 	log := logger.WithSession(sessionID).With("component", "mcp-socket")
 
 	// On macOS/Windows (Docker Desktop), bind to loopback for security.
@@ -132,7 +170,7 @@ func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh
 	addr := listener.Addr().(*net.TCPAddr)
 	log.Info("listening on TCP", "addr", addr.String(), "port", addr.Port)
 
-	return &SocketServer{
+	s := &SocketServer{
 		listener:   listener,
 		isTCP:      true,
 		requestCh:  reqCh,
@@ -142,7 +180,11 @@ func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh
 		planReqCh:  planReqCh,
 		planRespCh: planRespCh,
 		log:        log,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 // SocketPath returns the path to the socket
@@ -267,6 +309,12 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 			s.handleQuestionMessage(conn, msg.QuestReq)
 		case MessageTypePlanApproval:
 			s.handlePlanApprovalMessage(conn, msg.PlanReq)
+		case MessageTypeCreateChild:
+			s.handleCreateChildMessage(conn, msg.CreateChildReq)
+		case MessageTypeListChildren:
+			s.handleListChildrenMessage(conn, msg.ListChildrenReq)
+		case MessageTypeMergeChild:
+			s.handleMergeChildMessage(conn, msg.MergeChildReq)
 		default:
 			s.log.Warn("unknown message type", "type", msg.Type)
 		}
@@ -446,6 +494,126 @@ func (s *SocketServer) sendPlanApprovalResponse(conn net.Conn, resp PlanApproval
 	}
 }
 
+func (s *SocketServer) handleCreateChildMessage(conn net.Conn, req *CreateChildRequest) {
+	if req == nil || s.createChildReq == nil {
+		s.log.Warn("create child request ignored (nil request or no channel)")
+		s.sendCreateChildResponse(conn, CreateChildResponse{Success: false, Error: "Supervisor tools not available"})
+		return
+	}
+
+	s.log.Info("received create child request", "task", req.Task)
+
+	select {
+	case s.createChildReq <- *req:
+	case <-time.After(SocketReadTimeout):
+		s.log.Warn("timeout sending create child request to TUI")
+		s.sendCreateChildResponse(conn, CreateChildResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
+		return
+	}
+
+	select {
+	case resp := <-s.createChildResp:
+		s.sendCreateChildResponse(conn, resp)
+		s.log.Info("sent create child response", "success", resp.Success, "childID", resp.ChildID)
+	case <-time.After(PermissionResponseTimeout):
+		s.log.Warn("timeout waiting for create child response")
+		s.sendCreateChildResponse(conn, CreateChildResponse{ID: req.ID, Success: false, Error: "Timeout"})
+	}
+}
+
+func (s *SocketServer) sendCreateChildResponse(conn net.Conn, resp CreateChildResponse) {
+	msg := SocketMessage{Type: MessageTypeCreateChild, CreateChildResp: &resp}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Error("failed to marshal create child response", "error", err)
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		s.log.Error("write error", "error", err)
+	}
+}
+
+func (s *SocketServer) handleListChildrenMessage(conn net.Conn, req *ListChildrenRequest) {
+	if req == nil || s.listChildrenReq == nil {
+		s.log.Warn("list children request ignored (nil request or no channel)")
+		s.sendListChildrenResponse(conn, ListChildrenResponse{Children: []ChildSessionInfo{}})
+		return
+	}
+
+	s.log.Info("received list children request")
+
+	select {
+	case s.listChildrenReq <- *req:
+	case <-time.After(SocketReadTimeout):
+		s.log.Warn("timeout sending list children request to TUI")
+		s.sendListChildrenResponse(conn, ListChildrenResponse{ID: req.ID, Children: []ChildSessionInfo{}})
+		return
+	}
+
+	select {
+	case resp := <-s.listChildrenResp:
+		s.sendListChildrenResponse(conn, resp)
+		s.log.Info("sent list children response", "count", len(resp.Children))
+	case <-time.After(PermissionResponseTimeout):
+		s.log.Warn("timeout waiting for list children response")
+		s.sendListChildrenResponse(conn, ListChildrenResponse{ID: req.ID, Children: []ChildSessionInfo{}})
+	}
+}
+
+func (s *SocketServer) sendListChildrenResponse(conn net.Conn, resp ListChildrenResponse) {
+	msg := SocketMessage{Type: MessageTypeListChildren, ListChildrenResp: &resp}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Error("failed to marshal list children response", "error", err)
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		s.log.Error("write error", "error", err)
+	}
+}
+
+func (s *SocketServer) handleMergeChildMessage(conn net.Conn, req *MergeChildRequest) {
+	if req == nil || s.mergeChildReq == nil {
+		s.log.Warn("merge child request ignored (nil request or no channel)")
+		s.sendMergeChildResponse(conn, MergeChildResponse{Success: false, Error: "Supervisor tools not available"})
+		return
+	}
+
+	s.log.Info("received merge child request", "childSessionID", req.ChildSessionID)
+
+	select {
+	case s.mergeChildReq <- *req:
+	case <-time.After(SocketReadTimeout):
+		s.log.Warn("timeout sending merge child request to TUI")
+		s.sendMergeChildResponse(conn, MergeChildResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
+		return
+	}
+
+	select {
+	case resp := <-s.mergeChildResp:
+		s.sendMergeChildResponse(conn, resp)
+		s.log.Info("sent merge child response", "success", resp.Success)
+	case <-time.After(PermissionResponseTimeout):
+		s.log.Warn("timeout waiting for merge child response")
+		s.sendMergeChildResponse(conn, MergeChildResponse{ID: req.ID, Success: false, Error: "Timeout"})
+	}
+}
+
+func (s *SocketServer) sendMergeChildResponse(conn net.Conn, resp MergeChildResponse) {
+	msg := SocketMessage{Type: MessageTypeMergeChild, MergeChildResp: &resp}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Error("failed to marshal merge child response", "error", err)
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		s.log.Error("write error", "error", err)
+	}
+}
+
 // Close shuts down the socket server and waits for the Run() goroutine to exit.
 func (s *SocketServer) Close() error {
 	s.log.Info("closing socket server")
@@ -619,6 +787,84 @@ func (c *SocketClient) SendPlanApprovalRequest(req PlanApprovalRequest) (PlanApp
 	}
 
 	return *respMsg.PlanResp, nil
+}
+
+// SendCreateChildRequest sends a create child request and waits for response
+func (c *SocketClient) SendCreateChildRequest(req CreateChildRequest) (CreateChildResponse, error) {
+	msg := SocketMessage{Type: MessageTypeCreateChild, CreateChildReq: &req}
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return CreateChildResponse{}, err
+	}
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
+		return CreateChildResponse{}, fmt.Errorf("write create child request: %w", err)
+	}
+	c.conn.SetReadDeadline(time.Time{})
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return CreateChildResponse{}, fmt.Errorf("read create child response: %w", err)
+	}
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return CreateChildResponse{}, err
+	}
+	if respMsg.CreateChildResp == nil {
+		return CreateChildResponse{}, fmt.Errorf("expected create child response, got nil")
+	}
+	return *respMsg.CreateChildResp, nil
+}
+
+// SendListChildrenRequest sends a list children request and waits for response
+func (c *SocketClient) SendListChildrenRequest(req ListChildrenRequest) (ListChildrenResponse, error) {
+	msg := SocketMessage{Type: MessageTypeListChildren, ListChildrenReq: &req}
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return ListChildrenResponse{}, err
+	}
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
+		return ListChildrenResponse{}, fmt.Errorf("write list children request: %w", err)
+	}
+	c.conn.SetReadDeadline(time.Time{})
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return ListChildrenResponse{}, fmt.Errorf("read list children response: %w", err)
+	}
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return ListChildrenResponse{}, err
+	}
+	if respMsg.ListChildrenResp == nil {
+		return ListChildrenResponse{}, fmt.Errorf("expected list children response, got nil")
+	}
+	return *respMsg.ListChildrenResp, nil
+}
+
+// SendMergeChildRequest sends a merge child request and waits for response
+func (c *SocketClient) SendMergeChildRequest(req MergeChildRequest) (MergeChildResponse, error) {
+	msg := SocketMessage{Type: MessageTypeMergeChild, MergeChildReq: &req}
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return MergeChildResponse{}, err
+	}
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
+		return MergeChildResponse{}, fmt.Errorf("write merge child request: %w", err)
+	}
+	c.conn.SetReadDeadline(time.Time{})
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return MergeChildResponse{}, fmt.Errorf("read merge child response: %w", err)
+	}
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return MergeChildResponse{}, err
+	}
+	if respMsg.MergeChildResp == nil {
+		return MergeChildResponse{}, fmt.Errorf("expected merge child response, got nil")
+	}
+	return *respMsg.MergeChildResp, nil
 }
 
 // Close closes the client connection

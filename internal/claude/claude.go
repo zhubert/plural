@@ -238,6 +238,9 @@ type Runner struct {
 	containerized  bool
 	containerImage string
 
+	// Supervisor mode: when true, MCP config includes --supervisor flag
+	supervisor bool
+
 	// Container ready callback: invoked when containerized session receives init message
 	onContainerReady func()
 }
@@ -447,6 +450,99 @@ func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	// Use safeSendChannel to protect against send-on-closed-channel panic.
 	if !safeSendChannel(ch, resp) {
 		r.log.Debug("SendPlanApprovalResponse channel full or closed, ignoring")
+	}
+}
+
+// SetSupervisor enables or disables supervisor mode for this runner.
+// When enabled, supervisor tool channels are initialized and the MCP config
+// will include the --supervisor flag.
+func (r *Runner) SetSupervisor(supervisor bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.supervisor = supervisor
+	if supervisor && r.mcp != nil && r.mcp.CreateChildReq == nil {
+		r.mcp.InitSupervisorChannels()
+	}
+}
+
+// CreateChildRequestChan returns the channel for receiving create child requests.
+func (r *Runner) CreateChildRequestChan() <-chan mcp.CreateChildRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped || r.mcp == nil {
+		return nil
+	}
+	return r.mcp.CreateChildReq
+}
+
+// SendCreateChildResponse sends a response to a create child request.
+func (r *Runner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	var ch chan mcp.CreateChildResponse
+	if r.mcp != nil {
+		ch = r.mcp.CreateChildResp
+	}
+	r.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	if !safeSendChannel(ch, resp) {
+		r.log.Debug("SendCreateChildResponse channel full or closed, ignoring")
+	}
+}
+
+// ListChildrenRequestChan returns the channel for receiving list children requests.
+func (r *Runner) ListChildrenRequestChan() <-chan mcp.ListChildrenRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped || r.mcp == nil {
+		return nil
+	}
+	return r.mcp.ListChildrenReq
+}
+
+// SendListChildrenResponse sends a response to a list children request.
+func (r *Runner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	var ch chan mcp.ListChildrenResponse
+	if r.mcp != nil {
+		ch = r.mcp.ListChildrenResp
+	}
+	r.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	if !safeSendChannel(ch, resp) {
+		r.log.Debug("SendListChildrenResponse channel full or closed, ignoring")
+	}
+}
+
+// MergeChildRequestChan returns the channel for receiving merge child requests.
+func (r *Runner) MergeChildRequestChan() <-chan mcp.MergeChildRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped || r.mcp == nil {
+		return nil
+	}
+	return r.mcp.MergeChildReq
+}
+
+// SendMergeChildResponse sends a response to a merge child request.
+func (r *Runner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	var ch chan mcp.MergeChildResponse
+	if r.mcp != nil {
+		ch = r.mcp.MergeChildResp
+	}
+	r.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	if !safeSendChannel(ch, resp) {
+		r.log.Debug("SendMergeChildResponse channel full or closed, ignoring")
 	}
 }
 

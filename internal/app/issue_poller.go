@@ -191,6 +191,7 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 
 		// Configure as autonomous and containerized
 		sess.Autonomous = true
+		sess.IsSupervisor = true
 		sess.Containerized = true
 		sess.IssueRef = &config.IssueRef{
 			Source: string(issue.Source),

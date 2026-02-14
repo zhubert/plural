@@ -37,6 +37,15 @@ type RunnerInterface interface {
 	PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest
 	SendPlanApprovalResponse(resp mcp.PlanApprovalResponse)
 
+	// Supervisor tool channels
+	SetSupervisor(supervisor bool)
+	CreateChildRequestChan() <-chan mcp.CreateChildRequest
+	SendCreateChildResponse(resp mcp.CreateChildResponse)
+	ListChildrenRequestChan() <-chan mcp.ListChildrenRequest
+	SendListChildrenResponse(resp mcp.ListChildrenResponse)
+	MergeChildRequestChan() <-chan mcp.MergeChildRequest
+	SendMergeChildResponse(resp mcp.MergeChildResponse)
+
 	// Lifecycle
 	Stop()
 	Interrupt() error

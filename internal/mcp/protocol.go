@@ -177,3 +177,50 @@ type PlanApprovalResponse struct {
 	ID       interface{} `json:"id"`       // Correlates with request ID
 	Approved bool        `json:"approved"` // Whether the plan was approved
 }
+
+// CreateChildRequest represents a request from the supervisor to create a child session
+type CreateChildRequest struct {
+	ID   interface{} `json:"id"`   // JSON-RPC request ID for response correlation
+	Task string      `json:"task"` // Task description for the child session
+}
+
+// CreateChildResponse represents the result of creating a child session
+type CreateChildResponse struct {
+	ID      interface{} `json:"id"`                // Correlates with request ID
+	Success bool        `json:"success"`           // Whether child was created successfully
+	ChildID string      `json:"child_id,omitempty"` // ID of the created child session
+	Branch  string      `json:"branch,omitempty"`  // Branch name of the child session
+	Error   string      `json:"error,omitempty"`   // Error message if creation failed
+}
+
+// ListChildrenRequest represents a request from the supervisor to list child sessions
+type ListChildrenRequest struct {
+	ID interface{} `json:"id"` // JSON-RPC request ID for response correlation
+}
+
+// ChildSessionInfo represents the status of a child session
+type ChildSessionInfo struct {
+	ID     string `json:"id"`     // Session ID
+	Branch string `json:"branch"` // Branch name
+	Status string `json:"status"` // "running", "idle", "completed", "merged"
+}
+
+// ListChildrenResponse represents the result of listing child sessions
+type ListChildrenResponse struct {
+	ID       interface{}        `json:"id"`       // Correlates with request ID
+	Children []ChildSessionInfo `json:"children"` // List of child sessions
+}
+
+// MergeChildRequest represents a request from the supervisor to merge a child session
+type MergeChildRequest struct {
+	ID             interface{} `json:"id"`               // JSON-RPC request ID for response correlation
+	ChildSessionID string      `json:"child_session_id"` // ID of the child session to merge
+}
+
+// MergeChildResponse represents the result of merging a child session
+type MergeChildResponse struct {
+	ID      interface{} `json:"id"`                // Correlates with request ID
+	Success bool        `json:"success"`           // Whether merge was successful
+	Message string      `json:"message,omitempty"` // Success or error message
+	Error   string      `json:"error,omitempty"`   // Error message if merge failed
+}

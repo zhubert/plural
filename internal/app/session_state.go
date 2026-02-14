@@ -71,6 +71,9 @@ type SessionState struct {
 	// Autonomous mode state
 	AutonomousTurns     int       // Number of autonomous turns completed
 	AutonomousStartTime time.Time // When autonomous mode started (for duration limit)
+
+	// Pending merge child request ID (for supervisor MCP tool correlation)
+	PendingMergeChildRequestID interface{}
 }
 
 // ToolUseRollupState tracks consecutive tool uses for non-active sessions
@@ -960,6 +963,22 @@ func (s *SessionState) ResetAutonomousState() {
 	defer s.mu.Unlock()
 	s.AutonomousTurns = 0
 	s.AutonomousStartTime = time.Time{}
+}
+
+// --- Thread-safe accessors for PendingMergeChildRequestID ---
+
+// GetPendingMergeChildRequestID returns the stored merge child request ID.
+func (s *SessionState) GetPendingMergeChildRequestID() interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.PendingMergeChildRequestID
+}
+
+// SetPendingMergeChildRequestID stores the merge child request ID for later correlation.
+func (s *SessionState) SetPendingMergeChildRequestID(id interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.PendingMergeChildRequestID = id
 }
 
 // getOrCreate returns existing state or creates new one. Caller must hold lock.

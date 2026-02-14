@@ -37,6 +37,14 @@ type MockRunner struct {
 	planReqChan   chan mcp.PlanApprovalRequest
 	planRespChan  chan mcp.PlanApprovalResponse
 
+	// Supervisor tool channels
+	createChildReqChan  chan mcp.CreateChildRequest
+	createChildRespChan chan mcp.CreateChildResponse
+	listChildrenReqChan chan mcp.ListChildrenRequest
+	listChildrenRespChan chan mcp.ListChildrenResponse
+	mergeChildReqChan   chan mcp.MergeChildRequest
+	mergeChildRespChan  chan mcp.MergeChildResponse
+
 	// Callbacks for test assertions
 	OnSend             func(content []ContentBlock)
 	OnPermissionResp   func(resp mcp.PermissionResponse)
@@ -370,6 +378,89 @@ func (m *MockRunner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	}
 }
 
+// SetSupervisor implements RunnerInterface.
+func (m *MockRunner) SetSupervisor(supervisor bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if supervisor && m.createChildReqChan == nil {
+		m.createChildReqChan = make(chan mcp.CreateChildRequest, 1)
+		m.createChildRespChan = make(chan mcp.CreateChildResponse, 1)
+		m.listChildrenReqChan = make(chan mcp.ListChildrenRequest, 1)
+		m.listChildrenRespChan = make(chan mcp.ListChildrenResponse, 1)
+		m.mergeChildReqChan = make(chan mcp.MergeChildRequest, 1)
+		m.mergeChildRespChan = make(chan mcp.MergeChildResponse, 1)
+	}
+}
+
+// CreateChildRequestChan implements RunnerInterface.
+func (m *MockRunner) CreateChildRequestChan() <-chan mcp.CreateChildRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.createChildReqChan
+}
+
+// SendCreateChildResponse implements RunnerInterface.
+func (m *MockRunner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped || m.createChildRespChan == nil {
+		return
+	}
+	select {
+	case m.createChildRespChan <- resp:
+	default:
+	}
+}
+
+// ListChildrenRequestChan implements RunnerInterface.
+func (m *MockRunner) ListChildrenRequestChan() <-chan mcp.ListChildrenRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.listChildrenReqChan
+}
+
+// SendListChildrenResponse implements RunnerInterface.
+func (m *MockRunner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped || m.listChildrenRespChan == nil {
+		return
+	}
+	select {
+	case m.listChildrenRespChan <- resp:
+	default:
+	}
+}
+
+// MergeChildRequestChan implements RunnerInterface.
+func (m *MockRunner) MergeChildRequestChan() <-chan mcp.MergeChildRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.mergeChildReqChan
+}
+
+// SendMergeChildResponse implements RunnerInterface.
+func (m *MockRunner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped || m.mergeChildRespChan == nil {
+		return
+	}
+	select {
+	case m.mergeChildRespChan <- resp:
+	default:
+	}
+}
+
 // Stop implements RunnerInterface.
 func (m *MockRunner) Stop() {
 	m.mu.Lock()
@@ -398,6 +489,24 @@ func (m *MockRunner) Stop() {
 	}
 	if m.planRespChan != nil {
 		close(m.planRespChan)
+	}
+	if m.createChildReqChan != nil {
+		close(m.createChildReqChan)
+	}
+	if m.createChildRespChan != nil {
+		close(m.createChildRespChan)
+	}
+	if m.listChildrenReqChan != nil {
+		close(m.listChildrenReqChan)
+	}
+	if m.listChildrenRespChan != nil {
+		close(m.listChildrenRespChan)
+	}
+	if m.mergeChildReqChan != nil {
+		close(m.mergeChildReqChan)
+	}
+	if m.mergeChildRespChan != nil {
+		close(m.mergeChildRespChan)
 	}
 	if m.responseChan != nil {
 		// Only close if we control it

@@ -353,6 +353,12 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 		runner.SetAllowedTools(allowedTools)
 	}
 
+	// Configure supervisor mode if this is a supervisor session
+	if sess.IsSupervisor {
+		runner.SetSupervisor(true)
+		log.Debug("supervisor session, supervisor MCP tools enabled")
+	}
+
 	// Configure container mode if enabled for this session
 	if sess.Containerized {
 		runner.SetContainerized(true, sm.config.GetContainerImage())
