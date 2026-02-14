@@ -267,8 +267,7 @@ func TestCheckContainerImageUpdate_NoLocalImage(t *testing.T) {
 	}
 }
 
-func TestManifestListParsing(t *testing.T) {
-	// Test that we can parse a Docker manifest list JSON correctly
+func TestManifestResponseParsing_MultiPlatform(t *testing.T) {
 	rawJSON := `{
 		"manifests": [
 			{
@@ -288,25 +287,102 @@ func TestManifestListParsing(t *testing.T) {
 		]
 	}`
 
-	var ml manifestList
-	if err := json.Unmarshal([]byte(rawJSON), &ml); err != nil {
-		t.Fatalf("Failed to parse manifest list: %v", err)
+	var mr manifestResponse
+	if err := json.Unmarshal([]byte(rawJSON), &mr); err != nil {
+		t.Fatalf("Failed to parse manifest response: %v", err)
 	}
 
-	if len(ml.Manifests) != 2 {
-		t.Fatalf("Expected 2 manifests, got %d", len(ml.Manifests))
+	if len(mr.Manifests) != 2 {
+		t.Fatalf("Expected 2 manifests, got %d", len(mr.Manifests))
 	}
 
-	if ml.Manifests[0].Digest != "sha256:abc123" {
-		t.Errorf("Expected digest 'sha256:abc123', got %q", ml.Manifests[0].Digest)
+	if mr.Manifests[0].Digest != "sha256:abc123" {
+		t.Errorf("Expected digest 'sha256:abc123', got %q", mr.Manifests[0].Digest)
 	}
 
-	if ml.Manifests[0].Platform.Architecture != "amd64" {
-		t.Errorf("Expected architecture 'amd64', got %q", ml.Manifests[0].Platform.Architecture)
+	if mr.Manifests[0].Platform.Architecture != "amd64" {
+		t.Errorf("Expected architecture 'amd64', got %q", mr.Manifests[0].Platform.Architecture)
 	}
 
-	if ml.Manifests[1].Platform.OS != "linux" {
-		t.Errorf("Expected OS 'linux', got %q", ml.Manifests[1].Platform.OS)
+	if mr.Manifests[1].Platform.OS != "linux" {
+		t.Errorf("Expected OS 'linux', got %q", mr.Manifests[1].Platform.OS)
+	}
+}
+
+func TestManifestResponseParsing_SinglePlatform(t *testing.T) {
+	// Single-platform manifest has a top-level digest, no manifests array
+	rawJSON := `{
+		"digest": "sha256:singleplatform789"
+	}`
+
+	var mr manifestResponse
+	if err := json.Unmarshal([]byte(rawJSON), &mr); err != nil {
+		t.Fatalf("Failed to parse manifest response: %v", err)
+	}
+
+	if len(mr.Manifests) != 0 {
+		t.Errorf("Expected 0 manifests for single-platform, got %d", len(mr.Manifests))
+	}
+
+	if mr.Digest != "sha256:singleplatform789" {
+		t.Errorf("Expected top-level digest 'sha256:singleplatform789', got %q", mr.Digest)
+	}
+}
+
+func TestImageInspectParsing(t *testing.T) {
+	// Test parsing of docker image inspect JSON output
+	tests := []struct {
+		name       string
+		json       string
+		wantDigest string
+		wantErr    bool
+	}{
+		{
+			name:       "normal image with repo digests",
+			json:       `[{"RepoDigests": ["ghcr.io/zhubert/plural-claude@sha256:abc123"]}]`,
+			wantDigest: "sha256:abc123",
+		},
+		{
+			name:    "empty repo digests (locally built)",
+			json:    `[{"RepoDigests": []}]`,
+			wantErr: true,
+		},
+		{
+			name:    "null repo digests",
+			json:    `[{"RepoDigests": null}]`,
+			wantErr: true,
+		},
+		{
+			name:    "empty array",
+			json:    `[]`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var inspects []imageInspect
+			if err := json.Unmarshal([]byte(tt.json), &inspects); err != nil {
+				t.Fatalf("Failed to parse JSON: %v", err)
+			}
+
+			if len(inspects) == 0 || len(inspects[0].RepoDigests) == 0 {
+				if !tt.wantErr {
+					t.Error("Expected repo digests but got none")
+				}
+				return
+			}
+
+			repoDigest := inspects[0].RepoDigests[0]
+			if idx := strings.Index(repoDigest, "@"); idx != -1 {
+				got := repoDigest[idx+1:]
+				if got != tt.wantDigest {
+					t.Errorf("Got digest %q, want %q", got, tt.wantDigest)
+				}
+			} else if !tt.wantErr {
+				t.Error("Expected @ in repo digest")
+			}
+		})
 	}
 }
 

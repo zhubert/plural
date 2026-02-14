@@ -424,17 +424,11 @@ func (m *Model) Init() tea.Cmd {
 }
 
 // checkContainerImageUpdate returns a command that checks if the container image
-// has an update available in the remote registry. Silently skips if containers
-// are not supported or the image isn't pulled locally.
+// has an update available in the remote registry. Silently returns an empty message
+// on any failure (no CLI, no image, network error, etc.).
 func (m *Model) checkContainerImageUpdate() tea.Cmd {
 	image := m.config.GetContainerImage()
 	return func() tea.Msg {
-		if !process.ContainerCLIInstalled() {
-			return ContainerImageUpdateMsg{}
-		}
-		if !process.ContainerImageExists(image) {
-			return ContainerImageUpdateMsg{}
-		}
 		needsUpdate, err := process.CheckContainerImageUpdate(image)
 		if err != nil {
 			logger.Get().Debug("container image update check failed", "error", err)

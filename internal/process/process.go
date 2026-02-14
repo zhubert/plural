@@ -110,16 +110,33 @@ func CheckContainerImageUpdate(image string) (bool, error) {
 	return needsUpdate, nil
 }
 
+// imageInspect represents the relevant fields from docker image inspect JSON output.
+type imageInspect struct {
+	RepoDigests []string `json:"RepoDigests"`
+}
+
 // getLocalImageDigest returns the sha256 digest from the image's RepoDigests.
+// Returns an error if the image has no RepoDigests (e.g., locally built images
+// that were never pushed/pulled from a registry).
 func getLocalImageDigest(ctx context.Context, image string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", image, "--format", "{{index .RepoDigests 0}}")
+	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", image, "--format", "json")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
 
+	// docker image inspect returns a JSON array
+	var inspects []imageInspect
+	if err := json.Unmarshal(output, &inspects); err != nil {
+		return "", fmt.Errorf("failed to parse image inspect output: %w", err)
+	}
+
+	if len(inspects) == 0 || len(inspects[0].RepoDigests) == 0 {
+		return "", fmt.Errorf("image has no repo digests (locally built?)")
+	}
+
 	// RepoDigests format: "ghcr.io/user/image@sha256:abc123..."
-	repoDigest := strings.TrimSpace(string(output))
+	repoDigest := inspects[0].RepoDigests[0]
 	if idx := strings.Index(repoDigest, "@"); idx != -1 {
 		return repoDigest[idx+1:], nil
 	}
@@ -136,9 +153,13 @@ type manifestEntry struct {
 	} `json:"platform"`
 }
 
-// manifestList represents a Docker manifest list response.
-type manifestList struct {
+// manifestResponse represents a Docker manifest inspect response, which may be
+// either a manifest list (multi-platform) or a single-platform manifest.
+type manifestResponse struct {
+	// Manifest list fields (multi-platform)
 	Manifests []manifestEntry `json:"manifests"`
+	// Single-platform manifest fields
+	Digest string `json:"digest"`
 }
 
 // getRemoteManifestDigest returns the digest for the current platform from the remote registry.
@@ -149,24 +170,28 @@ func getRemoteManifestDigest(ctx context.Context, image string) (string, error) 
 		return "", fmt.Errorf("docker manifest inspect failed: %w", err)
 	}
 
-	var ml manifestList
-	if err := json.Unmarshal(output, &ml); err != nil {
+	var mr manifestResponse
+	if err := json.Unmarshal(output, &mr); err != nil {
 		return "", fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// Map Go's runtime.GOARCH to Docker architecture names
-	wantArch := runtime.GOARCH
-	if wantArch == "amd64" {
-		wantArch = "amd64"
-	}
-
-	for _, m := range ml.Manifests {
-		if m.Platform.OS == runtime.GOOS && m.Platform.Architecture == wantArch {
-			return m.Digest, nil
+	// Multi-platform manifest list: find digest for current platform
+	if len(mr.Manifests) > 0 {
+		// Go's runtime.GOARCH values match Docker architecture names
+		for _, m := range mr.Manifests {
+			if m.Platform.OS == runtime.GOOS && m.Platform.Architecture == runtime.GOARCH {
+				return m.Digest, nil
+			}
 		}
+		return "", fmt.Errorf("no manifest found for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	return "", fmt.Errorf("no manifest found for %s/%s", runtime.GOOS, runtime.GOARCH)
+	// Single-platform manifest: use the top-level digest
+	if mr.Digest != "" {
+		return mr.Digest, nil
+	}
+
+	return "", fmt.Errorf("no digest found in manifest response")
 }
 
 // ContainerPrerequisites holds the results of all container prerequisite checks.
