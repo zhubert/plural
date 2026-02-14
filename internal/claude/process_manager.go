@@ -296,7 +296,10 @@ func (pm *ProcessManager) Start() error {
 
 	var cmd *exec.Cmd
 	if pm.config.Containerized {
-		result := buildContainerRunArgs(pm.config, args)
+		result, err := buildContainerRunArgs(pm.config, args)
+		if err != nil {
+			return err
+		}
 		if result.AuthSource != "" {
 			pm.log.Info("container auth credential source", "source", result.AuthSource)
 		} else {
@@ -837,8 +840,11 @@ type containerRunResult struct {
 
 // buildContainerRunArgs constructs the arguments for `docker run` that wraps
 // the Claude CLI process inside a Docker container.
-func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerRunResult {
-	homeDir, _ := os.UserHomeDir()
+func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (containerRunResult, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return containerRunResult{}, fmt.Errorf("failed to determine home directory: %w", err)
+	}
 
 	containerName := "plural-" + config.SessionID
 	image := config.ContainerImage
@@ -878,7 +884,7 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) containerR
 
 	args = append(args, image)
 	args = append(args, claudeArgs...)
-	return containerRunResult{Args: args, AuthSource: auth.Source}
+	return containerRunResult{Args: args, AuthSource: auth.Source}, nil
 }
 
 // containerAuthDir returns the directory for storing container auth files.

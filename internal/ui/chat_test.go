@@ -550,6 +550,37 @@ func TestRenderInlineMarkdown(t *testing.T) {
 	}
 }
 
+func TestRenderInlineMarkdown_NoPanicOnEdgeCases(t *testing.T) {
+	// Regression tests: renderInlineMarkdown must not panic on edge-case inputs.
+	// These exercise the bounds checks added to FindStringSubmatch results.
+	edgeCases := []string{
+		"",
+		"`",
+		"``",
+		"**",
+		"****",
+		"_",
+		"__",
+		"[",
+		"]()",
+		"[text](",
+		"[text]()",
+		"[]",
+		"[](url)",
+		"plain text with no formatting",
+		"`single tick without close",
+		"**bold without close",
+		"_italic without close",
+		"[link without close",
+	}
+	for _, input := range edgeCases {
+		t.Run(input, func(t *testing.T) {
+			// Should not panic
+			_ = renderInlineMarkdown(input)
+		})
+	}
+}
+
 func TestRenderMarkdown(t *testing.T) {
 	tests := []struct {
 		name    string

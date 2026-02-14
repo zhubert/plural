@@ -1147,7 +1147,10 @@ func TestBuildContainerRunArgs(t *testing.T) {
 
 	claudeArgs := []string{"--print", "--session-id", "test-session-123", "--dangerously-skip-permissions"}
 
-	result := buildContainerRunArgs(config, claudeArgs)
+	result, err := buildContainerRunArgs(config, claudeArgs)
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
 	args := result.Args
 
 	// Verify basic container run structure
@@ -1219,7 +1222,10 @@ func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
 		ContainerImage: "", // Empty should default to "ghcr.io/zhubert/plural-claude"
 	}
 
-	result := buildContainerRunArgs(config, []string{"--print"})
+	result, err := buildContainerRunArgs(config, []string{"--print"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
 
 	// Check that the default image is in the args
 	if !containsArg(result.Args, "ghcr.io/zhubert/plural-claude") {
@@ -1238,7 +1244,10 @@ func TestBuildContainerRunArgs_ReportsAuthSource(t *testing.T) {
 	}
 	defer os.Remove(containerAuthFilePath(config.SessionID))
 
-	result := buildContainerRunArgs(config, []string{"--print"})
+	result, err := buildContainerRunArgs(config, []string{"--print"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
 	if result.AuthSource == "" {
 		t.Error("AuthSource should be set when credentials are available")
 	}
@@ -1255,6 +1264,23 @@ func TestBuildContainerRunArgs_ReportsAuthSource(t *testing.T) {
 		if strings.Contains(arg, ".auth:ro") {
 			t.Error("Should not mount auth file via -v (use --env-file instead)")
 		}
+	}
+}
+
+func TestBuildContainerRunArgs_ErrorsOnMissingHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	// Some platforms also check USER; clear everything that os.UserHomeDir checks
+	t.Setenv("USERPROFILE", "")
+
+	config := ProcessConfig{
+		SessionID:      "test-no-home",
+		WorkingDir:     "/tmp",
+		ContainerImage: "plural-claude",
+	}
+
+	_, err := buildContainerRunArgs(config, []string{"--print"})
+	if err == nil {
+		t.Error("buildContainerRunArgs should return error when home directory cannot be determined")
 	}
 }
 
@@ -1585,7 +1611,10 @@ func TestBuildContainerRunArgs_MountsMCPConfig(t *testing.T) {
 	}
 
 	claudeArgs := []string{"--print", "--session-id", "test-mount-session"}
-	result := buildContainerRunArgs(config, claudeArgs)
+	result, err := buildContainerRunArgs(config, claudeArgs)
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
 	args := result.Args
 
 	// Verify MCP config is mounted at the short container-side path (read-only)
@@ -1618,7 +1647,10 @@ func TestBuildContainerRunArgs_NoMountsWithoutPaths(t *testing.T) {
 	}
 
 	claudeArgs := []string{"--print", "--session-id", "test-no-mount"}
-	result := buildContainerRunArgs(config, claudeArgs)
+	result, err := buildContainerRunArgs(config, claudeArgs)
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
 	args := result.Args
 
 	// Should NOT have MCP config mounts

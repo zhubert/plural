@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -79,16 +80,25 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	// Create channels for MCP server communication
+	// Create channels for MCP server communication.
+	// Response channels are buffered (1) so that if the server exits while a
+	// forwarding goroutine is sending a response, the send completes without
+	// blocking and the goroutine can exit its range loop when the request
+	// channel is closed.
 	reqChan := make(chan mcp.PermissionRequest)
-	respChan := make(chan mcp.PermissionResponse)
+	respChan := make(chan mcp.PermissionResponse, 1)
 	questionChan := make(chan mcp.QuestionRequest)
-	answerChan := make(chan mcp.QuestionResponse)
+	answerChan := make(chan mcp.QuestionResponse, 1)
 	planApprovalChan := make(chan mcp.PlanApprovalRequest)
-	planResponseChan := make(chan mcp.PlanApprovalResponse)
+	planResponseChan := make(chan mcp.PlanApprovalResponse, 1)
 
-	// Start goroutine to handle permission requests via socket
+	// Start goroutines to forward requests to the TUI via socket and return responses.
+	// Each goroutine exits when its request channel is closed (range loop ends).
+	var wg sync.WaitGroup
+	wg.Add(3)
+
 	go func() {
+		defer wg.Done()
 		for req := range reqChan {
 			resp, err := client.SendPermissionRequest(req)
 			if err != nil {
@@ -104,8 +114,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start goroutine to handle question requests via socket
 	go func() {
+		defer wg.Done()
 		for req := range questionChan {
 			resp, err := client.SendQuestionRequest(req)
 			if err != nil {
@@ -120,8 +130,8 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start goroutine to handle plan approval requests via socket
 	go func() {
+		defer wg.Done()
 		for req := range planApprovalChan {
 			resp, err := client.SendPlanApprovalRequest(req)
 			if err != nil {
@@ -144,10 +154,15 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID)
 	err = server.Run()
 
-	// Close request channels so the forwarding goroutines exit their range loops
+	// Close request channels so the forwarding goroutines exit their range loops,
+	// then wait for them to finish before closing response channels.
 	close(reqChan)
 	close(questionChan)
 	close(planApprovalChan)
+	wg.Wait()
+	close(respChan)
+	close(answerChan)
+	close(planResponseChan)
 
 	if err != nil {
 		return fmt.Errorf("MCP server error: %w", err)
