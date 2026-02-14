@@ -127,10 +127,11 @@ func TestSidebar_SetSessions_AdjustsSelection(t *testing.T) {
 	sidebar.SetSessions(sessions)
 	sidebar.selectedIdx = 9
 
-	// Now set fewer sessions
+	// Now set fewer sessions (1 repo header + 3 sessions = 4 items)
 	sidebar.SetSessions(sessions[:3])
 
-	if sidebar.selectedIdx >= 3 {
+	// selectedIdx should be within bounds of items (repo + 3 sessions = 4)
+	if sidebar.selectedIdx >= 4 {
 		t.Errorf("Selection should be adjusted, got %d", sidebar.selectedIdx)
 	}
 }
@@ -151,11 +152,11 @@ func TestSidebar_SelectedSession(t *testing.T) {
 	}
 	sidebar.SetSessions(sessions)
 
+	// Default selection advances past repo header to first session
 	sess = sidebar.SelectedSession()
 	if sess == nil {
 		t.Fatal("SelectedSession should return a session")
 	}
-
 	if sess.ID != "session-1" {
 		t.Errorf("Expected first session, got %s", sess.ID)
 	}
@@ -171,15 +172,15 @@ func TestSidebar_SelectSession(t *testing.T) {
 	}
 	sidebar.SetSessions(sessions)
 
-	// Select by ID
+	// Select by ID (items: repo=0, s1=1, s2=2, s3=3)
 	sidebar.SelectSession("session-2")
-	if sidebar.selectedIdx != 1 {
-		t.Errorf("Expected selectedIdx 1, got %d", sidebar.selectedIdx)
+	if sidebar.selectedIdx != 2 {
+		t.Errorf("Expected selectedIdx 2, got %d", sidebar.selectedIdx)
 	}
 
 	// Select non-existent session (should not change)
 	sidebar.SelectSession("nonexistent")
-	if sidebar.selectedIdx != 1 {
+	if sidebar.selectedIdx != 2 {
 		t.Errorf("Selection should not change, got %d", sidebar.selectedIdx)
 	}
 }
@@ -1312,9 +1313,9 @@ func TestSidebar_SelectSession_NormalMode(t *testing.T) {
 	// Select session-2
 	sidebar.SelectSession("session-2")
 
-	// Should use index from full list
-	if sidebar.selectedIdx != 1 {
-		t.Errorf("Expected selectedIdx 1, got %d", sidebar.selectedIdx)
+	// Should use index from items list (repo=0, s1=1, s2=2, s3=3)
+	if sidebar.selectedIdx != 2 {
+		t.Errorf("Expected selectedIdx 2, got %d", sidebar.selectedIdx)
 	}
 
 	// Verify SelectedSession returns the correct session
