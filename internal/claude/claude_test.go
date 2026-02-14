@@ -1837,22 +1837,23 @@ func TestHandleProcessExit_NormalSend(t *testing.T) {
 		t.Error("Expected handleProcessExit to return true")
 	}
 
-	// Should receive a Done chunk
+	// Should NOT receive a Done chunk — the channel must stay open for
+	// restart attempt messages and eventual handleFatalError cleanup.
+	// Closing the channel prematurely causes autonomous sessions to
+	// interpret the crash as a successful completion.
 	select {
 	case chunk := <-ch:
-		if !chunk.Done {
-			t.Error("Expected Done=true in chunk")
-		}
+		t.Errorf("Expected no chunk from channel, got Done=%v Error=%v", chunk.Done, chunk.Error)
 	default:
-		t.Error("Expected chunk from channel")
+		// Expected - no chunk sent
 	}
 
-	// Channel should be closed
+	// Channel should remain open (not closed) so restarts can send messages
 	runner.mu.RLock()
 	closed := runner.responseChan.Closed
 	runner.mu.RUnlock()
-	if !closed {
-		t.Error("Expected responseChan.Closed to be true")
+	if closed {
+		t.Error("Expected responseChan.Closed to be false during restart")
 	}
 }
 
@@ -1866,6 +1867,63 @@ func TestHandleProcessExit_Stopped(t *testing.T) {
 	shouldRestart := runner.handleProcessExit(fmt.Errorf("crash"), "stderr")
 	if shouldRestart {
 		t.Error("Expected handleProcessExit to return false when stopped")
+	}
+}
+
+// TestHandleProcessExit_ChannelStaysOpenForRestart verifies that after a crash
+// the response channel remains open so restart messages and the eventual
+// handleFatalError can communicate with the Bubble Tea listener.
+func TestHandleProcessExit_ChannelStaysOpenForRestart(t *testing.T) {
+	runner := New("session-1", "/tmp", false, nil)
+
+	ch := make(chan ResponseChunk, 10)
+	runner.mu.Lock()
+	runner.responseChan.Setup(ch)
+	runner.streaming.Active = true
+	runner.mu.Unlock()
+
+	// Simulate process crash
+	shouldRestart := runner.handleProcessExit(fmt.Errorf("crash"), "stderr output")
+	if !shouldRestart {
+		t.Fatal("Expected handleProcessExit to return true")
+	}
+
+	// Channel should still be open — restart messages should be sendable
+	runner.handleRestartAttempt(1)
+
+	select {
+	case chunk := <-ch:
+		if chunk.Done {
+			t.Error("Restart attempt should send text chunk, not Done")
+		}
+		if chunk.Content == "" {
+			t.Error("Expected restart attempt text content")
+		}
+	default:
+		t.Error("Expected restart attempt chunk from channel")
+	}
+
+	// Now simulate max restarts exceeded → fatal error
+	runner.handleFatalError(fmt.Errorf("max restarts exceeded"))
+
+	select {
+	case chunk := <-ch:
+		if !chunk.Done {
+			t.Error("Expected Done=true from fatal error")
+		}
+		if chunk.Error == nil {
+			t.Error("Expected Error from fatal error")
+		}
+	default:
+		t.Error("Expected fatal error chunk from channel")
+	}
+
+	// Now channel should be closed
+	runner.mu.RLock()
+	closed := runner.responseChan.Closed
+	runner.mu.RUnlock()
+	if !closed {
+		t.Error("Expected responseChan.Closed to be true after fatal error")
 	}
 }
 
