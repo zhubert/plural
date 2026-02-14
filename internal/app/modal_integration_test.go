@@ -600,7 +600,13 @@ func TestSettingsModal_Open(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, ",")
+	// Show global settings modal directly (pressing "," with repos
+	// but no sessions opens RepoSettingsState since a repo is selected)
+	m.modal.Show(ui.NewSettingsState(
+		cfg.GetDefaultBranchPrefix(),
+		cfg.GetNotificationsEnabled(),
+		false, "",
+	))
 	if !m.modal.IsVisible() {
 		t.Fatal("Settings modal should be visible")
 	}
@@ -616,7 +622,11 @@ func TestSettingsModal_CancelWithEscape(t *testing.T) {
 	cfg.SetDefaultBranchPrefix("original/")
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, ",")
+	m.modal.Show(ui.NewSettingsState(
+		cfg.GetDefaultBranchPrefix(),
+		cfg.GetNotificationsEnabled(),
+		false, "",
+	))
 	state := m.modal.State.(*ui.SettingsState)
 
 	// Change the branch prefix
@@ -639,7 +649,11 @@ func TestSettingsModal_TabSwitchesFocus(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, ",")
+	m.modal.Show(ui.NewSettingsState(
+		cfg.GetDefaultBranchPrefix(),
+		cfg.GetNotificationsEnabled(),
+		false, "",
+	))
 	state := m.modal.State.(*ui.SettingsState)
 
 	// Initial focus on branch prefix
@@ -800,7 +814,11 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 	cfg.SetNotificationsEnabled(true)
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, ",")
+	m.modal.Show(ui.NewSettingsState(
+		cfg.GetDefaultBranchPrefix(),
+		cfg.GetNotificationsEnabled(),
+		false, "",
+	))
 	state := m.modal.State.(*ui.SettingsState)
 
 	// Initial state - notifications should be enabled
@@ -883,7 +901,11 @@ func TestSettingsModal_UpdatesBranchPrefix(t *testing.T) {
 	cfg.SetDefaultBranchPrefix("")
 	m := testModelWithSize(cfg, 120, 40)
 
-	m = sendKey(m, ",")
+	m.modal.Show(ui.NewSettingsState(
+		cfg.GetDefaultBranchPrefix(),
+		cfg.GetNotificationsEnabled(),
+		false, "",
+	))
 	state := m.modal.State.(*ui.SettingsState)
 
 	// Set a new branch prefix

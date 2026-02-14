@@ -930,18 +930,41 @@ func TestShortcutBroadcast_OpensModal(t *testing.T) {
 }
 
 func TestShortcutSettings_OpensModal(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
+	t.Run("RepoSelected", func(t *testing.T) {
+		cfg := testConfig()
+		m := testModelWithSize(cfg, 120, 40)
 
-	shortcutSettings(m)
+		// With repos but no sessions, sidebar starts on a repo
+		shortcutSettings(m)
 
-	if !m.modal.IsVisible() {
-		t.Error("expected modal to be visible")
-	}
-	_, ok := m.modal.State.(*ui.SettingsState)
-	if !ok {
-		t.Errorf("expected SettingsState modal, got %T", m.modal.State)
-	}
+		if !m.modal.IsVisible() {
+			t.Error("expected modal to be visible")
+		}
+		_, ok := m.modal.State.(*ui.RepoSettingsState)
+		if !ok {
+			t.Errorf("expected RepoSettingsState modal, got %T", m.modal.State)
+		}
+	})
+
+	t.Run("SessionSelected", func(t *testing.T) {
+		cfg := testConfigWithSessions()
+		m := testModelWithSize(cfg, 120, 40)
+		m.sidebar.SetSessions(cfg.Sessions)
+		// Select a session (auto-advances past repo header)
+		m = sendKey(m, "enter")
+		m = sendKey(m, "tab") // back to sidebar
+
+		shortcutSettings(m)
+
+		if !m.modal.IsVisible() {
+			t.Error("expected modal to be visible")
+		}
+		// With a session selected, shows global settings
+		_, ok := m.modal.State.(*ui.SettingsState)
+		if !ok {
+			t.Errorf("expected SettingsState modal, got %T", m.modal.State)
+		}
+	})
 }
 
 func TestPreviewInMain_NoCommitWhenClean(t *testing.T) {

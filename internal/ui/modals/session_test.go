@@ -214,8 +214,8 @@ func TestNewSessionState_AutonomousDisablesBranchAndContainer(t *testing.T) {
 
 	state := NewNewSessionState(makeRepos(3), true, true)
 
-	// Tab to autonomous (index 4) and enable it
-	state.Focus = 4
+	// Tab to autonomous (index 2) and enable it
+	state.Focus = 2
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Space})
 
 	if !state.Autonomous {
@@ -253,12 +253,12 @@ func TestNewSessionState_AutonomousSkipsFocusOnTab(t *testing.T) {
 	state.Focus = 1
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
 
-	// Should skip indices 2 (branch) and 3 (containers) and land on 4 (autonomous)
-	if state.Focus != 4 {
-		t.Errorf("expected focus to skip to 4 (autonomous), got %d", state.Focus)
+	// Should land on 2 (autonomous), skipping 3 (branch) and 4 (containers)
+	if state.Focus != 2 {
+		t.Errorf("expected focus to land on 2 (autonomous), got %d", state.Focus)
 	}
 
-	// Tab again should wrap to 0
+	// Tab again should wrap to 0 (skipping 3 and 4)
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
 	if state.Focus != 0 {
 		t.Errorf("expected focus to wrap to 0, got %d", state.Focus)
@@ -272,13 +272,13 @@ func TestNewSessionState_AutonomousSkipsFocusOnShiftTab(t *testing.T) {
 	state.Autonomous = true
 	state.UseContainers = true
 
-	// Start at focus 4 (autonomous), shift-tab backward
-	state.Focus = 4
+	// Start at focus 2 (autonomous), shift-tab backward
+	state.Focus = 2
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.ShiftTab})
 
-	// Should skip indices 3 (containers) and 2 (branch) and land on 1 (base selection)
+	// Should land on 1 (base selection)
 	if state.Focus != 1 {
-		t.Errorf("expected focus to skip to 1 (base selection), got %d", state.Focus)
+		t.Errorf("expected focus to land on 1 (base selection), got %d", state.Focus)
 	}
 }
 
@@ -290,7 +290,7 @@ func TestNewSessionState_AutonomousContainerToggleIgnored(t *testing.T) {
 	state.UseContainers = true
 
 	// Try to toggle containers off while autonomous is on (shouldn't work)
-	state.Focus = 3
+	state.Focus = 4
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Space})
 
 	if !state.UseContainers {
@@ -306,7 +306,7 @@ func TestNewSessionState_AutonomousBranchInputIgnored(t *testing.T) {
 	state.UseContainers = true
 
 	// Force focus to branch input and try typing
-	state.Focus = 2
+	state.Focus = 3
 	state.Update(tea.KeyPressMsg{Code: -1, Text: "a"})
 
 	if state.BranchInput.Value() != "" {
@@ -330,5 +330,77 @@ func TestNewSessionState_ScrollOnlyAffectsRepoFocus(t *testing.T) {
 	}
 	if state.BaseIndex != 1 {
 		t.Errorf("expected BaseIndex 1, got %d", state.BaseIndex)
+	}
+}
+
+func TestNewSessionState_LockedRepo_Title(t *testing.T) {
+	state := NewNewSessionState([]string{"/home/user/myrepo"}, false, false)
+	state.LockedRepo = "/home/user/myrepo"
+	if state.Title() != "New Session in myrepo" {
+		t.Errorf("Expected 'New Session in myrepo', got %q", state.Title())
+	}
+}
+
+func TestNewSessionState_LockedRepo_HidesRepoSelector(t *testing.T) {
+	state := NewNewSessionState([]string{"/repo1", "/repo2"}, false, false)
+	state.LockedRepo = "/repo1"
+	state.Focus = 1 // Start on base branch
+
+	rendered := state.Render()
+	if strings.Contains(rendered, "Repository:") {
+		t.Error("Locked repo should not show 'Repository:' section")
+	}
+	if strings.Contains(rendered, "repo2") {
+		t.Error("Locked repo should not show other repos")
+	}
+}
+
+func TestNewSessionState_LockedRepo_GetSelectedRepo(t *testing.T) {
+	state := NewNewSessionState([]string{"/repo1"}, false, false)
+	state.LockedRepo = "/locked/repo"
+	if state.GetSelectedRepo() != "/locked/repo" {
+		t.Errorf("Expected locked repo, got %q", state.GetSelectedRepo())
+	}
+}
+
+func TestNewSessionState_LockedRepo_TabSkipsRepoFocus(t *testing.T) {
+	state := NewNewSessionState([]string{"/repo1"}, false, false)
+	state.LockedRepo = "/repo1"
+	state.Focus = 1 // Start on base branch
+
+	// Without containers, numFields=3: 0=repo(skip), 1=base, 2=branch
+	// Tab should go: 1 (base) -> 2 (branch) -> 1 (base) — skipping 0
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 2 {
+		t.Errorf("Expected focus 2 (branch), got %d", state.Focus)
+	}
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 1 {
+		t.Errorf("Expected focus 1 (base, wrapped), got %d", state.Focus)
+	}
+}
+
+func TestNewSessionState_LockedRepo_TabSkipsRepoFocus_WithContainers(t *testing.T) {
+	state := NewNewSessionState([]string{"/repo1"}, true, false)
+	state.LockedRepo = "/repo1"
+	state.Focus = 1 // Start on base branch
+
+	// With containers, numFields=5: 0=repo(skip), 1=base, 2=autonomous, 3=branch, 4=containers
+	// Tab: 1 (base) -> 2 (autonomous) -> 3 (branch) -> 4 (container) -> 1 (base)
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 2 {
+		t.Errorf("Expected focus 2 (autonomous), got %d", state.Focus)
+	}
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 3 {
+		t.Errorf("Expected focus 3 (branch), got %d", state.Focus)
+	}
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 4 {
+		t.Errorf("Expected focus 4 (container), got %d", state.Focus)
+	}
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 1 {
+		t.Errorf("Expected focus 1 (wrapped, skipping 0), got %d", state.Focus)
 	}
 }
