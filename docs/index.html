@@ -68,6 +68,37 @@
         .hero {
             text-align: center;
             padding: 3rem 0 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            inset: -50% -50%;
+            width: 200%;
+            height: 200%;
+            background-image: radial-gradient(
+                circle,
+                rgba(124, 58, 237, 0.15) 1px,
+                transparent 1px
+            );
+            background-size: 28px 28px;
+            animation: heroGridDrift 25s linear infinite;
+            pointer-events: none;
+            z-index: 0;
+            mask-image: radial-gradient(ellipse at center, black 20%, transparent 70%);
+            -webkit-mask-image: radial-gradient(ellipse at center, black 20%, transparent 70%);
+        }
+
+        .hero > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes heroGridDrift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(28px, 28px); }
         }
 
         .logo-svg {
