@@ -50,23 +50,23 @@ const (
 
 // SocketMessage wraps permission, question, plan approval, or supervisor requests/responses
 type SocketMessage struct {
-	Type              MessageType           `json:"type"`
-	PermReq           *PermissionRequest    `json:"permReq,omitempty"`
-	PermResp          *PermissionResponse   `json:"permResp,omitempty"`
-	QuestReq          *QuestionRequest      `json:"questReq,omitempty"`
-	QuestResp         *QuestionResponse     `json:"questResp,omitempty"`
-	PlanReq           *PlanApprovalRequest  `json:"planReq,omitempty"`
-	PlanResp          *PlanApprovalResponse `json:"planResp,omitempty"`
-	CreateChildReq    *CreateChildRequest   `json:"createChildReq,omitempty"`
-	CreateChildResp   *CreateChildResponse  `json:"createChildResp,omitempty"`
-	ListChildrenReq   *ListChildrenRequest  `json:"listChildrenReq,omitempty"`
-	ListChildrenResp  *ListChildrenResponse `json:"listChildrenResp,omitempty"`
-	MergeChildReq     *MergeChildRequest    `json:"mergeChildReq,omitempty"`
-	MergeChildResp    *MergeChildResponse   `json:"mergeChildResp,omitempty"`
-	CreatePRReq       *CreatePRRequest      `json:"createPRReq,omitempty"`
-	CreatePRResp      *CreatePRResponse     `json:"createPRResp,omitempty"`
-	PushBranchReq     *PushBranchRequest    `json:"pushBranchReq,omitempty"`
-	PushBranchResp    *PushBranchResponse   `json:"pushBranchResp,omitempty"`
+	Type             MessageType           `json:"type"`
+	PermReq          *PermissionRequest    `json:"permReq,omitempty"`
+	PermResp         *PermissionResponse   `json:"permResp,omitempty"`
+	QuestReq         *QuestionRequest      `json:"questReq,omitempty"`
+	QuestResp        *QuestionResponse     `json:"questResp,omitempty"`
+	PlanReq          *PlanApprovalRequest  `json:"planReq,omitempty"`
+	PlanResp         *PlanApprovalResponse `json:"planResp,omitempty"`
+	CreateChildReq   *CreateChildRequest   `json:"createChildReq,omitempty"`
+	CreateChildResp  *CreateChildResponse  `json:"createChildResp,omitempty"`
+	ListChildrenReq  *ListChildrenRequest  `json:"listChildrenReq,omitempty"`
+	ListChildrenResp *ListChildrenResponse `json:"listChildrenResp,omitempty"`
+	MergeChildReq    *MergeChildRequest    `json:"mergeChildReq,omitempty"`
+	MergeChildResp   *MergeChildResponse   `json:"mergeChildResp,omitempty"`
+	CreatePRReq      *CreatePRRequest      `json:"createPRReq,omitempty"`
+	CreatePRResp     *CreatePRResponse     `json:"createPRResp,omitempty"`
+	PushBranchReq    *PushBranchRequest    `json:"pushBranchReq,omitempty"`
+	PushBranchResp   *PushBranchResponse   `json:"pushBranchResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
@@ -990,7 +990,7 @@ func (c *SocketClient) SendCreatePRRequest(req CreatePRRequest) (CreatePRRespons
 	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
 		return CreatePRResponse{}, fmt.Errorf("write create PR request: %w", err)
 	}
-	c.conn.SetReadDeadline(time.Time{})
+	c.conn.SetReadDeadline(time.Now().Add(HostToolResponseTimeout))
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
 		return CreatePRResponse{}, fmt.Errorf("read create PR response: %w", err)
@@ -1016,7 +1016,7 @@ func (c *SocketClient) SendPushBranchRequest(req PushBranchRequest) (PushBranchR
 	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
 		return PushBranchResponse{}, fmt.Errorf("write push branch request: %w", err)
 	}
-	c.conn.SetReadDeadline(time.Time{})
+	c.conn.SetReadDeadline(time.Now().Add(HostToolResponseTimeout))
 	line, err := c.reader.ReadString('\n')
 	if err != nil {
 		return PushBranchResponse{}, fmt.Errorf("read push branch response: %w", err)
