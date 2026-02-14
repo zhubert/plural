@@ -209,6 +209,111 @@ func TestNewSessionState_NavigateUpDoesNotGoBelowZero(t *testing.T) {
 	}
 }
 
+func TestNewSessionState_AutonomousDisablesBranchAndContainer(t *testing.T) {
+	initTestStyles()
+
+	state := NewNewSessionState(makeRepos(3), true, true)
+
+	// Tab to autonomous (index 4) and enable it
+	state.Focus = 4
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Space})
+
+	if !state.Autonomous {
+		t.Fatal("expected autonomous to be enabled")
+	}
+	if !state.UseContainers {
+		t.Fatal("expected containers to be auto-enabled by autonomous")
+	}
+
+	// Branch input should have been cleared
+	if state.BranchInput.Value() != "" {
+		t.Errorf("expected branch input to be cleared, got %q", state.BranchInput.Value())
+	}
+
+	// Render should show disabled message for branch
+	rendered := state.Render()
+	if !strings.Contains(rendered, "disabled in autonomous mode") {
+		t.Error("expected 'disabled in autonomous mode' text for branch input")
+	}
+
+	// Container description should mention autonomous
+	if !strings.Contains(rendered, "autonomous") {
+		t.Errorf("expected container description to mention autonomous, rendered:\n%s", rendered)
+	}
+}
+
+func TestNewSessionState_AutonomousSkipsFocusOnTab(t *testing.T) {
+	state := NewNewSessionState(makeRepos(3), true, true)
+
+	// Enable autonomous mode
+	state.Autonomous = true
+	state.UseContainers = true
+
+	// Start at focus 1 (base selection), tab forward
+	state.Focus = 1
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+
+	// Should skip indices 2 (branch) and 3 (containers) and land on 4 (autonomous)
+	if state.Focus != 4 {
+		t.Errorf("expected focus to skip to 4 (autonomous), got %d", state.Focus)
+	}
+
+	// Tab again should wrap to 0
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
+	if state.Focus != 0 {
+		t.Errorf("expected focus to wrap to 0, got %d", state.Focus)
+	}
+}
+
+func TestNewSessionState_AutonomousSkipsFocusOnShiftTab(t *testing.T) {
+	state := NewNewSessionState(makeRepos(3), true, true)
+
+	// Enable autonomous mode
+	state.Autonomous = true
+	state.UseContainers = true
+
+	// Start at focus 4 (autonomous), shift-tab backward
+	state.Focus = 4
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.ShiftTab})
+
+	// Should skip indices 3 (containers) and 2 (branch) and land on 1 (base selection)
+	if state.Focus != 1 {
+		t.Errorf("expected focus to skip to 1 (base selection), got %d", state.Focus)
+	}
+}
+
+func TestNewSessionState_AutonomousContainerToggleIgnored(t *testing.T) {
+	state := NewNewSessionState(makeRepos(3), true, true)
+
+	// Enable autonomous mode
+	state.Autonomous = true
+	state.UseContainers = true
+
+	// Try to toggle containers off while autonomous is on (shouldn't work)
+	state.Focus = 3
+	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Space})
+
+	if !state.UseContainers {
+		t.Error("expected containers to remain enabled when autonomous is on")
+	}
+}
+
+func TestNewSessionState_AutonomousBranchInputIgnored(t *testing.T) {
+	state := NewNewSessionState(makeRepos(3), true, true)
+
+	// Enable autonomous mode
+	state.Autonomous = true
+	state.UseContainers = true
+
+	// Force focus to branch input and try typing
+	state.Focus = 2
+	state.Update(tea.KeyPressMsg{Code: -1, Text: "a"})
+
+	if state.BranchInput.Value() != "" {
+		t.Errorf("expected branch input to remain empty in autonomous mode, got %q", state.BranchInput.Value())
+	}
+}
+
 func TestNewSessionState_ScrollOnlyAffectsRepoFocus(t *testing.T) {
 	repos := makeRepos(15)
 	state := NewNewSessionState(repos, false, false)

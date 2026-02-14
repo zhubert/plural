@@ -85,13 +85,19 @@ func (s *NewSessionState) Render() string {
 		MarginTop(1).
 		Render("Branch name:")
 
-	branchInputStyle := lipgloss.NewStyle()
-	if s.Focus == 2 {
-		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	var branchView string
+	if s.Autonomous {
+		branchView = lipgloss.NewStyle().PaddingLeft(2).Italic(true).Foreground(ColorTextMuted).
+			Render("(disabled in autonomous mode)")
 	} else {
-		branchInputStyle = branchInputStyle.PaddingLeft(2)
+		branchInputStyle := lipgloss.NewStyle()
+		if s.Focus == 2 {
+			branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			branchInputStyle = branchInputStyle.PaddingLeft(2)
+		}
+		branchView = branchInputStyle.Render(s.BranchInput.View())
 	}
-	branchView := branchInputStyle.Render(s.BranchInput.View())
 
 	parts := []string{title, repoLabel, repoList, baseLabel, baseList, branchLabel, branchView}
 
@@ -106,18 +112,29 @@ func (s *NewSessionState) Render() string {
 		if s.UseContainers {
 			containerCheckbox = "[x]"
 		}
-		containerCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 3 {
-			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		var containerView string
+		if s.Autonomous {
+			containerDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(50).
+				Render("Run in a sandboxed container (enabled by autonomous mode)")
+			containerView = lipgloss.NewStyle().PaddingLeft(2).Foreground(ColorTextMuted).
+				Render(containerCheckbox + " " + containerDesc)
 		} else {
-			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+			containerCheckboxStyle := lipgloss.NewStyle()
+			if s.Focus == 3 {
+				containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+			}
+			containerDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(50).
+				Render("Run in a sandboxed container (no permission prompts)")
+			containerView = containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 		}
-		containerDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Run in a sandboxed container (no permission prompts)")
-		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		containerWarning := lipgloss.NewStyle().
 			Foreground(ColorWarning).
@@ -255,15 +272,27 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case keys.Tab:
 			oldFocus := s.Focus
 			s.Focus = (s.Focus + 1) % numFields
+			// Skip disabled fields when autonomous is on
+			if s.Autonomous {
+				for s.Focus == 2 || s.Focus == 3 {
+					s.Focus = (s.Focus + 1) % numFields
+				}
+			}
 			s.updateInputFocus(oldFocus)
 			return s, nil
 		case keys.ShiftTab:
 			oldFocus := s.Focus
 			s.Focus = (s.Focus - 1 + numFields) % numFields
+			// Skip disabled fields when autonomous is on
+			if s.Autonomous {
+				for s.Focus == 2 || s.Focus == 3 {
+					s.Focus = (s.Focus - 1 + numFields) % numFields
+				}
+			}
 			s.updateInputFocus(oldFocus)
 			return s, nil
 		case keys.Space:
-			if s.Focus == 3 && s.ContainersSupported {
+			if s.Focus == 3 && s.ContainersSupported && !s.Autonomous {
 				s.UseContainers = !s.UseContainers
 				// If disabling containers, also disable autonomous
 				if !s.UseContainers {
@@ -274,14 +303,17 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				// Autonomous requires containers
 				if s.Autonomous {
 					s.UseContainers = true
+					// Clear branch input since it's not used in autonomous mode
+					s.BranchInput.SetValue("")
+					s.BranchInput.Blur()
 				}
 			}
 			return s, nil
 		}
 	}
 
-	// Handle branch input updates when focused
-	if s.Focus == 2 {
+	// Handle branch input updates when focused (disabled in autonomous mode)
+	if s.Focus == 2 && !s.Autonomous {
 		var cmd tea.Cmd
 		s.BranchInput, cmd = s.BranchInput.Update(msg)
 		return s, cmd
