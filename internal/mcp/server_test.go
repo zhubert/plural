@@ -1368,7 +1368,7 @@ func TestServer_handleCreatePR(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "create_pr",
-			Arguments: map[string]interface{}{"title": "Test PR", "body": "PR body"},
+			Arguments: map[string]interface{}{"title": "Test PR"},
 		}
 		s.handleCreatePR(req, params)
 
