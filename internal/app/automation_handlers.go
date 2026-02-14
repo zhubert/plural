@@ -1137,15 +1137,17 @@ func (m *Model) handlePushBranchRequestMsg(msg PushBranchRequestMsg) (tea.Model,
 
 		resultCh := gitSvc.PushUpdates(ctx, repoPath, workTree, branch, commitMessage)
 
-		var lastResult git.Result
+		var lastErr error
 		for result := range resultCh {
-			lastResult = result
+			if result.Error != nil {
+				lastErr = result.Error
+			}
 		}
 
-		if lastResult.Error != nil {
+		if lastErr != nil {
 			runner.SendPushBranchResponse(mcp.PushBranchResponse{
 				ID:    requestID,
-				Error: fmt.Sprintf("Failed to push branch: %v", lastResult.Error),
+				Error: fmt.Sprintf("Failed to push branch: %v", lastErr),
 			})
 			return nil
 		}

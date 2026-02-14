@@ -1093,6 +1093,7 @@ func TestServer_handleToolsList_supervisor(t *testing.T) {
 	})
 
 	t.Run("host tools lists 6 tools (supervisor + host)", func(t *testing.T) {
+		var buf strings.Builder
 		createChildChan := make(chan CreateChildRequest, 1)
 		createChildResp := make(chan CreateChildResponse, 1)
 		listChildrenChan := make(chan ListChildrenRequest, 1)
@@ -1104,7 +1105,7 @@ func TestServer_handleToolsList_supervisor(t *testing.T) {
 		pushBranchChan := make(chan PushBranchRequest, 1)
 		pushBranchResp := make(chan PushBranchResponse, 1)
 
-		s := NewServer(strings.NewReader(""), nil, nil, nil, nil, nil, nil, nil, nil, "test",
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
 			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp),
 			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
 
@@ -1113,6 +1114,17 @@ func TestServer_handleToolsList_supervisor(t *testing.T) {
 		}
 		if !s.hasHostTools {
 			t.Error("server should have host tools")
+		}
+
+		// Call handleToolsList and verify 6 tools are returned
+		s.handleToolsList(&JSONRPCRequest{JSONRPC: "2.0", ID: "1"})
+		output := buf.String()
+		// Count tool names: permission + ask_question + exit_plan_mode + create_child_session + list_child_sessions + merge_child_to_parent + create_pr + push_branch = 8
+		// Wait - permission tool (1) + ask_question (1) + exit_plan_mode (1) = 3 base tools + 3 supervisor + 2 host = 8
+		for _, toolName := range []string{"create_pr", "push_branch", "create_child_session", "list_child_sessions", "merge_child_to_parent"} {
+			if !strings.Contains(output, toolName) {
+				t.Errorf("expected tool %q in output, got: %s", toolName, output)
+			}
 		}
 	})
 

@@ -228,8 +228,7 @@ type MergeChildResponse struct {
 // CreatePRRequest represents a request from an automated supervisor to create a PR on the host
 type CreatePRRequest struct {
 	ID    interface{} `json:"id"`              // JSON-RPC request ID for response correlation
-	Title string      `json:"title,omitempty"` // Optional PR title
-	Body  string      `json:"body,omitempty"`  // Optional PR body
+	Title string      `json:"title,omitempty"` // Optional PR title (body is auto-generated)
 }
 
 // CreatePRResponse represents the result of creating a PR
