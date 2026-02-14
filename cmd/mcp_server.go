@@ -18,6 +18,7 @@ var tcpAddr string
 var autoApprove bool
 var mcpSessionID string
 var mcpSupervisor bool
+var mcpHostTools bool
 
 var mcpServerCmd = &cobra.Command{
 	Use:    "mcp-server",
@@ -32,6 +33,7 @@ func init() {
 	mcpServerCmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Auto-approve all tool permissions (used in container mode)")
 	mcpServerCmd.Flags().StringVar(&mcpSessionID, "session-id", "", "Session ID for logging")
 	mcpServerCmd.Flags().BoolVar(&mcpSupervisor, "supervisor", false, "Enable supervisor tools (create/list/merge child sessions)")
+	mcpServerCmd.Flags().BoolVar(&mcpHostTools, "host-tools", false, "Enable host operation tools (create_pr, push_branch)")
 	rootCmd.AddCommand(mcpServerCmd)
 }
 
@@ -210,6 +212,50 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		))
 	}
 
+	// Host tools channels and forwarding goroutines
+	var createPRChan chan mcp.CreatePRRequest
+	var createPRRespChan chan mcp.CreatePRResponse
+	var pushBranchChan chan mcp.PushBranchRequest
+	var pushBranchRespChan chan mcp.PushBranchResponse
+
+	if mcpHostTools {
+		createPRChan = make(chan mcp.CreatePRRequest)
+		createPRRespChan = make(chan mcp.CreatePRResponse, 1)
+		pushBranchChan = make(chan mcp.PushBranchRequest)
+		pushBranchRespChan = make(chan mcp.PushBranchResponse, 1)
+
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			for req := range createPRChan {
+				resp, fwdErr := client.SendCreatePRRequest(req)
+				if fwdErr != nil {
+					createPRRespChan <- mcp.CreatePRResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				} else {
+					createPRRespChan <- resp
+				}
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			for req := range pushBranchChan {
+				resp, fwdErr := client.SendPushBranchRequest(req)
+				if fwdErr != nil {
+					pushBranchRespChan <- mcp.PushBranchResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				} else {
+					pushBranchRespChan <- resp
+				}
+			}
+		}()
+
+		serverOpts = append(serverOpts, mcp.WithHostTools(
+			createPRChan, createPRRespChan,
+			pushBranchChan, pushBranchRespChan,
+		))
+	}
+
 	// Run MCP server on stdin/stdout
 	var allowedTools []string
 	if autoApprove {
@@ -228,6 +274,10 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		close(listChildrenChan)
 		close(mergeChildChan)
 	}
+	if mcpHostTools {
+		close(createPRChan)
+		close(pushBranchChan)
+	}
 	wg.Wait()
 	close(respChan)
 	close(answerChan)
@@ -236,6 +286,10 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		close(createChildRespChan)
 		close(listChildrenRespChan)
 		close(mergeChildRespChan)
+	}
+	if mcpHostTools {
+		close(createPRRespChan)
+		close(pushBranchRespChan)
 	}
 
 	if err != nil {

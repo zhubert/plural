@@ -1092,6 +1092,30 @@ func TestServer_handleToolsList_supervisor(t *testing.T) {
 		}
 	})
 
+	t.Run("host tools lists 6 tools (supervisor + host)", func(t *testing.T) {
+		createChildChan := make(chan CreateChildRequest, 1)
+		createChildResp := make(chan CreateChildResponse, 1)
+		listChildrenChan := make(chan ListChildrenRequest, 1)
+		listChildrenResp := make(chan ListChildrenResponse, 1)
+		mergeChildChan := make(chan MergeChildRequest, 1)
+		mergeChildResp := make(chan MergeChildResponse, 1)
+		createPRChan := make(chan CreatePRRequest, 1)
+		createPRResp := make(chan CreatePRResponse, 1)
+		pushBranchChan := make(chan PushBranchRequest, 1)
+		pushBranchResp := make(chan PushBranchResponse, 1)
+
+		s := NewServer(strings.NewReader(""), nil, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp),
+			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
+
+		if !s.isSupervisor {
+			t.Error("server should be supervisor")
+		}
+		if !s.hasHostTools {
+			t.Error("server should have host tools")
+		}
+	})
+
 	t.Run("supervisor lists 4 tools", func(t *testing.T) {
 		createChildChan := make(chan CreateChildRequest, 1)
 		createChildResp := make(chan CreateChildResponse, 1)
@@ -1286,6 +1310,111 @@ func TestServer_handleMergeChildToParent(t *testing.T) {
 
 		if !strings.Contains(buf.String(), "Merged successfully") {
 			t.Errorf("expected merge message in output, got: %s", buf.String())
+		}
+	})
+}
+
+func TestServer_handleCreatePR(t *testing.T) {
+	logger.Init(os.DevNull)
+	defer logger.Reset()
+
+	t.Run("rejects when host tools not enabled", func(t *testing.T) {
+		var buf strings.Builder
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "create_pr",
+			Arguments: map[string]interface{}{"title": "Test PR"},
+		}
+		s.handleCreatePR(req, params)
+
+		if !strings.Contains(buf.String(), "only available in automated supervisor") {
+			t.Errorf("expected error about host tools, got: %s", buf.String())
+		}
+	})
+
+	t.Run("sends request to channel and returns response", func(t *testing.T) {
+		var buf strings.Builder
+		createPRChan := make(chan CreatePRRequest, 1)
+		createPRResp := make(chan CreatePRResponse, 1)
+		pushBranchChan := make(chan PushBranchRequest, 1)
+		pushBranchResp := make(chan PushBranchResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
+
+		go func() {
+			req := <-createPRChan
+			createPRResp <- CreatePRResponse{
+				ID:      req.ID,
+				Success: true,
+				PRURL:   "https://github.com/test/repo/pull/42",
+			}
+		}()
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "create_pr",
+			Arguments: map[string]interface{}{"title": "Test PR", "body": "PR body"},
+		}
+		s.handleCreatePR(req, params)
+
+		output := buf.String()
+		if !strings.Contains(output, "https://github.com/test/repo/pull/42") {
+			t.Errorf("expected PR URL in output, got: %s", output)
+		}
+	})
+}
+
+func TestServer_handlePushBranch(t *testing.T) {
+	logger.Init(os.DevNull)
+	defer logger.Reset()
+
+	t.Run("rejects when host tools not enabled", func(t *testing.T) {
+		var buf strings.Builder
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "push_branch",
+			Arguments: map[string]interface{}{},
+		}
+		s.handlePushBranch(req, params)
+
+		if !strings.Contains(buf.String(), "only available in automated supervisor") {
+			t.Errorf("expected error about host tools, got: %s", buf.String())
+		}
+	})
+
+	t.Run("sends request to channel and returns success", func(t *testing.T) {
+		var buf strings.Builder
+		createPRChan := make(chan CreatePRRequest, 1)
+		createPRResp := make(chan CreatePRResponse, 1)
+		pushBranchChan := make(chan PushBranchRequest, 1)
+		pushBranchResp := make(chan PushBranchResponse, 1)
+
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
+			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
+
+		go func() {
+			req := <-pushBranchChan
+			pushBranchResp <- PushBranchResponse{
+				ID:      req.ID,
+				Success: true,
+			}
+		}()
+
+		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
+		params := ToolCallParams{
+			Name:      "push_branch",
+			Arguments: map[string]interface{}{"commit_message": "test commit"},
+		}
+		s.handlePushBranch(req, params)
+
+		output := buf.String()
+		if !strings.Contains(output, `"success":true`) && !strings.Contains(output, `\"success\":true`) {
+			t.Errorf("expected success in output, got: %s", output)
 		}
 	})
 }

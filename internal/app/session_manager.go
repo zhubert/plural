@@ -359,6 +359,12 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 		log.Debug("supervisor session, supervisor MCP tools enabled")
 	}
 
+	// Enable host tools for autonomous supervisors (create_pr, push_branch)
+	if sess.IsSupervisor && sess.Autonomous {
+		runner.SetHostTools(true)
+		log.Debug("autonomous supervisor, host tools enabled")
+	}
+
 	// Configure container mode if enabled for this session
 	if sess.Containerized {
 		runner.SetContainerized(true, sm.config.GetContainerImage())

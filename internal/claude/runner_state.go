@@ -28,6 +28,12 @@ type MCPChannels struct {
 	ListChildrenResp chan mcp.ListChildrenResponse
 	MergeChildReq    chan mcp.MergeChildRequest
 	MergeChildResp   chan mcp.MergeChildResponse
+
+	// Host tool channels (nil when not an autonomous supervisor session)
+	CreatePRReq    chan mcp.CreatePRRequest
+	CreatePRResp   chan mcp.CreatePRResponse
+	PushBranchReq  chan mcp.PushBranchRequest
+	PushBranchResp chan mcp.PushBranchResponse
 }
 
 // NewMCPChannels creates a new MCPChannels with buffered channels.
@@ -51,6 +57,15 @@ func (m *MCPChannels) InitSupervisorChannels() {
 	m.ListChildrenResp = make(chan mcp.ListChildrenResponse, PermissionChannelBuffer)
 	m.MergeChildReq = make(chan mcp.MergeChildRequest, PermissionChannelBuffer)
 	m.MergeChildResp = make(chan mcp.MergeChildResponse, PermissionChannelBuffer)
+}
+
+// InitHostToolChannels initializes the host tool channels.
+// These are only created when the session is an autonomous supervisor.
+func (m *MCPChannels) InitHostToolChannels() {
+	m.CreatePRReq = make(chan mcp.CreatePRRequest, PermissionChannelBuffer)
+	m.CreatePRResp = make(chan mcp.CreatePRResponse, PermissionChannelBuffer)
+	m.PushBranchReq = make(chan mcp.PushBranchRequest, PermissionChannelBuffer)
+	m.PushBranchResp = make(chan mcp.PushBranchResponse, PermissionChannelBuffer)
 }
 
 // Close closes all channels. Safe to call multiple times.
@@ -102,6 +117,22 @@ func (m *MCPChannels) Close() {
 	if m.MergeChildResp != nil {
 		close(m.MergeChildResp)
 		m.MergeChildResp = nil
+	}
+	if m.CreatePRReq != nil {
+		close(m.CreatePRReq)
+		m.CreatePRReq = nil
+	}
+	if m.CreatePRResp != nil {
+		close(m.CreatePRResp)
+		m.CreatePRResp = nil
+	}
+	if m.PushBranchReq != nil {
+		close(m.PushBranchReq)
+		m.PushBranchReq = nil
+	}
+	if m.PushBranchResp != nil {
+		close(m.PushBranchResp)
+		m.PushBranchResp = nil
 	}
 }
 

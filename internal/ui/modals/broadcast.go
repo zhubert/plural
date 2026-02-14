@@ -162,7 +162,7 @@ func (s *BroadcastState) Render() string {
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Width(50).
-			Render("Auto-respond to questions, no user interaction needed")
+			Render("Orchestrator: delegates to children, can create PRs")
 		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
 
 		parts = append(parts, autoLabel, autoView)

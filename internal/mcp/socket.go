@@ -39,6 +39,8 @@ const (
 	MessageTypeCreateChild  MessageType = "createChild"
 	MessageTypeListChildren MessageType = "listChildren"
 	MessageTypeMergeChild   MessageType = "mergeChild"
+	MessageTypeCreatePR     MessageType = "createPR"
+	MessageTypePushBranch   MessageType = "pushBranch"
 )
 
 // SocketMessage wraps permission, question, plan approval, or supervisor requests/responses
@@ -56,6 +58,10 @@ type SocketMessage struct {
 	ListChildrenResp  *ListChildrenResponse `json:"listChildrenResp,omitempty"`
 	MergeChildReq     *MergeChildRequest    `json:"mergeChildReq,omitempty"`
 	MergeChildResp    *MergeChildResponse   `json:"mergeChildResp,omitempty"`
+	CreatePRReq       *CreatePRRequest      `json:"createPRReq,omitempty"`
+	CreatePRResp      *CreatePRResponse     `json:"createPRResp,omitempty"`
+	PushBranchReq     *PushBranchRequest    `json:"pushBranchReq,omitempty"`
+	PushBranchResp    *PushBranchResponse   `json:"pushBranchResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
@@ -75,6 +81,10 @@ type SocketServer struct {
 	listChildrenResp <-chan ListChildrenResponse
 	mergeChildReq    chan<- MergeChildRequest
 	mergeChildResp   <-chan MergeChildResponse
+	createPRReq      chan<- CreatePRRequest
+	createPRResp     <-chan CreatePRResponse
+	pushBranchReq    chan<- PushBranchRequest
+	pushBranchResp   <-chan PushBranchResponse
 	closed           bool           // Set to true when Close() is called
 	closedMu         sync.RWMutex   // Guards closed flag
 	wg               sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
@@ -136,6 +146,19 @@ func WithSupervisorChannels(
 		s.listChildrenResp = listChildrenResp
 		s.mergeChildReq = mergeChildReq
 		s.mergeChildResp = mergeChildResp
+	}
+}
+
+// WithHostToolChannels sets the host tool channels on a SocketServer
+func WithHostToolChannels(
+	createPRReq chan<- CreatePRRequest, createPRResp <-chan CreatePRResponse,
+	pushBranchReq chan<- PushBranchRequest, pushBranchResp <-chan PushBranchResponse,
+) SocketServerOption {
+	return func(s *SocketServer) {
+		s.createPRReq = createPRReq
+		s.createPRResp = createPRResp
+		s.pushBranchReq = pushBranchReq
+		s.pushBranchResp = pushBranchResp
 	}
 }
 
@@ -315,6 +338,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 			s.handleListChildrenMessage(conn, msg.ListChildrenReq)
 		case MessageTypeMergeChild:
 			s.handleMergeChildMessage(conn, msg.MergeChildReq)
+		case MessageTypeCreatePR:
+			s.handleCreatePRMessage(conn, msg.CreatePRReq)
+		case MessageTypePushBranch:
+			s.handlePushBranchMessage(conn, msg.PushBranchReq)
 		default:
 			s.log.Warn("unknown message type", "type", msg.Type)
 		}
@@ -614,6 +641,86 @@ func (s *SocketServer) sendMergeChildResponse(conn net.Conn, resp MergeChildResp
 	}
 }
 
+func (s *SocketServer) handleCreatePRMessage(conn net.Conn, req *CreatePRRequest) {
+	if req == nil || s.createPRReq == nil {
+		s.log.Warn("create PR request ignored (nil request or no channel)")
+		s.sendCreatePRResponse(conn, CreatePRResponse{Success: false, Error: "Host tools not available"})
+		return
+	}
+
+	s.log.Info("received create PR request", "title", req.Title)
+
+	select {
+	case s.createPRReq <- *req:
+	case <-time.After(SocketReadTimeout):
+		s.log.Warn("timeout sending create PR request to TUI")
+		s.sendCreatePRResponse(conn, CreatePRResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
+		return
+	}
+
+	select {
+	case resp := <-s.createPRResp:
+		s.sendCreatePRResponse(conn, resp)
+		s.log.Info("sent create PR response", "success", resp.Success, "prURL", resp.PRURL)
+	case <-time.After(PermissionResponseTimeout):
+		s.log.Warn("timeout waiting for create PR response")
+		s.sendCreatePRResponse(conn, CreatePRResponse{ID: req.ID, Success: false, Error: "Timeout"})
+	}
+}
+
+func (s *SocketServer) sendCreatePRResponse(conn net.Conn, resp CreatePRResponse) {
+	msg := SocketMessage{Type: MessageTypeCreatePR, CreatePRResp: &resp}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Error("failed to marshal create PR response", "error", err)
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		s.log.Error("write error", "error", err)
+	}
+}
+
+func (s *SocketServer) handlePushBranchMessage(conn net.Conn, req *PushBranchRequest) {
+	if req == nil || s.pushBranchReq == nil {
+		s.log.Warn("push branch request ignored (nil request or no channel)")
+		s.sendPushBranchResponse(conn, PushBranchResponse{Success: false, Error: "Host tools not available"})
+		return
+	}
+
+	s.log.Info("received push branch request", "commitMessage", req.CommitMessage)
+
+	select {
+	case s.pushBranchReq <- *req:
+	case <-time.After(SocketReadTimeout):
+		s.log.Warn("timeout sending push branch request to TUI")
+		s.sendPushBranchResponse(conn, PushBranchResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
+		return
+	}
+
+	select {
+	case resp := <-s.pushBranchResp:
+		s.sendPushBranchResponse(conn, resp)
+		s.log.Info("sent push branch response", "success", resp.Success)
+	case <-time.After(PermissionResponseTimeout):
+		s.log.Warn("timeout waiting for push branch response")
+		s.sendPushBranchResponse(conn, PushBranchResponse{ID: req.ID, Success: false, Error: "Timeout"})
+	}
+}
+
+func (s *SocketServer) sendPushBranchResponse(conn net.Conn, resp PushBranchResponse) {
+	msg := SocketMessage{Type: MessageTypePushBranch, PushBranchResp: &resp}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Error("failed to marshal push branch response", "error", err)
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		s.log.Error("write error", "error", err)
+	}
+}
+
 // Close shuts down the socket server and waits for the Run() goroutine to exit.
 func (s *SocketServer) Close() error {
 	s.log.Info("closing socket server")
@@ -865,6 +972,58 @@ func (c *SocketClient) SendMergeChildRequest(req MergeChildRequest) (MergeChildR
 		return MergeChildResponse{}, fmt.Errorf("expected merge child response, got nil")
 	}
 	return *respMsg.MergeChildResp, nil
+}
+
+// SendCreatePRRequest sends a create PR request and waits for response
+func (c *SocketClient) SendCreatePRRequest(req CreatePRRequest) (CreatePRResponse, error) {
+	msg := SocketMessage{Type: MessageTypeCreatePR, CreatePRReq: &req}
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return CreatePRResponse{}, err
+	}
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
+		return CreatePRResponse{}, fmt.Errorf("write create PR request: %w", err)
+	}
+	c.conn.SetReadDeadline(time.Time{})
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return CreatePRResponse{}, fmt.Errorf("read create PR response: %w", err)
+	}
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return CreatePRResponse{}, err
+	}
+	if respMsg.CreatePRResp == nil {
+		return CreatePRResponse{}, fmt.Errorf("expected create PR response, got nil")
+	}
+	return *respMsg.CreatePRResp, nil
+}
+
+// SendPushBranchRequest sends a push branch request and waits for response
+func (c *SocketClient) SendPushBranchRequest(req PushBranchRequest) (PushBranchResponse, error) {
+	msg := SocketMessage{Type: MessageTypePushBranch, PushBranchReq: &req}
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return PushBranchResponse{}, err
+	}
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
+		return PushBranchResponse{}, fmt.Errorf("write push branch request: %w", err)
+	}
+	c.conn.SetReadDeadline(time.Time{})
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return PushBranchResponse{}, fmt.Errorf("read push branch response: %w", err)
+	}
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return PushBranchResponse{}, err
+	}
+	if respMsg.PushBranchResp == nil {
+		return PushBranchResponse{}, fmt.Errorf("expected push branch response, got nil")
+	}
+	return *respMsg.PushBranchResp, nil
 }
 
 // Close closes the client connection

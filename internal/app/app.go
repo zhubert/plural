@@ -239,6 +239,18 @@ type MergeChildCompleteMsg struct {
 	Error     error
 }
 
+// CreatePRRequestMsg is sent when the automated supervisor's MCP tool create_pr is called
+type CreatePRRequestMsg struct {
+	SessionID string
+	Request   mcp.CreatePRRequest
+}
+
+// PushBranchRequestMsg is sent when the automated supervisor's MCP tool push_branch is called
+type PushBranchRequestMsg struct {
+	SessionID string
+	Request   mcp.PushBranchRequest
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -755,6 +767,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MergeChildCompleteMsg:
 		return m.handleMergeChildCompleteMsg(msg)
+
+	case CreatePRRequestMsg:
+		return m.handleCreatePRRequestMsg(msg)
+
+	case PushBranchRequestMsg:
+		return m.handlePushBranchRequestMsg(msg)
+
+	case PRCreatedFromToolMsg:
+		return m.handlePRCreatedFromToolMsg(msg)
 
 	case PRPollTickMsg:
 		// Re-schedule next tick and check PR statuses for eligible sessions
