@@ -736,13 +736,6 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			t.Errorf("Expected focus 5 (repo selector), got %d", state.Focus)
 		}
 
-		// Focus 6: test command
-		m = sendKey(m, "tab")
-		state = m.modal.State.(*ui.SettingsState)
-		if state.Focus != 6 {
-			t.Errorf("Expected focus 6 (test command), got %d", state.Focus)
-		}
-
 		// Wrap around to theme
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
@@ -831,15 +824,8 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			t.Errorf("Expected focus 10 (repo selector), got %d", state.Focus)
 		}
 
-		// Focus 11: test command
-		m = sendKey(m, "tab")
-		state = m.modal.State.(*ui.SettingsState)
-		if state.Focus != 11 {
-			t.Errorf("Expected focus 11 (test command), got %d", state.Focus)
-		}
-
-		// Focus 12-15: per-repo autonomous fields (issue polling, issue label, auto-merge, test retries)
-		for i := 12; i <= 15; i++ {
+		// Focus 11-13: per-repo autonomous fields (issue polling, issue label, auto-merge)
+		for i := 11; i <= 13; i++ {
 			m = sendKey(m, "tab")
 			state = m.modal.State.(*ui.SettingsState)
 			if state.Focus != i {

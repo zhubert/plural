@@ -31,8 +31,6 @@ type Config struct {
 	AutoMaxTurns       int            `json:"auto_max_turns,omitempty"`        // Max autonomous turns before stopping (default 50)
 	AutoMaxDurationMin int            `json:"auto_max_duration_min,omitempty"` // Max autonomous duration in minutes (default 30)
 	AutoCleanupMerged  bool           `json:"auto_cleanup_merged,omitempty"`   // Auto-cleanup sessions when PR merged/closed
-	RepoTestCommand    map[string]string `json:"repo_test_command,omitempty"`    // Per-repo test command (e.g., "go test ./...")
-	RepoTestMaxRetries map[string]int    `json:"repo_test_max_retries,omitempty"` // Per-repo max test retries (default 3)
 	AutoAddressPRComments bool         `json:"auto_address_pr_comments,omitempty"` // Auto-fetch and address new PR review comments
 	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
 	RepoAutoMerge      map[string]bool  `json:"repo_auto_merge,omitempty"`      // Per-repo auto-merge after CI passes
@@ -129,12 +127,6 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.Workspaces == nil {
 		c.Workspaces = []Workspace{}
-	}
-	if c.RepoTestCommand == nil {
-		c.RepoTestCommand = make(map[string]string)
-	}
-	if c.RepoTestMaxRetries == nil {
-		c.RepoTestMaxRetries = make(map[string]int)
 	}
 	if c.RepoAutoMerge == nil {
 		c.RepoAutoMerge = make(map[string]bool)
@@ -481,57 +473,6 @@ func (c *Config) SetAutoCleanupMerged(enabled bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.AutoCleanupMerged = enabled
-}
-
-// GetRepoTestCommand returns the test command for a repo, or empty string if not configured
-func (c *Config) GetRepoTestCommand(repoPath string) string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.RepoTestCommand == nil {
-		return ""
-	}
-	return c.RepoTestCommand[repoPath]
-}
-
-// SetRepoTestCommand sets the test command for a repo
-func (c *Config) SetRepoTestCommand(repoPath, cmd string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.RepoTestCommand == nil {
-		c.RepoTestCommand = make(map[string]string)
-	}
-	if cmd == "" {
-		delete(c.RepoTestCommand, repoPath)
-	} else {
-		c.RepoTestCommand[repoPath] = cmd
-	}
-}
-
-// GetRepoTestMaxRetries returns the max test retries for a repo, defaulting to 3
-func (c *Config) GetRepoTestMaxRetries(repoPath string) int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.RepoTestMaxRetries == nil {
-		return 3
-	}
-	if n, ok := c.RepoTestMaxRetries[repoPath]; ok && n > 0 {
-		return n
-	}
-	return 3
-}
-
-// SetRepoTestMaxRetries sets the max test retries for a repo
-func (c *Config) SetRepoTestMaxRetries(repoPath string, n int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.RepoTestMaxRetries == nil {
-		c.RepoTestMaxRetries = make(map[string]int)
-	}
-	if n <= 0 {
-		delete(c.RepoTestMaxRetries, repoPath)
-	} else {
-		c.RepoTestMaxRetries[repoPath] = n
-	}
 }
 
 // GetAutoAddressPRComments returns whether auto-addressing PR comments is enabled

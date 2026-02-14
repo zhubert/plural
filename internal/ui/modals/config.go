@@ -2,7 +2,6 @@ package modals
 
 import (
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -258,9 +257,7 @@ type SettingsState struct {
 	RepoIssuePolling   map[string]bool
 	RepoIssueLabels    map[string]string
 	RepoAutoMerge      map[string]bool
-	RepoTestMaxRetries map[string]string
 	IssueLabelInput    textinput.Model
-	TestMaxRetriesInput textinput.Model
 
 	AsanaPATSet bool // Whether ASANA_PAT env var is set
 	Focus       int  // 0=theme, 1=branch prefix, 2=notifications, [3=container image if supported], then repo selector, asana
@@ -269,9 +266,6 @@ type SettingsState struct {
 	Repos             []string          // All registered repos
 	SelectedRepoIndex int               // Currently displayed repo
 	AsanaSelectedGIDs map[string]string // Per-repo selected Asana project GIDs
-	RepoTestCommands  map[string]string // Per-repo test commands
-	TestCommandInput  textinput.Model   // Test command input for selected repo
-
 	// Asana project selector (replaces text input)
 	AsanaProjectOptions []AsanaProjectOption // All fetched projects (cached for modal lifetime)
 	AsanaSearchInput    textinput.Model      // Search/filter text input
@@ -300,7 +294,6 @@ func (s *SettingsState) SetSize(width, height int) {
 	s.AutoMaxDurationInput.SetWidth(contentWidth)
 	s.IssueMaxConcurrentInput.SetWidth(contentWidth)
 	s.IssueLabelInput.SetWidth(contentWidth)
-	s.TestMaxRetriesInput.SetWidth(contentWidth)
 	// Search input is slightly narrower to account for extra padding
 	s.AsanaSearchInput.SetWidth(contentWidth - 4)
 }
@@ -332,347 +325,93 @@ func (s *SettingsState) Help() string {
 func (s *SettingsState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
-	// Theme selector
+	// --- General section ---
+	generalHeader := s.renderSectionHeader("General")
+
 	themeLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		Render("Theme:")
-
-	themeSelectorStyle := lipgloss.NewStyle()
-	if s.Focus == 0 {
-		themeSelectorStyle = themeSelectorStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		themeSelectorStyle = themeSelectorStyle.PaddingLeft(2)
-	}
-	leftArrowTheme := " "
-	rightArrowTheme := " "
-	if s.SelectedThemeIndex > 0 {
-		leftArrowTheme = lipgloss.NewStyle().Foreground(ColorPrimary).Render("<")
-	}
-	if s.SelectedThemeIndex < len(s.Themes)-1 {
-		rightArrowTheme = lipgloss.NewStyle().Foreground(ColorPrimary).Render(">")
-	}
 	themeName := ""
 	if s.SelectedThemeIndex < len(s.ThemeDisplayNames) {
 		themeName = s.ThemeDisplayNames[s.SelectedThemeIndex]
 	}
-	themeDisplay := lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(themeName)
-	themeView := themeSelectorStyle.Render(leftArrowTheme + " " + themeDisplay + " " + rightArrowTheme)
+	themeView := s.renderSelectorField(themeName, s.SelectedThemeIndex, len(s.Themes), 0)
 
-	// Branch prefix field
-	prefixLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("Default branch prefix:")
+	prefixView := s.renderInputField(
+		"Default branch prefix",
+		"Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")",
+		s.BranchPrefixInput, 1)
 
-	prefixDesc := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true).
-		Width(s.contentWidth()).
-		Render("Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")")
+	notifView := s.renderCheckboxField(
+		"Desktop notifications",
+		"Notify when Claude finishes while app is in background",
+		s.NotificationsEnabled, 2)
 
-	prefixInputStyle := lipgloss.NewStyle()
-	if s.Focus == 1 {
-		prefixInputStyle = prefixInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		prefixInputStyle = prefixInputStyle.PaddingLeft(2)
-	}
-	prefixView := prefixInputStyle.Render(s.BranchPrefixInput.View())
+	cleanupView := s.renderCheckboxField(
+		"Auto-cleanup merged sessions",
+		"Automatically delete sessions when their PR is merged or closed",
+		s.AutoCleanupMerged, 3)
 
-	// Notifications checkbox
-	notifLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("Desktop notifications:")
+	broadcastPRView := s.renderCheckboxField(
+		"Auto-create broadcast PRs",
+		"Auto-create PRs when all broadcast group sessions complete",
+		s.AutoBroadcastPR, 4)
 
-	notifCheckbox := "[ ]"
-	if s.NotificationsEnabled {
-		notifCheckbox = "[x]"
-	}
-	notifCheckboxStyle := lipgloss.NewStyle()
-	if s.Focus == 2 {
-		notifCheckboxStyle = notifCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		notifCheckboxStyle = notifCheckboxStyle.PaddingLeft(2)
-	}
-	notifDesc := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true).
-		Render("Notify when Claude finishes while app is in background")
-	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
+	parts := []string{title, generalHeader, themeLabel, themeView, prefixView, notifView, cleanupView, broadcastPRView}
 
-	// Auto-cleanup merged sessions checkbox
-	cleanupLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("Auto-cleanup merged sessions:")
-
-	cleanupCheckbox := "[ ]"
-	if s.AutoCleanupMerged {
-		cleanupCheckbox = "[x]"
-	}
-	cleanupCheckboxStyle := lipgloss.NewStyle()
-	if s.Focus == 3 {
-		cleanupCheckboxStyle = cleanupCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		cleanupCheckboxStyle = cleanupCheckboxStyle.PaddingLeft(2)
-	}
-	cleanupDesc := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true).
-		Width(s.contentWidth()).
-		Render("Automatically delete sessions when their PR is merged or closed")
-	cleanupView := cleanupCheckboxStyle.Render(cleanupCheckbox + " " + cleanupDesc)
-
-	// Auto-broadcast PR checkbox
-	broadcastPRLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("Auto-create broadcast PRs:")
-
-	broadcastPRCheckbox := "[ ]"
-	if s.AutoBroadcastPR {
-		broadcastPRCheckbox = "[x]"
-	}
-	broadcastPRCheckboxStyle := lipgloss.NewStyle()
-	if s.Focus == 4 {
-		broadcastPRCheckboxStyle = broadcastPRCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		broadcastPRCheckboxStyle = broadcastPRCheckboxStyle.PaddingLeft(2)
-	}
-	broadcastPRDesc := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Italic(true).
-		Width(s.contentWidth()).
-		Render("Auto-create PRs when all broadcast group sessions complete")
-	broadcastPRView := broadcastPRCheckboxStyle.Render(broadcastPRCheckbox + " " + broadcastPRDesc)
-
-	// Container image field (only on Apple Silicon) - collected for later append
-	var containerParts []string
+	// Container image field (only on Apple Silicon)
 	if s.ContainersSupported {
-		containerLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Container image:")
-
-		containerDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(s.contentWidth()).
-			Render("Image name used for container mode sessions")
-
-		containerInputStyle := lipgloss.NewStyle()
-		if s.Focus == s.containerImageFocusIndex() {
-			containerInputStyle = containerInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			containerInputStyle = containerInputStyle.PaddingLeft(2)
-		}
-		containerView := containerInputStyle.Render(s.ContainerImageInput.View())
-
-		containerParts = []string{containerLabel, containerDesc, containerView}
+		containerView := s.renderInputField(
+			"Container image",
+			"Image name used for container mode sessions",
+			s.ContainerImageInput, s.containerImageFocusIndex())
+		parts = append(parts, containerView)
 	}
 
-	// Autonomous section (gated on ContainersSupported)
-	var autonomousParts []string
+	// --- Autonomous section ---
 	if s.ContainersSupported {
-		autoSectionHeader := lipgloss.NewStyle().
-			Foreground(ColorSecondary).
-			Bold(true).
-			MarginTop(1).
-			Render("Autonomous:")
+		autoHeader := s.renderSectionHeader("Autonomous:")
 
-		// Auto-address PR comments checkbox
-		autoAddressLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Auto-address PR comments:")
+		autoAddressView := s.renderCheckboxField(
+			"Auto-address PR comments",
+			"Auto-fetch and address new PR review comments",
+			s.AutoAddressPRComments, s.autoAddressFocusIndex())
 
-		autoAddressCheckbox := "[ ]"
-		if s.AutoAddressPRComments {
-			autoAddressCheckbox = "[x]"
-		}
-		autoAddressStyle := lipgloss.NewStyle()
-		if s.Focus == s.autoAddressFocusIndex() {
-			autoAddressStyle = autoAddressStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			autoAddressStyle = autoAddressStyle.PaddingLeft(2)
-		}
-		autoAddressDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(s.contentWidth()).
-			Render("Auto-fetch and address new PR review comments")
-		autoAddressView := autoAddressStyle.Render(autoAddressCheckbox + " " + autoAddressDesc)
+		maxTurnsView := s.renderInputField("Max autonomous turns", "",
+			s.AutoMaxTurnsInput, s.autoMaxTurnsFocusIndex())
+		maxDurationView := s.renderInputField("Max autonomous duration (min)", "",
+			s.AutoMaxDurationInput, s.autoMaxDurationFocusIndex())
+		maxConcurrentView := s.renderInputField("Max concurrent auto-sessions", "",
+			s.IssueMaxConcurrentInput, s.issueMaxConcurrentFocusIndex())
 
-		// Max autonomous turns
-		maxTurnsLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Max autonomous turns:")
-		maxTurnsStyle := lipgloss.NewStyle()
-		if s.Focus == s.autoMaxTurnsFocusIndex() {
-			maxTurnsStyle = maxTurnsStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			maxTurnsStyle = maxTurnsStyle.PaddingLeft(2)
-		}
-		maxTurnsView := maxTurnsStyle.Render(s.AutoMaxTurnsInput.View())
-
-		// Max autonomous duration
-		maxDurationLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Max autonomous duration (min):")
-		maxDurationStyle := lipgloss.NewStyle()
-		if s.Focus == s.autoMaxDurationFocusIndex() {
-			maxDurationStyle = maxDurationStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			maxDurationStyle = maxDurationStyle.PaddingLeft(2)
-		}
-		maxDurationView := maxDurationStyle.Render(s.AutoMaxDurationInput.View())
-
-		// Max concurrent sessions
-		maxConcurrentLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Max concurrent auto-sessions:")
-		maxConcurrentStyle := lipgloss.NewStyle()
-		if s.Focus == s.issueMaxConcurrentFocusIndex() {
-			maxConcurrentStyle = maxConcurrentStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			maxConcurrentStyle = maxConcurrentStyle.PaddingLeft(2)
-		}
-		maxConcurrentView := maxConcurrentStyle.Render(s.IssueMaxConcurrentInput.View())
-
-		autonomousParts = []string{autoSectionHeader, autoAddressLabel, autoAddressView, maxTurnsLabel, maxTurnsView, maxDurationLabel, maxDurationView, maxConcurrentLabel, maxConcurrentView}
+		parts = append(parts, autoHeader, autoAddressView, maxTurnsView, maxDurationView, maxConcurrentView)
 	}
 
-	// Per-repo settings (shown when repos exist)
-	var repoSections []string
+	// --- Per-repo settings ---
 	if len(s.Repos) > 0 {
-		// Section header
-		sectionHeader := lipgloss.NewStyle().
-			Foreground(ColorSecondary).
-			Bold(true).
-			MarginTop(1).
-			Render("Per-repo settings:")
-
-		// Repo selector
+		sectionHeader := s.renderSectionHeader("Per-repo settings:")
 		repoName := filepath.Base(s.selectedRepoPath())
-		selectorStyle := lipgloss.NewStyle()
-		if s.Focus == s.repoSelectorFocusIndex() {
-			selectorStyle = selectorStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			selectorStyle = selectorStyle.PaddingLeft(2)
-		}
-		leftArrow := " "
-		rightArrow := " "
-		if s.SelectedRepoIndex > 0 {
-			leftArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render("<")
-		}
-		if s.SelectedRepoIndex < len(s.Repos)-1 {
-			rightArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render(">")
-		}
-		repoDisplay := lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(repoName)
-		selectorView := selectorStyle.Render(leftArrow + " " + repoDisplay + " " + rightArrow)
-		repoSections = append(repoSections, sectionHeader+"\n"+selectorView)
+		repoView := s.renderSelectorField(repoName, s.SelectedRepoIndex, len(s.Repos), s.repoSelectorFocusIndex())
+		parts = append(parts, sectionHeader+"\n"+repoView)
 
-		// Test command input
-		testLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Test command:")
-
-		testDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(s.contentWidth()).
-			Render("Run after autonomous sessions complete (e.g., \"go test ./...\")")
-
-		testInputStyle := lipgloss.NewStyle()
-		if s.Focus == s.testCommandFocusIndex() {
-			testInputStyle = testInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			testInputStyle = testInputStyle.PaddingLeft(2)
-		}
-		testView := testInputStyle.Render(s.TestCommandInput.View())
-		repoSections = append(repoSections, testLabel+"\n"+testDesc+"\n"+testView)
-
-		// Per-repo autonomous settings (gated on ContainersSupported)
 		if s.ContainersSupported {
 			repo := s.selectedRepoPath()
 
-			// Issue polling checkbox
-			issuePollingLabel := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				MarginTop(1).
-				Render("Issue polling:")
-			issuePollingCheckbox := "[ ]"
-			if s.RepoIssuePolling[repo] {
-				issuePollingCheckbox = "[x]"
-			}
-			issuePollingStyle := lipgloss.NewStyle()
-			if s.Focus == s.issuePollingFocusIndex() {
-				issuePollingStyle = issuePollingStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-			} else {
-				issuePollingStyle = issuePollingStyle.PaddingLeft(2)
-			}
-			issuePollingDesc := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Italic(true).
-				Width(s.contentWidth()).
-				Render("Auto-poll for new issues and create sessions")
-			issuePollingView := issuePollingStyle.Render(issuePollingCheckbox + " " + issuePollingDesc)
-			repoSections = append(repoSections, issuePollingLabel+"\n"+issuePollingView)
+			issuePollingView := s.renderCheckboxField(
+				"Issue polling",
+				"Auto-poll for new issues and create sessions",
+				s.RepoIssuePolling[repo], s.issuePollingFocusIndex())
+			parts = append(parts, issuePollingView)
 
-			// Issue filter label
-			issueLabelLabel := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				MarginTop(1).
-				Render("Issue filter label:")
-			issueLabelStyle := lipgloss.NewStyle()
-			if s.Focus == s.issueLabelFocusIndex() {
-				issueLabelStyle = issueLabelStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-			} else {
-				issueLabelStyle = issueLabelStyle.PaddingLeft(2)
-			}
-			issueLabelView := issueLabelStyle.Render(s.IssueLabelInput.View())
-			repoSections = append(repoSections, issueLabelLabel+"\n"+issueLabelView)
+			issueLabelView := s.renderInputField("Issue filter label", "",
+				s.IssueLabelInput, s.issueLabelFocusIndex())
+			parts = append(parts, issueLabelView)
 
-			// Auto-merge checkbox
-			autoMergeLabel := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				MarginTop(1).
-				Render("Auto-merge after CI:")
-			autoMergeCheckbox := "[ ]"
-			if s.RepoAutoMerge[repo] {
-				autoMergeCheckbox = "[x]"
-			}
-			autoMergeStyle := lipgloss.NewStyle()
-			if s.Focus == s.autoMergeFocusIndex() {
-				autoMergeStyle = autoMergeStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-			} else {
-				autoMergeStyle = autoMergeStyle.PaddingLeft(2)
-			}
-			autoMergeDesc := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Italic(true).
-				Width(s.contentWidth()).
-				Render("Auto-merge PR when CI passes")
-			autoMergeView := autoMergeStyle.Render(autoMergeCheckbox + " " + autoMergeDesc)
-			repoSections = append(repoSections, autoMergeLabel+"\n"+autoMergeView)
-
-			// Test max retries
-			testRetriesLabel := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				MarginTop(1).
-				Render("Test max retries:")
-			testRetriesStyle := lipgloss.NewStyle()
-			if s.Focus == s.testMaxRetriesFocusIndex() {
-				testRetriesStyle = testRetriesStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-			} else {
-				testRetriesStyle = testRetriesStyle.PaddingLeft(2)
-			}
-			testRetriesView := testRetriesStyle.Render(s.TestMaxRetriesInput.View())
-			repoSections = append(repoSections, testRetriesLabel+"\n"+testRetriesView)
+			autoMergeView := s.renderCheckboxField(
+				"Auto-merge after CI",
+				"Auto-merge PR when CI passes",
+				s.RepoAutoMerge[repo], s.autoMergeFocusIndex())
+			parts = append(parts, autoMergeView)
 		}
 
 		// Asana project selector (only shown when PAT is set)
@@ -697,20 +436,87 @@ func (s *SettingsState) Render() string {
 				asanaStyle = asanaStyle.PaddingLeft(2)
 			}
 			asanaView := asanaStyle.Render(asanaContent)
-			repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+			parts = append(parts, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
 		}
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
-
-	parts := []string{title, themeLabel, themeView, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, cleanupLabel, cleanupView, broadcastPRLabel, broadcastPRView}
-	parts = append(parts, containerParts...)
-	parts = append(parts, autonomousParts...)
-	for _, section := range repoSections {
-		parts = append(parts, section)
-	}
 	parts = append(parts, help)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderSectionHeader renders a bold secondary-colored section title.
+func (s *SettingsState) renderSectionHeader(title string) string {
+	return lipgloss.NewStyle().
+		Foreground(ColorSecondary).
+		Bold(true).
+		MarginTop(1).
+		Render(title)
+}
+
+// renderCheckboxField renders a compact single-line checkbox with focus border.
+// Format: [x] Label — description
+func (s *SettingsState) renderCheckboxField(label, desc string, checked bool, focusIdx int) string {
+	checkbox := "[ ]"
+	if checked {
+		checkbox = "[x]"
+	}
+
+	labelText := lipgloss.NewStyle().Bold(true).Foreground(ColorText).Render(label)
+	descText := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true).Render(desc)
+	content := checkbox + " " + labelText + " — " + descText
+
+	style := lipgloss.NewStyle()
+	if s.Focus == focusIdx {
+		style = style.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		style = style.PaddingLeft(2)
+	}
+	return style.Render(content)
+}
+
+// renderInputField renders a label+desc line with text input below, focus border on input.
+// If desc is empty, only the label is shown on the header line.
+func (s *SettingsState) renderInputField(label, desc string, input textinput.Model, focusIdx int) string {
+	labelText := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(label)
+	var headerLine string
+	if desc != "" {
+		descText := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Render(desc)
+		headerLine = labelText + " — " + descText
+	} else {
+		headerLine = labelText
+	}
+
+	inputStyle := lipgloss.NewStyle()
+	if s.Focus == focusIdx {
+		inputStyle = inputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		inputStyle = inputStyle.PaddingLeft(2)
+	}
+	return headerLine + "\n" + inputStyle.Render(input.View())
+}
+
+// renderSelectorField renders a left/right arrow selector with focus border.
+func (s *SettingsState) renderSelectorField(displayName string, index, total, focusIdx int) string {
+	style := lipgloss.NewStyle()
+	if s.Focus == focusIdx {
+		style = style.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		style = style.PaddingLeft(2)
+	}
+	leftArrow := " "
+	rightArrow := " "
+	if index > 0 {
+		leftArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render("<")
+	}
+	if index < total-1 {
+		rightArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render(">")
+	}
+	display := lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(displayName)
+	return style.Render(leftArrow + " " + display + " " + rightArrow)
 }
 
 // renderAsanaSelector renders the Asana project search and selection UI.
@@ -822,9 +628,9 @@ func (s *SettingsState) numFields() int {
 		base += 4 // auto-address PR, max turns, max duration, max concurrent
 	}
 	if len(s.Repos) > 0 {
-		base += 2 // repo selector, test command
+		base++ // repo selector
 		if s.ContainersSupported {
-			base += 4 // issue polling, issue label, auto-merge, test max retries
+			base += 3 // issue polling, issue label, auto-merge
 		}
 		if s.AsanaPATSet {
 			base++ // asana
@@ -868,14 +674,9 @@ func (s *SettingsState) repoSelectorFocusIndex() int {
 	return base
 }
 
-// testCommandFocusIndex returns the focus index for the test command field.
-func (s *SettingsState) testCommandFocusIndex() int {
-	return s.repoSelectorFocusIndex() + 1
-}
-
 // issuePollingFocusIndex returns the focus index for issue polling checkbox.
 func (s *SettingsState) issuePollingFocusIndex() int {
-	return s.testCommandFocusIndex() + 1
+	return s.repoSelectorFocusIndex() + 1
 }
 
 // issueLabelFocusIndex returns the focus index for issue filter label input.
@@ -888,17 +689,12 @@ func (s *SettingsState) autoMergeFocusIndex() int {
 	return s.issueLabelFocusIndex() + 1
 }
 
-// testMaxRetriesFocusIndex returns the focus index for test max retries input.
-func (s *SettingsState) testMaxRetriesFocusIndex() int {
-	return s.autoMergeFocusIndex() + 1
-}
-
 // asanaFocusIndex returns the focus index for the Asana project field.
 // Only meaningful when AsanaPATSet is true.
 func (s *SettingsState) asanaFocusIndex() int {
-	base := s.testCommandFocusIndex() + 1
+	base := s.repoSelectorFocusIndex() + 1
 	if s.ContainersSupported {
-		base += 4 // issue polling, issue label, auto-merge, test max retries
+		base += 3 // issue polling, issue label, auto-merge
 	}
 	return base
 }
@@ -915,10 +711,8 @@ func (s *SettingsState) selectedRepoPath() string {
 func (s *SettingsState) flushCurrentToMaps() {
 	repo := s.selectedRepoPath()
 	if repo != "" {
-		s.RepoTestCommands[repo] = s.TestCommandInput.Value()
 		if s.ContainersSupported {
 			s.RepoIssueLabels[repo] = s.IssueLabelInput.Value()
-			s.RepoTestMaxRetries[repo] = s.TestMaxRetriesInput.Value()
 		}
 	}
 }
@@ -928,13 +722,11 @@ func (s *SettingsState) loadRepoValues() {
 	s.AsanaSearchInput.SetValue("")
 	s.AsanaCursorIndex = 0
 	s.AsanaScrollOffset = 0
-	// Load test command for selected repo
+	// Load values for selected repo
 	repo := s.selectedRepoPath()
 	if repo != "" {
-		s.TestCommandInput.SetValue(s.RepoTestCommands[repo])
 		if s.ContainersSupported {
 			s.IssueLabelInput.SetValue(s.RepoIssueLabels[repo])
-			s.TestMaxRetriesInput.SetValue(s.RepoTestMaxRetries[repo])
 		}
 	}
 }
@@ -1074,13 +866,6 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		return s, cmd
 	}
 
-	// Handle text input updates when focused on test command
-	if len(s.Repos) > 0 && s.Focus == s.testCommandFocusIndex() {
-		var cmd tea.Cmd
-		s.TestCommandInput, cmd = s.TestCommandInput.Update(msg)
-		return s, cmd
-	}
-
 	// Handle text input updates for autonomous global fields
 	if s.ContainersSupported {
 		switch s.Focus {
@@ -1105,10 +890,6 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case s.issueLabelFocusIndex():
 			var cmd tea.Cmd
 			s.IssueLabelInput, cmd = s.IssueLabelInput.Update(msg)
-			return s, cmd
-		case s.testMaxRetriesFocusIndex():
-			var cmd tea.Cmd
-			s.TestMaxRetriesInput, cmd = s.TestMaxRetriesInput.Update(msg)
 			return s, cmd
 		}
 	}
@@ -1147,13 +928,11 @@ func (s *SettingsState) updateInputFocus() {
 	// Blur all first
 	s.BranchPrefixInput.Blur()
 	s.ContainerImageInput.Blur()
-	s.TestCommandInput.Blur()
 	s.AsanaSearchInput.Blur()
 	s.AutoMaxTurnsInput.Blur()
 	s.AutoMaxDurationInput.Blur()
 	s.IssueMaxConcurrentInput.Blur()
 	s.IssueLabelInput.Blur()
-	s.TestMaxRetriesInput.Blur()
 
 	// Focus the active one
 	switch {
@@ -1167,12 +946,8 @@ func (s *SettingsState) updateInputFocus() {
 		s.AutoMaxDurationInput.Focus()
 	case s.ContainersSupported && s.Focus == s.issueMaxConcurrentFocusIndex():
 		s.IssueMaxConcurrentInput.Focus()
-	case len(s.Repos) > 0 && s.Focus == s.testCommandFocusIndex():
-		s.TestCommandInput.Focus()
 	case s.ContainersSupported && len(s.Repos) > 0 && s.Focus == s.issueLabelFocusIndex():
 		s.IssueLabelInput.Focus()
-	case s.ContainersSupported && len(s.Repos) > 0 && s.Focus == s.testMaxRetriesFocusIndex():
-		s.TestMaxRetriesInput.Focus()
 	case s.AsanaPATSet && s.Focus == s.asanaFocusIndex():
 		s.AsanaSearchInput.Focus()
 	}
@@ -1232,16 +1007,6 @@ func (s *SettingsState) GetAllAsanaProjects() map[string]string {
 	return result
 }
 
-// GetAllTestCommands returns a copy of all per-repo test commands.
-func (s *SettingsState) GetAllTestCommands() map[string]string {
-	s.flushCurrentToMaps()
-	result := make(map[string]string, len(s.RepoTestCommands))
-	for k, v := range s.RepoTestCommands {
-		result[k] = v
-	}
-	return result
-}
-
 // GetAllIssuePolling returns a copy of all per-repo issue polling settings.
 func (s *SettingsState) GetAllIssuePolling() map[string]bool {
 	s.flushCurrentToMaps()
@@ -1272,17 +1037,6 @@ func (s *SettingsState) GetAllAutoMerge() map[string]bool {
 	return result
 }
 
-// GetAllTestMaxRetries returns a copy of all per-repo test max retries as ints.
-func (s *SettingsState) GetAllTestMaxRetries() map[string]int {
-	s.flushCurrentToMaps()
-	result := make(map[string]int, len(s.RepoTestMaxRetries))
-	for k, v := range s.RepoTestMaxRetries {
-		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
-			result[k] = n
-		}
-	}
-	return result
-}
 
 // SetAsanaProjects populates the project options and clears the loading state.
 func (s *SettingsState) SetAsanaProjects(options []AsanaProjectOption) {
@@ -1343,11 +1097,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	searchInput.CharLimit = 100
 	searchInput.SetWidth(ModalWidthWide - 14) // Will be updated by SetSize()
 
-	testCmdInput := textinput.New()
-	testCmdInput.Placeholder = "e.g., go test ./... (leave empty to disable)"
-	testCmdInput.CharLimit = 200
-	testCmdInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
-
 	autoMaxTurnsInput := textinput.New()
 	autoMaxTurnsInput.Placeholder = "50"
 	autoMaxTurnsInput.CharLimit = 5
@@ -1368,11 +1117,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	issueLabelInput.CharLimit = 100
 	issueLabelInput.SetWidth(ModalWidthWide - 10)
 
-	testMaxRetriesInput := textinput.New()
-	testMaxRetriesInput.Placeholder = "3"
-	testMaxRetriesInput.CharLimit = 3
-	testMaxRetriesInput.SetWidth(ModalWidthWide - 10)
-
 	return &SettingsState{
 		Themes:                  themes,
 		ThemeDisplayNames:       themeDisplayNames,
@@ -1388,16 +1132,12 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		RepoIssuePolling:        make(map[string]bool),
 		RepoIssueLabels:         make(map[string]string),
 		RepoAutoMerge:           make(map[string]bool),
-		RepoTestMaxRetries:      make(map[string]string),
 		IssueLabelInput:         issueLabelInput,
-		TestMaxRetriesInput:     testMaxRetriesInput,
 		AsanaPATSet:             asanaPATSet,
 		Focus:                   0,
 		Repos:                   repos,
 		SelectedRepoIndex:       defaultRepoIndex,
 		AsanaSelectedGIDs:       ap,
-		RepoTestCommands:        make(map[string]string),
-		TestCommandInput:        testCmdInput,
 		AsanaSearchInput:        searchInput,
 		AsanaLoading:            asanaPATSet,
 		availableWidth:          ModalWidthWide, // Default, will be updated by SetSize()

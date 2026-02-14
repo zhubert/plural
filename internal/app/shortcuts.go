@@ -158,22 +158,6 @@ var ShortcutRegistry = []Shortcut{
 		},
 	},
 
-	{
-		Key:             "T",
-		Description:     "Run tests",
-		Category:        CategorySessions,
-		RequiresSidebar: true,
-		RequiresSession: true,
-		Handler:         shortcutRunTests,
-		Condition: func(m *Model) bool {
-			sess := m.sidebar.SelectedSession()
-			if sess == nil {
-				return false
-			}
-			return m.config.GetRepoTestCommand(sess.RepoPath) != ""
-		},
-	},
-
 	// Git Operations
 	{
 		Key:             keys.CtrlE,
@@ -701,12 +685,6 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	settingsState.AutoMaxTurnsInput.SetValue(strconv.Itoa(m.config.GetAutoMaxTurns()))
 	settingsState.AutoMaxDurationInput.SetValue(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
 	settingsState.IssueMaxConcurrentInput.SetValue(strconv.Itoa(m.config.GetIssueMaxConcurrent()))
-	// Populate per-repo test commands
-	for _, repo := range repos {
-		if cmd := m.config.GetRepoTestCommand(repo); cmd != "" {
-			settingsState.RepoTestCommands[repo] = cmd
-		}
-	}
 	// Populate per-repo autonomous settings
 	for _, repo := range repos {
 		if m.config.GetRepoIssuePolling(repo) {
@@ -718,15 +696,11 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 		if m.config.GetRepoAutoMerge(repo) {
 			settingsState.RepoAutoMerge[repo] = true
 		}
-		settingsState.RepoTestMaxRetries[repo] = strconv.Itoa(m.config.GetRepoTestMaxRetries(repo))
 	}
 	// Load values for the initially selected repo
-	initialRepo := ""
 	if len(repos) > 0 {
-		initialRepo = repos[defaultRepoIndex]
-		settingsState.TestCommandInput.SetValue(settingsState.RepoTestCommands[initialRepo])
+		initialRepo := repos[defaultRepoIndex]
 		settingsState.IssueLabelInput.SetValue(settingsState.RepoIssueLabels[initialRepo])
-		settingsState.TestMaxRetriesInput.SetValue(settingsState.RepoTestMaxRetries[initialRepo])
 	}
 	m.modal.Show(settingsState)
 
@@ -1131,28 +1105,6 @@ func shortcutToggleAutonomous(m *Model) (tea.Model, tea.Cmd) {
 		return m, m.ShowFlashSuccess("Autonomous mode enabled")
 	}
 	return m, m.ShowFlashInfo("Autonomous mode disabled")
-}
-
-func shortcutRunTests(m *Model) (tea.Model, tea.Cmd) {
-	sess := m.sidebar.SelectedSession()
-	if sess == nil {
-		return m, nil
-	}
-
-	testCmd := m.config.GetRepoTestCommand(sess.RepoPath)
-	if testCmd == "" {
-		return m, m.ShowFlashWarning("No test command configured for this repo")
-	}
-
-	isActiveSession := m.activeSession != nil && m.activeSession.ID == sess.ID
-	runMsg := fmt.Sprintf("[RUNNING TESTS] %s\n", testCmd)
-	if isActiveSession {
-		m.chat.AppendStreaming("\n" + runMsg)
-	} else {
-		m.sessionState().GetOrCreate(sess.ID).AppendStreamingContent("\n" + runMsg)
-	}
-
-	return m, runTestsForSession(sess.ID, sess.WorkTree, testCmd, 1)
 }
 
 func shortcutMultiSelect(m *Model) (tea.Model, tea.Cmd) {

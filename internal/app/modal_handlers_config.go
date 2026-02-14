@@ -389,9 +389,6 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		for repo, gid := range state.GetAllAsanaProjects() {
 			m.config.SetAsanaProject(repo, gid)
 		}
-		for repo, testCmd := range state.GetAllTestCommands() {
-			m.config.SetRepoTestCommand(repo, testCmd)
-		}
 		// Save per-repo autonomous settings
 		if state.ContainersSupported {
 			for repo, enabled := range state.GetAllIssuePolling() {
@@ -403,10 +400,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 			for repo, enabled := range state.GetAllAutoMerge() {
 				m.config.SetRepoAutoMerge(repo, enabled)
 			}
-			for repo, n := range state.GetAllTestMaxRetries() {
-				m.config.SetRepoTestMaxRetries(repo, n)
 			}
-		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())

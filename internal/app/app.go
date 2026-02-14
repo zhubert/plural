@@ -198,14 +198,6 @@ type SessionPipelineCompleteMsg struct {
 	TestsPassed bool
 }
 
-// TestRunResultMsg is sent when a test run completes for a session.
-type TestRunResultMsg struct {
-	SessionID string
-	Output    string
-	ExitCode  int
-	Iteration int
-}
-
 // AutonomousLimitReachedMsg is sent when an autonomous session hits its turn or duration limit.
 type AutonomousLimitReachedMsg struct {
 	SessionID string
@@ -763,9 +755,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SessionPipelineCompleteMsg:
 		return m.handleSessionPipelineCompleteMsg(msg)
-
-	case TestRunResultMsg:
-		return m.handleTestRunResultMsg(msg)
 
 	case AutonomousLimitReachedMsg:
 		return m.handleAutonomousLimitReachedMsg(msg)
