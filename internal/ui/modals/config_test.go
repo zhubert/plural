@@ -43,8 +43,8 @@ func TestSettingsState_NumFields_WithRepo_AsanaPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if n := s.numFields(); n != 8 {
-		t.Errorf("Expected 8 fields with repo and Asana PAT, got %d", n)
+	if n := s.numFields(); n != 7 {
+		t.Errorf("Expected 7 fields with repo and Asana PAT, got %d", n)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestSettingsState_NumFields_WithRepo_NoAsanaPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false)
-	if n := s.numFields(); n != 7 {
-		t.Errorf("Expected 7 fields with repo but no Asana PAT, got %d", n)
+	if n := s.numFields(); n != 6 {
+		t.Errorf("Expected 6 fields with repo but no Asana PAT, got %d", n)
 	}
 }
 
@@ -63,8 +63,8 @@ func TestSettingsState_AsanaFocusIndex(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if idx := s.asanaFocusIndex(); idx != 7 {
-		t.Errorf("Expected asana focus index 7, got %d", idx)
+	if idx := s.asanaFocusIndex(); idx != 6 {
+		t.Errorf("Expected asana focus index 6, got %d", idx)
 	}
 }
 
@@ -79,8 +79,8 @@ func TestSettingsState_TabCycle_WithRepo(t *testing.T) {
 		t.Fatalf("Expected initial focus 0, got %d", s.Focus)
 	}
 
-	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 0 (8 fields: theme, branch, notifs, cleanup, broadcast, repo, test, asana)
-	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 0}
+	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 0 (7 fields: theme, branch, notifs, cleanup, broadcast, repo, asana)
+	expectedFoci := []int{1, 2, 3, 4, 5, 6, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -94,8 +94,8 @@ func TestSettingsState_TabCycle_WithRepo_NoPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false)
-	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 0 (7 fields: theme, branch, notifs, cleanup, broadcast, repo, test)
-	expectedFoci := []int{1, 2, 3, 4, 5, 6, 0}
+	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 0 (6 fields: theme, branch, notifs, cleanup, broadcast, repo)
+	expectedFoci := []int{1, 2, 3, 4, 5, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -1056,8 +1056,8 @@ func TestSettingsState_NumFields_WithContainersAndRepoAndPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if n := s.numFields(); n != 17 {
-		t.Errorf("Expected 17 fields with containers, repo and PAT, got %d", n)
+	if n := s.numFields(); n != 15 {
+		t.Errorf("Expected 15 fields with containers, repo and PAT, got %d", n)
 	}
 }
 
@@ -1094,9 +1094,9 @@ func TestSettingsState_AsanaFocusIndex_WithContainers(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	// repo=10, test=11, issuePolling=12, issueLabel=13, autoMerge=14, testRetries=15, asana=16
-	if idx := s.asanaFocusIndex(); idx != 16 {
-		t.Errorf("Expected asana focus index 16 with containers, got %d", idx)
+	// repo=10, issuePolling=11, issueLabel=12, autoMerge=13, asana=14
+	if idx := s.asanaFocusIndex(); idx != 14 {
+		t.Errorf("Expected asana focus index 14 with containers, got %d", idx)
 	}
 }
 
@@ -1106,10 +1106,10 @@ func TestSettingsState_TabCycle_WithContainers(t *testing.T) {
 		map[string]string{"/some/repo": ""},
 		0, true, true, "plural-claude")
 
-	// 17 fields: theme(0) branch(1) notifs(2) cleanup(3) broadcast(4) container(5)
+	// 15 fields: theme(0) branch(1) notifs(2) cleanup(3) broadcast(4) container(5)
 	// autoAddress(6) maxTurns(7) maxDuration(8) maxConcurrent(9)
-	// repo(10) test(11) issuePolling(12) issueLabel(13) autoMerge(14) testRetries(15) asana(16)
-	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 0}
+	// repo(10) issuePolling(11) issueLabel(12) autoMerge(13) asana(14)
+	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -1234,20 +1234,17 @@ func TestSettingsState_AutonomousPerRepo_ShownWithContainers(t *testing.T) {
 	if !strings.Contains(rendered, "Auto-merge after CI") {
 		t.Error("Auto-merge field should appear in per-repo section with containers")
 	}
-	if !strings.Contains(rendered, "Test max retries") {
-		t.Error("Test max retries field should appear in per-repo section with containers")
-	}
 }
 
 func TestSettingsState_NumFields_WithContainersAndRepoNoPAT(t *testing.T) {
 	// theme + branch + notifs + cleanup + broadcast + container + 4 autonomous global
-	// + repo + test + 4 autonomous per-repo = 16 (no asana)
+	// + repo + 3 autonomous per-repo = 14 (no asana)
 	s := newTestSettingsStateWithContainers("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false, true, "")
-	if n := s.numFields(); n != 16 {
-		t.Errorf("Expected 16 fields with containers, repo, no PAT, got %d", n)
+	if n := s.numFields(); n != 14 {
+		t.Errorf("Expected 14 fields with containers, repo, no PAT, got %d", n)
 	}
 }
 
@@ -1266,17 +1263,14 @@ func TestSettingsState_AutonomousFocusIndices(t *testing.T) {
 	if idx := s.issueMaxConcurrentFocusIndex(); idx != 9 {
 		t.Errorf("Expected issueMaxConcurrent focus index 9, got %d", idx)
 	}
-	if idx := s.issuePollingFocusIndex(); idx != 12 {
-		t.Errorf("Expected issuePolling focus index 12, got %d", idx)
+	if idx := s.issuePollingFocusIndex(); idx != 11 {
+		t.Errorf("Expected issuePolling focus index 11, got %d", idx)
 	}
-	if idx := s.issueLabelFocusIndex(); idx != 13 {
-		t.Errorf("Expected issueLabel focus index 13, got %d", idx)
+	if idx := s.issueLabelFocusIndex(); idx != 12 {
+		t.Errorf("Expected issueLabel focus index 12, got %d", idx)
 	}
-	if idx := s.autoMergeFocusIndex(); idx != 14 {
-		t.Errorf("Expected autoMerge focus index 14, got %d", idx)
-	}
-	if idx := s.testMaxRetriesFocusIndex(); idx != 15 {
-		t.Errorf("Expected testMaxRetries focus index 15, got %d", idx)
+	if idx := s.autoMergeFocusIndex(); idx != 13 {
+		t.Errorf("Expected autoMerge focus index 13, got %d", idx)
 	}
 }
 
@@ -1319,7 +1313,6 @@ func TestSettingsState_FlushAndLoadAutonomousPerRepo(t *testing.T) {
 
 	// Set values for repo a
 	s.IssueLabelInput.SetValue("bug-fix")
-	s.TestMaxRetriesInput.SetValue("5")
 	s.RepoIssuePolling["/repo/a"] = true
 	s.RepoAutoMerge["/repo/a"] = true
 
@@ -1330,13 +1323,9 @@ func TestSettingsState_FlushAndLoadAutonomousPerRepo(t *testing.T) {
 	if s.IssueLabelInput.Value() != "" {
 		t.Errorf("Expected empty issue label for repo b, got %q", s.IssueLabelInput.Value())
 	}
-	if s.TestMaxRetriesInput.Value() != "" {
-		t.Errorf("Expected empty test max retries for repo b, got %q", s.TestMaxRetriesInput.Value())
-	}
 
 	// Set values for repo b
 	s.IssueLabelInput.SetValue("feature")
-	s.TestMaxRetriesInput.SetValue("2")
 
 	// Switch back to repo a
 	s.switchRepo(-1)
@@ -1344,9 +1333,6 @@ func TestSettingsState_FlushAndLoadAutonomousPerRepo(t *testing.T) {
 	// Verify repo a values are restored
 	if s.IssueLabelInput.Value() != "bug-fix" {
 		t.Errorf("Expected issue label 'bug-fix' for repo a, got %q", s.IssueLabelInput.Value())
-	}
-	if s.TestMaxRetriesInput.Value() != "5" {
-		t.Errorf("Expected test max retries '5' for repo a, got %q", s.TestMaxRetriesInput.Value())
 	}
 
 	// Verify the maps have both repos' values
@@ -1385,26 +1371,6 @@ func TestSettingsState_GetAllAutoMerge(t *testing.T) {
 	}
 }
 
-func TestSettingsState_GetAllTestMaxRetries(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
-	s.TestMaxRetriesInput.SetValue("5")
-
-	result := s.GetAllTestMaxRetries()
-	if result["/repo"] != 5 {
-		t.Errorf("GetAllTestMaxRetries should return 5, got %d", result["/repo"])
-	}
-}
-
-func TestSettingsState_GetAllTestMaxRetries_InvalidValue(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
-	s.TestMaxRetriesInput.SetValue("abc")
-
-	result := s.GetAllTestMaxRetries()
-	if _, ok := result["/repo"]; ok {
-		t.Error("GetAllTestMaxRetries should not include entry for invalid input")
-	}
-}
-
 func TestSettingsState_AutonomousInputFocus(t *testing.T) {
 	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
 
@@ -1428,10 +1394,4 @@ func TestSettingsState_AutonomousInputFocus(t *testing.T) {
 		t.Error("AutoMaxTurnsInput should not be focused when issue label is focused")
 	}
 
-	// Focus on test max retries input
-	s.Focus = s.testMaxRetriesFocusIndex()
-	s.updateInputFocus()
-	if !s.TestMaxRetriesInput.Focused() {
-		t.Error("TestMaxRetriesInput should be focused")
-	}
 }

@@ -17,8 +17,7 @@ import (
 )
 
 // handleSessionCompletedMsg handles the completion of an autonomous session's response.
-// This triggers the test loop (Phase 2) if a test command is configured,
-// or emits SessionPipelineCompleteMsg directly.
+// Emits SessionPipelineCompleteMsg directly.
 func (m *Model) handleSessionCompletedMsg(msg SessionCompletedMsg) (tea.Model, tea.Cmd) {
 	log := logger.WithSession(msg.SessionID)
 	sess := m.config.GetSession(msg.SessionID)
@@ -27,102 +26,9 @@ func (m *Model) handleSessionCompletedMsg(msg SessionCompletedMsg) (tea.Model, t
 		return m, nil
 	}
 
-	// Check if this repo has a test command configured
-	testCmd := m.config.GetRepoTestCommand(sess.RepoPath)
-	if testCmd != "" {
-		log.Info("autonomous session completed, running tests", "testCmd", testCmd)
-		return m, runTestsForSession(msg.SessionID, sess.WorkTree, testCmd, 1)
-	}
-
-	// No test command - pipeline is complete
-	log.Info("autonomous session completed (no test command)")
+	log.Info("autonomous session completed")
 	return m, func() tea.Msg {
 		return SessionPipelineCompleteMsg{SessionID: msg.SessionID, TestsPassed: true}
-	}
-}
-
-// handleTestRunResultMsg handles the result of a test run.
-func (m *Model) handleTestRunResultMsg(msg TestRunResultMsg) (tea.Model, tea.Cmd) {
-	log := logger.WithSession(msg.SessionID)
-	sess := m.config.GetSession(msg.SessionID)
-	if sess == nil {
-		return m, nil
-	}
-
-	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
-
-	if msg.ExitCode == 0 {
-		// Tests passed
-		log.Info("tests passed", "iteration", msg.Iteration)
-		testMsg := fmt.Sprintf("[TESTS PASSED] (iteration %d)\n", msg.Iteration)
-		if isActiveSession {
-			m.chat.AppendStreaming("\n" + testMsg)
-		} else {
-			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + testMsg)
-		}
-		return m, func() tea.Msg {
-			return SessionPipelineCompleteMsg{SessionID: msg.SessionID, TestsPassed: true}
-		}
-	}
-
-	// Tests failed
-	maxRetries := m.config.GetRepoTestMaxRetries(sess.RepoPath)
-	log.Warn("tests failed", "iteration", msg.Iteration, "maxRetries", maxRetries, "exitCode", msg.ExitCode)
-
-	if msg.Iteration >= maxRetries {
-		// Max retries exhausted
-		failMsg := fmt.Sprintf("[TESTS FAILED] Max retries (%d) exhausted\n", maxRetries)
-		if isActiveSession {
-			m.chat.AppendStreaming("\n" + failMsg)
-		} else {
-			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
-		}
-
-		// Send notification
-		if m.config.GetNotificationsEnabled() {
-			sessionName := ui.SessionDisplayName(sess.Branch, sess.Name)
-			go notification.SessionCompleted(sessionName + " (tests failed)")
-		}
-
-		return m, func() tea.Msg {
-			return SessionPipelineCompleteMsg{SessionID: msg.SessionID, TestsPassed: false}
-		}
-	}
-
-	// Feed test output back to Claude for fixing
-	if !sess.Autonomous {
-		// Non-autonomous: just show the output, don't auto-retry
-		testMsg := fmt.Sprintf("[TESTS FAILED] (iteration %d, exit code %d)\n%s\n", msg.Iteration, msg.ExitCode, msg.Output)
-		if isActiveSession {
-			m.chat.AppendStreaming("\n" + testMsg)
-		} else {
-			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + testMsg)
-		}
-		return m, nil
-	}
-
-	retryMsg := fmt.Sprintf("[TESTS FAILED] (iteration %d/%d) - sending output to Claude for fixing\n",
-		msg.Iteration, maxRetries)
-	if isActiveSession {
-		m.chat.AppendStreaming("\n" + retryMsg)
-	} else {
-		m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + retryMsg)
-	}
-
-	// Queue the test output as a pending message for Claude to fix
-	// Truncate if extremely long
-	output := msg.Output
-	if len(output) > 10000 {
-		output = output[:5000] + "\n\n... [truncated] ...\n\n" + output[len(output)-5000:]
-	}
-	pendingMsg := fmt.Sprintf("The tests failed (attempt %d/%d). Please fix the issues and try again.\n\nTest output:\n```\n%s\n```",
-		msg.Iteration, maxRetries, output)
-
-	state := m.sessionState().GetOrCreate(msg.SessionID)
-	state.SetPendingMsg(pendingMsg)
-
-	return m, func() tea.Msg {
-		return SendPendingMessageMsg{SessionID: msg.SessionID}
 	}
 }
 
