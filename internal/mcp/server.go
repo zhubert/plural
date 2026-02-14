@@ -20,7 +20,10 @@ import (
 const (
 	// ChannelSendTimeout is the timeout for sending to TUI channels
 	ChannelSendTimeout = 10 * time.Second
-	// ChannelReceiveTimeout is the timeout for receiving from TUI channels
+	// ChannelReceiveTimeout is the timeout for receiving from TUI channels.
+	// Used for both interactive prompts (permission, question) and automated operations
+	// (child session creation, merge). 5 minutes is appropriate for all cases since
+	// container startup and git merges can take significant time.
 	ChannelReceiveTimeout = 5 * time.Minute
 )
 

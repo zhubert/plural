@@ -21,10 +21,13 @@ const issuePollInterval = 2 * time.Minute
 // IssuePollTickMsg triggers an issue polling cycle
 type IssuePollTickMsg time.Time
 
-// NewIssuesDetectedMsg carries newly detected issues to be processed
+// NewIssuesDetectedMsg carries newly detected issues to be processed.
+// May contain issues from multiple repos.
 type NewIssuesDetectedMsg struct {
 	RepoPath string
 	Issues   []issues.Issue
+	// Additional repos with new issues (processed after the primary repo)
+	AdditionalRepos []repoIssues
 }
 
 // repoIssues groups new issues by repo path for collection across all polled repos.
@@ -137,29 +140,52 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 			return nil
 		}
 
-		// Return issues from the first repo; remaining repos will be picked up
-		// in subsequent poll cycles. This keeps the message handler simple.
-		return NewIssuesDetectedMsg{
+		// Return all repos' issues so none are dropped between poll cycles
+		msg := NewIssuesDetectedMsg{
 			RepoPath: allNewIssues[0].RepoPath,
 			Issues:   allNewIssues[0].Issues,
 		}
+		if len(allNewIssues) > 1 {
+			msg.AdditionalRepos = allNewIssues[1:]
+		}
+		return msg
 	}
 }
 
 // handleNewIssuesDetectedMsg creates autonomous containerized sessions for newly detected issues.
 func (m *Model) handleNewIssuesDetectedMsg(msg NewIssuesDetectedMsg) (tea.Model, tea.Cmd) {
 	log := logger.WithComponent("issue-poller")
-	log.Info("creating autonomous sessions for new issues", "repo", msg.RepoPath, "count", len(msg.Issues))
 
-	// Convert to IssueItems and use createSessionsFromIssuesAutonomous
+	// Process primary repo
+	log.Info("creating autonomous sessions for new issues", "repo", msg.RepoPath, "count", len(msg.Issues))
 	var issueItems []issueAutoInfo
 	for _, issue := range msg.Issues {
-		issueItems = append(issueItems, issueAutoInfo{
-			Issue: issue,
-		})
+		issueItems = append(issueItems, issueAutoInfo{Issue: issue})
+	}
+	_, cmd := m.createAutonomousIssueSessions(msg.RepoPath, issueItems)
+
+	var cmds []tea.Cmd
+	if cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
-	return m.createAutonomousIssueSessions(msg.RepoPath, issueItems)
+	// Process additional repos
+	for _, repo := range msg.AdditionalRepos {
+		log.Info("creating autonomous sessions for new issues", "repo", repo.RepoPath, "count", len(repo.Issues))
+		var items []issueAutoInfo
+		for _, issue := range repo.Issues {
+			items = append(items, issueAutoInfo{Issue: issue})
+		}
+		_, extraCmd := m.createAutonomousIssueSessions(repo.RepoPath, items)
+		if extraCmd != nil {
+			cmds = append(cmds, extraCmd)
+		}
+	}
+
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
+	return m, nil
 }
 
 // issueAutoInfo holds issue info for autonomous session creation.
@@ -206,7 +232,8 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 			continue
 		}
 
-		// Configure as autonomous and containerized (standalone, not supervisor)
+		// Configure as autonomous and containerized (standalone, not supervisor).
+		// Containerized is required for autonomous mode (sandbox = the container).
 		sess.Autonomous = true
 		sess.Containerized = true
 		sess.IssueRef = &config.IssueRef{
@@ -252,6 +279,9 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-created %d session(s) from issues", created)))
 		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+		// Set streaming state since we just started streaming sessions.
+		// This is correct even if the user is in a different session — the app
+		// state reflects whether *any* session is streaming.
 		m.setState(StateStreamingClaude)
 	}
 
