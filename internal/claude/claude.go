@@ -72,6 +72,24 @@ var DefaultAllowedTools = []string{
 	"Bash(pwd:*)",
 }
 
+// ContainerAllowedTools is a broad set of pre-authorized tools for containerized sessions.
+// The container IS the sandbox, so all tools are safe to use without permission prompts.
+var ContainerAllowedTools = []string{
+	"Read",
+	"Glob",
+	"Grep",
+	"Edit",
+	"Write",
+	"Bash",
+	"ExitPlanMode",
+	"WebFetch",
+	"WebSearch",
+	"TodoRead",
+	"TodoWrite",
+	"NotebookEdit",
+	"Task",
+}
+
 // Message represents a chat message
 type Message struct {
 	Role    string // "user" or "assistant"

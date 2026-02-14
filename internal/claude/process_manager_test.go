@@ -992,9 +992,20 @@ func TestBuildCommandArgs_Containerized_NewSession(t *testing.T) {
 		t.Errorf("--mcp-config = %q, want %q (short container-side path)", got, containerMCPConfigPath)
 	}
 
-	// Must NOT have --allowedTools (container uses wildcard in MCP server)
-	if containsArg(args, "--allowedTools") {
-		t.Error("Containerized session must not have --allowedTools")
+	// Must have --allowedTools with broad container tools pre-authorized
+	if !containsArg(args, "--allowedTools") {
+		t.Error("Containerized session must have --allowedTools for pre-authorized tools")
+	}
+	// Verify Bash is pre-authorized (unrestricted, not Bash(ls:*) etc.)
+	bashFound := false
+	for i, arg := range args {
+		if arg == "--allowedTools" && i+1 < len(args) && args[i+1] == "Bash" {
+			bashFound = true
+			break
+		}
+	}
+	if !bashFound {
+		t.Error("Containerized session must pre-authorize unrestricted Bash")
 	}
 
 	// Must still have --append-system-prompt

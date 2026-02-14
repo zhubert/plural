@@ -252,6 +252,11 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			args = append(args, "--dangerously-skip-permissions")
 		}
 		args = append(args, "--append-system-prompt", OptionsSystemPrompt)
+
+		// Pre-authorize all tools — the container is the sandbox
+		for _, tool := range ContainerAllowedTools {
+			args = append(args, "--allowedTools", tool)
+		}
 	} else {
 		// Add MCP config and permission prompt tool
 		args = append(args,
