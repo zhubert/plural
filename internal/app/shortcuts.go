@@ -718,9 +718,7 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 		if m.config.GetRepoAutoMerge(repo) {
 			settingsState.RepoAutoMerge[repo] = true
 		}
-		if n := m.config.GetRepoTestMaxRetries(repo); n != 3 {
-			settingsState.RepoTestMaxRetries[repo] = strconv.Itoa(n)
-		}
+		settingsState.RepoTestMaxRetries[repo] = strconv.Itoa(m.config.GetRepoTestMaxRetries(repo))
 	}
 	// Load values for the initially selected repo
 	initialRepo := ""
