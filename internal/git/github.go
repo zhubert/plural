@@ -262,6 +262,94 @@ func (s *GitService) FetchGitHubIssues(ctx context.Context, repoPath string) ([]
 	return issues, nil
 }
 
+// FetchGitHubIssuesWithLabel fetches open issues with a specific label from a GitHub repository.
+func (s *GitService) FetchGitHubIssuesWithLabel(ctx context.Context, repoPath, label string) ([]GitHubIssue, error) {
+	args := []string{"issue", "list",
+		"--json", "number,title,body,url",
+		"--state", "open",
+	}
+	if label != "" {
+		args = append(args, "--label", label)
+	}
+	output, err := s.executor.Output(ctx, repoPath, "gh", args...)
+	if err != nil {
+		return nil, fmt.Errorf("gh issue list failed: %w", err)
+	}
+
+	var issues []GitHubIssue
+	if err := json.Unmarshal(output, &issues); err != nil {
+		return nil, fmt.Errorf("failed to parse issues: %w", err)
+	}
+
+	return issues, nil
+}
+
+// CIStatus represents the overall CI check status for a PR.
+type CIStatus string
+
+const (
+	CIStatusPassing CIStatus = "passing"
+	CIStatusFailing CIStatus = "failing"
+	CIStatusPending CIStatus = "pending"
+	CIStatusNone    CIStatus = "none" // No checks configured
+)
+
+// CheckPRChecks checks the CI status of a PR for the given branch.
+// Uses `gh pr checks` which returns exit code 0 if all checks pass.
+func (s *GitService) CheckPRChecks(ctx context.Context, repoPath, branch string) (CIStatus, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "checks", branch, "--json", "state")
+	if err != nil {
+		// gh pr checks returns non-zero if checks fail or are pending
+		outputStr := string(output)
+		if outputStr != "" {
+			// Parse the JSON output to determine status
+			var checks []struct {
+				State string `json:"state"`
+			}
+			if jsonErr := json.Unmarshal(output, &checks); jsonErr == nil {
+				if len(checks) == 0 {
+					return CIStatusNone, nil
+				}
+				hasFailing := false
+				hasPending := false
+				for _, c := range checks {
+					switch c.State {
+					case "FAILURE", "ERROR", "CANCELLED":
+						hasFailing = true
+					case "PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED":
+						hasPending = true
+					}
+				}
+				if hasFailing {
+					return CIStatusFailing, nil
+				}
+				if hasPending {
+					return CIStatusPending, nil
+				}
+			}
+		}
+		return CIStatusPending, nil
+	}
+
+	// Exit code 0 means all checks pass
+	var checks []struct {
+		State string `json:"state"`
+	}
+	if jsonErr := json.Unmarshal(output, &checks); jsonErr == nil && len(checks) == 0 {
+		return CIStatusNone, nil
+	}
+	return CIStatusPassing, nil
+}
+
+// MergePR merges a PR for the given branch using squash merge.
+func (s *GitService) MergePR(ctx context.Context, repoPath, branch string) error {
+	_, err := s.executor.Output(ctx, repoPath, "gh", "pr", "merge", branch, "--squash", "--delete-branch")
+	if err != nil {
+		return fmt.Errorf("gh pr merge failed: %w", err)
+	}
+	return nil
+}
+
 // GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
 // If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
 // Deprecated: use GeneratePRTitleAndBodyWithIssueRef for new code.

@@ -2365,3 +2365,116 @@ func TestConfig_UpdateSessionPRCommentCount_ThreadSafe(t *testing.T) {
 		t.Fatal("session should exist")
 	}
 }
+
+func TestConfig_AddChildSession(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "supervisor-1", IsSupervisor: true},
+			{ID: "child-1", SupervisorID: "supervisor-1"},
+		},
+	}
+
+	// Add a child to existing supervisor
+	if !cfg.AddChildSession("supervisor-1", "child-2") {
+		t.Error("AddChildSession should return true for existing supervisor")
+	}
+
+	sess := cfg.GetSession("supervisor-1")
+	if sess == nil {
+		t.Fatal("supervisor session should exist")
+	}
+	if len(sess.ChildSessionIDs) != 1 {
+		t.Fatalf("expected 1 child ID, got %d", len(sess.ChildSessionIDs))
+	}
+	if sess.ChildSessionIDs[0] != "child-2" {
+		t.Errorf("expected child ID 'child-2', got %q", sess.ChildSessionIDs[0])
+	}
+
+	// Add another child
+	if !cfg.AddChildSession("supervisor-1", "child-3") {
+		t.Error("AddChildSession should return true when adding another child")
+	}
+
+	sess = cfg.GetSession("supervisor-1")
+	if len(sess.ChildSessionIDs) != 2 {
+		t.Fatalf("expected 2 child IDs, got %d", len(sess.ChildSessionIDs))
+	}
+	if sess.ChildSessionIDs[1] != "child-3" {
+		t.Errorf("expected second child ID 'child-3', got %q", sess.ChildSessionIDs[1])
+	}
+}
+
+func TestConfig_AddChildSession_NonExistent(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "supervisor-1", IsSupervisor: true},
+		},
+	}
+
+	// Try to add child to non-existent supervisor
+	if cfg.AddChildSession("nonexistent", "child-1") {
+		t.Error("AddChildSession should return false for non-existent supervisor")
+	}
+
+	// Ensure original supervisor was not modified
+	sess := cfg.GetSession("supervisor-1")
+	if sess == nil {
+		t.Fatal("supervisor session should exist")
+	}
+	if len(sess.ChildSessionIDs) != 0 {
+		t.Errorf("expected 0 child IDs, got %d", len(sess.ChildSessionIDs))
+	}
+}
+
+func TestConfig_GetChildSessions(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "supervisor-1", IsSupervisor: true},
+			{ID: "child-1", SupervisorID: "supervisor-1", Branch: "feat-1"},
+			{ID: "child-2", SupervisorID: "supervisor-1", Branch: "feat-2"},
+			{ID: "child-3", SupervisorID: "supervisor-2", Branch: "feat-3"},
+			{ID: "unrelated", Branch: "other"},
+		},
+	}
+
+	children := cfg.GetChildSessions("supervisor-1")
+	if len(children) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(children))
+	}
+
+	// Verify we got the right sessions
+	ids := map[string]bool{}
+	for _, c := range children {
+		ids[c.ID] = true
+	}
+	if !ids["child-1"] {
+		t.Error("expected child-1 in results")
+	}
+	if !ids["child-2"] {
+		t.Error("expected child-2 in results")
+	}
+	if ids["child-3"] {
+		t.Error("child-3 should not be in results (different supervisor)")
+	}
+}
+
+func TestConfig_GetChildSessions_Empty(t *testing.T) {
+	cfg := &Config{
+		Sessions: []Session{
+			{ID: "supervisor-1", IsSupervisor: true},
+			{ID: "child-1", SupervisorID: "other-supervisor"},
+			{ID: "unrelated", Branch: "other"},
+		},
+	}
+
+	children := cfg.GetChildSessions("supervisor-1")
+	if len(children) != 0 {
+		t.Errorf("expected 0 children, got %d", len(children))
+	}
+
+	// Also test with completely unknown supervisor ID
+	children = cfg.GetChildSessions("nonexistent")
+	if len(children) != 0 {
+		t.Errorf("expected 0 children for nonexistent supervisor, got %d", len(children))
+	}
+}

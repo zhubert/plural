@@ -337,6 +337,8 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		branchPrefix := state.GetBranchPrefix()
 		m.config.SetDefaultBranchPrefix(branchPrefix)
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
+		m.config.SetAutoCleanupMerged(state.AutoCleanupMerged)
+		m.config.SetAutoBroadcastPR(state.AutoBroadcastPR)
 		// Save container image if containers are supported.
 		// An empty string means "use default image" — validation is intentionally skipped for empty.
 		if state.ContainersSupported {
@@ -357,6 +359,9 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		// Save per-repo settings for all repos
 		for repo, gid := range state.GetAllAsanaProjects() {
 			m.config.SetAsanaProject(repo, gid)
+		}
+		for repo, testCmd := range state.GetAllTestCommands() {
+			m.config.SetRepoTestCommand(repo, testCmd)
 		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)

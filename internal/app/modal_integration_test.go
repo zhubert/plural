@@ -270,6 +270,11 @@ func TestNewSessionModal_TabSwitchesFocus(t *testing.T) {
 		if state.Focus != 3 {
 			t.Errorf("Expected focus on containers (3) after third tab, got %d", state.Focus)
 		}
+		m = sendKey(m, "tab") // Focus 4: autonomous
+		state = m.modal.State.(*ui.NewSessionState)
+		if state.Focus != 4 {
+			t.Errorf("Expected focus on autonomous (4) after fourth tab, got %d", state.Focus)
+		}
 	}
 	m = sendKey(m, "tab") // Wrap to 0
 	state = m.modal.State.(*ui.NewSessionState)
@@ -710,7 +715,35 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			t.Errorf("Expected focus 2, got %d", state.Focus)
 		}
 
-		// No container field — wrap around to theme
+		// Focus 3: auto-cleanup
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 3 {
+			t.Errorf("Expected focus 3 (auto-cleanup), got %d", state.Focus)
+		}
+
+		// Focus 4: auto-broadcast-PR
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 4 {
+			t.Errorf("Expected focus 4 (auto-broadcast-PR), got %d", state.Focus)
+		}
+
+		// Focus 5: repo selector (repos exist in test config)
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 5 {
+			t.Errorf("Expected focus 5 (repo selector), got %d", state.Focus)
+		}
+
+		// Focus 6: test command
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 6 {
+			t.Errorf("Expected focus 6 (test command), got %d", state.Focus)
+		}
+
+		// Wrap around to theme
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
 		if state.Focus != 0 {
@@ -761,11 +794,39 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			t.Errorf("Expected focus 2, got %d", state.Focus)
 		}
 
-		// Focus 3: container image
+		// Focus 3: auto-cleanup
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
 		if state.Focus != 3 {
-			t.Errorf("Expected focus 3 (container image), got %d", state.Focus)
+			t.Errorf("Expected focus 3 (auto-cleanup), got %d", state.Focus)
+		}
+
+		// Focus 4: auto-broadcast-PR
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 4 {
+			t.Errorf("Expected focus 4 (auto-broadcast-PR), got %d", state.Focus)
+		}
+
+		// Focus 5: container image
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 5 {
+			t.Errorf("Expected focus 5 (container image), got %d", state.Focus)
+		}
+
+		// Focus 6: repo selector (repos exist in test config)
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 6 {
+			t.Errorf("Expected focus 6 (repo selector), got %d", state.Focus)
+		}
+
+		// Focus 7: test command
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 7 {
+			t.Errorf("Expected focus 7 (test command), got %d", state.Focus)
 		}
 
 		// Wrap around to theme

@@ -240,6 +240,8 @@ type SettingsState struct {
 
 	BranchPrefixInput    textinput.Model
 	NotificationsEnabled bool
+	AutoCleanupMerged    bool // Auto-cleanup sessions when PR merged/closed
+	AutoBroadcastPR      bool // Auto-create PRs when broadcast group completes
 
 	// Container image (only shown when ContainersSupported)
 	ContainerImageInput textinput.Model
@@ -252,6 +254,8 @@ type SettingsState struct {
 	Repos             []string          // All registered repos
 	SelectedRepoIndex int               // Currently displayed repo
 	AsanaSelectedGIDs map[string]string // Per-repo selected Asana project GIDs
+	RepoTestCommands  map[string]string // Per-repo test commands
+	TestCommandInput  textinput.Model   // Test command input for selected repo
 
 	// Asana project selector (replaces text input)
 	AsanaProjectOptions []AsanaProjectOption // All fetched projects (cached for modal lifetime)
@@ -296,7 +300,7 @@ func (s *SettingsState) Help() string {
 	if s.Focus == 0 {
 		return "Tab: next field  Left/Right: change theme  Enter: save  Esc: cancel"
 	}
-	if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 && s.AsanaPATSet {
+	if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 {
 		return "Tab: next field  Left/Right: switch repo  Enter: save  Esc: cancel"
 	}
 	if s.Focus == s.asanaFocusIndex() && s.AsanaPATSet {
@@ -376,6 +380,52 @@ func (s *SettingsState) Render() string {
 		Render("Notify when Claude finishes while app is in background")
 	notifView := notifCheckboxStyle.Render(notifCheckbox + " " + notifDesc)
 
+	// Auto-cleanup merged sessions checkbox
+	cleanupLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Auto-cleanup merged sessions:")
+
+	cleanupCheckbox := "[ ]"
+	if s.AutoCleanupMerged {
+		cleanupCheckbox = "[x]"
+	}
+	cleanupCheckboxStyle := lipgloss.NewStyle()
+	if s.Focus == 3 {
+		cleanupCheckboxStyle = cleanupCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		cleanupCheckboxStyle = cleanupCheckboxStyle.PaddingLeft(2)
+	}
+	cleanupDesc := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Italic(true).
+		Width(s.contentWidth()).
+		Render("Automatically delete sessions when their PR is merged or closed")
+	cleanupView := cleanupCheckboxStyle.Render(cleanupCheckbox + " " + cleanupDesc)
+
+	// Auto-broadcast PR checkbox
+	broadcastPRLabel := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		MarginTop(1).
+		Render("Auto-create broadcast PRs:")
+
+	broadcastPRCheckbox := "[ ]"
+	if s.AutoBroadcastPR {
+		broadcastPRCheckbox = "[x]"
+	}
+	broadcastPRCheckboxStyle := lipgloss.NewStyle()
+	if s.Focus == 4 {
+		broadcastPRCheckboxStyle = broadcastPRCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+	} else {
+		broadcastPRCheckboxStyle = broadcastPRCheckboxStyle.PaddingLeft(2)
+	}
+	broadcastPRDesc := lipgloss.NewStyle().
+		Foreground(ColorTextMuted).
+		Italic(true).
+		Width(s.contentWidth()).
+		Render("Auto-create PRs when all broadcast group sessions complete")
+	broadcastPRView := broadcastPRCheckboxStyle.Render(broadcastPRCheckbox + " " + broadcastPRDesc)
+
 	// Container image field (only on Apple Silicon) - collected for later append
 	var containerParts []string
 	if s.ContainersSupported {
@@ -401,9 +451,9 @@ func (s *SettingsState) Render() string {
 		containerParts = []string{containerLabel, containerDesc, containerView}
 	}
 
-	// Per-repo settings (shown when repos exist and there's something to configure)
+	// Per-repo settings (shown when repos exist)
 	var repoSections []string
-	if len(s.Repos) > 0 && s.AsanaPATSet {
+	if len(s.Repos) > 0 {
 		// Section header
 		sectionHeader := lipgloss.NewStyle().
 			Foreground(ColorSecondary).
@@ -431,33 +481,56 @@ func (s *SettingsState) Render() string {
 		selectorView := selectorStyle.Render(leftArrow + " " + repoDisplay + " " + rightArrow)
 		repoSections = append(repoSections, sectionHeader+"\n"+selectorView)
 
-		// Asana project selector
-		asanaLabel := lipgloss.NewStyle().
+		// Test command input
+		testLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			MarginTop(1).
-			Render("Asana project:")
+			Render("Test command:")
 
-		asanaDesc := lipgloss.NewStyle().
+		testDesc := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Width(s.contentWidth()).
-			Render("Links this repo to an Asana project for task import")
+			Render("Run after autonomous sessions complete (e.g., \"go test ./...\")")
 
-		asanaContent := s.renderAsanaSelector()
-
-		asanaStyle := lipgloss.NewStyle()
-		if s.Focus == s.asanaFocusIndex() {
-			asanaStyle = asanaStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		testInputStyle := lipgloss.NewStyle()
+		if s.Focus == s.testCommandFocusIndex() {
+			testInputStyle = testInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
-			asanaStyle = asanaStyle.PaddingLeft(2)
+			testInputStyle = testInputStyle.PaddingLeft(2)
 		}
-		asanaView := asanaStyle.Render(asanaContent)
-		repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+		testView := testInputStyle.Render(s.TestCommandInput.View())
+		repoSections = append(repoSections, testLabel+"\n"+testDesc+"\n"+testView)
+
+		// Asana project selector (only shown when PAT is set)
+		if s.AsanaPATSet {
+			asanaLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Asana project:")
+
+			asanaDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(s.contentWidth()).
+				Render("Links this repo to an Asana project for task import")
+
+			asanaContent := s.renderAsanaSelector()
+
+			asanaStyle := lipgloss.NewStyle()
+			if s.Focus == s.asanaFocusIndex() {
+				asanaStyle = asanaStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				asanaStyle = asanaStyle.PaddingLeft(2)
+			}
+			asanaView := asanaStyle.Render(asanaContent)
+			repoSections = append(repoSections, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+		}
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	parts := []string{title, themeLabel, themeView, prefixLabel, prefixDesc, prefixView, notifLabel, notifView}
+	parts := []string{title, themeLabel, themeView, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, cleanupLabel, cleanupView, broadcastPRLabel, broadcastPRView}
 	parts = append(parts, containerParts...)
 	for _, section := range repoSections {
 		parts = append(parts, section)
@@ -569,12 +642,15 @@ func (s *SettingsState) getFilteredAsanaProjects() []AsanaProjectOption {
 
 // numFields returns the number of focusable fields in the settings modal.
 func (s *SettingsState) numFields() int {
-	base := 3 // theme, branch prefix, notifications
+	base := 5 // theme, branch prefix, notifications, auto-cleanup, auto-broadcast-PR
 	if s.ContainersSupported {
 		base++ // container image
 	}
-	if len(s.Repos) > 0 && s.AsanaPATSet {
-		base += 2 // repo selector, asana
+	if len(s.Repos) > 0 {
+		base += 2 // repo selector, test command
+		if s.AsanaPATSet {
+			base++ // asana
+		}
 	}
 	return base
 }
@@ -582,22 +658,27 @@ func (s *SettingsState) numFields() int {
 // containerImageFocusIndex returns the focus index for the container image field.
 // Only meaningful when ContainersSupported is true.
 func (s *SettingsState) containerImageFocusIndex() int {
-	return 3 // theme=0, branch prefix=1, notifications=2, container image=3
+	return 5 // theme=0, prefix=1, notifications=2, auto-cleanup=3, auto-broadcast=4, container image=5
 }
 
 // repoSelectorFocusIndex returns the focus index for the repo selector field.
 func (s *SettingsState) repoSelectorFocusIndex() int {
-	base := 3 // theme, branch prefix, notifications
+	base := 5 // theme, branch prefix, notifications, auto-cleanup, auto-broadcast-PR
 	if s.ContainersSupported {
 		base++ // container image shifts it up
 	}
 	return base
 }
 
+// testCommandFocusIndex returns the focus index for the test command field.
+func (s *SettingsState) testCommandFocusIndex() int {
+	return s.repoSelectorFocusIndex() + 1
+}
+
 // asanaFocusIndex returns the focus index for the Asana project field.
 // Only meaningful when AsanaPATSet is true.
 func (s *SettingsState) asanaFocusIndex() int {
-	return s.repoSelectorFocusIndex() + 1
+	return s.testCommandFocusIndex() + 1
 }
 
 // selectedRepoPath returns the path of the currently selected repo.
@@ -608,10 +689,12 @@ func (s *SettingsState) selectedRepoPath() string {
 	return s.Repos[s.SelectedRepoIndex]
 }
 
-// flushCurrentToMaps is a no-op for the new selector-based flow.
-// Selections are stored immediately on Enter.
+// flushCurrentToMaps saves the current test command input to the map.
 func (s *SettingsState) flushCurrentToMaps() {
-	// No-op: AsanaSelectedGIDs is updated directly on selection
+	repo := s.selectedRepoPath()
+	if repo != "" {
+		s.RepoTestCommands[repo] = s.TestCommandInput.Value()
+	}
 }
 
 // loadRepoValues resets the search and cursor when switching repos.
@@ -619,6 +702,11 @@ func (s *SettingsState) loadRepoValues() {
 	s.AsanaSearchInput.SetValue("")
 	s.AsanaCursorIndex = 0
 	s.AsanaScrollOffset = 0
+	// Load test command for selected repo
+	repo := s.selectedRepoPath()
+	if repo != "" {
+		s.TestCommandInput.SetValue(s.RepoTestCommands[repo])
+	}
 }
 
 // switchRepo saves current values, changes index, loads new values.
@@ -697,8 +785,13 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		s.updateInputFocus()
 		return s, nil
 	case keys.Space:
-		if s.Focus == 2 {
+		switch s.Focus {
+		case 2:
 			s.NotificationsEnabled = !s.NotificationsEnabled
+		case 3:
+			s.AutoCleanupMerged = !s.AutoCleanupMerged
+		case 4:
+			s.AutoBroadcastPR = !s.AutoBroadcastPR
 		}
 		return s, nil
 	case keys.Left, "h":
@@ -708,7 +801,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 			return s, nil
 		}
-		if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 && s.AsanaPATSet {
+		if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 {
 			s.switchRepo(-1)
 			return s, nil
 		}
@@ -719,7 +812,7 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 			return s, nil
 		}
-		if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 && s.AsanaPATSet {
+		if s.Focus == s.repoSelectorFocusIndex() && len(s.Repos) > 0 {
 			s.switchRepo(1)
 			return s, nil
 		}
@@ -736,6 +829,13 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if s.ContainersSupported && s.Focus == s.containerImageFocusIndex() {
 		var cmd tea.Cmd
 		s.ContainerImageInput, cmd = s.ContainerImageInput.Update(msg)
+		return s, cmd
+	}
+
+	// Handle text input updates when focused on test command
+	if len(s.Repos) > 0 && s.Focus == s.testCommandFocusIndex() {
+		var cmd tea.Cmd
+		s.TestCommandInput, cmd = s.TestCommandInput.Update(msg)
 		return s, cmd
 	}
 
@@ -773,6 +873,7 @@ func (s *SettingsState) updateInputFocus() {
 	// Blur all first
 	s.BranchPrefixInput.Blur()
 	s.ContainerImageInput.Blur()
+	s.TestCommandInput.Blur()
 	s.AsanaSearchInput.Blur()
 
 	// Focus the active one
@@ -781,6 +882,8 @@ func (s *SettingsState) updateInputFocus() {
 		s.BranchPrefixInput.Focus()
 	case s.ContainersSupported && s.Focus == s.containerImageFocusIndex():
 		s.ContainerImageInput.Focus()
+	case len(s.Repos) > 0 && s.Focus == s.testCommandFocusIndex():
+		s.TestCommandInput.Focus()
 	case s.AsanaPATSet && s.Focus == s.asanaFocusIndex():
 		s.AsanaSearchInput.Focus()
 	}
@@ -835,6 +938,16 @@ func (s *SettingsState) GetAllAsanaProjects() map[string]string {
 	s.flushCurrentToMaps()
 	result := make(map[string]string, len(s.AsanaSelectedGIDs))
 	for k, v := range s.AsanaSelectedGIDs {
+		result[k] = v
+	}
+	return result
+}
+
+// GetAllTestCommands returns a copy of all per-repo test commands.
+func (s *SettingsState) GetAllTestCommands() map[string]string {
+	s.flushCurrentToMaps()
+	result := make(map[string]string, len(s.RepoTestCommands))
+	for k, v := range s.RepoTestCommands {
 		result[k] = v
 	}
 	return result
@@ -899,6 +1012,11 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	searchInput.CharLimit = 100
 	searchInput.SetWidth(ModalWidthWide - 14) // Will be updated by SetSize()
 
+	testCmdInput := textinput.New()
+	testCmdInput.Placeholder = "e.g., go test ./... (leave empty to disable)"
+	testCmdInput.CharLimit = 200
+	testCmdInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
+
 	return &SettingsState{
 		Themes:               themes,
 		ThemeDisplayNames:    themeDisplayNames,
@@ -913,6 +1031,8 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		Repos:                repos,
 		SelectedRepoIndex:    defaultRepoIndex,
 		AsanaSelectedGIDs:    ap,
+		RepoTestCommands:     make(map[string]string),
+		TestCommandInput:     testCmdInput,
 		AsanaSearchInput:     searchInput,
 		AsanaLoading:         asanaPATSet,
 		availableWidth:       ModalWidthWide, // Default, will be updated by SetSize()
