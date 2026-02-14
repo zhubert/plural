@@ -1873,3 +1873,46 @@ func TestContainerSidePaths_ShortEnough(t *testing.T) {
 		t.Errorf("container MCP config path too long (%d chars): %s", len(containerMCPConfigPath), containerMCPConfigPath)
 	}
 }
+
+func TestFriendlyContainerError(t *testing.T) {
+	tests := []struct {
+		name          string
+		stderr        string
+		containerized bool
+		wantContains  string
+	}{
+		{
+			name:          "MCP tool not found in container",
+			stderr:        `Error: MCP tool mcp__plural__permission (passed via --permission-prompt-tool) not found. Available MCP tools: none`,
+			containerized: true,
+			wantContains:  "container image is outdated",
+		},
+		{
+			name:          "container name conflict",
+			stderr:        `docker: Error response from daemon: Conflict. The container name "/plural-abc123" is already in use by container "def456".`,
+			containerized: true,
+			wantContains:  "previous session is still running",
+		},
+		{
+			name:          "unknown error passes through",
+			stderr:        "some unknown error",
+			containerized: true,
+			wantContains:  "some unknown error",
+		},
+		{
+			name:          "non-containerized passes through even with matching pattern",
+			stderr:        `Error: MCP tool mcp__plural__permission not found`,
+			containerized: false,
+			wantContains:  "MCP tool mcp__plural__permission not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := friendlyContainerError(tt.stderr, tt.containerized)
+			if !strings.Contains(got, tt.wantContains) {
+				t.Errorf("friendlyContainerError() = %q, want it to contain %q", got, tt.wantContains)
+			}
+		})
+	}
+}
