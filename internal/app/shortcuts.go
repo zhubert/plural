@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -695,15 +696,39 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	)
 	settingsState.AutoCleanupMerged = m.config.GetAutoCleanupMerged()
 	settingsState.AutoBroadcastPR = m.config.GetAutoBroadcastPR()
+	// Autonomous global settings
+	settingsState.AutoAddressPRComments = m.config.GetAutoAddressPRComments()
+	settingsState.AutoMaxTurnsInput.SetValue(strconv.Itoa(m.config.GetAutoMaxTurns()))
+	settingsState.AutoMaxDurationInput.SetValue(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
+	settingsState.IssueMaxConcurrentInput.SetValue(strconv.Itoa(m.config.GetIssueMaxConcurrent()))
 	// Populate per-repo test commands
 	for _, repo := range repos {
 		if cmd := m.config.GetRepoTestCommand(repo); cmd != "" {
 			settingsState.RepoTestCommands[repo] = cmd
 		}
 	}
-	// Load test command for the initially selected repo
+	// Populate per-repo autonomous settings
+	for _, repo := range repos {
+		if m.config.GetRepoIssuePolling(repo) {
+			settingsState.RepoIssuePolling[repo] = true
+		}
+		if label := m.config.GetRepoIssueLabels(repo); label != "" {
+			settingsState.RepoIssueLabels[repo] = label
+		}
+		if m.config.GetRepoAutoMerge(repo) {
+			settingsState.RepoAutoMerge[repo] = true
+		}
+		if n := m.config.GetRepoTestMaxRetries(repo); n != 3 {
+			settingsState.RepoTestMaxRetries[repo] = strconv.Itoa(n)
+		}
+	}
+	// Load values for the initially selected repo
+	initialRepo := ""
 	if len(repos) > 0 {
-		settingsState.TestCommandInput.SetValue(settingsState.RepoTestCommands[repos[0]])
+		initialRepo = repos[defaultRepoIndex]
+		settingsState.TestCommandInput.SetValue(settingsState.RepoTestCommands[initialRepo])
+		settingsState.IssueLabelInput.SetValue(settingsState.RepoIssueLabels[initialRepo])
+		settingsState.TestMaxRetriesInput.SetValue(settingsState.RepoTestMaxRetries[initialRepo])
 	}
 	m.modal.Show(settingsState)
 

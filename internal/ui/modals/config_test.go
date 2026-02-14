@@ -1041,21 +1041,23 @@ func TestBroadcastState_AuthWarning_WhenAuthAvailable(t *testing.T) {
 // =============================================================================
 
 func TestSettingsState_NumFields_WithContainers(t *testing.T) {
-	// No repos, no PAT, but containers supported: theme + branch + notifs + cleanup + broadcast + container = 6
+	// No repos, no PAT, but containers supported:
+	// theme + branch + notifs + cleanup + broadcast + container + 4 autonomous global = 10
 	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "")
-	if n := s.numFields(); n != 6 {
-		t.Errorf("Expected 6 fields with containers supported and no repos, got %d", n)
+	if n := s.numFields(); n != 10 {
+		t.Errorf("Expected 10 fields with containers supported and no repos, got %d", n)
 	}
 }
 
 func TestSettingsState_NumFields_WithContainersAndRepoAndPAT(t *testing.T) {
-	// Repos + PAT + containers: theme + branch + notifs + cleanup + broadcast + container + repo + test + asana = 9
+	// theme + branch + notifs + cleanup + broadcast + container + 4 autonomous global
+	// + repo + test + 4 autonomous per-repo + asana = 17
 	s := newTestSettingsStateWithContainers("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if n := s.numFields(); n != 9 {
-		t.Errorf("Expected 9 fields with containers, repo and PAT, got %d", n)
+	if n := s.numFields(); n != 17 {
+		t.Errorf("Expected 17 fields with containers, repo and PAT, got %d", n)
 	}
 }
 
@@ -1071,8 +1073,9 @@ func TestSettingsState_RepoSelectorFocusIndex_WithContainers(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if idx := s.repoSelectorFocusIndex(); idx != 6 {
-		t.Errorf("Expected repo selector focus index 6 with containers, got %d", idx)
+	// 5 base + 5 (container image + 4 autonomous global) = 10
+	if idx := s.repoSelectorFocusIndex(); idx != 10 {
+		t.Errorf("Expected repo selector focus index 10 with containers, got %d", idx)
 	}
 }
 
@@ -1091,8 +1094,9 @@ func TestSettingsState_AsanaFocusIndex_WithContainers(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if idx := s.asanaFocusIndex(); idx != 8 {
-		t.Errorf("Expected asana focus index 8 with containers, got %d", idx)
+	// repo=10, test=11, issuePolling=12, issueLabel=13, autoMerge=14, testRetries=15, asana=16
+	if idx := s.asanaFocusIndex(); idx != 16 {
+		t.Errorf("Expected asana focus index 16 with containers, got %d", idx)
 	}
 }
 
@@ -1102,8 +1106,10 @@ func TestSettingsState_TabCycle_WithContainers(t *testing.T) {
 		map[string]string{"/some/repo": ""},
 		0, true, true, "plural-claude")
 
-	// 9 fields: theme(0) branch(1) notifs(2) cleanup(3) broadcast(4) container(5) repo(6) test(7) asana(8)
-	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 8, 0}
+	// 17 fields: theme(0) branch(1) notifs(2) cleanup(3) broadcast(4) container(5)
+	// autoAddress(6) maxTurns(7) maxDuration(8) maxConcurrent(9)
+	// repo(10) test(11) issuePolling(12) issueLabel(13) autoMerge(14) testRetries(15) asana(16)
+	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -1175,5 +1181,257 @@ func TestNewSessionState_AuthWarning_UsesContainerAuthHelp(t *testing.T) {
 	// Check for keychain mention (word won't be split by lipgloss wrapping)
 	if !strings.Contains(rendered, "keychain") {
 		t.Error("Auth warning should mention keychain")
+	}
+}
+
+// =============================================================================
+// Autonomous settings tests
+// =============================================================================
+
+func TestSettingsState_AutonomousSection_HiddenWithoutContainers(t *testing.T) {
+	s := newTestSettingsState("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false)
+	rendered := s.Render()
+
+	if strings.Contains(rendered, "Autonomous:") {
+		t.Error("Autonomous section should not appear when containers unsupported")
+	}
+	if strings.Contains(rendered, "Issue polling") {
+		t.Error("Per-repo autonomous fields should not appear when containers unsupported")
+	}
+}
+
+func TestSettingsState_AutonomousSection_ShownWithContainers(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "Autonomous:") {
+		t.Error("Autonomous section should appear when containers supported")
+	}
+	if !strings.Contains(rendered, "Auto-address PR comments") {
+		t.Error("Auto-address PR comments field should appear")
+	}
+	if !strings.Contains(rendered, "Max autonomous turns") {
+		t.Error("Max autonomous turns field should appear")
+	}
+	if !strings.Contains(rendered, "Max autonomous duration") {
+		t.Error("Max autonomous duration field should appear")
+	}
+	if !strings.Contains(rendered, "Max concurrent auto-sessions") {
+		t.Error("Max concurrent auto-sessions field should appear")
+	}
+}
+
+func TestSettingsState_AutonomousPerRepo_ShownWithContainers(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "Issue polling") {
+		t.Error("Issue polling field should appear in per-repo section with containers")
+	}
+	if !strings.Contains(rendered, "Issue filter label") {
+		t.Error("Issue filter label field should appear in per-repo section with containers")
+	}
+	if !strings.Contains(rendered, "Auto-merge after CI") {
+		t.Error("Auto-merge field should appear in per-repo section with containers")
+	}
+	if !strings.Contains(rendered, "Test max retries") {
+		t.Error("Test max retries field should appear in per-repo section with containers")
+	}
+}
+
+func TestSettingsState_NumFields_WithContainersAndRepoNoPAT(t *testing.T) {
+	// theme + branch + notifs + cleanup + broadcast + container + 4 autonomous global
+	// + repo + test + 4 autonomous per-repo = 16 (no asana)
+	s := newTestSettingsStateWithContainers("", false,
+		[]string{"/some/repo"},
+		map[string]string{"/some/repo": ""},
+		0, false, true, "")
+	if n := s.numFields(); n != 16 {
+		t.Errorf("Expected 16 fields with containers, repo, no PAT, got %d", n)
+	}
+}
+
+func TestSettingsState_AutonomousFocusIndices(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+
+	if idx := s.autoAddressFocusIndex(); idx != 6 {
+		t.Errorf("Expected autoAddress focus index 6, got %d", idx)
+	}
+	if idx := s.autoMaxTurnsFocusIndex(); idx != 7 {
+		t.Errorf("Expected autoMaxTurns focus index 7, got %d", idx)
+	}
+	if idx := s.autoMaxDurationFocusIndex(); idx != 8 {
+		t.Errorf("Expected autoMaxDuration focus index 8, got %d", idx)
+	}
+	if idx := s.issueMaxConcurrentFocusIndex(); idx != 9 {
+		t.Errorf("Expected issueMaxConcurrent focus index 9, got %d", idx)
+	}
+	if idx := s.issuePollingFocusIndex(); idx != 12 {
+		t.Errorf("Expected issuePolling focus index 12, got %d", idx)
+	}
+	if idx := s.issueLabelFocusIndex(); idx != 13 {
+		t.Errorf("Expected issueLabel focus index 13, got %d", idx)
+	}
+	if idx := s.autoMergeFocusIndex(); idx != 14 {
+		t.Errorf("Expected autoMerge focus index 14, got %d", idx)
+	}
+	if idx := s.testMaxRetriesFocusIndex(); idx != 15 {
+		t.Errorf("Expected testMaxRetries focus index 15, got %d", idx)
+	}
+}
+
+func TestSettingsState_AutonomousCheckboxToggle(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+
+	// Toggle auto-address PR comments
+	s.Focus = s.autoAddressFocusIndex()
+	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if !s.AutoAddressPRComments {
+		t.Error("Space should toggle AutoAddressPRComments to true")
+	}
+	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if s.AutoAddressPRComments {
+		t.Error("Space again should toggle AutoAddressPRComments to false")
+	}
+
+	// Toggle issue polling (per-repo)
+	s.Focus = s.issuePollingFocusIndex()
+	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if !s.RepoIssuePolling["/repo"] {
+		t.Error("Space should toggle RepoIssuePolling for current repo to true")
+	}
+	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if s.RepoIssuePolling["/repo"] {
+		t.Error("Space again should toggle RepoIssuePolling for current repo to false")
+	}
+
+	// Toggle auto-merge (per-repo)
+	s.Focus = s.autoMergeFocusIndex()
+	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	if !s.RepoAutoMerge["/repo"] {
+		t.Error("Space should toggle RepoAutoMerge for current repo to true")
+	}
+}
+
+func TestSettingsState_FlushAndLoadAutonomousPerRepo(t *testing.T) {
+	repos := []string{"/repo/a", "/repo/b"}
+	s := newTestSettingsStateWithContainers("", false, repos, map[string]string{"/repo/a": "", "/repo/b": ""}, 0, false, true, "")
+
+	// Set values for repo a
+	s.IssueLabelInput.SetValue("bug-fix")
+	s.TestMaxRetriesInput.SetValue("5")
+	s.RepoIssuePolling["/repo/a"] = true
+	s.RepoAutoMerge["/repo/a"] = true
+
+	// Switch to repo b (flushes repo a, loads repo b)
+	s.switchRepo(1)
+
+	// Verify repo b has empty values
+	if s.IssueLabelInput.Value() != "" {
+		t.Errorf("Expected empty issue label for repo b, got %q", s.IssueLabelInput.Value())
+	}
+	if s.TestMaxRetriesInput.Value() != "" {
+		t.Errorf("Expected empty test max retries for repo b, got %q", s.TestMaxRetriesInput.Value())
+	}
+
+	// Set values for repo b
+	s.IssueLabelInput.SetValue("feature")
+	s.TestMaxRetriesInput.SetValue("2")
+
+	// Switch back to repo a
+	s.switchRepo(-1)
+
+	// Verify repo a values are restored
+	if s.IssueLabelInput.Value() != "bug-fix" {
+		t.Errorf("Expected issue label 'bug-fix' for repo a, got %q", s.IssueLabelInput.Value())
+	}
+	if s.TestMaxRetriesInput.Value() != "5" {
+		t.Errorf("Expected test max retries '5' for repo a, got %q", s.TestMaxRetriesInput.Value())
+	}
+
+	// Verify the maps have both repos' values
+	if s.RepoIssueLabels["/repo/a"] != "bug-fix" {
+		t.Errorf("Expected stored issue label 'bug-fix' for repo a, got %q", s.RepoIssueLabels["/repo/a"])
+	}
+}
+
+func TestSettingsState_GetAllIssuePolling(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	s.RepoIssuePolling["/repo"] = true
+
+	result := s.GetAllIssuePolling()
+	if !result["/repo"] {
+		t.Error("GetAllIssuePolling should return true for repo")
+	}
+}
+
+func TestSettingsState_GetAllIssueLabels(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	s.IssueLabelInput.SetValue("my-label")
+
+	result := s.GetAllIssueLabels()
+	if result["/repo"] != "my-label" {
+		t.Errorf("GetAllIssueLabels should return 'my-label', got %q", result["/repo"])
+	}
+}
+
+func TestSettingsState_GetAllAutoMerge(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	s.RepoAutoMerge["/repo"] = true
+
+	result := s.GetAllAutoMerge()
+	if !result["/repo"] {
+		t.Error("GetAllAutoMerge should return true for repo")
+	}
+}
+
+func TestSettingsState_GetAllTestMaxRetries(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	s.TestMaxRetriesInput.SetValue("5")
+
+	result := s.GetAllTestMaxRetries()
+	if result["/repo"] != 5 {
+		t.Errorf("GetAllTestMaxRetries should return 5, got %d", result["/repo"])
+	}
+}
+
+func TestSettingsState_GetAllTestMaxRetries_InvalidValue(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+	s.TestMaxRetriesInput.SetValue("abc")
+
+	result := s.GetAllTestMaxRetries()
+	if _, ok := result["/repo"]; ok {
+		t.Error("GetAllTestMaxRetries should not include entry for invalid input")
+	}
+}
+
+func TestSettingsState_AutonomousInputFocus(t *testing.T) {
+	s := newTestSettingsStateWithContainers("", false, []string{"/repo"}, map[string]string{"/repo": ""}, 0, false, true, "")
+
+	// Focus on max turns input
+	s.Focus = s.autoMaxTurnsFocusIndex()
+	s.updateInputFocus()
+	if !s.AutoMaxTurnsInput.Focused() {
+		t.Error("AutoMaxTurnsInput should be focused")
+	}
+	if s.AutoMaxDurationInput.Focused() {
+		t.Error("AutoMaxDurationInput should not be focused")
+	}
+
+	// Focus on issue label input
+	s.Focus = s.issueLabelFocusIndex()
+	s.updateInputFocus()
+	if !s.IssueLabelInput.Focused() {
+		t.Error("IssueLabelInput should be focused")
+	}
+	if s.AutoMaxTurnsInput.Focused() {
+		t.Error("AutoMaxTurnsInput should not be focused when issue label is focused")
+	}
+
+	// Focus on test max retries input
+	s.Focus = s.testMaxRetriesFocusIndex()
+	s.updateInputFocus()
+	if !s.TestMaxRetriesInput.Focused() {
+		t.Error("TestMaxRetriesInput should be focused")
 	}
 }

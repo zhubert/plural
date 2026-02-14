@@ -815,18 +815,36 @@ func TestSettingsModal_TabCyclesAllFields(t *testing.T) {
 			t.Errorf("Expected focus 5 (container image), got %d", state.Focus)
 		}
 
-		// Focus 6: repo selector (repos exist in test config)
-		m = sendKey(m, "tab")
-		state = m.modal.State.(*ui.SettingsState)
-		if state.Focus != 6 {
-			t.Errorf("Expected focus 6 (repo selector), got %d", state.Focus)
+		// Focus 6-9: autonomous global fields (auto-address, max turns, max duration, max concurrent)
+		for i := 6; i <= 9; i++ {
+			m = sendKey(m, "tab")
+			state = m.modal.State.(*ui.SettingsState)
+			if state.Focus != i {
+				t.Errorf("Expected focus %d (autonomous field), got %d", i, state.Focus)
+			}
 		}
 
-		// Focus 7: test command
+		// Focus 10: repo selector (repos exist in test config)
 		m = sendKey(m, "tab")
 		state = m.modal.State.(*ui.SettingsState)
-		if state.Focus != 7 {
-			t.Errorf("Expected focus 7 (test command), got %d", state.Focus)
+		if state.Focus != 10 {
+			t.Errorf("Expected focus 10 (repo selector), got %d", state.Focus)
+		}
+
+		// Focus 11: test command
+		m = sendKey(m, "tab")
+		state = m.modal.State.(*ui.SettingsState)
+		if state.Focus != 11 {
+			t.Errorf("Expected focus 11 (test command), got %d", state.Focus)
+		}
+
+		// Focus 12-15: per-repo autonomous fields (issue polling, issue label, auto-merge, test retries)
+		for i := 12; i <= 15; i++ {
+			m = sendKey(m, "tab")
+			state = m.modal.State.(*ui.SettingsState)
+			if state.Focus != i {
+				t.Errorf("Expected focus %d (per-repo autonomous field), got %d", i, state.Focus)
+			}
 		}
 
 		// Wrap around to theme

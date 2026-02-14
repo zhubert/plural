@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -356,12 +357,40 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 			m.config.SetTheme(string(selectedTheme))
 			m.chat.RefreshStyles()
 		}
+		// Save autonomous global settings
+		if state.ContainersSupported {
+			m.config.SetAutoAddressPRComments(state.AutoAddressPRComments)
+			if turns, err := strconv.Atoi(state.AutoMaxTurnsInput.Value()); err == nil && turns > 0 {
+				m.config.SetAutoMaxTurns(turns)
+			}
+			if dur, err := strconv.Atoi(state.AutoMaxDurationInput.Value()); err == nil && dur > 0 {
+				m.config.SetAutoMaxDurationMin(dur)
+			}
+			if n, err := strconv.Atoi(state.IssueMaxConcurrentInput.Value()); err == nil && n > 0 {
+				m.config.SetIssueMaxConcurrent(n)
+			}
+		}
 		// Save per-repo settings for all repos
 		for repo, gid := range state.GetAllAsanaProjects() {
 			m.config.SetAsanaProject(repo, gid)
 		}
 		for repo, testCmd := range state.GetAllTestCommands() {
 			m.config.SetRepoTestCommand(repo, testCmd)
+		}
+		// Save per-repo autonomous settings
+		if state.ContainersSupported {
+			for repo, enabled := range state.GetAllIssuePolling() {
+				m.config.SetRepoIssuePolling(repo, enabled)
+			}
+			for repo, label := range state.GetAllIssueLabels() {
+				m.config.SetRepoIssueLabels(repo, label)
+			}
+			for repo, enabled := range state.GetAllAutoMerge() {
+				m.config.SetRepoAutoMerge(repo, enabled)
+			}
+			for repo, n := range state.GetAllTestMaxRetries() {
+				m.config.SetRepoTestMaxRetries(repo, n)
+			}
 		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)
