@@ -15,11 +15,11 @@ import (
 
 func TestHandleSessionCompletedMsg(t *testing.T) {
 	tests := []struct {
-		name         string
-		setupConfig  func() *config.Config
-		sessionID    string
-		wantCmd      bool
-		description  string
+		name        string
+		setupConfig func() *config.Config
+		sessionID   string
+		wantCmd     bool
+		description string
 	}{
 		{
 			name: "with test command triggers test run",
@@ -334,7 +334,7 @@ func TestHandleSessionPipelineCompleteMsg(t *testing.T) {
 			wantCmd: false,
 		},
 		{
-			name: "autonomous session with no PR triggers auto PR creation",
+			name: "standalone autonomous session with no PR triggers auto PR creation",
 			setupConfig: func() *config.Config {
 				cfg := testConfigWithSessions()
 				cfg.Sessions[0].Autonomous = true
@@ -365,6 +365,28 @@ func TestHandleSessionPipelineCompleteMsg(t *testing.T) {
 			},
 			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
 			wantCmd: false,
+		},
+		{
+			name: "supervisor session does not auto-create PR",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].IsSupervisor = true
+				return cfg
+			},
+			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
+			wantCmd: false,
+		},
+		{
+			name: "child session does not auto-create PR",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].SupervisorID = "session-3"
+				return cfg
+			},
+			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
+			wantCmd: true, // returns cmd for supervisor notification (Phase 5B)
 		},
 		{
 			name: "session with supervisor ID triggers notification",
@@ -402,9 +424,9 @@ func TestHandleSessionPipelineCompleteMsg(t *testing.T) {
 
 func TestHandleAutonomousLimitReachedMsg(t *testing.T) {
 	tests := []struct {
-		name      string
-		reason    string
-		wantText  string
+		name     string
+		reason   string
+		wantText string
 	}{
 		{
 			name:     "turn limit reason",
@@ -492,10 +514,10 @@ func TestHandleAutonomousLimitReachedMsg_ActiveSession(t *testing.T) {
 
 func TestAllBroadcastSessionsComplete(t *testing.T) {
 	tests := []struct {
-		name     string
-		setup    func(*Model, *config.Config)
-		groupID  string
-		want     bool
+		name    string
+		setup   func(*Model, *config.Config)
+		groupID string
+		want    bool
 	}{
 		{
 			name: "no sessions in group returns true",
@@ -557,8 +579,8 @@ func TestAllBroadcastSessionsComplete(t *testing.T) {
 
 func TestFormatPRCommentsPrompt(t *testing.T) {
 	tests := []struct {
-		name     string
-		comments []git.PRReviewComment
+		name         string
+		comments     []git.PRReviewComment
 		wantContains []string
 	}{
 		{

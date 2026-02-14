@@ -148,8 +148,10 @@ func (m *Model) handleSessionPipelineCompleteMsg(msg SessionPipelineCompleteMsg)
 		}
 	}
 
-	// Phase 5A: Auto-create PR for autonomous sessions
-	if sess.Autonomous && !sess.PRCreated && msg.TestsPassed {
+	// Phase 5A: Auto-create PR for standalone autonomous sessions.
+	// Supervisors decide whether to create a PR or stop for user input.
+	// Child sessions notify their supervisor instead (Phase 5B).
+	if sess.Autonomous && !sess.IsSupervisor && sess.SupervisorID == "" && !sess.PRCreated && msg.TestsPassed {
 		log.Info("autonomous session pipeline complete, auto-creating PR")
 		prCmd := m.autoCreatePR(msg.SessionID)
 		if prCmd != nil {
