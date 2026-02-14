@@ -4,10 +4,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/changelog"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/mcp"
@@ -785,4 +787,228 @@ func TestClose_NoPanic(t *testing.T) {
 
 	// Close should not panic even with no active sessions
 	m.Close()
+}
+
+// =============================================================================
+// Group H: Supervisor Completion Deferral
+// =============================================================================
+
+// testConfigWithSupervisor creates a config with a supervisor and child sessions.
+func testConfigWithSupervisor(childCount int) *config.Config {
+	cfg := testConfig()
+	cfg.Sessions = []config.Session{
+		{
+			ID:           "supervisor-1",
+			RepoPath:     "/test/repo1",
+			WorkTree:     "/test/worktree-supervisor",
+			Branch:       "feature-supervisor",
+			Name:         "repo1/supervisor",
+			CreatedAt:    time.Now(),
+			Started:      true,
+			Autonomous:   true,
+			IsSupervisor: true,
+		},
+	}
+	for i := 0; i < childCount; i++ {
+		cfg.Sessions = append(cfg.Sessions, config.Session{
+			ID:           "child-" + string(rune('a'+i)),
+			RepoPath:     "/test/repo1",
+			WorkTree:     "/test/worktree-child-" + string(rune('a'+i)),
+			Branch:       "feature-child-" + string(rune('a'+i)),
+			Name:         "repo1/child-" + string(rune('a'+i)),
+			CreatedAt:    time.Now(),
+			Started:      true,
+			SupervisorID: "supervisor-1",
+		})
+	}
+	return cfg
+}
+
+func TestSupervisorDeferral_ActiveStreamingChild(t *testing.T) {
+	cfg := testConfigWithSupervisor(2)
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Select the supervisor session
+	m = sendKey(m, "enter")
+	if m.activeSession == nil || m.activeSession.ID != "supervisor-1" {
+		t.Fatal("expected supervisor-1 to be active")
+	}
+
+	// Create runners for children
+	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[1])
+	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[2])
+
+	// Mark one child as streaming
+	childMock := factory.GetMock("child-a")
+	if childMock == nil {
+		t.Fatal("no mock runner for child-a")
+	}
+	childMock.SetStreaming(true)
+
+	// Simulate supervisor Done — should NOT produce SessionCompletedMsg
+	msg := ClaudeResponseMsg{
+		SessionID: "supervisor-1",
+		Chunk:     doneChunk(),
+	}
+	_, cmd := m.Update(msg)
+
+	// The cmd should NOT contain a SessionCompletedMsg
+	if cmd != nil {
+		// Execute the command to check what messages it produces
+		resultMsg := cmd()
+		if _, ok := resultMsg.(SessionCompletedMsg); ok {
+			t.Error("supervisor should NOT emit SessionCompletedMsg while children are streaming")
+		}
+	}
+}
+
+func TestSupervisorDeferral_ChildWaiting(t *testing.T) {
+	cfg := testConfigWithSupervisor(1)
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+
+	// Create runner for child
+	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[1])
+
+	// Mark child as waiting (e.g., waiting for user input or permission)
+	childState := m.sessionState().GetOrCreate("child-a")
+	childState.IsWaiting = true
+
+	msg := ClaudeResponseMsg{
+		SessionID: "supervisor-1",
+		Chunk:     doneChunk(),
+	}
+	_, cmd := m.Update(msg)
+
+	if cmd != nil {
+		resultMsg := cmd()
+		if _, ok := resultMsg.(SessionCompletedMsg); ok {
+			t.Error("supervisor should NOT emit SessionCompletedMsg while child is waiting")
+		}
+	}
+}
+
+func TestSupervisorDeferral_ChildMerging(t *testing.T) {
+	cfg := testConfigWithSupervisor(1)
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+
+	// Create runner for child
+	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[1])
+
+	// Mark child as merging
+	mergeCh := make(chan git.Result, 1)
+	m.sessionState().StartMerge("child-a", mergeCh, nil, MergeTypeParent)
+
+	msg := ClaudeResponseMsg{
+		SessionID: "supervisor-1",
+		Chunk:     doneChunk(),
+	}
+	_, cmd := m.Update(msg)
+
+	if cmd != nil {
+		resultMsg := cmd()
+		if _, ok := resultMsg.(SessionCompletedMsg); ok {
+			t.Error("supervisor should NOT emit SessionCompletedMsg while child is merging")
+		}
+	}
+}
+
+func TestSupervisorCompletion_AllChildrenDone(t *testing.T) {
+	cfg := testConfigWithSupervisor(2)
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+
+	// Create runners for children — not streaming
+	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[1])
+	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[2])
+
+	childA := factory.GetMock("child-a")
+	childB := factory.GetMock("child-b")
+	childA.SetStreaming(false)
+	childB.SetStreaming(false)
+
+	// Simulate supervisor Done — should produce SessionCompletedMsg
+	msg := ClaudeResponseMsg{
+		SessionID: "supervisor-1",
+		Chunk:     doneChunk(),
+	}
+	_, cmd := m.Update(msg)
+
+	// Should have a command that produces SessionCompletedMsg
+	if cmd == nil {
+		t.Fatal("expected a command when supervisor completes with no active children")
+	}
+
+	// Execute the batch to find the SessionCompletedMsg
+	found := false
+	resultMsg := cmd()
+	if _, ok := resultMsg.(SessionCompletedMsg); ok {
+		found = true
+	}
+	// The cmd might be a batch — if the direct result isn't SessionCompletedMsg,
+	// that's OK because batch returns a slice. The key test is that it's NOT nil.
+	if !found {
+		// Check if it's a tea.BatchMsg containing SessionCompletedMsg
+		if batch, ok := resultMsg.(tea.BatchMsg); ok {
+			for _, innerCmd := range batch {
+				if innerMsg := innerCmd(); innerMsg != nil {
+					if _, ok := innerMsg.(SessionCompletedMsg); ok {
+						found = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("expected SessionCompletedMsg when all children are done")
+	}
+}
+
+func TestSupervisorDeferral_NoChildren(t *testing.T) {
+	// Supervisor with no children should complete normally
+	cfg := testConfigWithSupervisor(0)
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	m = sendKey(m, "enter")
+
+	msg := ClaudeResponseMsg{
+		SessionID: "supervisor-1",
+		Chunk:     doneChunk(),
+	}
+	_, cmd := m.Update(msg)
+
+	if cmd == nil {
+		t.Fatal("expected a command when supervisor completes with no children")
+	}
+
+	found := false
+	resultMsg := cmd()
+	if _, ok := resultMsg.(SessionCompletedMsg); ok {
+		found = true
+	}
+	if !found {
+		if batch, ok := resultMsg.(tea.BatchMsg); ok {
+			for _, innerCmd := range batch {
+				if innerMsg := innerCmd(); innerMsg != nil {
+					if _, ok := innerMsg.(SessionCompletedMsg); ok {
+						found = true
+						break
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("expected SessionCompletedMsg when supervisor has no children")
+	}
 }

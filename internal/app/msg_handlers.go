@@ -181,6 +181,34 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 			return m, limitCmd
 		}
 
+		// Supervisor sessions with active children should not be considered
+		// complete yet — children will notify the supervisor via
+		// SendPendingMessageMsg when they finish, which triggers another
+		// Claude response. The supervisor only truly completes when Claude
+		// finishes a response with no active children remaining.
+		if sess.IsSupervisor {
+			children := m.config.GetChildSessions(sessionID)
+			for _, child := range children {
+				childRunner := m.sessionMgr.GetRunner(child.ID)
+				if childRunner != nil && childRunner.IsStreaming() {
+					logger.WithSession(sessionID).Debug("supervisor has active children, deferring completion")
+					if completionCmd != nil {
+						return m, completionCmd
+					}
+					return m, nil
+				}
+				if childState := m.sessionState().GetIfExists(child.ID); childState != nil {
+					if childState.GetIsWaiting() || childState.IsMerging() {
+						logger.WithSession(sessionID).Debug("supervisor has active children, deferring completion")
+						if completionCmd != nil {
+							return m, completionCmd
+						}
+						return m, nil
+					}
+				}
+			}
+		}
+
 		// Emit completion event (no pending interactions)
 		completedCmd := func() tea.Msg {
 			return SessionCompletedMsg{SessionID: sessionID}
