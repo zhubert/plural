@@ -178,7 +178,7 @@ func (sm *SessionManager) Select(sess *config.Session, previousSessionID string,
 
 	// Determine header name (branch if custom, otherwise session name)
 	headerName := sess.Name
-	if sess.Branch != "" && len(sess.Branch) > 7 && sess.Branch[:7] != "plural-" {
+	if sess.Branch != "" && !strings.HasPrefix(sess.Branch, "plural-") {
 		headerName = sess.Branch
 	}
 

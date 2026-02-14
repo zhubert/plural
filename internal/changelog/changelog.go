@@ -115,11 +115,11 @@ func parseBody(body string) []string {
 // GitHub auto-generated release notes include format: "abc123... Commit message"
 func stripCommitSHA(s string) string {
 	// Check for 40-char hex SHA followed by space
-	if len(s) > 41 && s[40] == ' ' && isHexString(s[:40]) {
+	if len(s) >= 41 && s[40] == ' ' && isHexString(s[:40]) {
 		return s[41:]
 	}
 	// Check for 7-char short SHA followed by space
-	if len(s) > 8 && s[7] == ' ' && isHexString(s[:7]) {
+	if len(s) >= 8 && s[7] == ' ' && isHexString(s[:7]) {
 		return s[8:]
 	}
 	return s

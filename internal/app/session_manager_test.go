@@ -253,6 +253,35 @@ func TestSessionManager_Select_HeaderName(t *testing.T) {
 	}
 }
 
+func TestSessionManager_Select_HeaderName_ExactPluralPrefix(t *testing.T) {
+	// Regression test: a branch named exactly "plural-" (7 chars) should
+	// use the session name, not the branch name as header.
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:        "session-exact-prefix",
+				RepoPath:  "/test/repo",
+				WorkTree:  "/test/worktree",
+				Branch:    "plural-",
+				Name:      "repo/exact-prefix",
+				CreatedAt: time.Now(),
+				Started:   false,
+			},
+		},
+		AllowedTools:     []string{},
+		RepoAllowedTools: make(map[string][]string),
+	}
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	sess := sm.GetSession("session-exact-prefix")
+	result := sm.Select(sess, "", "", "")
+
+	if result.HeaderName != sess.Name {
+		t.Errorf("Expected header name %q for 'plural-' branch, got %q", sess.Name, result.HeaderName)
+	}
+}
+
 func TestSessionManager_Select_RestoresState(t *testing.T) {
 	cfg := createTestConfig()
 	sm := NewSessionManager(cfg, git.NewGitService())

@@ -633,7 +633,6 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 					log.Warn("git worktree remove failed, trying direct removal", "path", orphan.Path)
 					if err := os.RemoveAll(orphan.Path); err != nil {
 						log.Error("failed to remove orphan", "path", orphan.Path, "error", err)
-						continue
 					}
 				}
 
