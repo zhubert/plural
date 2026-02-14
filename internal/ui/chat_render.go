@@ -134,7 +134,11 @@ func renderInlineMarkdown(line string) string {
 
 	// Extract and replace inline code with placeholders
 	line = inlineCodePattern.ReplaceAllStringFunc(line, func(match string) string {
-		code := inlineCodePattern.FindStringSubmatch(match)[1]
+		submatch := inlineCodePattern.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
+		code := submatch[1]
 		placeholder := fmt.Sprintf("\x00CODE%d\x00", codeIdx)
 		codeSpans = append(codeSpans, codeSpan{
 			placeholder: placeholder,
@@ -147,14 +151,20 @@ func renderInlineMarkdown(line string) string {
 
 	// Process bold (**text**)
 	line = boldPattern.ReplaceAllStringFunc(line, func(match string) string {
-		text := boldPattern.FindStringSubmatch(match)[1]
-		return MarkdownBoldStyle.Render(text)
+		submatch := boldPattern.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
+		return MarkdownBoldStyle.Render(submatch[1])
 	})
 
 	// Process italic with underscores (_text_)
 	// Only match underscores at word boundaries (not in identifiers like foo_bar_baz)
 	line = underscoreItalic.ReplaceAllStringFunc(line, func(match string) string {
 		submatch := underscoreItalic.FindStringSubmatch(match)
+		if len(submatch) < 2 {
+			return match
+		}
 		text := submatch[1]
 		// Preserve any prefix/suffix boundary characters that were matched
 		prefix := ""
@@ -177,6 +187,9 @@ func renderInlineMarkdown(line string) string {
 	// Process links [text](url)
 	line = linkPattern.ReplaceAllStringFunc(line, func(match string) string {
 		parts := linkPattern.FindStringSubmatch(match)
+		if len(parts) < 3 {
+			return match
+		}
 		text := parts[1]
 		url := parts[2]
 		return MarkdownLinkStyle.Render(text) + " (" + MarkdownLinkStyle.Render(url) + ")"

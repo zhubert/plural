@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
@@ -722,7 +723,10 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	var mu sync.Mutex
 	var createdSessions []*config.Session
 	var failedRepos []string
-	// Create sessions in parallel
+	// Create sessions in parallel with a bounded context so they don't run forever
+	// if the app is shutting down or git operations hang.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 	var wg sync.WaitGroup
 	for _, repoPath := range repoPaths {
 		wg.Add(1)
@@ -733,7 +737,6 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			ctx := context.Background()
 			sess, err := m.sessionService.Create(ctx, repoPath, sessionName, branchPrefix, session.BasePointOrigin)
 			if err != nil {
 				log.Error("failed to create session for broadcast", "repo", repoPath, "error", err)

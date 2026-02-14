@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -76,5 +77,45 @@ func TestChannelCloseUnblocksRange(t *testing.T) {
 		// goroutine exited as expected
 	case <-timer.C:
 		t.Error("goroutine did not exit after channel was closed")
+	}
+}
+
+func TestBufferedResponseChannelUnblocksGoroutine(t *testing.T) {
+	// Regression test: when the server exits while a forwarding goroutine is
+	// mid-send on a response channel, the buffered channel (size 1) ensures
+	// the send completes and the goroutine can exit its range loop.
+	reqChan := make(chan string)
+	respChan := make(chan string, 1) // buffered like the fix
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for req := range reqChan {
+			// Simulate: goroutine sends response, but nobody is reading respChan
+			respChan <- req + "-resp"
+		}
+	}()
+
+	// Send one request, simulating a request in-flight when server exits
+	reqChan <- "req1"
+
+	// Close request channel (simulating server.Run() returning)
+	close(reqChan)
+
+	// Goroutine must exit promptly
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+		// goroutine exited as expected
+	case <-timer.C:
+		t.Error("goroutine did not exit after request channel was closed (response channel may be blocking)")
 	}
 }
