@@ -335,7 +335,9 @@ func (m *Model) autoCleanupSession(sessionID, sessionName, reason string) tea.Cm
 	m.config.ClearOrphanedParentIDs([]string{sessionID})
 	config.DeleteSessionMessages(sessionID)
 
-	// Save is handled by the caller (handlePRBatchStatusCheckMsg sets changed=true)
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after auto-cleanup", "error", err)
+	}
 
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
@@ -727,11 +729,6 @@ func (m *Model) handleAutoMergeResultMsg(msg AutoMergeResultMsg) (tea.Model, tea
 	}
 
 	return m, m.ShowFlashSuccess(fmt.Sprintf("Auto-merged: %s", sess.Branch))
-}
-
-// contextWithTimeout creates a context with a timeout for async operations.
-func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), d)
 }
 
 // handleCreateChildRequestMsg handles a create_child_session MCP tool call from the supervisor.
