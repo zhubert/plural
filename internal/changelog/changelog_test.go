@@ -185,7 +185,12 @@ func TestStripCommitSHA(t *testing.T) {
 		{
 			name:  "just a short SHA with space (length exactly 8)",
 			input: "abc123d ",
-			want:  "abc123d ", // len("abc123d ") == 8, not > 8, so no stripping
+			want:  "", // 7-char hex SHA followed by space, strip to empty
+		},
+		{
+			name:  "40-char SHA with space only (length exactly 41)",
+			input: "abc123def456789012345678901234567890abcd ",
+			want:  "", // 40-char hex SHA followed by space, strip to empty
 		},
 		{
 			name:  "short SHA with single char message",
