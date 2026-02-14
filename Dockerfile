@@ -23,6 +23,7 @@ FROM alpine
 # Install Node.js, npm, git, and su-exec (for user switching in entrypoint)
 # Node.js is needed for Claude CLI, git for worktree operations
 RUN apk add --no-cache \
+    bash \
     git \
     nodejs \
     npm \
@@ -39,8 +40,11 @@ ENV PATH="/usr/local/go/bin:$PATH"
 COPY --from=builder /out/plural /usr/local/bin/plural
 COPY --from=builder /out/gopls /usr/local/bin/gopls
 
+# Claude CLI's Bash tool requires SHELL to be set and point to a valid shell
+ENV SHELL=/bin/bash
+
 # Create non-root user with Go environment
-RUN adduser -D -s /bin/sh claude && \
+RUN adduser -D -s /bin/bash claude && \
     mkdir -p /home/claude/go && \
     chown claude:claude /home/claude/go
 
