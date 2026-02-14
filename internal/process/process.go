@@ -3,6 +3,7 @@ package process
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -62,6 +63,110 @@ func containerImageExists(image string) bool {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", image)
 	return cmd.Run() == nil
+}
+
+// imageUpdateCheckTimeout is the maximum time to wait for remote registry checks.
+const imageUpdateCheckTimeout = 15 * time.Second
+
+// CheckContainerImageUpdate checks if a newer version of the container image is
+// available in the remote registry. Returns (true, nil) if an update is available,
+// (false, nil) if the image is up to date, or (false, err) on failure.
+// Requires the Docker CLI to be installed and the image to exist locally.
+func CheckContainerImageUpdate(image string) (bool, error) {
+	log := logger.WithComponent("process")
+
+	if !ContainerCLIInstalled() {
+		return false, fmt.Errorf("docker CLI not installed")
+	}
+
+	if !containerImageExists(image) {
+		return false, fmt.Errorf("image %s not found locally", image)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), imageUpdateCheckTimeout)
+	defer cancel()
+
+	// Get local image digest from RepoDigests
+	localDigest, err := getLocalImageDigest(ctx, image)
+	if err != nil {
+		log.Debug("failed to get local image digest", "image", image, "error", err)
+		return false, fmt.Errorf("failed to get local digest: %w", err)
+	}
+
+	// Get remote manifest digest
+	remoteDigest, err := getRemoteManifestDigest(ctx, image)
+	if err != nil {
+		log.Debug("failed to get remote manifest digest", "image", image, "error", err)
+		return false, fmt.Errorf("failed to get remote digest: %w", err)
+	}
+
+	needsUpdate := localDigest != remoteDigest
+	if needsUpdate {
+		log.Info("container image update available", "image", image, "local", localDigest, "remote", remoteDigest)
+	} else {
+		log.Debug("container image is up to date", "image", image)
+	}
+
+	return needsUpdate, nil
+}
+
+// getLocalImageDigest returns the sha256 digest from the image's RepoDigests.
+func getLocalImageDigest(ctx context.Context, image string) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "image", "inspect", image, "--format", "{{index .RepoDigests 0}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	// RepoDigests format: "ghcr.io/user/image@sha256:abc123..."
+	repoDigest := strings.TrimSpace(string(output))
+	if idx := strings.Index(repoDigest, "@"); idx != -1 {
+		return repoDigest[idx+1:], nil
+	}
+
+	return "", fmt.Errorf("no digest found in RepoDigests: %s", repoDigest)
+}
+
+// manifestEntry represents a single entry in a Docker manifest list.
+type manifestEntry struct {
+	Digest   string `json:"digest"`
+	Platform struct {
+		Architecture string `json:"architecture"`
+		OS           string `json:"os"`
+	} `json:"platform"`
+}
+
+// manifestList represents a Docker manifest list response.
+type manifestList struct {
+	Manifests []manifestEntry `json:"manifests"`
+}
+
+// getRemoteManifestDigest returns the digest for the current platform from the remote registry.
+func getRemoteManifestDigest(ctx context.Context, image string) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", "manifest", "inspect", image)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker manifest inspect failed: %w", err)
+	}
+
+	var ml manifestList
+	if err := json.Unmarshal(output, &ml); err != nil {
+		return "", fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	// Map Go's runtime.GOARCH to Docker architecture names
+	wantArch := runtime.GOARCH
+	if wantArch == "amd64" {
+		wantArch = "amd64"
+	}
+
+	for _, m := range ml.Manifests {
+		if m.Platform.OS == runtime.GOOS && m.Platform.Architecture == wantArch {
+			return m.Digest, nil
+		}
+	}
+
+	return "", fmt.Errorf("no manifest found for %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
 // ContainerPrerequisites holds the results of all container prerequisite checks.

@@ -251,6 +251,12 @@ type PushBranchRequestMsg struct {
 	Request   mcp.PushBranchRequest
 }
 
+// ContainerImageUpdateMsg is sent when the background container image update check completes
+type ContainerImageUpdateMsg struct {
+	NeedsUpdate bool
+	Image       string
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -412,7 +418,30 @@ func (m *Model) Init() tea.Cmd {
 		PRPollTick(),
 		// Start background issue polling
 		IssuePollTick(),
+		// Check for container image updates in the background
+		m.checkContainerImageUpdate(),
 	)
+}
+
+// checkContainerImageUpdate returns a command that checks if the container image
+// has an update available in the remote registry. Silently skips if containers
+// are not supported or the image isn't pulled locally.
+func (m *Model) checkContainerImageUpdate() tea.Cmd {
+	image := m.config.GetContainerImage()
+	return func() tea.Msg {
+		if !process.ContainerCLIInstalled() {
+			return ContainerImageUpdateMsg{}
+		}
+		if !process.ContainerImageExists(image) {
+			return ContainerImageUpdateMsg{}
+		}
+		needsUpdate, err := process.CheckContainerImageUpdate(image)
+		if err != nil {
+			logger.Get().Debug("container image update check failed", "error", err)
+			return ContainerImageUpdateMsg{}
+		}
+		return ContainerImageUpdateMsg{NeedsUpdate: needsUpdate, Image: image}
+	}
 }
 
 // Update handles messages
@@ -773,6 +802,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PushBranchRequestMsg:
 		return m.handlePushBranchRequestMsg(msg)
+
+	case ContainerImageUpdateMsg:
+		if msg.NeedsUpdate {
+			return m, m.ShowFlashWarning(fmt.Sprintf("Container image update available — run: docker pull %s", msg.Image))
+		}
+		return m, nil
 
 	case PRCreatedFromToolMsg:
 		return m.handlePRCreatedFromToolMsg(msg)
