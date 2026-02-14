@@ -546,7 +546,11 @@ func (s *Server) handleCreateChildSession(req *JSONRPCRequest, params ToolCallPa
 
 	select {
 	case resp := <-s.createChildResp:
-		resultJSON, _ := json.Marshal(resp)
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
+			return
+		}
 		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
 	case <-time.After(ChannelReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for child session creation"}`)
@@ -573,7 +577,11 @@ func (s *Server) handleListChildSessions(req *JSONRPCRequest, params ToolCallPar
 
 	select {
 	case resp := <-s.listChildrenResp:
-		resultJSON, _ := json.Marshal(resp)
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
+			return
+		}
 		s.sendToolResult(req.ID, false, string(resultJSON))
 	case <-time.After(ChannelReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for child session list"}`)
@@ -606,7 +614,11 @@ func (s *Server) handleMergeChildToParent(req *JSONRPCRequest, params ToolCallPa
 
 	select {
 	case resp := <-s.mergeChildResp:
-		resultJSON, _ := json.Marshal(resp)
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
+			return
+		}
 		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
 	case <-time.After(ChannelReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for merge result"}`)

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -541,7 +542,7 @@ func TestAllBroadcastSessionsComplete(t *testing.T) {
 			setup: func(m *Model, cfg *config.Config) {
 				cfg.SetSessionBroadcastGroup("session-1", "group-1")
 				cfg.SetSessionBroadcastGroup("session-3", "group-1")
-				m.sessionState().GetOrCreate("session-1").IsWaiting = true
+				m.sessionState().StartWaiting("session-1", func() {})
 			},
 			groupID: "group-1",
 			want:    false,
@@ -782,14 +783,9 @@ func TestHandleAutoPRCommentsFetchedMsg_ActiveSession(t *testing.T) {
 // Helpers
 // =============================================================================
 
-// containsStr is a simple helper to check substring presence without importing strings.
+// containsStr is a simple helper to check substring presence.
 func containsStr(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
 // testConfigWithAutonomousSession creates a config with an autonomous session for testing.

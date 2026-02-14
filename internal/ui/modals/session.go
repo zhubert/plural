@@ -272,9 +272,9 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case keys.Tab:
 			oldFocus := s.Focus
 			s.Focus = (s.Focus + 1) % numFields
-			// Skip disabled fields when autonomous is on
+			// Skip disabled fields when autonomous is on (with safety bound)
 			if s.Autonomous {
-				for s.Focus == 2 || s.Focus == 3 {
+				for i := 0; (s.Focus == 2 || s.Focus == 3) && i < numFields; i++ {
 					s.Focus = (s.Focus + 1) % numFields
 				}
 			}
@@ -283,9 +283,9 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case keys.ShiftTab:
 			oldFocus := s.Focus
 			s.Focus = (s.Focus - 1 + numFields) % numFields
-			// Skip disabled fields when autonomous is on
+			// Skip disabled fields when autonomous is on (with safety bound)
 			if s.Autonomous {
-				for s.Focus == 2 || s.Focus == 3 {
+				for i := 0; (s.Focus == 2 || s.Focus == 3) && i < numFields; i++ {
 					s.Focus = (s.Focus - 1 + numFields) % numFields
 				}
 			}

@@ -328,6 +328,11 @@ func (s *GitService) CheckPRChecks(ctx context.Context, repoPath, branch string)
 				}
 			}
 		}
+		// If output is empty (e.g., network error, no PR found), return the error
+		// rather than silently treating it as pending (which could cause infinite polling).
+		if outputStr == "" {
+			return CIStatusPending, fmt.Errorf("gh pr checks failed with no output: %w", err)
+		}
 		return CIStatusPending, nil
 	}
 
@@ -342,6 +347,8 @@ func (s *GitService) CheckPRChecks(ctx context.Context, repoPath, branch string)
 }
 
 // MergePR merges a PR for the given branch using squash merge.
+// Note: hardcoded to --squash --delete-branch for simplicity. If per-repo merge
+// strategy configuration is needed, this should accept a merge strategy parameter.
 func (s *GitService) MergePR(ctx context.Context, repoPath, branch string) error {
 	_, err := s.executor.Output(ctx, repoPath, "gh", "pr", "merge", branch, "--squash", "--delete-branch")
 	if err != nil {

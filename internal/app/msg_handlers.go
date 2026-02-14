@@ -149,9 +149,11 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	if sess != nil && sess.Autonomous {
 		state := m.sessionState().GetOrCreate(sessionID)
 
-		// Initialize autonomous start time on first turn
+		// Initialize autonomous start time if not already set
+		// (e.g., for sessions created via issue poller or child sessions where
+		// shortcutToggleAutonomous wasn't called)
 		if state.GetAutonomousStartTime().IsZero() {
-			state.SetAutonomousStartTime(time.Now())
+			state.SetAutonomousStartTime(m.sessionState().GetStreamingStartTimeOrNow(sessionID))
 		}
 
 		turns := state.IncrementAutonomousTurns()

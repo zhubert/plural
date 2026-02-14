@@ -549,14 +549,23 @@ func (m *Model) createChildSession(supervisorID, taskDescription string) tea.Cmd
 	return tea.Batch(cmds...)
 }
 
+// maxCIPollAttempts is the maximum number of CI status poll attempts before giving up.
+const maxCIPollAttempts = 60 // ~30 minutes at 30s intervals
+
 // CIPollResultMsg carries the result of a CI status check for auto-merge.
 type CIPollResultMsg struct {
 	SessionID string
 	Status    git.CIStatus
+	Attempt   int // Current poll attempt number
 }
 
 // pollCIForAutoMerge polls CI status for a session and returns the result.
 func (m *Model) pollCIForAutoMerge(sessionID string) tea.Cmd {
+	return m.pollCIForAutoMergeAttempt(sessionID, 1)
+}
+
+// pollCIForAutoMergeAttempt polls CI status with a specific attempt number.
+func (m *Model) pollCIForAutoMergeAttempt(sessionID string, attempt int) tea.Cmd {
 	sess := m.config.GetSession(sessionID)
 	if sess == nil {
 		return nil
@@ -567,7 +576,7 @@ func (m *Model) pollCIForAutoMerge(sessionID string) tea.Cmd {
 	gitSvc := m.gitService
 
 	return func() tea.Msg {
-		// Wait before first check to give CI time to start
+		// Wait before check to give CI time to start
 		time.Sleep(30 * time.Second)
 
 		log := logger.WithSession(sessionID)
@@ -577,10 +586,10 @@ func (m *Model) pollCIForAutoMerge(sessionID string) tea.Cmd {
 		status, err := gitSvc.CheckPRChecks(ctx, repoPath, branch)
 		if err != nil {
 			log.Warn("failed to check CI status", "error", err)
-			return CIPollResultMsg{SessionID: sessionID, Status: git.CIStatusPending}
+			return CIPollResultMsg{SessionID: sessionID, Status: git.CIStatusPending, Attempt: attempt}
 		}
 
-		return CIPollResultMsg{SessionID: sessionID, Status: status}
+		return CIPollResultMsg{SessionID: sessionID, Status: status, Attempt: attempt}
 	}
 }
 
@@ -620,9 +629,19 @@ func (m *Model) handleCIPollResultMsg(msg CIPollResultMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 
 	case git.CIStatusPending:
-		// Still pending, poll again
-		log.Debug("CI checks still pending, will poll again", "branch", sess.Branch)
-		return m, m.pollCIForAutoMerge(msg.SessionID)
+		// Still pending, poll again (with max attempt limit)
+		if msg.Attempt >= maxCIPollAttempts {
+			log.Warn("CI polling max attempts reached, giving up", "branch", sess.Branch, "attempts", msg.Attempt)
+			failMsg := fmt.Sprintf("[AUTO] CI checks still pending after %d attempts - giving up on auto-merge\n", msg.Attempt)
+			if isActiveSession {
+				m.chat.AppendStreaming("\n" + failMsg)
+			} else {
+				m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
+			}
+			return m, m.ShowFlashWarning(fmt.Sprintf("CI polling timed out: %s", sess.Branch))
+		}
+		log.Debug("CI checks still pending, will poll again", "branch", sess.Branch, "attempt", msg.Attempt)
+		return m, m.pollCIForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
 
 	case git.CIStatusNone:
 		// No checks configured, merge immediately
@@ -711,9 +730,8 @@ func (m *Model) handleAutoMergeResultMsg(msg AutoMergeResultMsg) (tea.Model, tea
 }
 
 // contextWithTimeout creates a context with a timeout for async operations.
-func contextWithTimeout(d time.Duration) context.Context {
-	ctx, _ := context.WithTimeout(context.Background(), d)
-	return ctx
+func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), d)
 }
 
 // handleCreateChildRequestMsg handles a create_child_session MCP tool call from the supervisor.

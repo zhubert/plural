@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,15 +11,16 @@ import (
 )
 
 // runTestsForSession runs the test command for a session in its worktree directory.
+// The command is run through a shell (sh -c) to support pipes, redirects, and other
+// shell semantics that users would expect.
 // Returns a tea.Cmd that produces a TestRunResultMsg.
 func runTestsForSession(sessionID, worktreePath, testCmd string, iteration int) tea.Cmd {
 	return func() tea.Msg {
 		log := logger.WithSession(sessionID)
 		log.Info("running tests", "cmd", testCmd, "iteration", iteration, "worktree", worktreePath)
 
-		// Parse the command - split on spaces but respect basic quoting
-		parts := parseCommand(testCmd)
-		if len(parts) == 0 {
+		testCmd = strings.TrimSpace(testCmd)
+		if testCmd == "" {
 			return TestRunResultMsg{
 				SessionID: sessionID,
 				Output:    "Error: empty test command",
@@ -27,7 +29,12 @@ func runTestsForSession(sessionID, worktreePath, testCmd string, iteration int) 
 			}
 		}
 
-		cmd := exec.Command(parts[0], parts[1:]...)
+		// Run through shell to support pipes, redirects, and other shell semantics
+		shell := "sh"
+		if runtime.GOOS == "windows" {
+			shell = "cmd"
+		}
+		cmd := exec.Command(shell, "-c", testCmd)
 		cmd.Dir = worktreePath
 
 		var stdout, stderr bytes.Buffer
@@ -66,39 +73,3 @@ func runTestsForSession(sessionID, worktreePath, testCmd string, iteration int) 
 	}
 }
 
-// parseCommand splits a command string into parts, handling basic shell quoting.
-func parseCommand(cmd string) []string {
-	// For simple cases, just split on whitespace
-	// For more complex cases with quotes, do basic parsing
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return nil
-	}
-
-	var parts []string
-	var current strings.Builder
-	inSingleQuote := false
-	inDoubleQuote := false
-
-	for i := 0; i < len(cmd); i++ {
-		c := cmd[i]
-		switch {
-		case c == '\'' && !inDoubleQuote:
-			inSingleQuote = !inSingleQuote
-		case c == '"' && !inSingleQuote:
-			inDoubleQuote = !inDoubleQuote
-		case c == ' ' && !inSingleQuote && !inDoubleQuote:
-			if current.Len() > 0 {
-				parts = append(parts, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteByte(c)
-		}
-	}
-	if current.Len() > 0 {
-		parts = append(parts, current.String())
-	}
-
-	return parts
-}

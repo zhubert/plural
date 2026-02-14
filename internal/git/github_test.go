@@ -683,10 +683,11 @@ func TestCheckPRChecks_ErrorNoOutput(t *testing.T) {
 
 	svc := NewGitServiceWithExecutor(mock)
 	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// When there's an error with no output, return the error to prevent
+	// infinite polling (instead of silently treating it as pending)
+	if err == nil {
+		t.Fatal("expected error for empty output with command failure")
 	}
-	// When there's an error but no parseable output, defaults to pending
 	if status != CIStatusPending {
 		t.Errorf("expected CIStatusPending as fallback, got %s", status)
 	}

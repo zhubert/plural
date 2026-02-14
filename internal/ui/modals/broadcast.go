@@ -323,7 +323,10 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				return s, nil
 			}
 		case 4:
-			// Autonomous checkbox focused (only when supported)
+			// Autonomous checkbox focused (only when containers supported)
+			if !s.ContainersSupported {
+				return s, nil
+			}
 			switch key {
 			case keys.Space:
 				s.Autonomous = !s.Autonomous
