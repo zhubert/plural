@@ -1049,7 +1049,7 @@ func TestSettingsState_NumFields_WithContainers(t *testing.T) {
 }
 
 func TestSettingsState_NumFields_WithContainersAndRepoAndPAT(t *testing.T) {
-	// Repos + PAT + containers: theme + branch + notifs + cleanup + broadcast + container + repo + asana = 8
+	// Repos + PAT + containers: theme + branch + notifs + cleanup + broadcast + container + repo + test + asana = 9
 	s := newTestSettingsStateWithContainers("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},

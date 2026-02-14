@@ -27,6 +27,12 @@ type NewIssuesDetectedMsg struct {
 	Issues   []issues.Issue
 }
 
+// repoIssues groups new issues by repo path for collection across all polled repos.
+type repoIssues struct {
+	RepoPath string
+	Issues   []issues.Issue
+}
+
 // IssuePollTick returns a command that sends an IssuePollTickMsg after the poll interval
 func IssuePollTick() tea.Cmd {
 	return tea.Tick(issuePollInterval, func(t time.Time) tea.Msg {
@@ -82,10 +88,14 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
+		// Collect new issues from all repos (not just the first one with issues)
+		var allNewIssues []repoIssues
+		totalNew := 0
+
 		for _, repo := range pollingRepos {
-			if activeAutoCount >= maxConcurrent {
+			if activeAutoCount+totalNew >= maxConcurrent {
 				log.Debug("max concurrent auto-sessions reached, skipping remaining repos",
-					"active", activeAutoCount, "max", maxConcurrent)
+					"active", activeAutoCount+totalNew, "max", maxConcurrent)
 				break
 			}
 
@@ -104,7 +114,7 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 					continue
 				}
 				// Respect concurrency limit
-				if activeAutoCount+len(newIssues) >= maxConcurrent {
+				if activeAutoCount+totalNew+len(newIssues) >= maxConcurrent {
 					break
 				}
 				newIssues = append(newIssues, issues.Issue{
@@ -118,14 +128,21 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 
 			if len(newIssues) > 0 {
 				log.Info("detected new issues", "repo", repo.Path, "count", len(newIssues))
-				return NewIssuesDetectedMsg{
-					RepoPath: repo.Path,
-					Issues:   newIssues,
-				}
+				allNewIssues = append(allNewIssues, repoIssues{RepoPath: repo.Path, Issues: newIssues})
+				totalNew += len(newIssues)
 			}
 		}
 
-		return nil
+		if len(allNewIssues) == 0 {
+			return nil
+		}
+
+		// Return issues from the first repo; remaining repos will be picked up
+		// in subsequent poll cycles. This keeps the message handler simple.
+		return NewIssuesDetectedMsg{
+			RepoPath: allNewIssues[0].RepoPath,
+			Issues:   allNewIssues[0].Issues,
+		}
 	}
 }
 
@@ -189,9 +206,8 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 			continue
 		}
 
-		// Configure as autonomous and containerized
+		// Configure as autonomous and containerized (standalone, not supervisor)
 		sess.Autonomous = true
-		sess.IsSupervisor = true
 		sess.Containerized = true
 		sess.IssueRef = &config.IssueRef{
 			Source: string(issue.Source),

@@ -1174,6 +1174,11 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 	// Closing the channel prematurely causes the Bubble Tea listener to
 	// interpret the close as a successful completion, which triggers the
 	// autonomous pipeline (auto-PR creation) on what was actually a crash.
+	//
+	// Mark streaming as inactive so no code path assumes we're still streaming.
+	// handleFatalError also sets this, but we set it here for robustness in case
+	// a restart succeeds (which resets streaming state via a new SendContent call).
+	r.streaming.Active = false
 	r.mu.Unlock()
 
 	// Return true to allow ProcessManager to handle restart logic

@@ -72,7 +72,8 @@ type SessionState struct {
 	AutonomousTurns     int       // Number of autonomous turns completed
 	AutonomousStartTime time.Time // When autonomous mode started (for duration limit)
 
-	// Pending merge child request ID (for supervisor MCP tool correlation)
+	// Pending merge child request ID (for supervisor MCP tool correlation).
+	// Uses interface{} because JSON-RPC request IDs can be numbers or strings.
 	PendingMergeChildRequestID interface{}
 }
 
@@ -901,6 +902,25 @@ func (m *SessionStateManager) StopContainerInit(sessionID string) {
 		state.ContainerInitializing = false
 		state.ContainerInitStart = time.Time{}
 	}
+}
+
+// GetStreamingStartTimeOrNow returns the streaming start time for a session,
+// or time.Now() if the session doesn't exist or hasn't started streaming.
+func (m *SessionStateManager) GetStreamingStartTimeOrNow(sessionID string) time.Time {
+	m.mu.RLock()
+	state, exists := m.states[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return time.Now()
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.StreamingStartTime.IsZero() {
+		return state.StreamingStartTime
+	}
+	return time.Now()
 }
 
 // GetContainerInitStart returns when the container started initializing, and whether it's initializing.

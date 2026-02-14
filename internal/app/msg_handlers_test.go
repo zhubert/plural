@@ -406,7 +406,7 @@ func TestHandleSendPendingMessageMsg_SessionBusy(t *testing.T) {
 
 	// Set pending message and mark as waiting
 	m.sessionState().GetOrCreate(sessionID).SetPendingMsg("test message")
-	m.sessionState().GetOrCreate(sessionID).IsWaiting = true
+	m.sessionState().StartWaiting(sessionID, func() {})
 
 	msg := SendPendingMessageMsg{SessionID: sessionID}
 	_, _ = m.Update(msg)
@@ -874,8 +874,8 @@ func TestSupervisorDeferral_ChildWaiting(t *testing.T) {
 	m.sessionMgr.GetOrCreateRunner(&cfg.Sessions[1])
 
 	// Mark child as waiting (e.g., waiting for user input or permission)
-	childState := m.sessionState().GetOrCreate("child-a")
-	childState.IsWaiting = true
+	// Use StartWaiting for thread-safe access to IsWaiting
+	m.sessionState().StartWaiting("child-a", func() {})
 
 	msg := ClaudeResponseMsg{
 		SessionID: "supervisor-1",
