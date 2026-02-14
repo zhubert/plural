@@ -31,8 +31,9 @@ type SidebarTickMsg time.Time
 type sidebarItemKind int
 
 const (
-	itemKindRepo    sidebarItemKind = iota // A repo header (selectable)
-	itemKindSession                        // A session within a repo
+	itemKindRepo       sidebarItemKind = iota // A repo header (selectable)
+	itemKindSession                           // A session within a repo
+	itemKindNewSession                        // A "+ New Session" action under a repo
 )
 
 // sidebarItem represents a selectable item in the sidebar (either a repo or a session).
@@ -84,6 +85,9 @@ type Sidebar struct {
 	// Cache for incremental updates
 	lastHash     uint64 // Hash of last session list for change detection
 	lastAttnHash uint64 // Hash of attention state for re-ordering detection
+
+	// Registered repos (may have no sessions)
+	registeredRepos []string
 
 	// Search mode
 	searchMode  bool
@@ -208,6 +212,13 @@ func (s *Sidebar) hashAttention() uint64 {
 	return h.Sum64()
 }
 
+// SetRepos sets the list of registered repos so they appear in the sidebar
+// even when they have no sessions.
+func (s *Sidebar) SetRepos(repos []string) {
+	s.registeredRepos = repos
+	s.lastHash = 0 // Invalidate cache so next SetSessions rebuilds items
+}
+
 // SetSessions updates the session list, grouping by repo
 func (s *Sidebar) SetSessions(sessions []config.Session) {
 	// Fast path: check if sessions or attention state have changed
@@ -223,6 +234,18 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	// Group sessions by repo path
 	groupMap := make(map[string]*repoGroup)
 	var groupOrder []string
+
+	// Add registered repos first so they always appear (even without sessions)
+	for _, repo := range s.registeredRepos {
+		if _, exists := groupMap[repo]; !exists {
+			groupMap[repo] = &repoGroup{
+				RepoPath: repo,
+				RepoName: filepath.Base(repo),
+				Sessions: []config.Session{},
+			}
+			groupOrder = append(groupOrder, repo)
+		}
+	}
 
 	for _, sess := range sessions {
 		if _, exists := groupMap[sess.RepoPath]; !exists {
@@ -251,8 +274,8 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 		flattenSessionTree(group.RootNodes, &s.sessions)
 	}
 
-	// Build flat items list: repo header + sessions for each group
-	s.items = make([]sidebarItem, 0, len(s.sessions)+len(s.groups))
+	// Build flat items list: repo header + sessions + new session action for each group
+	s.items = make([]sidebarItem, 0, len(s.sessions)+len(s.groups)*2)
 	for _, group := range s.groups {
 		s.items = append(s.items, sidebarItem{
 			Kind:     itemKindRepo,
@@ -261,6 +284,10 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 		for _, node := range group.RootNodes {
 			flattenSessionTreeToItems(node, group.RepoPath, &s.items)
 		}
+		s.items = append(s.items, sidebarItem{
+			Kind:     itemKindNewSession,
+			RepoPath: group.RepoPath,
+		})
 	}
 
 	// Adjust selection if needed
@@ -382,6 +409,27 @@ func (s *Sidebar) SelectedRepo() string {
 // IsRepoSelected returns true when a repo header is currently selected.
 func (s *Sidebar) IsRepoSelected() bool {
 	return s.SelectedRepo() != ""
+}
+
+// SelectedNewSessionRepo returns the repo path if the "+ New Session" action is selected,
+// or empty string otherwise.
+func (s *Sidebar) SelectedNewSessionRepo() string {
+	if s.searchMode {
+		return ""
+	}
+	if s.selectedIdx < 0 || s.selectedIdx >= len(s.items) {
+		return ""
+	}
+	item := &s.items[s.selectedIdx]
+	if item.Kind != itemKindNewSession {
+		return ""
+	}
+	return item.RepoPath
+}
+
+// IsNewSessionSelected returns true when a "+ New Session" action is selected.
+func (s *Sidebar) IsNewSessionSelected() bool {
+	return s.SelectedNewSessionRepo() != ""
 }
 
 // SelectSession selects a session by ID
@@ -817,7 +865,7 @@ func (s *Sidebar) View() string {
 
 	displaySessions := s.getDisplaySessions()
 
-	if len(displaySessions) == 0 {
+	if len(displaySessions) == 0 && len(s.items) == 0 {
 		var emptyMsg string
 		if s.searchMode && s.searchInput.Value() != "" {
 			emptyMsg = lipgloss.NewStyle().
@@ -945,6 +993,24 @@ func (s *Sidebar) View() string {
 				isLast := i == len(group.RootNodes)-1
 				renderNode(node, 0, isLast)
 			}
+
+			// "+ New Session" action item
+			isNewSelected := itemIdx == s.selectedIdx
+			newLabel := "  + New Session"
+			if isNewSelected {
+				newStyle := SidebarSelectedStyle.Width(innerWidth)
+				selectedStartLine = len(allLines)
+				rendered := newStyle.Render("> + New Session")
+				for _, line := range strings.Split(rendered, "\n") {
+					allLines = append(allLines, line)
+				}
+			} else {
+				newStyle := lipgloss.NewStyle().
+					Foreground(ColorTextMuted).
+					Italic(true)
+				allLines = append(allLines, newStyle.Render(newLabel))
+			}
+			itemIdx++
 		}
 
 		// Adjust scroll to keep selected session visible

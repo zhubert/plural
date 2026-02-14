@@ -127,11 +127,11 @@ func TestSidebar_SetSessions_AdjustsSelection(t *testing.T) {
 	sidebar.SetSessions(sessions)
 	sidebar.selectedIdx = 9
 
-	// Now set fewer sessions (1 repo header + 3 sessions = 4 items)
+	// Now set fewer sessions (1 repo header + 3 sessions + 1 new session action = 5 items)
 	sidebar.SetSessions(sessions[:3])
 
-	// selectedIdx should be within bounds of items (repo + 3 sessions = 4)
-	if sidebar.selectedIdx >= 4 {
+	// selectedIdx should be within bounds of items (repo + 3 sessions + new session = 5)
+	if sidebar.selectedIdx >= 5 {
 		t.Errorf("Selection should be adjusted, got %d", sidebar.selectedIdx)
 	}
 }
@@ -1325,5 +1325,96 @@ func TestSidebar_SelectSession_NormalMode(t *testing.T) {
 	}
 	if selected.ID != "session-2" {
 		t.Errorf("Expected selected session-2, got %s", selected.ID)
+	}
+}
+
+func TestSidebar_SetRepos_ShowsReposWithoutSessions(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetRepos([]string{"/repo1", "/repo2"})
+	sidebar.SetSessions(nil)
+
+	// Should have items: repo1, +new, repo2, +new
+	if len(sidebar.items) != 4 {
+		t.Fatalf("Expected 4 items (2 repos + 2 new session), got %d", len(sidebar.items))
+	}
+	if sidebar.items[0].Kind != itemKindRepo || sidebar.items[0].RepoPath != "/repo1" {
+		t.Errorf("Expected repo1, got %+v", sidebar.items[0])
+	}
+	if sidebar.items[1].Kind != itemKindNewSession || sidebar.items[1].RepoPath != "/repo1" {
+		t.Errorf("Expected new session for repo1, got %+v", sidebar.items[1])
+	}
+	if sidebar.items[2].Kind != itemKindRepo || sidebar.items[2].RepoPath != "/repo2" {
+		t.Errorf("Expected repo2, got %+v", sidebar.items[2])
+	}
+	if sidebar.items[3].Kind != itemKindNewSession || sidebar.items[3].RepoPath != "/repo2" {
+		t.Errorf("Expected new session for repo2, got %+v", sidebar.items[3])
+	}
+}
+
+func TestSidebar_SetRepos_WithSessions(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetRepos([]string{"/repo1", "/repo2"})
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo1", Branch: "b1"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Should have: repo1, s1, +new(repo1), repo2, +new(repo2)
+	if len(sidebar.items) != 5 {
+		t.Fatalf("Expected 5 items, got %d", len(sidebar.items))
+	}
+	if sidebar.items[0].Kind != itemKindRepo {
+		t.Errorf("Expected repo header at 0")
+	}
+	if sidebar.items[1].Kind != itemKindSession {
+		t.Errorf("Expected session at 1")
+	}
+	if sidebar.items[2].Kind != itemKindNewSession {
+		t.Errorf("Expected new session at 2")
+	}
+	if sidebar.items[3].Kind != itemKindRepo || sidebar.items[3].RepoPath != "/repo2" {
+		t.Errorf("Expected repo2 at 3")
+	}
+	if sidebar.items[4].Kind != itemKindNewSession || sidebar.items[4].RepoPath != "/repo2" {
+		t.Errorf("Expected new session for repo2 at 4")
+	}
+}
+
+func TestSidebar_SelectedNewSessionRepo(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetRepos([]string{"/repo1"})
+	sidebar.SetSessions(nil)
+
+	// items: repo1=0, +new=1
+	// Default selection on repo header
+	if sidebar.SelectedNewSessionRepo() != "" {
+		t.Error("Should not be new session selected initially")
+	}
+
+	// Move to +new
+	sidebar.selectedIdx = 1
+	if got := sidebar.SelectedNewSessionRepo(); got != "/repo1" {
+		t.Errorf("Expected /repo1 for new session, got %q", got)
+	}
+	if !sidebar.IsNewSessionSelected() {
+		t.Error("IsNewSessionSelected should be true")
+	}
+}
+
+func TestSidebar_View_ReposWithoutSessions(t *testing.T) {
+	sidebar := NewSidebar()
+	sidebar.SetSize(40, 20)
+	sidebar.SetRepos([]string{"/repo1"})
+	sidebar.SetSessions(nil)
+
+	view := sidebar.View()
+	if !strings.Contains(view, "repo1") {
+		t.Error("View should contain repo name")
+	}
+	if !strings.Contains(view, "New Session") {
+		t.Error("View should contain '+ New Session'")
+	}
+	if strings.Contains(view, "No sessions") {
+		t.Error("View should not show 'No sessions' when repos are registered")
 	}
 }

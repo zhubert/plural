@@ -1,6 +1,7 @@
 package modals
 
 import (
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -23,6 +24,7 @@ type NewSessionState struct {
 	RepoOptions            []string
 	RepoIndex              int
 	ScrollOffset           int      // For scrolling the repo list
+	LockedRepo             string   // When set, skip repo selector and use this repo
 	BaseOptions            []string // Options for base branch selection
 	BaseIndex              int      // Selected base option index
 	BranchInput            textinput.Model
@@ -30,24 +32,28 @@ type NewSessionState struct {
 	ContainersSupported    bool // Whether Docker is available for container mode
 	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
 	Autonomous             bool // Whether to run in autonomous mode (auto-enables containers)
-	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported), 4=autonomous
+	Focus                  int  // 0=repo list, 1=base selection, 2=autonomous (if supported), 3=branch input, 4=containers (if supported)
 }
 
 func (*NewSessionState) modalState() {}
 
-func (s *NewSessionState) Title() string { return "New Session" }
+func (s *NewSessionState) Title() string {
+	if s.LockedRepo != "" {
+		return "New Session in " + filepath.Base(s.LockedRepo)
+	}
+	return "New Session"
+}
 
 func (s *NewSessionState) Help() string {
-	if s.Focus == 0 && len(s.RepoOptions) == 0 {
-		return "a: add repo  Esc: cancel"
+	if s.LockedRepo == "" {
+		if s.Focus == 0 && len(s.RepoOptions) == 0 {
+			return "a: add repo  Esc: cancel"
+		}
+		if s.Focus == 0 && len(s.RepoOptions) > 0 {
+			return "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create"
+		}
 	}
-	if s.Focus == 0 && len(s.RepoOptions) > 0 {
-		return "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create"
-	}
-	if s.Focus == 3 && s.ContainersSupported {
-		return "Space: toggle  Tab: next field  Enter: create"
-	}
-	if s.Focus == 4 && s.ContainersSupported {
+	if s.ContainersSupported && (s.Focus == 2 || s.Focus == 4) {
 		return "Space: toggle  Tab: next field  Enter: create"
 	}
 	return "up/down: select  Tab: next field  Enter: create"
@@ -56,19 +62,25 @@ func (s *NewSessionState) Help() string {
 func (s *NewSessionState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
-	// Repository selection section
-	repoLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Render("Repository:")
+	var parts []string
+	parts = append(parts, title)
 
-	var repoList string
-	if len(s.RepoOptions) == 0 {
-		repoList = lipgloss.NewStyle().
+	// Repository selection section (hidden when repo is locked)
+	if s.LockedRepo == "" {
+		repoLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
-			Italic(true).
-			Render("No repositories added. Press 'a' to add one.")
-	} else {
-		repoList = s.renderRepoList()
+			Render("Repository:")
+
+		var repoList string
+		if len(s.RepoOptions) == 0 {
+			repoList = lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Render("No repositories added. Press 'a' to add one.")
+		} else {
+			repoList = s.renderRepoList()
+		}
+		parts = append(parts, repoLabel, repoList)
 	}
 
 	// Base branch selection section
@@ -79,7 +91,36 @@ func (s *NewSessionState) Render() string {
 
 	baseList := RenderSelectableListWithFocus(s.BaseOptions, s.BaseIndex, s.Focus == 1, "> ")
 
-	// Branch name input section
+	parts = append(parts, baseLabel, baseList)
+
+	// Autonomous mode checkbox (focus 2, only when containers supported)
+	if s.ContainersSupported {
+		autoLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Autonomous mode:")
+
+		autoCheckbox := "[ ]"
+		if s.Autonomous {
+			autoCheckbox = "[x]"
+		}
+		autoCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 2 {
+			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
+		}
+		autoDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Orchestrator: delegates to children, can create PRs")
+		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
+
+		parts = append(parts, autoLabel, autoView)
+	}
+
+	// Branch name input section (focus 3 with containers, focus 2 without)
 	branchLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		MarginTop(1).
@@ -91,7 +132,7 @@ func (s *NewSessionState) Render() string {
 			Render("(disabled in autonomous mode)")
 	} else {
 		branchInputStyle := lipgloss.NewStyle()
-		if s.Focus == 2 {
+		if s.Focus == s.branchFocusIdx() {
 			branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			branchInputStyle = branchInputStyle.PaddingLeft(2)
@@ -99,9 +140,9 @@ func (s *NewSessionState) Render() string {
 		branchView = branchInputStyle.Render(s.BranchInput.View())
 	}
 
-	parts := []string{title, repoLabel, repoList, baseLabel, baseList, branchLabel, branchView}
+	parts = append(parts, branchLabel, branchView)
 
-	// Container mode checkbox (only on Apple Silicon)
+	// Container mode checkbox (focus 4, only when containers supported)
 	if s.ContainersSupported {
 		containerLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
@@ -123,7 +164,7 @@ func (s *NewSessionState) Render() string {
 				Render(containerCheckbox + " " + containerDesc)
 		} else {
 			containerCheckboxStyle := lipgloss.NewStyle()
-			if s.Focus == 3 {
+			if s.Focus == 4 {
 				containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 			} else {
 				containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
@@ -154,31 +195,6 @@ func (s *NewSessionState) Render() string {
 				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
-
-		// Autonomous mode checkbox
-		autoLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Autonomous mode:")
-
-		autoCheckbox := "[ ]"
-		if s.Autonomous {
-			autoCheckbox = "[x]"
-		}
-		autoCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 4 {
-			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
-		}
-		autoDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Orchestrator: delegates to children, can create PRs")
-		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
-
-		parts = append(parts, autoLabel, autoView)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -229,16 +245,48 @@ func (s *NewSessionState) renderRepoList() string {
 }
 
 // numFields returns the number of focusable fields.
+// With containers:    0=repo, 1=base, 2=autonomous, 3=branch, 4=containers
+// Without containers: 0=repo, 1=base, 2=branch
+// When LockedRepo is set, focus 0 is skipped. When autonomous, focus 3+4 are skipped.
 func (s *NewSessionState) numFields() int {
 	if s.ContainersSupported {
-		return 5 // repo list, base selection, branch input, containers, autonomous
+		return 5
 	}
-	return 3 // repo list, base selection, branch input
+	return 3
+}
+
+// branchFocusIdx returns the focus index for the branch input field.
+func (s *NewSessionState) branchFocusIdx() int {
+	if s.ContainersSupported {
+		return 3
+	}
+	return 2
+}
+
+// isSkippedFocus returns true if this focus index should be skipped.
+func (s *NewSessionState) isSkippedFocus(idx int) bool {
+	if s.LockedRepo != "" && idx == 0 {
+		return true
+	}
+	// When autonomous, skip branch and container (they're auto-set)
+	if s.Autonomous && s.ContainersSupported && (idx == 3 || idx == 4) {
+		return true
+	}
+	return false
+}
+
+// advanceFocus moves focus forward, skipping disabled fields.
+func (s *NewSessionState) advanceFocus(delta int) {
+	n := s.numFields()
+	for i := 0; i < n; i++ {
+		s.Focus = (s.Focus + delta + n) % n
+		if !s.isSkippedFocus(s.Focus) {
+			return
+		}
+	}
 }
 
 func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	numFields := s.numFields()
-
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case keys.Up, "k":
@@ -271,34 +319,16 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			}
 		case keys.Tab:
 			oldFocus := s.Focus
-			s.Focus = (s.Focus + 1) % numFields
-			// Skip disabled fields when autonomous is on (with safety bound)
-			if s.Autonomous {
-				for i := 0; (s.Focus == 2 || s.Focus == 3) && i < numFields; i++ {
-					s.Focus = (s.Focus + 1) % numFields
-				}
-			}
+			s.advanceFocus(1)
 			s.updateInputFocus(oldFocus)
 			return s, nil
 		case keys.ShiftTab:
 			oldFocus := s.Focus
-			s.Focus = (s.Focus - 1 + numFields) % numFields
-			// Skip disabled fields when autonomous is on (with safety bound)
-			if s.Autonomous {
-				for i := 0; (s.Focus == 2 || s.Focus == 3) && i < numFields; i++ {
-					s.Focus = (s.Focus - 1 + numFields) % numFields
-				}
-			}
+			s.advanceFocus(-1)
 			s.updateInputFocus(oldFocus)
 			return s, nil
 		case keys.Space:
-			if s.Focus == 3 && s.ContainersSupported && !s.Autonomous {
-				s.UseContainers = !s.UseContainers
-				// If disabling containers, also disable autonomous
-				if !s.UseContainers {
-					s.Autonomous = false
-				}
-			} else if s.Focus == 4 && s.ContainersSupported {
+			if s.Focus == 2 && s.ContainersSupported {
 				s.Autonomous = !s.Autonomous
 				// Autonomous requires containers
 				if s.Autonomous {
@@ -307,13 +337,19 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.BranchInput.SetValue("")
 					s.BranchInput.Blur()
 				}
+			} else if s.Focus == 4 && s.ContainersSupported && !s.Autonomous {
+				s.UseContainers = !s.UseContainers
+				// If disabling containers, also disable autonomous
+				if !s.UseContainers {
+					s.Autonomous = false
+				}
 			}
 			return s, nil
 		}
 	}
 
 	// Handle branch input updates when focused (disabled in autonomous mode)
-	if s.Focus == 2 && !s.Autonomous {
+	if s.Focus == s.branchFocusIdx() && !s.Autonomous {
 		var cmd tea.Cmd
 		s.BranchInput, cmd = s.BranchInput.Update(msg)
 		return s, cmd
@@ -324,15 +360,19 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 
 // updateInputFocus manages focus state for text inputs based on current Focus index.
 func (s *NewSessionState) updateInputFocus(oldFocus int) {
-	if s.Focus == 2 {
+	bfi := s.branchFocusIdx()
+	if s.Focus == bfi {
 		s.BranchInput.Focus()
-	} else if oldFocus == 2 {
+	} else if oldFocus == bfi {
 		s.BranchInput.Blur()
 	}
 }
 
 // GetSelectedRepo returns the selected repository path
 func (s *NewSessionState) GetSelectedRepo() string {
+	if s.LockedRepo != "" {
+		return s.LockedRepo
+	}
 	if len(s.RepoOptions) == 0 || s.RepoIndex >= len(s.RepoOptions) {
 		return ""
 	}

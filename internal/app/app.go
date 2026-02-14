@@ -281,7 +281,8 @@ func New(cfg *config.Config, version string) *Model {
 		windowFocused:  true, // Assume window is focused on startup
 	}
 
-	// Load sessions into sidebar (filtered by active workspace)
+	// Load repos and sessions into sidebar (filtered by active workspace)
+	m.sidebar.SetRepos(cfg.GetRepos())
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	m.sidebar.SetFocused(true)
 
@@ -664,6 +665,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case keys.Enter:
 			switch m.focus {
 			case FocusSidebar:
+				// "+ New Session" action
+				if repoPath := m.sidebar.SelectedNewSessionRepo(); repoPath != "" {
+					state := ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable())
+					state.LockedRepo = repoPath
+					state.Focus = 1 // Skip repo selector, start on base branch
+					m.modal.Show(state)
+					return m, nil
+				}
 				// Select session
 				if sess := m.sidebar.SelectedSession(); sess != nil {
 					m.selectSession(sess)
