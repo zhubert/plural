@@ -27,6 +27,11 @@ const (
 	// This prevents the MCP server subprocess from blocking indefinitely
 	// if the TUI becomes unresponsive.
 	SocketWriteTimeout = 10 * time.Second
+
+	// HostToolResponseTimeout is the timeout for host tool operations (create_pr, push_branch).
+	// These operations involve git pushes and GitHub API calls which can take longer
+	// than interactive prompts. Must be >= the 2-minute context timeout in TUI handlers.
+	HostToolResponseTimeout = 5 * time.Minute
 )
 
 // MessageType identifies the type of socket message
@@ -662,7 +667,7 @@ func (s *SocketServer) handleCreatePRMessage(conn net.Conn, req *CreatePRRequest
 	case resp := <-s.createPRResp:
 		s.sendCreatePRResponse(conn, resp)
 		s.log.Info("sent create PR response", "success", resp.Success, "prURL", resp.PRURL)
-	case <-time.After(PermissionResponseTimeout):
+	case <-time.After(HostToolResponseTimeout):
 		s.log.Warn("timeout waiting for create PR response")
 		s.sendCreatePRResponse(conn, CreatePRResponse{ID: req.ID, Success: false, Error: "Timeout"})
 	}
@@ -702,7 +707,7 @@ func (s *SocketServer) handlePushBranchMessage(conn net.Conn, req *PushBranchReq
 	case resp := <-s.pushBranchResp:
 		s.sendPushBranchResponse(conn, resp)
 		s.log.Info("sent push branch response", "success", resp.Success)
-	case <-time.After(PermissionResponseTimeout):
+	case <-time.After(HostToolResponseTimeout):
 		s.log.Warn("timeout waiting for push branch response")
 		s.sendPushBranchResponse(conn, PushBranchResponse{ID: req.ID, Success: false, Error: "Timeout"})
 	}

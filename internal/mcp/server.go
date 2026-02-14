@@ -25,6 +25,10 @@ const (
 	// (child session creation, merge). 5 minutes is appropriate for all cases since
 	// container startup and git merges can take significant time.
 	ChannelReceiveTimeout = 5 * time.Minute
+	// HostToolReceiveTimeout is the timeout for host tool operations (create_pr, push_branch).
+	// These involve git pushes and GitHub API calls. Must be >= the 2-minute context
+	// timeout used in TUI handlers for these operations.
+	HostToolReceiveTimeout = 5 * time.Minute
 )
 
 const (
@@ -258,11 +262,7 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) {
 					Properties: map[string]Property{
 						"title": {
 							Type:        "string",
-							Description: "Optional PR title. If not provided, a default title will be generated from the branch name.",
-						},
-						"body": {
-							Type:        "string",
-							Description: "Optional PR body/description.",
+							Description: "Optional PR title. If not provided, a title and body will be auto-generated.",
 						},
 					},
 				},
@@ -694,11 +694,10 @@ func (s *Server) handleCreatePR(req *JSONRPCRequest, params ToolCallParams) {
 	}
 
 	title, _ := params.Arguments["title"].(string)
-	body, _ := params.Arguments["body"].(string)
 
 	s.log.Info("create_pr called", "title", title)
 
-	prReq := CreatePRRequest{ID: req.ID, Title: title, Body: body}
+	prReq := CreatePRRequest{ID: req.ID, Title: title}
 
 	select {
 	case s.createPRChan <- prReq:
@@ -715,7 +714,7 @@ func (s *Server) handleCreatePR(req *JSONRPCRequest, params ToolCallParams) {
 			return
 		}
 		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(ChannelReceiveTimeout):
+	case <-time.After(HostToolReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for PR creation"}`)
 	}
 }
@@ -748,7 +747,7 @@ func (s *Server) handlePushBranch(req *JSONRPCRequest, params ToolCallParams) {
 			return
 		}
 		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(ChannelReceiveTimeout):
+	case <-time.After(HostToolReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for push result"}`)
 	}
 }

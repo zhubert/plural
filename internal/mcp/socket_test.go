@@ -724,7 +724,6 @@ func TestSocketMessage_JSONMarshal_CreatePR(t *testing.T) {
 		CreatePRReq: &CreatePRRequest{
 			ID:    "pr-1",
 			Title: "Test PR",
-			Body:  "PR body",
 		},
 	}
 
