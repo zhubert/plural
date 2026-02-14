@@ -1150,8 +1150,6 @@ func (r *Runner) handleStreamEventTokens(event *streamEvent, ch chan ResponseChu
 // Returns true if the process should be restarted.
 func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 	r.mu.Lock()
-	ch := r.responseChan.Channel
-	chClosed := r.responseChan.Closed
 	stopped := r.stopped
 	responseComplete := r.streaming.Complete
 
@@ -1169,12 +1167,13 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 		return false
 	}
 
-	// Mark streaming as done
-	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{Done: true})
-		r.closeResponseChannel()
-	}
-	r.streaming.Active = false
+	// Don't close the response channel here — return true to allow the
+	// ProcessManager to attempt a restart.  The channel must stay open so
+	// that handleRestartAttempt can send status messages and, if all
+	// retries fail, handleFatalError can send the final error+done chunk.
+	// Closing the channel prematurely causes the Bubble Tea listener to
+	// interpret the close as a successful completion, which triggers the
+	// autonomous pipeline (auto-PR creation) on what was actually a crash.
 	r.mu.Unlock()
 
 	// Return true to allow ProcessManager to handle restart logic
