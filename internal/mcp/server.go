@@ -52,6 +52,11 @@ type Server struct {
 	listChildrenResp <-chan ListChildrenResponse // Receive list children responses from TUI
 	mergeChildChan   chan<- MergeChildRequest    // Send merge child requests to TUI
 	mergeChildResp   <-chan MergeChildResponse   // Receive merge child responses from TUI
+	hasHostTools     bool                        // Whether to expose host operation tools (create_pr, push_branch)
+	createPRChan     chan<- CreatePRRequest      // Send create PR requests to TUI
+	createPRResp     <-chan CreatePRResponse     // Receive create PR responses from TUI
+	pushBranchChan   chan<- PushBranchRequest    // Send push branch requests to TUI
+	pushBranchResp   <-chan PushBranchResponse   // Receive push branch responses from TUI
 	mu               sync.Mutex
 	log              *slog.Logger // Logger with session context
 }
@@ -73,6 +78,20 @@ func WithSupervisor(
 		s.listChildrenResp = listChildrenResp
 		s.mergeChildChan = mergeChildChan
 		s.mergeChildResp = mergeChildResp
+	}
+}
+
+// WithHostTools enables host operation tools (create_pr, push_branch)
+func WithHostTools(
+	createPRChan chan<- CreatePRRequest, createPRResp <-chan CreatePRResponse,
+	pushBranchChan chan<- PushBranchRequest, pushBranchResp <-chan PushBranchResponse,
+) ServerOption {
+	return func(s *Server) {
+		s.hasHostTools = true
+		s.createPRChan = createPRChan
+		s.createPRResp = createPRResp
+		s.pushBranchChan = pushBranchChan
+		s.pushBranchResp = pushBranchResp
 	}
 }
 
@@ -229,6 +248,41 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) {
 		)
 	}
 
+	if s.hasHostTools {
+		tools = append(tools,
+			ToolDefinition{
+				Name:        "create_pr",
+				Description: "Create a pull request for the current branch. Commits any uncommitted changes, pushes the branch to the remote, and creates a PR via GitHub CLI. This runs on the host machine.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"title": {
+							Type:        "string",
+							Description: "Optional PR title. If not provided, a default title will be generated from the branch name.",
+						},
+						"body": {
+							Type:        "string",
+							Description: "Optional PR body/description.",
+						},
+					},
+				},
+			},
+			ToolDefinition{
+				Name:        "push_branch",
+				Description: "Commit any uncommitted changes and push the current branch to the remote. This runs on the host machine.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"commit_message": {
+							Type:        "string",
+							Description: "Optional commit message. If not provided, a default message will be used.",
+						},
+					},
+				},
+			},
+		)
+	}
+
 	s.sendResult(req.ID, ToolsListResult{Tools: tools})
 }
 
@@ -249,6 +303,10 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 		s.handleListChildSessions(req, params)
 	case "merge_child_to_parent":
 		s.handleMergeChildToParent(req, params)
+	case "create_pr":
+		s.handleCreatePR(req, params)
+	case "push_branch":
+		s.handlePushBranch(req, params)
 	default:
 		s.log.Warn("unknown tool", "tool", params.Name)
 		s.sendError(req.ID, -32602, "Unknown tool", nil)
@@ -625,6 +683,73 @@ func (s *Server) handleMergeChildToParent(req *JSONRPCRequest, params ToolCallPa
 		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
 	case <-time.After(ChannelReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for merge result"}`)
+	}
+}
+
+// handleCreatePR handles the create_pr host tool
+func (s *Server) handleCreatePR(req *JSONRPCRequest, params ToolCallParams) {
+	if !s.hasHostTools || s.createPRChan == nil {
+		s.sendToolResult(req.ID, true, `{"error":"create_pr is only available in automated supervisor sessions"}`)
+		return
+	}
+
+	title, _ := params.Arguments["title"].(string)
+	body, _ := params.Arguments["body"].(string)
+
+	s.log.Info("create_pr called", "title", title)
+
+	prReq := CreatePRRequest{ID: req.ID, Title: title, Body: body}
+
+	select {
+	case s.createPRChan <- prReq:
+	case <-time.After(ChannelSendTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
+		return
+	}
+
+	select {
+	case resp := <-s.createPRResp:
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
+			return
+		}
+		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
+	case <-time.After(ChannelReceiveTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for PR creation"}`)
+	}
+}
+
+// handlePushBranch handles the push_branch host tool
+func (s *Server) handlePushBranch(req *JSONRPCRequest, params ToolCallParams) {
+	if !s.hasHostTools || s.pushBranchChan == nil {
+		s.sendToolResult(req.ID, true, `{"error":"push_branch is only available in automated supervisor sessions"}`)
+		return
+	}
+
+	commitMessage, _ := params.Arguments["commit_message"].(string)
+
+	s.log.Info("push_branch called", "commitMessage", commitMessage)
+
+	pushReq := PushBranchRequest{ID: req.ID, CommitMessage: commitMessage}
+
+	select {
+	case s.pushBranchChan <- pushReq:
+	case <-time.After(ChannelSendTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
+		return
+	}
+
+	select {
+	case resp := <-s.pushBranchResp:
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
+			return
+		}
+		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
+	case <-time.After(ChannelReceiveTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for push result"}`)
 	}
 }
 

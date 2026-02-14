@@ -232,10 +232,12 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 			continue
 		}
 
-		// Configure as autonomous and containerized (standalone, not supervisor).
+		// Configure as autonomous, containerized supervisor.
 		// Containerized is required for autonomous mode (sandbox = the container).
+		// IsSupervisor enables delegation to child sessions for parallel work.
 		sess.Autonomous = true
 		sess.Containerized = true
+		sess.IsSupervisor = true
 		sess.IssueRef = &config.IssueRef{
 			Source: string(issue.Source),
 			ID:     issue.ID,
@@ -251,8 +253,8 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		m.config.AddSession(*sess)
 		created++
 
-		// Build initial message
-		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nPlease help me work on this issue.",
+		// Build initial message — instruct the orchestrator about its role and tools
+		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nYou are an orchestrator session. Break this issue into subtasks and delegate each to a child session using `create_child_session`. Monitor progress with `list_child_sessions`. When children complete, merge their work with `merge_child_to_parent`. Finally, use `push_branch` to push your changes and `create_pr` to create a pull request.",
 			issue.ID, issue.Title, issue.Body)
 
 		// Start the session

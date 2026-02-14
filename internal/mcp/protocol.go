@@ -224,3 +224,31 @@ type MergeChildResponse struct {
 	Message string      `json:"message,omitempty"` // Success or error message
 	Error   string      `json:"error,omitempty"`   // Error message if merge failed
 }
+
+// CreatePRRequest represents a request from an automated supervisor to create a PR on the host
+type CreatePRRequest struct {
+	ID    interface{} `json:"id"`              // JSON-RPC request ID for response correlation
+	Title string      `json:"title,omitempty"` // Optional PR title
+	Body  string      `json:"body,omitempty"`  // Optional PR body
+}
+
+// CreatePRResponse represents the result of creating a PR
+type CreatePRResponse struct {
+	ID      interface{} `json:"id"`                // Correlates with request ID
+	Success bool        `json:"success"`           // Whether PR was created successfully
+	PRURL   string      `json:"pr_url,omitempty"`  // URL of the created PR
+	Error   string      `json:"error,omitempty"`   // Error message if creation failed
+}
+
+// PushBranchRequest represents a request from an automated supervisor to push branch on the host
+type PushBranchRequest struct {
+	ID            interface{} `json:"id"`                       // JSON-RPC request ID for response correlation
+	CommitMessage string      `json:"commit_message,omitempty"` // Optional commit message
+}
+
+// PushBranchResponse represents the result of pushing a branch
+type PushBranchResponse struct {
+	ID      interface{} `json:"id"`              // Correlates with request ID
+	Success bool        `json:"success"`         // Whether push was successful
+	Error   string      `json:"error,omitempty"` // Error message if push failed
+}

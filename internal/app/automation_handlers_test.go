@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/mcp"
 )
 
 // =============================================================================
@@ -776,6 +777,208 @@ func TestHandleAutoPRCommentsFetchedMsg_ActiveSession(t *testing.T) {
 	_, cmd := m.handleAutoPRCommentsFetchedMsg(msg)
 	if cmd == nil {
 		t.Error("expected non-nil cmd for active session")
+	}
+}
+
+// =============================================================================
+// TestHandleCreatePRRequestMsg
+// =============================================================================
+
+func TestHandleCreatePRRequestMsg_NilRunner(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// No runner registered for session-1
+	msg := CreatePRRequestMsg{
+		SessionID: "session-1",
+		Request:   mcp.CreatePRRequest{ID: float64(1), Title: "Test PR"},
+	}
+	_, cmd := m.handleCreatePRRequestMsg(msg)
+	if cmd != nil {
+		t.Error("expected nil cmd when runner is nil")
+	}
+}
+
+func TestHandleCreatePRRequestMsg_NilSession(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Register a runner for session-1
+	sess := cfg.GetSession("session-1")
+	m.sessionMgr.Select(sess, "", "", "")
+	mock := factory.GetMock("session-1")
+	mock.SetHostTools(true)
+
+	msg := CreatePRRequestMsg{
+		SessionID: "nonexistent",
+		Request:   mcp.CreatePRRequest{ID: float64(1)},
+	}
+	_, cmd := m.handleCreatePRRequestMsg(msg)
+	// No runner for "nonexistent" so returns nil
+	if cmd != nil {
+		t.Error("expected nil cmd for nonexistent session")
+	}
+}
+
+func TestHandleCreatePRRequestMsg_SessionNotFound(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Register a runner for session-1
+	sess := cfg.GetSession("session-1")
+	m.sessionMgr.Select(sess, "", "", "")
+	mock := factory.GetMock("session-1")
+	mock.SetHostTools(true)
+
+	// Remove the session from config so GetSession returns nil
+	cfg.RemoveSession("session-1")
+
+	msg := CreatePRRequestMsg{
+		SessionID: "session-1",
+		Request:   mcp.CreatePRRequest{ID: float64(1), Title: "Test PR"},
+	}
+	_, cmd := m.handleCreatePRRequestMsg(msg)
+	// Should return a batch cmd (re-registered listeners + error response sent via SendCreatePRResponse)
+	if cmd == nil {
+		t.Error("expected non-nil cmd (should re-register listeners even on error)")
+	}
+	// The error response is sent via runner.SendCreatePRResponse which writes to a buffered channel
+	_ = mock // runner received the error response internally
+}
+
+func TestHandleCreatePRRequestMsg_ValidSession(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	cfg.Sessions[0].BaseBranch = "main"
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Register a runner for session-1
+	sess := cfg.GetSession("session-1")
+	m.sessionMgr.Select(sess, "", "", "")
+	mock := factory.GetMock("session-1")
+	mock.SetHostTools(true)
+
+	msg := CreatePRRequestMsg{
+		SessionID: "session-1",
+		Request:   mcp.CreatePRRequest{ID: float64(1), Title: "My PR Title"},
+	}
+	_, cmd := m.handleCreatePRRequestMsg(msg)
+	// Should return a batch cmd (listeners + async PR creation)
+	if cmd == nil {
+		t.Error("expected non-nil cmd")
+	}
+}
+
+// =============================================================================
+// TestHandlePushBranchRequestMsg
+// =============================================================================
+
+func TestHandlePushBranchRequestMsg_NilRunner(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	msg := PushBranchRequestMsg{
+		SessionID: "session-1",
+		Request:   mcp.PushBranchRequest{ID: float64(1), CommitMessage: "test commit"},
+	}
+	_, cmd := m.handlePushBranchRequestMsg(msg)
+	if cmd != nil {
+		t.Error("expected nil cmd when runner is nil")
+	}
+}
+
+func TestHandlePushBranchRequestMsg_SessionNotFound(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Register a runner
+	sess := cfg.GetSession("session-1")
+	m.sessionMgr.Select(sess, "", "", "")
+	mock := factory.GetMock("session-1")
+	mock.SetHostTools(true)
+
+	// Remove session
+	cfg.RemoveSession("session-1")
+
+	msg := PushBranchRequestMsg{
+		SessionID: "session-1",
+		Request:   mcp.PushBranchRequest{ID: float64(1), CommitMessage: "test"},
+	}
+	_, cmd := m.handlePushBranchRequestMsg(msg)
+	if cmd == nil {
+		t.Error("expected non-nil cmd (re-register listeners)")
+	}
+	// The error response is sent via runner.SendPushBranchResponse which writes to a buffered channel
+	_ = mock
+}
+
+func TestHandlePushBranchRequestMsg_ValidSession(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	m, factory := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Register a runner
+	sess := cfg.GetSession("session-1")
+	m.sessionMgr.Select(sess, "", "", "")
+	mock := factory.GetMock("session-1")
+	mock.SetHostTools(true)
+
+	msg := PushBranchRequestMsg{
+		SessionID: "session-1",
+		Request:   mcp.PushBranchRequest{ID: float64(1), CommitMessage: "push changes"},
+	}
+	_, cmd := m.handlePushBranchRequestMsg(msg)
+	if cmd == nil {
+		t.Error("expected non-nil cmd")
+	}
+}
+
+// =============================================================================
+// TestHandlePRCreatedFromToolMsg
+// =============================================================================
+
+func TestHandlePRCreatedFromToolMsg(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].IsSupervisor = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	msg := PRCreatedFromToolMsg{
+		SessionID: "session-1",
+		PRURL:     "https://github.com/test/repo/pull/42",
+	}
+	_, cmd := m.handlePRCreatedFromToolMsg(msg)
+
+	// Should return nil cmd (just updates state)
+	if cmd != nil {
+		t.Error("expected nil cmd")
+	}
+
+	// Verify session was marked as PR created
+	sess := cfg.GetSession("session-1")
+	if sess == nil {
+		t.Fatal("session should still exist")
+	}
+	if !sess.PRCreated {
+		t.Error("expected session to be marked as PR created")
 	}
 }
 

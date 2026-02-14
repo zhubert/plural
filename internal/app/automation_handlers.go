@@ -1006,3 +1006,157 @@ func (m *Model) handleMergeChildCompleteMsg(msg MergeChildCompleteMsg) (tea.Mode
 
 	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
 }
+
+// handleCreatePRRequestMsg handles a create_pr MCP tool call from an automated supervisor.
+func (m *Model) handleCreatePRRequestMsg(msg CreatePRRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("create PR request for unknown session")
+		return m, nil
+	}
+
+	sess := m.config.GetSession(msg.SessionID)
+	if sess == nil {
+		runner.SendCreatePRResponse(mcp.CreatePRResponse{
+			ID:    msg.Request.ID,
+			Error: "Session not found",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	log.Info("create_pr called via MCP tool", "branch", sess.Branch, "title", msg.Request.Title)
+
+	// Capture values for the goroutine
+	sessionID := msg.SessionID
+	requestID := msg.Request.ID
+	repoPath := sess.RepoPath
+	workTree := sess.WorkTree
+	branch := sess.Branch
+	baseBranch := sess.BaseBranch
+	title := msg.Request.Title
+	issueRef := sess.GetIssueRef()
+	gitSvc := m.gitService
+
+	// Re-register listeners first
+	cmds := m.sessionListeners(msg.SessionID, runner, nil)
+
+	// Run PR creation asynchronously
+	prCmd := func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		resultCh := gitSvc.CreatePR(ctx, repoPath, workTree, branch, baseBranch, title, issueRef)
+
+		var lastErr error
+		var prURL string
+		for result := range resultCh {
+			if result.Error != nil {
+				lastErr = result.Error
+			}
+			// gh pr create outputs the PR URL to stdout
+			if trimmed := strings.TrimSpace(result.Output); strings.HasPrefix(trimmed, "https://") {
+				prURL = trimmed
+			}
+		}
+
+		if lastErr != nil {
+			runner.SendCreatePRResponse(mcp.CreatePRResponse{
+				ID:    requestID,
+				Error: fmt.Sprintf("Failed to create PR: %v", lastErr),
+			})
+			return nil
+		}
+
+		runner.SendCreatePRResponse(mcp.CreatePRResponse{
+			ID:      requestID,
+			Success: true,
+			PRURL:   prURL,
+		})
+
+		return PRCreatedFromToolMsg{SessionID: sessionID, PRURL: prURL}
+	}
+
+	cmds = append(cmds, prCmd)
+	return m, tea.Batch(cmds...)
+}
+
+// PRCreatedFromToolMsg is sent when a PR is created via the create_pr MCP tool.
+type PRCreatedFromToolMsg struct {
+	SessionID string
+	PRURL     string
+}
+
+// handlePRCreatedFromToolMsg updates session state after a PR is created via the create_pr tool.
+func (m *Model) handlePRCreatedFromToolMsg(msg PRCreatedFromToolMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	m.config.MarkSessionPRCreated(msg.SessionID)
+	if err := m.config.Save(); err != nil {
+		log.Error("failed to save config after PR creation", "error", err)
+	}
+	m.sidebar.SetSessions(m.getFilteredSessions())
+	log.Info("marked session as PR created via tool", "prURL", msg.PRURL)
+	return m, nil
+}
+
+// handlePushBranchRequestMsg handles a push_branch MCP tool call from an automated supervisor.
+func (m *Model) handlePushBranchRequestMsg(msg PushBranchRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("push branch request for unknown session")
+		return m, nil
+	}
+
+	sess := m.config.GetSession(msg.SessionID)
+	if sess == nil {
+		runner.SendPushBranchResponse(mcp.PushBranchResponse{
+			ID:    msg.Request.ID,
+			Error: "Session not found",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	log.Info("push_branch called via MCP tool", "branch", sess.Branch, "commitMessage", msg.Request.CommitMessage)
+
+	// Capture values for the goroutine
+	requestID := msg.Request.ID
+	repoPath := sess.RepoPath
+	workTree := sess.WorkTree
+	branch := sess.Branch
+	commitMessage := msg.Request.CommitMessage
+	gitSvc := m.gitService
+
+	// Re-register listeners first
+	cmds := m.sessionListeners(msg.SessionID, runner, nil)
+
+	// Run push asynchronously
+	pushCmd := func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		resultCh := gitSvc.PushUpdates(ctx, repoPath, workTree, branch, commitMessage)
+
+		var lastResult git.Result
+		for result := range resultCh {
+			lastResult = result
+		}
+
+		if lastResult.Error != nil {
+			runner.SendPushBranchResponse(mcp.PushBranchResponse{
+				ID:    requestID,
+				Error: fmt.Sprintf("Failed to push branch: %v", lastResult.Error),
+			})
+			return nil
+		}
+
+		runner.SendPushBranchResponse(mcp.PushBranchResponse{
+			ID:      requestID,
+			Success: true,
+		})
+		return nil
+	}
+
+	cmds = append(cmds, pushCmd)
+	return m, tea.Batch(cmds...)
+}

@@ -38,6 +38,14 @@ func (m *Model) sessionListeners(sessionID string, runner claude.RunnerInterface
 		)
 	}
 
+	// Add host tool listeners if this runner has host tool channels
+	if runner.CreatePRRequestChan() != nil {
+		cmds = append(cmds,
+			m.listenForCreatePRRequest(sessionID, runner),
+			m.listenForPushBranchRequest(sessionID, runner),
+		)
+	}
+
 	return cmds
 }
 
@@ -158,6 +166,36 @@ func (m *Model) listenForMergeChildRequest(sessionID string, runner claude.Runne
 			return nil
 		}
 		return MergeChildRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// listenForCreatePRRequest creates a command to listen for create PR requests from an automated supervisor
+func (m *Model) listenForCreatePRRequest(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	ch := runner.CreatePRRequestChan()
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return CreatePRRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// listenForPushBranchRequest creates a command to listen for push branch requests from an automated supervisor
+func (m *Model) listenForPushBranchRequest(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	ch := runner.PushBranchRequestChan()
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return PushBranchRequestMsg{SessionID: sessionID, Request: req}
 	}
 }
 

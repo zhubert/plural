@@ -241,6 +241,10 @@ type Runner struct {
 	// Supervisor mode: when true, MCP config includes --supervisor flag
 	supervisor bool
 
+	// Host tools mode: when true, expose create_pr and push_branch MCP tools
+	// Only used for autonomous supervisor sessions running inside containers
+	hostTools bool
+
 	// Container ready callback: invoked when containerized session receives init message
 	onContainerReady func()
 }
@@ -543,6 +547,72 @@ func (r *Runner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
 	}
 	if !safeSendChannel(ch, resp) {
 		r.log.Debug("SendMergeChildResponse channel full or closed, ignoring")
+	}
+}
+
+// SetHostTools enables or disables host tools mode for this runner.
+// When enabled, host tool channels are initialized and the MCP config
+// will include the --host-tools flag.
+func (r *Runner) SetHostTools(hostTools bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hostTools = hostTools
+	if hostTools && r.mcp != nil && r.mcp.CreatePRReq == nil {
+		r.mcp.InitHostToolChannels()
+	}
+}
+
+// CreatePRRequestChan returns the channel for receiving create PR requests.
+func (r *Runner) CreatePRRequestChan() <-chan mcp.CreatePRRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped || r.mcp == nil {
+		return nil
+	}
+	return r.mcp.CreatePRReq
+}
+
+// SendCreatePRResponse sends a response to a create PR request.
+func (r *Runner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	var ch chan mcp.CreatePRResponse
+	if r.mcp != nil {
+		ch = r.mcp.CreatePRResp
+	}
+	r.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	if !safeSendChannel(ch, resp) {
+		r.log.Debug("SendCreatePRResponse channel full or closed, ignoring")
+	}
+}
+
+// PushBranchRequestChan returns the channel for receiving push branch requests.
+func (r *Runner) PushBranchRequestChan() <-chan mcp.PushBranchRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped || r.mcp == nil {
+		return nil
+	}
+	return r.mcp.PushBranchReq
+}
+
+// SendPushBranchResponse sends a response to a push branch request.
+func (r *Runner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	var ch chan mcp.PushBranchResponse
+	if r.mcp != nil {
+		ch = r.mcp.PushBranchResp
+	}
+	r.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	if !safeSendChannel(ch, resp) {
+		r.log.Debug("SendPushBranchResponse channel full or closed, ignoring")
 	}
 }
 

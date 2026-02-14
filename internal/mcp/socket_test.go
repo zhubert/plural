@@ -718,6 +718,76 @@ func TestNewTCPSocketClient_InvalidAddr(t *testing.T) {
 	}
 }
 
+func TestSocketMessage_JSONMarshal_CreatePR(t *testing.T) {
+	msg := SocketMessage{
+		Type: MessageTypeCreatePR,
+		CreatePRReq: &CreatePRRequest{
+			ID:    "pr-1",
+			Title: "Test PR",
+			Body:  "PR body",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded SocketMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if decoded.Type != MessageTypeCreatePR {
+		t.Errorf("Type = %q, want %q", decoded.Type, MessageTypeCreatePR)
+	}
+	if decoded.CreatePRReq == nil {
+		t.Fatal("CreatePRReq is nil")
+	}
+	if decoded.CreatePRReq.Title != "Test PR" {
+		t.Errorf("Title = %q, want 'Test PR'", decoded.CreatePRReq.Title)
+	}
+}
+
+func TestSocketMessage_JSONMarshal_PushBranch(t *testing.T) {
+	msg := SocketMessage{
+		Type: MessageTypePushBranch,
+		PushBranchReq: &PushBranchRequest{
+			ID:            "push-1",
+			CommitMessage: "test commit",
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded SocketMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if decoded.Type != MessageTypePushBranch {
+		t.Errorf("Type = %q, want %q", decoded.Type, MessageTypePushBranch)
+	}
+	if decoded.PushBranchReq == nil {
+		t.Fatal("PushBranchReq is nil")
+	}
+	if decoded.PushBranchReq.CommitMessage != "test commit" {
+		t.Errorf("CommitMessage = %q, want 'test commit'", decoded.PushBranchReq.CommitMessage)
+	}
+}
+
+func TestSocketMessage_HostToolMessageTypes(t *testing.T) {
+	if MessageTypeCreatePR != "createPR" {
+		t.Errorf("MessageTypeCreatePR = %q, want 'createPR'", MessageTypeCreatePR)
+	}
+	if MessageTypePushBranch != "pushBranch" {
+		t.Errorf("MessageTypePushBranch = %q, want 'pushBranch'", MessageTypePushBranch)
+	}
+}
+
 // contains checks if s contains substr (helper for tests)
 func contains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {

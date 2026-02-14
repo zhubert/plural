@@ -46,6 +46,13 @@ type RunnerInterface interface {
 	MergeChildRequestChan() <-chan mcp.MergeChildRequest
 	SendMergeChildResponse(resp mcp.MergeChildResponse)
 
+	// Host tool channels (for autonomous supervisor sessions)
+	SetHostTools(hostTools bool)
+	CreatePRRequestChan() <-chan mcp.CreatePRRequest
+	SendCreatePRResponse(resp mcp.CreatePRResponse)
+	PushBranchRequestChan() <-chan mcp.PushBranchRequest
+	SendPushBranchResponse(resp mcp.PushBranchResponse)
+
 	// Lifecycle
 	Stop()
 	Interrupt() error

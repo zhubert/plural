@@ -52,6 +52,14 @@ func (r *Runner) ensureServerRunning() error {
 		))
 	}
 
+	// Build optional socket server options for host tool channels
+	if r.hostTools && r.mcp.CreatePRReq != nil {
+		socketOpts = append(socketOpts, mcp.WithHostToolChannels(
+			r.mcp.CreatePRReq, r.mcp.CreatePRResp,
+			r.mcp.PushBranchReq, r.mcp.PushBranchResp,
+		))
+	}
+
 	if r.containerized {
 		// Container sessions use TCP because Unix sockets don't work across
 		// the Docker container boundary.
@@ -120,6 +128,9 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 	if r.supervisor {
 		mcpArgs = append(mcpArgs, "--supervisor")
 	}
+	if r.hostTools {
+		mcpArgs = append(mcpArgs, "--host-tools")
+	}
 	mcpServers := map[string]interface{}{
 		"plural": map[string]interface{}{
 			"command": execPath,
@@ -161,6 +172,9 @@ func (r *Runner) createContainerMCPConfigLocked(tcpAddr string) (string, error) 
 	args := []string{"mcp-server", "--tcp", tcpAddr, "--auto-approve", "--session-id", r.sessionID}
 	if r.supervisor {
 		args = append(args, "--supervisor")
+	}
+	if r.hostTools {
+		args = append(args, "--host-tools")
 	}
 	mcpServers := map[string]interface{}{
 		"plural": map[string]interface{}{

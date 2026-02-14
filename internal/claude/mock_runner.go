@@ -45,6 +45,12 @@ type MockRunner struct {
 	mergeChildReqChan   chan mcp.MergeChildRequest
 	mergeChildRespChan  chan mcp.MergeChildResponse
 
+	// Host tool channels
+	createPRReqChan    chan mcp.CreatePRRequest
+	createPRRespChan   chan mcp.CreatePRResponse
+	pushBranchReqChan  chan mcp.PushBranchRequest
+	pushBranchRespChan chan mcp.PushBranchResponse
+
 	// Callbacks for test assertions
 	OnSend             func(content []ContentBlock)
 	OnPermissionResp   func(resp mcp.PermissionResponse)
@@ -461,6 +467,64 @@ func (m *MockRunner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
 	}
 }
 
+// SetHostTools implements RunnerInterface.
+func (m *MockRunner) SetHostTools(hostTools bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if hostTools && m.createPRReqChan == nil {
+		m.createPRReqChan = make(chan mcp.CreatePRRequest, 1)
+		m.createPRRespChan = make(chan mcp.CreatePRResponse, 1)
+		m.pushBranchReqChan = make(chan mcp.PushBranchRequest, 1)
+		m.pushBranchRespChan = make(chan mcp.PushBranchResponse, 1)
+	}
+}
+
+// CreatePRRequestChan implements RunnerInterface.
+func (m *MockRunner) CreatePRRequestChan() <-chan mcp.CreatePRRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.createPRReqChan
+}
+
+// SendCreatePRResponse implements RunnerInterface.
+func (m *MockRunner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped || m.createPRRespChan == nil {
+		return
+	}
+	select {
+	case m.createPRRespChan <- resp:
+	default:
+	}
+}
+
+// PushBranchRequestChan implements RunnerInterface.
+func (m *MockRunner) PushBranchRequestChan() <-chan mcp.PushBranchRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.pushBranchReqChan
+}
+
+// SendPushBranchResponse implements RunnerInterface.
+func (m *MockRunner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped || m.pushBranchRespChan == nil {
+		return
+	}
+	select {
+	case m.pushBranchRespChan <- resp:
+	default:
+	}
+}
+
 // Stop implements RunnerInterface.
 func (m *MockRunner) Stop() {
 	m.mu.Lock()
@@ -507,6 +571,18 @@ func (m *MockRunner) Stop() {
 	}
 	if m.mergeChildRespChan != nil {
 		close(m.mergeChildRespChan)
+	}
+	if m.createPRReqChan != nil {
+		close(m.createPRReqChan)
+	}
+	if m.createPRRespChan != nil {
+		close(m.createPRRespChan)
+	}
+	if m.pushBranchReqChan != nil {
+		close(m.pushBranchReqChan)
+	}
+	if m.pushBranchRespChan != nil {
+		close(m.pushBranchRespChan)
 	}
 	if m.responseChan != nil {
 		// Only close if we control it
