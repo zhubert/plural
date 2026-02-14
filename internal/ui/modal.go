@@ -63,6 +63,7 @@ type (
 	ContainerBuildState      = modals.ContainerBuildState
 	ContainerCommandState    = modals.ContainerCommandState
 	AsanaProjectOption       = modals.AsanaProjectOption
+	RepoSettingsState        = modals.RepoSettingsState
 )
 
 // Re-export broadcast action constants
@@ -143,15 +144,17 @@ func themeKeysAndNames() ([]string, []string) {
 }
 
 // NewSettingsState creates a new SettingsState with theme data injected automatically.
-func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool, repos []string,
-	asanaProjects map[string]string, defaultRepoIndex int, asanaPATSet bool,
+func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool,
 	containersSupported bool, containerImage string) *SettingsState {
 	themeKeys, themeDisplayNames := themeKeysAndNames()
 	currentTheme := string(CurrentThemeName())
 	return modals.NewSettingsState(themeKeys, themeDisplayNames, currentTheme,
-		currentBranchPrefix, notificationsEnabled, repos, asanaProjects, defaultRepoIndex, asanaPATSet,
+		currentBranchPrefix, notificationsEnabled,
 		containersSupported, containerImage)
 }
+
+// NewRepoSettingsState creates a new RepoSettingsState for the given repo.
+var NewRepoSettingsState = modals.NewRepoSettingsState
 
 // GetSelectedSettingsTheme returns the selected theme from a SettingsState as a ThemeName.
 func GetSelectedSettingsTheme(s *SettingsState) ThemeName {

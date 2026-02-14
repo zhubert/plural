@@ -320,28 +320,19 @@ func (m *Model) handleNewWorkspaceModal(key string, msg tea.KeyPressMsg, state *
 	return m, cmd
 }
 
-// handleSettingsModal handles key events for the Settings modal.
+// handleSettingsModal handles key events for the global Settings modal.
 func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.SettingsState) (tea.Model, tea.Cmd) {
 	switch key {
 	case keys.Escape:
 		m.modal.Hide()
 		return m, nil
 	case keys.Enter:
-		// When focused on the Asana project selector, Enter selects a project
-		// rather than saving and closing the modal
-		if state.IsAsanaFocused() {
-			modal, cmd := m.modal.Update(msg)
-			m.modal = modal
-			return m, cmd
-		}
-		// Save all settings
-		branchPrefix := state.GetBranchPrefix()
-		m.config.SetDefaultBranchPrefix(branchPrefix)
+		// Save all global settings
+		m.config.SetDefaultBranchPrefix(state.GetBranchPrefix())
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		m.config.SetAutoCleanupMerged(state.AutoCleanupMerged)
 		m.config.SetAutoBroadcastPR(state.AutoBroadcastPR)
 		// Save container image if containers are supported.
-		// An empty string means "use default image" — validation is intentionally skipped for empty.
 		if state.ContainersSupported {
 			containerImage := state.GetContainerImage()
 			if containerImage != "" && !ui.ValidateContainerImage(containerImage) {
@@ -385,24 +376,43 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 				m.config.SetIssueMaxConcurrent(n)
 			}
 		}
-		// Save per-repo settings for all repos
-		for repo, gid := range state.GetAllAsanaProjects() {
-			m.config.SetAsanaProject(repo, gid)
-		}
-		// Save per-repo autonomous settings
-		if state.ContainersSupported {
-			for repo, enabled := range state.GetAllIssuePolling() {
-				m.config.SetRepoIssuePolling(repo, enabled)
-			}
-			for repo, label := range state.GetAllIssueLabels() {
-				m.config.SetRepoIssueLabels(repo, label)
-			}
-			for repo, enabled := range state.GetAllAutoMerge() {
-				m.config.SetRepoAutoMerge(repo, enabled)
-			}
-			}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+		m.modal.Hide()
+		return m, nil
+	}
+	// Forward other keys to modal for text input handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
+
+// handleRepoSettingsModal handles key events for the per-repo Settings modal.
+func (m *Model) handleRepoSettingsModal(key string, msg tea.KeyPressMsg, state *ui.RepoSettingsState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		// When focused on the Asana project selector, Enter selects a project
+		if state.IsAsanaFocused() {
+			modal, cmd := m.modal.Update(msg)
+			m.modal = modal
+			return m, cmd
+		}
+		// Save per-repo settings
+		repo := state.RepoPath
+		if state.ContainersSupported {
+			m.config.SetRepoIssuePolling(repo, state.IssuePolling)
+			m.config.SetRepoIssueLabels(repo, state.GetIssueLabel())
+			m.config.SetRepoAutoMerge(repo, state.AutoMerge)
+		}
+		m.config.SetAsanaProject(repo, state.GetAsanaProject())
+		if err := m.config.Save(); err != nil {
+			logger.Get().Error("failed to save repo settings", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}

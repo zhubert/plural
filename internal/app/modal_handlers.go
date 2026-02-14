@@ -71,6 +71,8 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddMarketplaceModal(key, msg, s)
 	case *ui.SettingsState:
 		return m.handleSettingsModal(key, msg, s)
+	case *ui.RepoSettingsState:
+		return m.handleRepoSettingsModal(key, msg, s)
 	case *ui.ContainerBuildState:
 		return m.handleContainerBuildModal(key, msg, s)
 	case *ui.ContainerCommandState:
