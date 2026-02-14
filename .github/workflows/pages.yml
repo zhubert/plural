@@ -1,12 +1,11 @@
 name: Deploy to GitHub Pages
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - 'docs/index.html'
-      - 'docs/logo.svg'
-      - 'docs/demo.gif'
+      - 'docs/**'
 
 permissions:
   pages: write
@@ -26,10 +25,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: |
-            docs/index.html
-            docs/logo.svg
-            docs/demo.gif
-          sparse-checkout-cone-mode: false
+            docs
+          sparse-checkout-cone-mode: true
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
