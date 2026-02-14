@@ -316,13 +316,18 @@ func (m *Model) autoCleanupSession(sessionID, sessionName, reason string) tea.Cm
 		m.header.SetDiffStats(nil)
 	}
 
+	// Stop any active streaming before cleanup. DeleteSession calls runner.Stop()
+	// which cancels in-flight operations. In-flight messages referencing this session
+	// will get nil session checks and return early.
+	m.sidebar.SetStreaming(sessionID, false)
+
 	// Delete worktree
 	ctx := context.Background()
 	if err := m.sessionService.Delete(ctx, sess); err != nil {
 		log.Warn("auto-cleanup: failed to delete worktree", "error", err)
 	}
 
-	// Clean up runner and state
+	// Clean up runner and state (stops runner, cancels operations, deletes state)
 	m.sessionMgr.DeleteSession(sessionID)
 	m.sidebar.SetPendingPermission(sessionID, false)
 	m.sidebar.SetPendingQuestion(sessionID, false)
@@ -546,7 +551,11 @@ func (m *Model) createChildSession(supervisorID, taskDescription string) tea.Cmd
 	cmds = append(cmds, m.sessionListeners(sess.ID, runner, responseChan)...)
 	cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Created child session: %s", sess.Branch)))
 	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
-	m.setState(StateStreamingClaude)
+	// Only transition to streaming state if not already there, to avoid
+	// disrupting user interaction in the currently active session.
+	if m.state != StateStreamingClaude {
+		m.setState(StateStreamingClaude)
+	}
 
 	return tea.Batch(cmds...)
 }
@@ -962,12 +971,15 @@ func (m *Model) handleMergeChildCompleteMsg(msg MergeChildCompleteMsg) (tea.Mode
 		return m, nil
 	}
 
-	// Get the stored request ID
+	// Get the stored request ID for response correlation
 	state := m.sessionState().GetIfExists(msg.SessionID)
 	var requestID interface{}
 	if state != nil {
 		requestID = state.GetPendingMergeChildRequestID()
 		state.SetPendingMergeChildRequestID(nil)
+	}
+	if requestID == nil {
+		log.Warn("merge child complete but no stored request ID for response correlation")
 	}
 
 	if msg.Error != nil {

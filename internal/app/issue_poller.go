@@ -279,10 +279,11 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-created %d session(s) from issues", created)))
 		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
-		// Set streaming state since we just started streaming sessions.
-		// This is correct even if the user is in a different session — the app
-		// state reflects whether *any* session is streaming.
-		m.setState(StateStreamingClaude)
+		// Only transition to streaming state if not already there, to avoid
+		// disrupting user interaction in the currently active session.
+		if m.state != StateStreamingClaude {
+			m.setState(StateStreamingClaude)
+		}
 	}
 
 	if len(cmds) > 0 {
