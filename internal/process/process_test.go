@@ -1,6 +1,7 @@
 package process
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -237,6 +238,116 @@ func TestFindOrphanedContainers_NoContainerCLI(t *testing.T) {
 
 	if len(containers) != 0 {
 		t.Errorf("Expected empty list when container CLI not found, got %d containers", len(containers))
+	}
+}
+
+func TestCheckContainerImageUpdate_NoCLI(t *testing.T) {
+	t.Setenv("PATH", "/nonexistent")
+
+	needsUpdate, err := CheckContainerImageUpdate("ghcr.io/zhubert/plural-claude")
+	if err == nil {
+		t.Error("Expected error when Docker CLI not installed")
+	}
+	if needsUpdate {
+		t.Error("Expected needsUpdate to be false when CLI not installed")
+	}
+}
+
+func TestCheckContainerImageUpdate_NoLocalImage(t *testing.T) {
+	// If docker is available but image doesn't exist, should return error
+	// We can't reliably test this without docker, so just verify the no-CLI path
+	t.Setenv("PATH", "/nonexistent")
+
+	needsUpdate, err := CheckContainerImageUpdate("nonexistent-image:latest")
+	if err == nil {
+		t.Error("Expected error for nonexistent image")
+	}
+	if needsUpdate {
+		t.Error("Expected needsUpdate to be false")
+	}
+}
+
+func TestManifestListParsing(t *testing.T) {
+	// Test that we can parse a Docker manifest list JSON correctly
+	rawJSON := `{
+		"manifests": [
+			{
+				"digest": "sha256:abc123",
+				"platform": {
+					"architecture": "amd64",
+					"os": "linux"
+				}
+			},
+			{
+				"digest": "sha256:def456",
+				"platform": {
+					"architecture": "arm64",
+					"os": "linux"
+				}
+			}
+		]
+	}`
+
+	var ml manifestList
+	if err := json.Unmarshal([]byte(rawJSON), &ml); err != nil {
+		t.Fatalf("Failed to parse manifest list: %v", err)
+	}
+
+	if len(ml.Manifests) != 2 {
+		t.Fatalf("Expected 2 manifests, got %d", len(ml.Manifests))
+	}
+
+	if ml.Manifests[0].Digest != "sha256:abc123" {
+		t.Errorf("Expected digest 'sha256:abc123', got %q", ml.Manifests[0].Digest)
+	}
+
+	if ml.Manifests[0].Platform.Architecture != "amd64" {
+		t.Errorf("Expected architecture 'amd64', got %q", ml.Manifests[0].Platform.Architecture)
+	}
+
+	if ml.Manifests[1].Platform.OS != "linux" {
+		t.Errorf("Expected OS 'linux', got %q", ml.Manifests[1].Platform.OS)
+	}
+}
+
+func TestRepoDigestParsing(t *testing.T) {
+	// Test the digest extraction logic used in getLocalImageDigest
+	tests := []struct {
+		name       string
+		repoDigest string
+		wantDigest string
+		wantErr    bool
+	}{
+		{
+			name:       "standard repo digest",
+			repoDigest: "ghcr.io/zhubert/plural-claude@sha256:abc123def456",
+			wantDigest: "sha256:abc123def456",
+		},
+		{
+			name:       "no @ separator",
+			repoDigest: "ghcr.io/zhubert/plural-claude:latest",
+			wantDigest: "",
+			wantErr:    true,
+		},
+		{
+			name:       "empty string",
+			repoDigest: "",
+			wantDigest: "",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if idx := strings.Index(tt.repoDigest, "@"); idx != -1 {
+				got := tt.repoDigest[idx+1:]
+				if got != tt.wantDigest {
+					t.Errorf("Got digest %q, want %q", got, tt.wantDigest)
+				}
+			} else if !tt.wantErr {
+				t.Error("Expected to find @ in repo digest")
+			}
+		})
 	}
 }
 

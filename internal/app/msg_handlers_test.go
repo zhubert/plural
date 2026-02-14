@@ -745,6 +745,47 @@ func TestFlashMessages(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Group: Container Image Update
+// =============================================================================
+
+func TestContainerImageUpdateMsg_NeedsUpdate(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	msg := ContainerImageUpdateMsg{NeedsUpdate: true, Image: "ghcr.io/zhubert/plural-claude"}
+	_, cmd := m.Update(msg)
+
+	if cmd == nil {
+		t.Error("expected a command (flash warning) when update is available")
+	}
+}
+
+func TestContainerImageUpdateMsg_NoUpdate(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	msg := ContainerImageUpdateMsg{NeedsUpdate: false, Image: "ghcr.io/zhubert/plural-claude"}
+	_, cmd := m.Update(msg)
+
+	if cmd != nil {
+		t.Error("expected no command when no update available")
+	}
+}
+
+func TestContainerImageUpdateMsg_Empty(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Empty message (e.g., when docker not installed) should be a no-op
+	msg := ContainerImageUpdateMsg{}
+	_, cmd := m.Update(msg)
+
+	if cmd != nil {
+		t.Error("expected no command for empty update message")
+	}
+}
+
 func TestActiveSession_NoSession(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
