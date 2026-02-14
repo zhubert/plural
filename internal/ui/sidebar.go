@@ -1016,6 +1016,16 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 
 	displayName := styledPrefix + name
 
+	// Show autonomous mode indicator
+	if sess.Autonomous {
+		if isSelected {
+			displayName += " [AUTO]"
+		} else {
+			autoStyle := lipgloss.NewStyle().Foreground(ColorInfo)
+			displayName += autoStyle.Render(" [AUTO]")
+		}
+	}
+
 	// Show new comments indicator
 	if s.hasNewComments[sess.ID] {
 		if isSelected {

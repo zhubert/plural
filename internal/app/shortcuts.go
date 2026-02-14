@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
@@ -143,6 +144,35 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutMultiSelect,
 		Condition:       func(m *Model) bool { return len(m.config.GetSessions()) > 0 },
 	},
+	{
+		Key:             "A",
+		Description:     "Toggle autonomous mode",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutToggleAutonomous,
+		Condition: func(m *Model) bool {
+			sess := m.sidebar.SelectedSession()
+			return sess != nil && sess.Containerized
+		},
+	},
+
+	{
+		Key:             "T",
+		Description:     "Run tests",
+		Category:        CategorySessions,
+		RequiresSidebar: true,
+		RequiresSession: true,
+		Handler:         shortcutRunTests,
+		Condition: func(m *Model) bool {
+			sess := m.sidebar.SelectedSession()
+			if sess == nil {
+				return false
+			}
+			return m.config.GetRepoTestCommand(sess.RepoPath) != ""
+		},
+	},
+
 	// Git Operations
 	{
 		Key:             keys.CtrlE,
@@ -653,7 +683,7 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 
 	asanaPATSet := os.Getenv("ASANA_PAT") != ""
 
-	m.modal.Show(ui.NewSettingsState(
+	settingsState := ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
 		repos,
@@ -662,7 +692,20 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 		asanaPATSet,
 		process.ContainersSupported(),
 		m.config.GetContainerImage(),
-	))
+	)
+	settingsState.AutoCleanupMerged = m.config.GetAutoCleanupMerged()
+	settingsState.AutoBroadcastPR = m.config.GetAutoBroadcastPR()
+	// Populate per-repo test commands
+	for _, repo := range repos {
+		if cmd := m.config.GetRepoTestCommand(repo); cmd != "" {
+			settingsState.RepoTestCommands[repo] = cmd
+		}
+	}
+	// Load test command for the initially selected repo
+	if len(repos) > 0 {
+		settingsState.TestCommandInput.SetValue(settingsState.RepoTestCommands[repos[0]])
+	}
+	m.modal.Show(settingsState)
 
 	// Kick off async fetch of Asana projects if PAT is set
 	if asanaPATSet {
@@ -1023,6 +1066,70 @@ end tell`, escapedPath)
 			return TerminalErrorMsg{Error: errMsg}
 		}
 	}
+}
+
+func shortcutToggleAutonomous(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	if sess == nil {
+		return m, nil
+	}
+
+	if !sess.Containerized {
+		return m, m.ShowFlashError("Autonomous mode requires container mode")
+	}
+
+	newState := !sess.Autonomous
+	m.config.SetSessionAutonomous(sess.ID, newState)
+	if err := m.config.Save(); err != nil {
+		logger.WithSession(sess.ID).Error("failed to save autonomous state", "error", err)
+		return m, m.ShowFlashError("Failed to save")
+	}
+
+	// Update sidebar display
+	m.sidebar.SetSessions(m.getFilteredSessions())
+
+	// Reset autonomous state tracking if turning off
+	if !newState {
+		if state := m.sessionState().GetIfExists(sess.ID); state != nil {
+			state.ResetAutonomousState()
+		}
+	} else {
+		// Initialize autonomous start time
+		state := m.sessionState().GetOrCreate(sess.ID)
+		state.SetAutonomousStartTime(time.Now())
+	}
+
+	// Update active session reference if this is the active one
+	if m.activeSession != nil && m.activeSession.ID == sess.ID {
+		m.activeSession.Autonomous = newState
+	}
+
+	if newState {
+		return m, m.ShowFlashSuccess("Autonomous mode enabled")
+	}
+	return m, m.ShowFlashInfo("Autonomous mode disabled")
+}
+
+func shortcutRunTests(m *Model) (tea.Model, tea.Cmd) {
+	sess := m.sidebar.SelectedSession()
+	if sess == nil {
+		return m, nil
+	}
+
+	testCmd := m.config.GetRepoTestCommand(sess.RepoPath)
+	if testCmd == "" {
+		return m, m.ShowFlashWarning("No test command configured for this repo")
+	}
+
+	isActiveSession := m.activeSession != nil && m.activeSession.ID == sess.ID
+	runMsg := fmt.Sprintf("[RUNNING TESTS] %s\n", testCmd)
+	if isActiveSession {
+		m.chat.AppendStreaming("\n" + runMsg)
+	} else {
+		m.sessionState().GetOrCreate(sess.ID).AppendStreamingContent("\n" + runMsg)
+	}
+
+	return m, runTestsForSession(sess.ID, sess.WorkTree, testCmd, 1)
 }
 
 func shortcutMultiSelect(m *Model) (tea.Model, tea.Cmd) {

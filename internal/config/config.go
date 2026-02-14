@@ -27,6 +27,19 @@ type Config struct {
 	DefaultBranchPrefix  string `json:"default_branch_prefix,omitempty"` // Prefix for auto-generated branch names (e.g., "zhubert/")
 	NotificationsEnabled bool   `json:"notifications_enabled,omitempty"` // Desktop notifications when Claude completes
 
+	// Automation settings
+	AutoMaxTurns       int            `json:"auto_max_turns,omitempty"`        // Max autonomous turns before stopping (default 50)
+	AutoMaxDurationMin int            `json:"auto_max_duration_min,omitempty"` // Max autonomous duration in minutes (default 30)
+	AutoCleanupMerged  bool           `json:"auto_cleanup_merged,omitempty"`   // Auto-cleanup sessions when PR merged/closed
+	RepoTestCommand    map[string]string `json:"repo_test_command,omitempty"`    // Per-repo test command (e.g., "go test ./...")
+	RepoTestMaxRetries map[string]int    `json:"repo_test_max_retries,omitempty"` // Per-repo max test retries (default 3)
+	AutoAddressPRComments bool         `json:"auto_address_pr_comments,omitempty"` // Auto-fetch and address new PR review comments
+	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
+	RepoAutoMerge      map[string]bool  `json:"repo_auto_merge,omitempty"`      // Per-repo auto-merge after CI passes
+	RepoIssuePolling   map[string]bool  `json:"repo_issue_polling,omitempty"`   // Per-repo issue polling enabled
+	RepoIssueLabels    map[string]string `json:"repo_issue_labels,omitempty"`    // Per-repo issue filter label (e.g., "plural-auto")
+	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
+
 	// Workspace organization
 	Workspaces        []Workspace `json:"workspaces,omitempty"`
 	ActiveWorkspaceID string      `json:"active_workspace_id,omitempty"`
@@ -116,6 +129,21 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.Workspaces == nil {
 		c.Workspaces = []Workspace{}
+	}
+	if c.RepoTestCommand == nil {
+		c.RepoTestCommand = make(map[string]string)
+	}
+	if c.RepoTestMaxRetries == nil {
+		c.RepoTestMaxRetries = make(map[string]int)
+	}
+	if c.RepoAutoMerge == nil {
+		c.RepoAutoMerge = make(map[string]bool)
+	}
+	if c.RepoIssuePolling == nil {
+		c.RepoIssuePolling = make(map[string]bool)
+	}
+	if c.RepoIssueLabels == nil {
+		c.RepoIssueLabels = make(map[string]string)
 	}
 }
 
@@ -405,6 +433,222 @@ func (c *Config) SetContainerImage(image string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.ContainerImage = image
+}
+
+// GetAutoMaxTurns returns the max autonomous turns, defaulting to 50
+func (c *Config) GetAutoMaxTurns() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.AutoMaxTurns <= 0 {
+		return 50
+	}
+	return c.AutoMaxTurns
+}
+
+// SetAutoMaxTurns sets the max autonomous turns
+func (c *Config) SetAutoMaxTurns(turns int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AutoMaxTurns = turns
+}
+
+// GetAutoMaxDurationMin returns the max autonomous duration in minutes, defaulting to 30
+func (c *Config) GetAutoMaxDurationMin() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.AutoMaxDurationMin <= 0 {
+		return 30
+	}
+	return c.AutoMaxDurationMin
+}
+
+// SetAutoMaxDurationMin sets the max autonomous duration in minutes
+func (c *Config) SetAutoMaxDurationMin(min int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AutoMaxDurationMin = min
+}
+
+// GetAutoCleanupMerged returns whether auto-cleanup of merged sessions is enabled
+func (c *Config) GetAutoCleanupMerged() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.AutoCleanupMerged
+}
+
+// SetAutoCleanupMerged sets whether auto-cleanup of merged sessions is enabled
+func (c *Config) SetAutoCleanupMerged(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AutoCleanupMerged = enabled
+}
+
+// GetRepoTestCommand returns the test command for a repo, or empty string if not configured
+func (c *Config) GetRepoTestCommand(repoPath string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoTestCommand == nil {
+		return ""
+	}
+	return c.RepoTestCommand[repoPath]
+}
+
+// SetRepoTestCommand sets the test command for a repo
+func (c *Config) SetRepoTestCommand(repoPath, cmd string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoTestCommand == nil {
+		c.RepoTestCommand = make(map[string]string)
+	}
+	if cmd == "" {
+		delete(c.RepoTestCommand, repoPath)
+	} else {
+		c.RepoTestCommand[repoPath] = cmd
+	}
+}
+
+// GetRepoTestMaxRetries returns the max test retries for a repo, defaulting to 3
+func (c *Config) GetRepoTestMaxRetries(repoPath string) int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoTestMaxRetries == nil {
+		return 3
+	}
+	if n, ok := c.RepoTestMaxRetries[repoPath]; ok && n > 0 {
+		return n
+	}
+	return 3
+}
+
+// SetRepoTestMaxRetries sets the max test retries for a repo
+func (c *Config) SetRepoTestMaxRetries(repoPath string, n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoTestMaxRetries == nil {
+		c.RepoTestMaxRetries = make(map[string]int)
+	}
+	if n <= 0 {
+		delete(c.RepoTestMaxRetries, repoPath)
+	} else {
+		c.RepoTestMaxRetries[repoPath] = n
+	}
+}
+
+// GetAutoAddressPRComments returns whether auto-addressing PR comments is enabled
+func (c *Config) GetAutoAddressPRComments() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.AutoAddressPRComments
+}
+
+// SetAutoAddressPRComments sets whether auto-addressing PR comments is enabled
+func (c *Config) SetAutoAddressPRComments(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AutoAddressPRComments = enabled
+}
+
+// GetAutoBroadcastPR returns whether auto-creating PRs for broadcast groups is enabled
+func (c *Config) GetAutoBroadcastPR() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.AutoBroadcastPR
+}
+
+// SetAutoBroadcastPR sets whether auto-creating PRs for broadcast groups is enabled
+func (c *Config) SetAutoBroadcastPR(enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AutoBroadcastPR = enabled
+}
+
+// GetRepoAutoMerge returns whether auto-merge is enabled for a repo
+func (c *Config) GetRepoAutoMerge(repoPath string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoAutoMerge == nil {
+		return false
+	}
+	return c.RepoAutoMerge[repoPath]
+}
+
+// SetRepoAutoMerge sets whether auto-merge is enabled for a repo
+func (c *Config) SetRepoAutoMerge(repoPath string, enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoAutoMerge == nil {
+		c.RepoAutoMerge = make(map[string]bool)
+	}
+	if enabled {
+		c.RepoAutoMerge[repoPath] = true
+	} else {
+		delete(c.RepoAutoMerge, repoPath)
+	}
+}
+
+// GetRepoIssuePolling returns whether issue polling is enabled for a repo
+func (c *Config) GetRepoIssuePolling(repoPath string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoIssuePolling == nil {
+		return false
+	}
+	return c.RepoIssuePolling[repoPath]
+}
+
+// SetRepoIssuePolling sets whether issue polling is enabled for a repo
+func (c *Config) SetRepoIssuePolling(repoPath string, enabled bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoIssuePolling == nil {
+		c.RepoIssuePolling = make(map[string]bool)
+	}
+	if enabled {
+		c.RepoIssuePolling[repoPath] = true
+	} else {
+		delete(c.RepoIssuePolling, repoPath)
+	}
+}
+
+// GetRepoIssueLabels returns the issue filter label for a repo
+func (c *Config) GetRepoIssueLabels(repoPath string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoIssueLabels == nil {
+		return ""
+	}
+	return c.RepoIssueLabels[repoPath]
+}
+
+// SetRepoIssueLabels sets the issue filter label for a repo
+func (c *Config) SetRepoIssueLabels(repoPath, label string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoIssueLabels == nil {
+		c.RepoIssueLabels = make(map[string]string)
+	}
+	if label == "" {
+		delete(c.RepoIssueLabels, repoPath)
+	} else {
+		c.RepoIssueLabels[repoPath] = label
+	}
+}
+
+// GetIssueMaxConcurrent returns the max concurrent auto-sessions, defaulting to 3
+func (c *Config) GetIssueMaxConcurrent() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.IssueMaxConcurrent <= 0 {
+		return 3
+	}
+	return c.IssueMaxConcurrent
+}
+
+// SetIssueMaxConcurrent sets the max concurrent auto-sessions
+func (c *Config) SetIssueMaxConcurrent(n int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.IssueMaxConcurrent = n
 }
 
 // GetWorkspaces returns a copy of the workspaces slice

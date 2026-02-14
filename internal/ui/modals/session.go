@@ -29,7 +29,8 @@ type NewSessionState struct {
 	UseContainers          bool // Whether to run this session in a container
 	ContainersSupported    bool // Whether Docker is available for container mode
 	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
-	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported)
+	Autonomous             bool // Whether to run in autonomous mode (auto-enables containers)
+	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported), 4=autonomous
 }
 
 func (*NewSessionState) modalState() {}
@@ -44,6 +45,9 @@ func (s *NewSessionState) Help() string {
 		return "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create"
 	}
 	if s.Focus == 3 && s.ContainersSupported {
+		return "Space: toggle  Tab: next field  Enter: create"
+	}
+	if s.Focus == 4 && s.ContainersSupported {
 		return "Space: toggle  Tab: next field  Enter: create"
 	}
 	return "up/down: select  Tab: next field  Enter: create"
@@ -133,6 +137,31 @@ func (s *NewSessionState) Render() string {
 				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
+
+		// Autonomous mode checkbox
+		autoLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Autonomous mode:")
+
+		autoCheckbox := "[ ]"
+		if s.Autonomous {
+			autoCheckbox = "[x]"
+		}
+		autoCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 4 {
+			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
+		}
+		autoDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Auto-respond to questions, no user interaction needed")
+		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
+
+		parts = append(parts, autoLabel, autoView)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -185,7 +214,7 @@ func (s *NewSessionState) renderRepoList() string {
 // numFields returns the number of focusable fields.
 func (s *NewSessionState) numFields() int {
 	if s.ContainersSupported {
-		return 4 // repo list, base selection, branch input, containers
+		return 5 // repo list, base selection, branch input, containers, autonomous
 	}
 	return 3 // repo list, base selection, branch input
 }
@@ -236,6 +265,16 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		case keys.Space:
 			if s.Focus == 3 && s.ContainersSupported {
 				s.UseContainers = !s.UseContainers
+				// If disabling containers, also disable autonomous
+				if !s.UseContainers {
+					s.Autonomous = false
+				}
+			} else if s.Focus == 4 && s.ContainersSupported {
+				s.Autonomous = !s.Autonomous
+				// Autonomous requires containers
+				if s.Autonomous {
+					s.UseContainers = true
+				}
 			}
 			return s, nil
 		}
@@ -281,6 +320,11 @@ func (s *NewSessionState) GetBaseIndex() int {
 // GetUseContainers returns whether container mode is selected
 func (s *NewSessionState) GetUseContainers() bool {
 	return s.UseContainers
+}
+
+// GetAutonomous returns whether autonomous mode is selected
+func (s *NewSessionState) GetAutonomous() bool {
+	return s.Autonomous
 }
 
 // NewNewSessionState creates a new NewSessionState with proper initialization.

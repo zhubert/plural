@@ -517,3 +517,207 @@ func TestGetBatchPRStatesWithComments_DraftTreatedAsOpen(t *testing.T) {
 		t.Errorf("expected CommentCount 1, got %d", results["draft-branch"].CommentCount)
 	}
 }
+
+// =============================================================================
+// FetchGitHubIssuesWithLabel Tests
+// =============================================================================
+
+func TestFetchGitHubIssuesWithLabel_WithLabel(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "bug"}, pexec.MockResponse{
+		Stdout: []byte(`[{"number":1,"title":"Fix crash","body":"App crashes on startup","url":"https://github.com/repo/issues/1"}]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	issues, err := svc.FetchGitHubIssuesWithLabel(context.Background(), "/repo", "bug")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+	if issues[0].Number != 1 {
+		t.Errorf("expected issue number 1, got %d", issues[0].Number)
+	}
+	if issues[0].Title != "Fix crash" {
+		t.Errorf("expected title 'Fix crash', got '%s'", issues[0].Title)
+	}
+	if issues[0].Body != "App crashes on startup" {
+		t.Errorf("expected body 'App crashes on startup', got '%s'", issues[0].Body)
+	}
+	if issues[0].URL != "https://github.com/repo/issues/1" {
+		t.Errorf("expected URL 'https://github.com/repo/issues/1', got '%s'", issues[0].URL)
+	}
+}
+
+func TestFetchGitHubIssuesWithLabel_WithoutLabel(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// When label is empty, no --label flag should be added
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open"}, pexec.MockResponse{
+		Stdout: []byte(`[{"number":1,"title":"Issue 1","body":"","url":"https://github.com/repo/issues/1"},{"number":2,"title":"Issue 2","body":"","url":"https://github.com/repo/issues/2"}]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	issues, err := svc.FetchGitHubIssuesWithLabel(context.Background(), "/repo", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(issues))
+	}
+}
+
+func TestFetchGitHubIssuesWithLabel_CLIError(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "bug"}, pexec.MockResponse{
+		Err: fmt.Errorf("not a git repository"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	issues, err := svc.FetchGitHubIssuesWithLabel(context.Background(), "/repo", "bug")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if issues != nil {
+		t.Errorf("expected nil issues on error, got %v", issues)
+	}
+}
+
+// =============================================================================
+// CheckPRChecks Tests
+// =============================================================================
+
+func TestCheckPRChecks_AllPassing(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "checks", "feature-branch", "--json", "state"}, pexec.MockResponse{
+		Stdout: []byte(`[{"state":"SUCCESS"},{"state":"SUCCESS"}]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != CIStatusPassing {
+		t.Errorf("expected CIStatusPassing, got %s", status)
+	}
+}
+
+func TestCheckPRChecks_SomeFailing(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// gh pr checks returns non-zero exit code when checks fail, so we set Err
+	mock.AddExactMatch("gh", []string{"pr", "checks", "feature-branch", "--json", "state"}, pexec.MockResponse{
+		Stdout: []byte(`[{"state":"SUCCESS"},{"state":"FAILURE"}]`),
+		Err:    fmt.Errorf("exit status 1"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != CIStatusFailing {
+		t.Errorf("expected CIStatusFailing, got %s", status)
+	}
+}
+
+func TestCheckPRChecks_Pending(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// gh pr checks returns non-zero when checks are pending
+	mock.AddExactMatch("gh", []string{"pr", "checks", "feature-branch", "--json", "state"}, pexec.MockResponse{
+		Stdout: []byte(`[{"state":"SUCCESS"},{"state":"PENDING"}]`),
+		Err:    fmt.Errorf("exit status 1"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != CIStatusPending {
+		t.Errorf("expected CIStatusPending, got %s", status)
+	}
+}
+
+func TestCheckPRChecks_NoChecks(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// Empty checks array with successful exit code
+	mock.AddExactMatch("gh", []string{"pr", "checks", "feature-branch", "--json", "state"}, pexec.MockResponse{
+		Stdout: []byte(`[]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != CIStatusNone {
+		t.Errorf("expected CIStatusNone, got %s", status)
+	}
+}
+
+func TestCheckPRChecks_NoChecksWithError(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// Empty checks array with error exit code
+	mock.AddExactMatch("gh", []string{"pr", "checks", "feature-branch", "--json", "state"}, pexec.MockResponse{
+		Stdout: []byte(`[]`),
+		Err:    fmt.Errorf("exit status 1"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status != CIStatusNone {
+		t.Errorf("expected CIStatusNone, got %s", status)
+	}
+}
+
+func TestCheckPRChecks_ErrorNoOutput(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// Error with no stdout (e.g., no PR found)
+	mock.AddExactMatch("gh", []string{"pr", "checks", "feature-branch", "--json", "state"}, pexec.MockResponse{
+		Err: fmt.Errorf("no pull requests found"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	status, err := svc.CheckPRChecks(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// When there's an error but no parseable output, defaults to pending
+	if status != CIStatusPending {
+		t.Errorf("expected CIStatusPending as fallback, got %s", status)
+	}
+}
+
+// =============================================================================
+// MergePR Tests
+// =============================================================================
+
+func TestMergePR_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMergePR_Error(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
+		Err: fmt.Errorf("pull request is not mergeable"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}

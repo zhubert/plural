@@ -31,7 +31,8 @@ type BroadcastState struct {
 	UseContainers          bool            // Whether to run sessions in containers
 	ContainersSupported    bool            // Whether Docker is available for container mode
 	ContainerAuthAvailable bool            // Whether API key credentials are available for container mode
-	Focus                  int             // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported)
+	Autonomous             bool            // Whether to run in autonomous mode
+	Focus                  int             // 0=repo list, 1=name input, 2=prompt textarea, 3=containers (if supported), 4=autonomous
 	ScrollOffset           int             // For scrolling the repo list
 }
 
@@ -140,6 +141,31 @@ func (s *BroadcastState) Render() string {
 				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
+
+		// Autonomous mode checkbox
+		autoLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Autonomous mode:")
+
+		autoCheckbox := "[ ]"
+		if s.Autonomous {
+			autoCheckbox = "[x]"
+		}
+		autoCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 4 {
+			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
+		}
+		autoDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Auto-respond to questions, no user interaction needed")
+		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
+
+		parts = append(parts, autoLabel, autoView)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -284,13 +310,32 @@ func (s *BroadcastState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			switch key {
 			case keys.Space:
 				s.UseContainers = !s.UseContainers
+				if !s.UseContainers {
+					s.Autonomous = false
+				}
+				return s, nil
+			case keys.Tab:
+				s.Focus = 4
+				return s, nil
+			case keys.ShiftTab:
+				s.Focus = 2
+				s.PromptInput.Focus()
+				return s, nil
+			}
+		case 4:
+			// Autonomous checkbox focused (only when supported)
+			switch key {
+			case keys.Space:
+				s.Autonomous = !s.Autonomous
+				if s.Autonomous {
+					s.UseContainers = true
+				}
 				return s, nil
 			case keys.Tab:
 				s.Focus = 0
 				return s, nil
 			case keys.ShiftTab:
-				s.Focus = 2
-				s.PromptInput.Focus()
+				s.Focus = 3
 				return s, nil
 			}
 		}
@@ -348,6 +393,11 @@ func (s *BroadcastState) GetPrompt() string {
 // GetUseContainers returns whether container mode is selected
 func (s *BroadcastState) GetUseContainers() bool {
 	return s.UseContainers
+}
+
+// GetAutonomous returns whether autonomous mode is selected
+func (s *BroadcastState) GetAutonomous() bool {
+	return s.Autonomous
 }
 
 // NewBroadcastState creates a new BroadcastState.

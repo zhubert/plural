@@ -185,6 +185,33 @@ type ContainerPrereqCheckMsg struct {
 	Result process.ContainerPrerequisites
 }
 
+// SessionCompletedMsg is emitted when an autonomous session finishes a response
+// with no pending interactions. This is the primitive all automation hooks into.
+type SessionCompletedMsg struct {
+	SessionID string
+}
+
+// SessionPipelineCompleteMsg is emitted when a session's full pipeline completes
+// (after tests pass or max retries exhausted).
+type SessionPipelineCompleteMsg struct {
+	SessionID   string
+	TestsPassed bool
+}
+
+// TestRunResultMsg is sent when a test run completes for a session.
+type TestRunResultMsg struct {
+	SessionID string
+	Output    string
+	ExitCode  int
+	Iteration int
+}
+
+// AutonomousLimitReachedMsg is sent when an autonomous session hits its turn or duration limit.
+type AutonomousLimitReachedMsg struct {
+	SessionID string
+	Reason    string // "turn_limit" or "duration_limit"
+}
+
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -344,6 +371,8 @@ func (m *Model) Init() tea.Cmd {
 		},
 		// Start background PR merge detection polling
 		PRPollTick(),
+		// Start background issue polling
+		IssuePollTick(),
 	)
 }
 
@@ -667,6 +696,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ContainerPrereqCheckMsg:
 		return m.handleContainerPrereqCheckMsg(msg)
 
+	case SessionCompletedMsg:
+		return m.handleSessionCompletedMsg(msg)
+
+	case SessionPipelineCompleteMsg:
+		return m.handleSessionPipelineCompleteMsg(msg)
+
+	case TestRunResultMsg:
+		return m.handleTestRunResultMsg(msg)
+
+	case AutonomousLimitReachedMsg:
+		return m.handleAutonomousLimitReachedMsg(msg)
+
+	case AutoPRCommentsFetchedMsg:
+		return m.handleAutoPRCommentsFetchedMsg(msg)
+
+	case CIPollResultMsg:
+		return m.handleCIPollResultMsg(msg)
+
+	case AutoMergeResultMsg:
+		return m.handleAutoMergeResultMsg(msg)
+
 	case PRPollTickMsg:
 		// Re-schedule next tick and check PR statuses for eligible sessions
 		checkCmd := checkPRStatuses(m.config.GetSessions(), m.gitService)
@@ -677,6 +727,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PRBatchStatusCheckMsg:
 		return m.handlePRBatchStatusCheckMsg(msg)
+
+	case IssuePollTickMsg:
+		checkCmd := checkForNewIssues(m.config, m.gitService, m.config.GetSessions())
+		if checkCmd != nil {
+			return m, tea.Batch(IssuePollTick(), checkCmd)
+		}
+		return m, IssuePollTick()
+
+	case NewIssuesDetectedMsg:
+		return m.handleNewIssuesDetectedMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()

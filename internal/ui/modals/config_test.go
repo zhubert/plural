@@ -33,8 +33,8 @@ func newTestSettingsStateWithContainers(branchPrefix string, notifs bool, repos 
 
 func TestSettingsState_NumFields_NoRepo(t *testing.T) {
 	s := newTestSettingsState("", false, nil, nil, 0, false)
-	if n := s.numFields(); n != 3 {
-		t.Errorf("Expected 3 fields with no repos, got %d", n)
+	if n := s.numFields(); n != 5 {
+		t.Errorf("Expected 5 fields with no repos, got %d", n)
 	}
 }
 
@@ -43,8 +43,8 @@ func TestSettingsState_NumFields_WithRepo_AsanaPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if n := s.numFields(); n != 5 {
-		t.Errorf("Expected 5 fields with repo and Asana PAT, got %d", n)
+	if n := s.numFields(); n != 8 {
+		t.Errorf("Expected 8 fields with repo and Asana PAT, got %d", n)
 	}
 }
 
@@ -53,8 +53,8 @@ func TestSettingsState_NumFields_WithRepo_NoAsanaPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false)
-	if n := s.numFields(); n != 3 {
-		t.Errorf("Expected 3 fields with repo but no Asana PAT (per-repo section hidden), got %d", n)
+	if n := s.numFields(); n != 7 {
+		t.Errorf("Expected 7 fields with repo but no Asana PAT, got %d", n)
 	}
 }
 
@@ -63,8 +63,8 @@ func TestSettingsState_AsanaFocusIndex(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if idx := s.asanaFocusIndex(); idx != 4 {
-		t.Errorf("Expected asana focus index 4, got %d", idx)
+	if idx := s.asanaFocusIndex(); idx != 7 {
+		t.Errorf("Expected asana focus index 7, got %d", idx)
 	}
 }
 
@@ -79,8 +79,8 @@ func TestSettingsState_TabCycle_WithRepo(t *testing.T) {
 		t.Fatalf("Expected initial focus 0, got %d", s.Focus)
 	}
 
-	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 0 (5 fields with repo + PAT)
-	expectedFoci := []int{1, 2, 3, 4, 0}
+	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 0 (8 fields: theme, branch, notifs, cleanup, broadcast, repo, test, asana)
+	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -94,9 +94,8 @@ func TestSettingsState_TabCycle_WithRepo_NoPAT(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, false)
-
-	// Tab through: 0 -> 1 -> 2 -> 0 (3 fields, per-repo section hidden without PAT)
-	expectedFoci := []int{1, 2, 0}
+	// Tab through: 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 0 (7 fields: theme, branch, notifs, cleanup, broadcast, repo, test)
+	expectedFoci := []int{1, 2, 3, 4, 5, 6, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -159,8 +158,8 @@ func TestSettingsState_RepoSelector_LeftRight(t *testing.T) {
 		map[string]string{"/repo/a": "111", "/repo/b": "222", "/repo/c": "333"},
 		0, true)
 
-	// Focus on repo selector (now index 3)
-	s.Focus = 3
+	// Focus on repo selector
+	s.Focus = s.repoSelectorFocusIndex()
 
 	// Initially at index 0
 	if s.SelectedRepoIndex != 0 {
@@ -490,8 +489,8 @@ func TestSettingsState_Render_WithRepoButNoPAT(t *testing.T) {
 		0, false)
 
 	rendered := s.Render()
-	if strings.Contains(rendered, "Per-repo settings") {
-		t.Error("Per-repo section should not appear without Asana PAT")
+	if !strings.Contains(rendered, "Per-repo settings") {
+		t.Error("Per-repo section should appear when repos exist even without Asana PAT")
 	}
 }
 
@@ -536,7 +535,7 @@ func TestSettingsState_HelpChangesOnRepoFocus(t *testing.T) {
 		map[string]string{"/repo": ""},
 		0, true) // PAT must be set for per-repo section (and focus 3) to exist
 
-	s.Focus = 3
+	s.Focus = s.repoSelectorFocusIndex()
 	help := s.Help()
 	if !strings.Contains(help, "Left/Right: switch repo") {
 		t.Errorf("Help at repo selector focus should mention Left/Right: switch repo, got %q", help)
@@ -775,8 +774,8 @@ func TestSettingsState_IsAsanaFocused(t *testing.T) {
 func TestNewSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
 	s := NewNewSessionState([]string{"/repo"}, true, false)
 
-	if s.numFields() != 4 {
-		t.Errorf("Expected 4 fields with containers supported, got %d", s.numFields())
+	if s.numFields() != 5 {
+		t.Errorf("Expected 5 fields with containers supported, got %d", s.numFields())
 	}
 
 	// Tab to container checkbox (focus 3)
@@ -1042,28 +1041,28 @@ func TestBroadcastState_AuthWarning_WhenAuthAvailable(t *testing.T) {
 // =============================================================================
 
 func TestSettingsState_NumFields_WithContainers(t *testing.T) {
-	// No repos, no PAT, but containers supported: theme + branch + notifs + container = 4
+	// No repos, no PAT, but containers supported: theme + branch + notifs + cleanup + broadcast + container = 6
 	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "")
-	if n := s.numFields(); n != 4 {
-		t.Errorf("Expected 4 fields with containers supported and no repos, got %d", n)
+	if n := s.numFields(); n != 6 {
+		t.Errorf("Expected 6 fields with containers supported and no repos, got %d", n)
 	}
 }
 
 func TestSettingsState_NumFields_WithContainersAndRepoAndPAT(t *testing.T) {
-	// Repos + PAT + containers: theme + branch + notifs + container + repo + asana = 6
+	// Repos + PAT + containers: theme + branch + notifs + cleanup + broadcast + container + repo + asana = 8
 	s := newTestSettingsStateWithContainers("", false,
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if n := s.numFields(); n != 6 {
-		t.Errorf("Expected 6 fields with containers, repo and PAT, got %d", n)
+	if n := s.numFields(); n != 9 {
+		t.Errorf("Expected 9 fields with containers, repo and PAT, got %d", n)
 	}
 }
 
 func TestSettingsState_ContainerImageFocusIndex(t *testing.T) {
 	s := newTestSettingsStateWithContainers("", false, nil, nil, 0, false, true, "")
-	if idx := s.containerImageFocusIndex(); idx != 3 {
-		t.Errorf("Expected container image focus index 3, got %d", idx)
+	if idx := s.containerImageFocusIndex(); idx != 5 {
+		t.Errorf("Expected container image focus index 5, got %d", idx)
 	}
 }
 
@@ -1072,8 +1071,8 @@ func TestSettingsState_RepoSelectorFocusIndex_WithContainers(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if idx := s.repoSelectorFocusIndex(); idx != 4 {
-		t.Errorf("Expected repo selector focus index 4 with containers, got %d", idx)
+	if idx := s.repoSelectorFocusIndex(); idx != 6 {
+		t.Errorf("Expected repo selector focus index 6 with containers, got %d", idx)
 	}
 }
 
@@ -1082,8 +1081,8 @@ func TestSettingsState_RepoSelectorFocusIndex_WithoutContainers(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true)
-	if idx := s.repoSelectorFocusIndex(); idx != 3 {
-		t.Errorf("Expected repo selector focus index 3 without containers, got %d", idx)
+	if idx := s.repoSelectorFocusIndex(); idx != 5 {
+		t.Errorf("Expected repo selector focus index 5 without containers, got %d", idx)
 	}
 }
 
@@ -1092,8 +1091,8 @@ func TestSettingsState_AsanaFocusIndex_WithContainers(t *testing.T) {
 		[]string{"/some/repo"},
 		map[string]string{"/some/repo": ""},
 		0, true, true, "")
-	if idx := s.asanaFocusIndex(); idx != 5 {
-		t.Errorf("Expected asana focus index 5 with containers, got %d", idx)
+	if idx := s.asanaFocusIndex(); idx != 8 {
+		t.Errorf("Expected asana focus index 8 with containers, got %d", idx)
 	}
 }
 
@@ -1103,8 +1102,8 @@ func TestSettingsState_TabCycle_WithContainers(t *testing.T) {
 		map[string]string{"/some/repo": ""},
 		0, true, true, "plural-claude")
 
-	// 6 fields: theme(0) branch(1) notifs(2) container(3) repo(4) asana(5)
-	expectedFoci := []int{1, 2, 3, 4, 5, 0}
+	// 9 fields: theme(0) branch(1) notifs(2) cleanup(3) broadcast(4) container(5) repo(6) test(7) asana(8)
+	expectedFoci := []int{1, 2, 3, 4, 5, 6, 7, 8, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {

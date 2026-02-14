@@ -292,12 +292,13 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 		}
 		// Check container prerequisites asynchronously BEFORE creating the session
 		useContainers := state.GetUseContainers()
+		autonomous := state.GetAutonomous()
 		if useContainers {
 			return m.checkContainerPrerequisitesAsync(func() (tea.Model, tea.Cmd) {
-				return m.createNewSession(repoPath, branchName, branchPrefix, basePoint, true)
+				return m.createNewSession(repoPath, branchName, branchPrefix, basePoint, true, autonomous)
 			})
 		}
-		return m.createNewSession(repoPath, branchName, branchPrefix, basePoint, false)
+		return m.createNewSession(repoPath, branchName, branchPrefix, basePoint, false, autonomous)
 	}
 	// Forward other keys (tab, shift+tab, up, down, etc.) to modal for handling
 	modal, cmd := m.modal.Update(msg)
@@ -308,7 +309,7 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 // createNewSession is the shared session-creation logic used by handleNewSessionModal.
 // It is extracted so it can be called either directly (non-container) or from a
 // pendingContainerAction closure (after async prerequisite checks pass).
-func (m *Model) createNewSession(repoPath, branchName, branchPrefix string, basePoint session.BasePoint, useContainers bool) (tea.Model, tea.Cmd) {
+func (m *Model) createNewSession(repoPath, branchName, branchPrefix string, basePoint session.BasePoint, useContainers bool, autonomous bool) (tea.Model, tea.Cmd) {
 	ctx := context.Background()
 	logger.Get().Debug("creating new session", "repo", repoPath, "branch", branchName, "prefix", branchPrefix, "basePoint", basePoint)
 	sess, err := m.sessionService.Create(ctx, repoPath, branchName, branchPrefix, basePoint)
@@ -320,6 +321,9 @@ func (m *Model) createNewSession(repoPath, branchName, branchPrefix string, base
 	logger.WithSession(sess.ID).Info("session created", "name", sess.Name)
 	if useContainers {
 		sess.Containerized = true
+	}
+	if autonomous {
+		sess.Autonomous = true
 	}
 	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
 		sess.WorkspaceID = activeWS
@@ -687,15 +691,16 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 
 		// Check container prerequisites asynchronously BEFORE creating sessions
 		useContainers := state.GetUseContainers()
+		autonomous := state.GetAutonomous()
 		if useContainers {
 			return m.checkContainerPrerequisitesAsync(func() (tea.Model, tea.Cmd) {
 				m.modal.Hide()
-				return m.createBroadcastSessions(selectedRepos, prompt, sessionName, true)
+				return m.createBroadcastSessions(selectedRepos, prompt, sessionName, true, autonomous)
 			})
 		}
 
 		m.modal.Hide()
-		return m.createBroadcastSessions(selectedRepos, prompt, sessionName, false)
+		return m.createBroadcastSessions(selectedRepos, prompt, sessionName, false, autonomous)
 	}
 
 	// Forward other keys to modal for navigation/selection
@@ -707,7 +712,7 @@ func (m *Model) handleBroadcastModal(key string, msg tea.KeyPressMsg, state *ui.
 // createBroadcastSessions creates sessions for each selected repo and sends the prompt to each.
 // If sessionName is provided (non-empty), it will be used as the branch name for all sessions.
 // Sessions are created in parallel for better performance with many repos.
-func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string, useContainers bool) (tea.Model, tea.Cmd) {
+func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessionName string, useContainers bool, autonomous bool) (tea.Model, tea.Cmd) {
 	log := logger.Get()
 	log.Info("creating broadcast sessions", "repoCount", len(repoPaths), "sessionName", sessionName)
 
@@ -752,6 +757,9 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 			// Set containerized flag (image existence already verified above)
 			if useContainers {
 				sess.Containerized = true
+			}
+			if autonomous {
+				sess.Autonomous = true
 			}
 
 			mu.Lock()
