@@ -2,6 +2,7 @@ package modals
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -247,6 +248,20 @@ type SettingsState struct {
 	ContainerImageInput textinput.Model
 	ContainersSupported bool // Whether Docker is available for container mode
 
+	// Autonomous settings (only shown when ContainersSupported)
+	AutoAddressPRComments    bool
+	AutoMaxTurnsInput        textinput.Model
+	AutoMaxDurationInput     textinput.Model
+	IssueMaxConcurrentInput  textinput.Model
+
+	// Per-repo autonomous settings (only shown when ContainersSupported and repos exist)
+	RepoIssuePolling   map[string]bool
+	RepoIssueLabels    map[string]string
+	RepoAutoMerge      map[string]bool
+	RepoTestMaxRetries map[string]string
+	IssueLabelInput    textinput.Model
+	TestMaxRetriesInput textinput.Model
+
 	AsanaPATSet bool // Whether ASANA_PAT env var is set
 	Focus       int  // 0=theme, 1=branch prefix, 2=notifications, [3=container image if supported], then repo selector, asana
 
@@ -281,6 +296,11 @@ func (s *SettingsState) SetSize(width, height int) {
 	contentWidth := s.contentWidth()
 	s.BranchPrefixInput.SetWidth(contentWidth)
 	s.ContainerImageInput.SetWidth(contentWidth)
+	s.AutoMaxTurnsInput.SetWidth(contentWidth)
+	s.AutoMaxDurationInput.SetWidth(contentWidth)
+	s.IssueMaxConcurrentInput.SetWidth(contentWidth)
+	s.IssueLabelInput.SetWidth(contentWidth)
+	s.TestMaxRetriesInput.SetWidth(contentWidth)
 	// Search input is slightly narrower to account for extra padding
 	s.AsanaSearchInput.SetWidth(contentWidth - 4)
 }
@@ -451,6 +471,80 @@ func (s *SettingsState) Render() string {
 		containerParts = []string{containerLabel, containerDesc, containerView}
 	}
 
+	// Autonomous section (gated on ContainersSupported)
+	var autonomousParts []string
+	if s.ContainersSupported {
+		autoSectionHeader := lipgloss.NewStyle().
+			Foreground(ColorSecondary).
+			Bold(true).
+			MarginTop(1).
+			Render("Autonomous:")
+
+		// Auto-address PR comments checkbox
+		autoAddressLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Auto-address PR comments:")
+
+		autoAddressCheckbox := "[ ]"
+		if s.AutoAddressPRComments {
+			autoAddressCheckbox = "[x]"
+		}
+		autoAddressStyle := lipgloss.NewStyle()
+		if s.Focus == s.autoAddressFocusIndex() {
+			autoAddressStyle = autoAddressStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			autoAddressStyle = autoAddressStyle.PaddingLeft(2)
+		}
+		autoAddressDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(s.contentWidth()).
+			Render("Auto-fetch and address new PR review comments")
+		autoAddressView := autoAddressStyle.Render(autoAddressCheckbox + " " + autoAddressDesc)
+
+		// Max autonomous turns
+		maxTurnsLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Max autonomous turns:")
+		maxTurnsStyle := lipgloss.NewStyle()
+		if s.Focus == s.autoMaxTurnsFocusIndex() {
+			maxTurnsStyle = maxTurnsStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			maxTurnsStyle = maxTurnsStyle.PaddingLeft(2)
+		}
+		maxTurnsView := maxTurnsStyle.Render(s.AutoMaxTurnsInput.View())
+
+		// Max autonomous duration
+		maxDurationLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Max autonomous duration (min):")
+		maxDurationStyle := lipgloss.NewStyle()
+		if s.Focus == s.autoMaxDurationFocusIndex() {
+			maxDurationStyle = maxDurationStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			maxDurationStyle = maxDurationStyle.PaddingLeft(2)
+		}
+		maxDurationView := maxDurationStyle.Render(s.AutoMaxDurationInput.View())
+
+		// Max concurrent sessions
+		maxConcurrentLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Max concurrent auto-sessions:")
+		maxConcurrentStyle := lipgloss.NewStyle()
+		if s.Focus == s.issueMaxConcurrentFocusIndex() {
+			maxConcurrentStyle = maxConcurrentStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			maxConcurrentStyle = maxConcurrentStyle.PaddingLeft(2)
+		}
+		maxConcurrentView := maxConcurrentStyle.Render(s.IssueMaxConcurrentInput.View())
+
+		autonomousParts = []string{autoSectionHeader, autoAddressLabel, autoAddressView, maxTurnsLabel, maxTurnsView, maxDurationLabel, maxDurationView, maxConcurrentLabel, maxConcurrentView}
+	}
+
 	// Per-repo settings (shown when repos exist)
 	var repoSections []string
 	if len(s.Repos) > 0 {
@@ -502,6 +596,85 @@ func (s *SettingsState) Render() string {
 		testView := testInputStyle.Render(s.TestCommandInput.View())
 		repoSections = append(repoSections, testLabel+"\n"+testDesc+"\n"+testView)
 
+		// Per-repo autonomous settings (gated on ContainersSupported)
+		if s.ContainersSupported {
+			repo := s.selectedRepoPath()
+
+			// Issue polling checkbox
+			issuePollingLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Issue polling:")
+			issuePollingCheckbox := "[ ]"
+			if s.RepoIssuePolling[repo] {
+				issuePollingCheckbox = "[x]"
+			}
+			issuePollingStyle := lipgloss.NewStyle()
+			if s.Focus == s.issuePollingFocusIndex() {
+				issuePollingStyle = issuePollingStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				issuePollingStyle = issuePollingStyle.PaddingLeft(2)
+			}
+			issuePollingDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(s.contentWidth()).
+				Render("Auto-poll for new issues and create sessions")
+			issuePollingView := issuePollingStyle.Render(issuePollingCheckbox + " " + issuePollingDesc)
+			repoSections = append(repoSections, issuePollingLabel+"\n"+issuePollingView)
+
+			// Issue filter label
+			issueLabelLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Issue filter label:")
+			issueLabelStyle := lipgloss.NewStyle()
+			if s.Focus == s.issueLabelFocusIndex() {
+				issueLabelStyle = issueLabelStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				issueLabelStyle = issueLabelStyle.PaddingLeft(2)
+			}
+			issueLabelView := issueLabelStyle.Render(s.IssueLabelInput.View())
+			repoSections = append(repoSections, issueLabelLabel+"\n"+issueLabelView)
+
+			// Auto-merge checkbox
+			autoMergeLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Auto-merge after CI:")
+			autoMergeCheckbox := "[ ]"
+			if s.RepoAutoMerge[repo] {
+				autoMergeCheckbox = "[x]"
+			}
+			autoMergeStyle := lipgloss.NewStyle()
+			if s.Focus == s.autoMergeFocusIndex() {
+				autoMergeStyle = autoMergeStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				autoMergeStyle = autoMergeStyle.PaddingLeft(2)
+			}
+			autoMergeDesc := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				Width(s.contentWidth()).
+				Render("Auto-merge PR when CI passes")
+			autoMergeView := autoMergeStyle.Render(autoMergeCheckbox + " " + autoMergeDesc)
+			repoSections = append(repoSections, autoMergeLabel+"\n"+autoMergeView)
+
+			// Test max retries
+			testRetriesLabel := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				MarginTop(1).
+				Render("Test max retries:")
+			testRetriesStyle := lipgloss.NewStyle()
+			if s.Focus == s.testMaxRetriesFocusIndex() {
+				testRetriesStyle = testRetriesStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+			} else {
+				testRetriesStyle = testRetriesStyle.PaddingLeft(2)
+			}
+			testRetriesView := testRetriesStyle.Render(s.TestMaxRetriesInput.View())
+			repoSections = append(repoSections, testRetriesLabel+"\n"+testRetriesView)
+		}
+
 		// Asana project selector (only shown when PAT is set)
 		if s.AsanaPATSet {
 			asanaLabel := lipgloss.NewStyle().
@@ -532,6 +705,7 @@ func (s *SettingsState) Render() string {
 
 	parts := []string{title, themeLabel, themeView, prefixLabel, prefixDesc, prefixView, notifLabel, notifView, cleanupLabel, cleanupView, broadcastPRLabel, broadcastPRView}
 	parts = append(parts, containerParts...)
+	parts = append(parts, autonomousParts...)
 	for _, section := range repoSections {
 		parts = append(parts, section)
 	}
@@ -645,9 +819,13 @@ func (s *SettingsState) numFields() int {
 	base := 5 // theme, branch prefix, notifications, auto-cleanup, auto-broadcast-PR
 	if s.ContainersSupported {
 		base++ // container image
+		base += 4 // auto-address PR, max turns, max duration, max concurrent
 	}
 	if len(s.Repos) > 0 {
 		base += 2 // repo selector, test command
+		if s.ContainersSupported {
+			base += 4 // issue polling, issue label, auto-merge, test max retries
+		}
 		if s.AsanaPATSet {
 			base++ // asana
 		}
@@ -661,11 +839,31 @@ func (s *SettingsState) containerImageFocusIndex() int {
 	return 5 // theme=0, prefix=1, notifications=2, auto-cleanup=3, auto-broadcast=4, container image=5
 }
 
+// autoAddressFocusIndex returns the focus index for auto-address PR comments checkbox.
+func (s *SettingsState) autoAddressFocusIndex() int {
+	return 6 // after container image
+}
+
+// autoMaxTurnsFocusIndex returns the focus index for max autonomous turns input.
+func (s *SettingsState) autoMaxTurnsFocusIndex() int {
+	return 7
+}
+
+// autoMaxDurationFocusIndex returns the focus index for max autonomous duration input.
+func (s *SettingsState) autoMaxDurationFocusIndex() int {
+	return 8
+}
+
+// issueMaxConcurrentFocusIndex returns the focus index for max concurrent sessions input.
+func (s *SettingsState) issueMaxConcurrentFocusIndex() int {
+	return 9
+}
+
 // repoSelectorFocusIndex returns the focus index for the repo selector field.
 func (s *SettingsState) repoSelectorFocusIndex() int {
 	base := 5 // theme, branch prefix, notifications, auto-cleanup, auto-broadcast-PR
 	if s.ContainersSupported {
-		base++ // container image shifts it up
+		base += 5 // container image + 4 autonomous global fields
 	}
 	return base
 }
@@ -675,10 +873,34 @@ func (s *SettingsState) testCommandFocusIndex() int {
 	return s.repoSelectorFocusIndex() + 1
 }
 
+// issuePollingFocusIndex returns the focus index for issue polling checkbox.
+func (s *SettingsState) issuePollingFocusIndex() int {
+	return s.testCommandFocusIndex() + 1
+}
+
+// issueLabelFocusIndex returns the focus index for issue filter label input.
+func (s *SettingsState) issueLabelFocusIndex() int {
+	return s.issuePollingFocusIndex() + 1
+}
+
+// autoMergeFocusIndex returns the focus index for auto-merge checkbox.
+func (s *SettingsState) autoMergeFocusIndex() int {
+	return s.issueLabelFocusIndex() + 1
+}
+
+// testMaxRetriesFocusIndex returns the focus index for test max retries input.
+func (s *SettingsState) testMaxRetriesFocusIndex() int {
+	return s.autoMergeFocusIndex() + 1
+}
+
 // asanaFocusIndex returns the focus index for the Asana project field.
 // Only meaningful when AsanaPATSet is true.
 func (s *SettingsState) asanaFocusIndex() int {
-	return s.testCommandFocusIndex() + 1
+	base := s.testCommandFocusIndex() + 1
+	if s.ContainersSupported {
+		base += 4 // issue polling, issue label, auto-merge, test max retries
+	}
+	return base
 }
 
 // selectedRepoPath returns the path of the currently selected repo.
@@ -689,11 +911,15 @@ func (s *SettingsState) selectedRepoPath() string {
 	return s.Repos[s.SelectedRepoIndex]
 }
 
-// flushCurrentToMaps saves the current test command input to the map.
+// flushCurrentToMaps saves the current input values to their respective maps.
 func (s *SettingsState) flushCurrentToMaps() {
 	repo := s.selectedRepoPath()
 	if repo != "" {
 		s.RepoTestCommands[repo] = s.TestCommandInput.Value()
+		if s.ContainersSupported {
+			s.RepoIssueLabels[repo] = s.IssueLabelInput.Value()
+			s.RepoTestMaxRetries[repo] = s.TestMaxRetriesInput.Value()
+		}
 	}
 }
 
@@ -706,6 +932,10 @@ func (s *SettingsState) loadRepoValues() {
 	repo := s.selectedRepoPath()
 	if repo != "" {
 		s.TestCommandInput.SetValue(s.RepoTestCommands[repo])
+		if s.ContainersSupported {
+			s.IssueLabelInput.SetValue(s.RepoIssueLabels[repo])
+			s.TestMaxRetriesInput.SetValue(s.RepoTestMaxRetries[repo])
+		}
 	}
 }
 
@@ -785,13 +1015,25 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		s.updateInputFocus()
 		return s, nil
 	case keys.Space:
-		switch s.Focus {
-		case 2:
+		switch {
+		case s.Focus == 2:
 			s.NotificationsEnabled = !s.NotificationsEnabled
-		case 3:
+		case s.Focus == 3:
 			s.AutoCleanupMerged = !s.AutoCleanupMerged
-		case 4:
+		case s.Focus == 4:
 			s.AutoBroadcastPR = !s.AutoBroadcastPR
+		case s.ContainersSupported && s.Focus == s.autoAddressFocusIndex():
+			s.AutoAddressPRComments = !s.AutoAddressPRComments
+		case s.ContainersSupported && len(s.Repos) > 0 && s.Focus == s.issuePollingFocusIndex():
+			repo := s.selectedRepoPath()
+			if repo != "" {
+				s.RepoIssuePolling[repo] = !s.RepoIssuePolling[repo]
+			}
+		case s.ContainersSupported && len(s.Repos) > 0 && s.Focus == s.autoMergeFocusIndex():
+			repo := s.selectedRepoPath()
+			if repo != "" {
+				s.RepoAutoMerge[repo] = !s.RepoAutoMerge[repo]
+			}
 		}
 		return s, nil
 	case keys.Left, "h":
@@ -839,6 +1081,38 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		return s, cmd
 	}
 
+	// Handle text input updates for autonomous global fields
+	if s.ContainersSupported {
+		switch s.Focus {
+		case s.autoMaxTurnsFocusIndex():
+			var cmd tea.Cmd
+			s.AutoMaxTurnsInput, cmd = s.AutoMaxTurnsInput.Update(msg)
+			return s, cmd
+		case s.autoMaxDurationFocusIndex():
+			var cmd tea.Cmd
+			s.AutoMaxDurationInput, cmd = s.AutoMaxDurationInput.Update(msg)
+			return s, cmd
+		case s.issueMaxConcurrentFocusIndex():
+			var cmd tea.Cmd
+			s.IssueMaxConcurrentInput, cmd = s.IssueMaxConcurrentInput.Update(msg)
+			return s, cmd
+		}
+	}
+
+	// Handle text input updates for per-repo autonomous fields
+	if s.ContainersSupported && len(s.Repos) > 0 {
+		switch s.Focus {
+		case s.issueLabelFocusIndex():
+			var cmd tea.Cmd
+			s.IssueLabelInput, cmd = s.IssueLabelInput.Update(msg)
+			return s, cmd
+		case s.testMaxRetriesFocusIndex():
+			var cmd tea.Cmd
+			s.TestMaxRetriesInput, cmd = s.TestMaxRetriesInput.Update(msg)
+			return s, cmd
+		}
+	}
+
 	return s, nil
 }
 
@@ -875,6 +1149,11 @@ func (s *SettingsState) updateInputFocus() {
 	s.ContainerImageInput.Blur()
 	s.TestCommandInput.Blur()
 	s.AsanaSearchInput.Blur()
+	s.AutoMaxTurnsInput.Blur()
+	s.AutoMaxDurationInput.Blur()
+	s.IssueMaxConcurrentInput.Blur()
+	s.IssueLabelInput.Blur()
+	s.TestMaxRetriesInput.Blur()
 
 	// Focus the active one
 	switch {
@@ -882,8 +1161,18 @@ func (s *SettingsState) updateInputFocus() {
 		s.BranchPrefixInput.Focus()
 	case s.ContainersSupported && s.Focus == s.containerImageFocusIndex():
 		s.ContainerImageInput.Focus()
+	case s.ContainersSupported && s.Focus == s.autoMaxTurnsFocusIndex():
+		s.AutoMaxTurnsInput.Focus()
+	case s.ContainersSupported && s.Focus == s.autoMaxDurationFocusIndex():
+		s.AutoMaxDurationInput.Focus()
+	case s.ContainersSupported && s.Focus == s.issueMaxConcurrentFocusIndex():
+		s.IssueMaxConcurrentInput.Focus()
 	case len(s.Repos) > 0 && s.Focus == s.testCommandFocusIndex():
 		s.TestCommandInput.Focus()
+	case s.ContainersSupported && len(s.Repos) > 0 && s.Focus == s.issueLabelFocusIndex():
+		s.IssueLabelInput.Focus()
+	case s.ContainersSupported && len(s.Repos) > 0 && s.Focus == s.testMaxRetriesFocusIndex():
+		s.TestMaxRetriesInput.Focus()
 	case s.AsanaPATSet && s.Focus == s.asanaFocusIndex():
 		s.AsanaSearchInput.Focus()
 	}
@@ -953,6 +1242,48 @@ func (s *SettingsState) GetAllTestCommands() map[string]string {
 	return result
 }
 
+// GetAllIssuePolling returns a copy of all per-repo issue polling settings.
+func (s *SettingsState) GetAllIssuePolling() map[string]bool {
+	s.flushCurrentToMaps()
+	result := make(map[string]bool, len(s.RepoIssuePolling))
+	for k, v := range s.RepoIssuePolling {
+		result[k] = v
+	}
+	return result
+}
+
+// GetAllIssueLabels returns a copy of all per-repo issue filter labels.
+func (s *SettingsState) GetAllIssueLabels() map[string]string {
+	s.flushCurrentToMaps()
+	result := make(map[string]string, len(s.RepoIssueLabels))
+	for k, v := range s.RepoIssueLabels {
+		result[k] = v
+	}
+	return result
+}
+
+// GetAllAutoMerge returns a copy of all per-repo auto-merge settings.
+func (s *SettingsState) GetAllAutoMerge() map[string]bool {
+	s.flushCurrentToMaps()
+	result := make(map[string]bool, len(s.RepoAutoMerge))
+	for k, v := range s.RepoAutoMerge {
+		result[k] = v
+	}
+	return result
+}
+
+// GetAllTestMaxRetries returns a copy of all per-repo test max retries as ints.
+func (s *SettingsState) GetAllTestMaxRetries() map[string]int {
+	s.flushCurrentToMaps()
+	result := make(map[string]int, len(s.RepoTestMaxRetries))
+	for k, v := range s.RepoTestMaxRetries {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			result[k] = n
+		}
+	}
+	return result
+}
+
 // SetAsanaProjects populates the project options and clears the loading state.
 func (s *SettingsState) SetAsanaProjects(options []AsanaProjectOption) {
 	s.AsanaProjectOptions = options
@@ -1017,24 +1348,58 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	testCmdInput.CharLimit = 200
 	testCmdInput.SetWidth(ModalWidthWide - 10) // Will be updated by SetSize()
 
+	autoMaxTurnsInput := textinput.New()
+	autoMaxTurnsInput.Placeholder = "50"
+	autoMaxTurnsInput.CharLimit = 5
+	autoMaxTurnsInput.SetWidth(ModalWidthWide - 10)
+
+	autoMaxDurationInput := textinput.New()
+	autoMaxDurationInput.Placeholder = "30"
+	autoMaxDurationInput.CharLimit = 5
+	autoMaxDurationInput.SetWidth(ModalWidthWide - 10)
+
+	issueMaxConcurrentInput := textinput.New()
+	issueMaxConcurrentInput.Placeholder = "3"
+	issueMaxConcurrentInput.CharLimit = 3
+	issueMaxConcurrentInput.SetWidth(ModalWidthWide - 10)
+
+	issueLabelInput := textinput.New()
+	issueLabelInput.Placeholder = "e.g., plural-auto (leave empty for all issues)"
+	issueLabelInput.CharLimit = 100
+	issueLabelInput.SetWidth(ModalWidthWide - 10)
+
+	testMaxRetriesInput := textinput.New()
+	testMaxRetriesInput.Placeholder = "3"
+	testMaxRetriesInput.CharLimit = 3
+	testMaxRetriesInput.SetWidth(ModalWidthWide - 10)
+
 	return &SettingsState{
-		Themes:               themes,
-		ThemeDisplayNames:    themeDisplayNames,
-		SelectedThemeIndex:   selectedThemeIndex,
-		OriginalTheme:        currentTheme,
-		BranchPrefixInput:    prefixInput,
-		NotificationsEnabled: notificationsEnabled,
-		ContainerImageInput:  containerImageInput,
-		ContainersSupported:  containersSupported,
-		AsanaPATSet:          asanaPATSet,
-		Focus:                0,
-		Repos:                repos,
-		SelectedRepoIndex:    defaultRepoIndex,
-		AsanaSelectedGIDs:    ap,
-		RepoTestCommands:     make(map[string]string),
-		TestCommandInput:     testCmdInput,
-		AsanaSearchInput:     searchInput,
-		AsanaLoading:         asanaPATSet,
-		availableWidth:       ModalWidthWide, // Default, will be updated by SetSize()
+		Themes:                  themes,
+		ThemeDisplayNames:       themeDisplayNames,
+		SelectedThemeIndex:      selectedThemeIndex,
+		OriginalTheme:           currentTheme,
+		BranchPrefixInput:       prefixInput,
+		NotificationsEnabled:    notificationsEnabled,
+		ContainerImageInput:     containerImageInput,
+		ContainersSupported:     containersSupported,
+		AutoMaxTurnsInput:       autoMaxTurnsInput,
+		AutoMaxDurationInput:    autoMaxDurationInput,
+		IssueMaxConcurrentInput: issueMaxConcurrentInput,
+		RepoIssuePolling:        make(map[string]bool),
+		RepoIssueLabels:         make(map[string]string),
+		RepoAutoMerge:           make(map[string]bool),
+		RepoTestMaxRetries:      make(map[string]string),
+		IssueLabelInput:         issueLabelInput,
+		TestMaxRetriesInput:     testMaxRetriesInput,
+		AsanaPATSet:             asanaPATSet,
+		Focus:                   0,
+		Repos:                   repos,
+		SelectedRepoIndex:       defaultRepoIndex,
+		AsanaSelectedGIDs:       ap,
+		RepoTestCommands:        make(map[string]string),
+		TestCommandInput:        testCmdInput,
+		AsanaSearchInput:        searchInput,
+		AsanaLoading:            asanaPATSet,
+		availableWidth:          ModalWidthWide, // Default, will be updated by SetSize()
 	}
 }
