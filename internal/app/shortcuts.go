@@ -680,9 +680,9 @@ func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 	settingsState.AutoBroadcastPR = m.config.GetAutoBroadcastPR()
 	// Autonomous global settings
 	settingsState.AutoAddressPRComments = m.config.GetAutoAddressPRComments()
-	settingsState.AutoMaxTurnsInput.SetValue(strconv.Itoa(m.config.GetAutoMaxTurns()))
-	settingsState.AutoMaxDurationInput.SetValue(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
-	settingsState.IssueMaxConcurrentInput.SetValue(strconv.Itoa(m.config.GetIssueMaxConcurrent()))
+	settingsState.SetAutoMaxTurns(strconv.Itoa(m.config.GetAutoMaxTurns()))
+	settingsState.SetAutoMaxDuration(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
+	settingsState.SetIssueMaxConcurrent(strconv.Itoa(m.config.GetIssueMaxConcurrent()))
 	m.modal.Show(settingsState)
 	return m, nil
 }

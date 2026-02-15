@@ -205,7 +205,7 @@ func TestNewWorkspaceState_Render(t *testing.T) {
 	if !strings.Contains(rendered, "New Workspace") {
 		t.Error("should contain title")
 	}
-	if !strings.Contains(rendered, "Name:") {
+	if !strings.Contains(rendered, "Name") {
 		t.Error("should contain name label")
 	}
 	if !strings.Contains(rendered, "Enter: save") {

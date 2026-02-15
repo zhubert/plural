@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	huh "charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/keys"
 )
@@ -433,12 +434,14 @@ type ForkSessionState struct {
 	ParentSessionName      string
 	ParentSessionID        string
 	RepoPath               string
-	BranchInput            textinput.Model
-	CopyMessages           bool // Whether to copy conversation history
-	UseContainers          bool // Whether to run this session in a container
-	ContainersSupported    bool // Whether Docker is available for container mode
-	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
-	Focus                  int  // 0=copy messages toggle, 1=branch input, 2=containers (if supported)
+	CopyMessages           bool   // Whether to copy conversation history
+	UseContainers          bool   // Whether to run this session in a container
+	ContainersSupported    bool   // Whether Docker is available for container mode
+	ContainerAuthAvailable bool   // Whether API key credentials are available for container mode
+	branchName             string // Bound form value
+
+	form        *huh.Form
+	initialized bool
 }
 
 func (*ForkSessionState) modalState() {}
@@ -446,10 +449,7 @@ func (*ForkSessionState) modalState() {}
 func (s *ForkSessionState) Title() string { return "Fork Session" }
 
 func (s *ForkSessionState) Help() string {
-	if s.Focus == 2 && s.ContainersSupported {
-		return "Space: toggle  Tab: next field  Enter: create fork  Esc: cancel"
-	}
-	return "Tab: switch field  Space: toggle  Enter: create fork  Esc: cancel"
+	return "Tab: next field  Enter: create fork  Esc: cancel"
 }
 
 func (s *ForkSessionState) Render() string {
@@ -466,75 +466,16 @@ func (s *ForkSessionState) Render() string {
 		MarginBottom(1).
 		Render("  " + s.ParentSessionName)
 
-	// Copy messages toggle
-	copyLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("Copy conversation history:")
+	parts := []string{title, parentLabel, parentName, s.form.View()}
 
-	copyStyle := SidebarItemStyle
-	copyPrefix := "  "
-	if s.Focus == 0 {
-		copyStyle = SidebarSelectedStyle
-		copyPrefix = "> "
-	}
-	checkbox := "[ ]"
-	if s.CopyMessages {
-		checkbox = "[x]"
-	}
-	copyOption := copyStyle.Render(copyPrefix + checkbox + " Include messages from parent session")
-
-	// Branch name input
-	branchLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("Branch name:")
-
-	branchInputStyle := lipgloss.NewStyle()
-	if s.Focus == 1 {
-		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		branchInputStyle = branchInputStyle.PaddingLeft(2)
-	}
-	branchView := branchInputStyle.Render(s.BranchInput.View())
-
-	parts := []string{title, parentLabel, parentName, copyLabel, copyOption, branchLabel, branchView}
-
-	// Container mode checkbox (only on Apple Silicon)
-	if s.ContainersSupported {
-		containerLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Run in container:")
-
-		containerCheckbox := "[ ]"
-		if s.UseContainers {
-			containerCheckbox = "[x]"
-		}
-		containerCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 2 {
-			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
-		}
-		containerDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Run in a sandboxed container (no permission prompts)")
-		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
-
-		parts = append(parts, containerLabel, containerView)
-
-		if s.UseContainers && !s.ContainerAuthAvailable {
-			authWarning := lipgloss.NewStyle().
-				Foreground(ColorWarning).
-				Bold(true).
-				Width(55).
-				PaddingLeft(2).
-				Render(ContainerAuthHelp)
-			parts = append(parts, authWarning)
-		}
+	if s.UseContainers && !s.ContainerAuthAvailable {
+		authWarning := lipgloss.NewStyle().
+			Foreground(ColorWarning).
+			Bold(true).
+			Width(55).
+			PaddingLeft(2).
+			Render(ContainerAuthHelp)
+		parts = append(parts, authWarning)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -543,71 +484,15 @@ func (s *ForkSessionState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-// numFields returns the number of focusable fields.
-func (s *ForkSessionState) numFields() int {
-	if s.ContainersSupported {
-		return 3 // copy messages, branch input, containers
-	}
-	return 2 // copy messages, branch input
-}
-
 func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	numFields := s.numFields()
-
-	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
-		switch keyMsg.String() {
-		case keys.Tab:
-			oldFocus := s.Focus
-			s.Focus = (s.Focus + 1) % numFields
-			s.updateForkInputFocus(oldFocus)
-			return s, nil
-		case keys.ShiftTab:
-			oldFocus := s.Focus
-			s.Focus = (s.Focus - 1 + numFields) % numFields
-			s.updateForkInputFocus(oldFocus)
-			return s, nil
-		case keys.Space:
-			if s.Focus == 0 {
-				s.CopyMessages = !s.CopyMessages
-			} else if s.Focus == 2 && s.ContainersSupported {
-				s.UseContainers = !s.UseContainers
-			}
-			return s, nil
-		case keys.Up, "k":
-			oldFocus := s.Focus
-			s.Focus = (s.Focus - 1 + numFields) % numFields
-			s.updateForkInputFocus(oldFocus)
-			return s, nil
-		case keys.Down, "j":
-			oldFocus := s.Focus
-			s.Focus = (s.Focus + 1) % numFields
-			s.updateForkInputFocus(oldFocus)
-			return s, nil
-		}
-	}
-
-	// Handle branch input updates when focused
-	if s.Focus == 1 {
-		var cmd tea.Cmd
-		s.BranchInput, cmd = s.BranchInput.Update(msg)
-		return s, cmd
-	}
-
-	return s, nil
-}
-
-// updateForkInputFocus manages focus state for text inputs based on current Focus index.
-func (s *ForkSessionState) updateForkInputFocus(oldFocus int) {
-	if s.Focus == 1 {
-		s.BranchInput.Focus()
-	} else if oldFocus == 1 {
-		s.BranchInput.Blur()
-	}
+	var cmd tea.Cmd
+	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	return s, cmd
 }
 
 // GetBranchName returns the custom branch name
 func (s *ForkSessionState) GetBranchName() string {
-	return s.BranchInput.Value()
+	return s.branchName
 }
 
 // ShouldCopyMessages returns whether to copy conversation history
@@ -620,27 +505,60 @@ func (s *ForkSessionState) GetUseContainers() bool {
 	return s.UseContainers
 }
 
+// SetBranchName sets the branch name value (for testing).
+func (s *ForkSessionState) SetBranchName(name string) {
+	s.branchName = name
+}
+
 // NewForkSessionState creates a new ForkSessionState.
 // parentContainerized is the parent session's container status (used as default for the checkbox).
 // containersSupported indicates whether the host supports Apple containers (darwin/arm64).
 // containerAuthAvailable indicates whether API key credentials exist for container mode.
 func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, parentContainerized bool, containersSupported bool, containerAuthAvailable bool) *ForkSessionState {
-	branchInput := textinput.New()
-	branchInput.Placeholder = "optional branch name (leave empty for auto)"
-	branchInput.CharLimit = BranchNameCharLimit
-	branchInput.SetWidth(ModalInputWidth)
-
-	return &ForkSessionState{
+	s := &ForkSessionState{
 		ParentSessionName:      parentSessionName,
 		ParentSessionID:        parentSessionID,
 		RepoPath:               repoPath,
-		BranchInput:            branchInput,
 		CopyMessages:           true, // Default to copying messages
 		UseContainers:          parentContainerized,
 		ContainersSupported:    containersSupported,
 		ContainerAuthAvailable: containerAuthAvailable,
-		Focus:                  0,
 	}
+
+	fields := []huh.Field{
+		huh.NewConfirm().
+			Title("Copy conversation history").
+			Description("Include messages from parent session").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&s.CopyMessages),
+		huh.NewInput().
+			Title("Branch name").
+			Placeholder("optional (leave empty for auto)").
+			CharLimit(BranchNameCharLimit).
+			Value(&s.branchName),
+	}
+
+	if containersSupported {
+		fields = append(fields,
+			huh.NewConfirm().
+				Title("Run in container").
+				Description("Sandboxed container (no permission prompts)").
+				Affirmative("Yes").
+				Negative("No").
+				Value(&s.UseContainers),
+		)
+	}
+
+	s.form = huh.NewForm(
+		huh.NewGroup(fields...),
+	).WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalInputWidth)
+
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }
 
 // =============================================================================
@@ -650,7 +568,10 @@ func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, pa
 type RenameSessionState struct {
 	SessionID   string
 	SessionName string
-	NameInput   textinput.Model
+
+	form        *huh.Form
+	initialized bool
+	newName     string
 }
 
 func (*RenameSessionState) modalState() {}
@@ -675,56 +596,56 @@ func (s *RenameSessionState) Render() string {
 		MarginBottom(1).
 		Render("  " + s.SessionName)
 
-	// New name input
-	newLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("New name:")
-
-	inputStyle := lipgloss.NewStyle().
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(ColorPrimary).
-		PaddingLeft(1)
-	inputView := inputStyle.Render(s.NameInput.View())
-
 	help := ModalHelpStyle.Render(s.Help())
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		currentLabel,
 		currentName,
-		newLabel,
-		inputView,
+		s.form.View(),
 		help,
 	)
 }
 
 func (s *RenameSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.NameInput, cmd = s.NameInput.Update(msg)
+	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
 	return s, cmd
 }
 
 // GetNewName returns the new name entered by the user
 func (s *RenameSessionState) GetNewName() string {
-	return s.NameInput.Value()
+	return s.newName
+}
+
+// SetNewName sets the new name value (for testing).
+func (s *RenameSessionState) SetNewName(name string) {
+	s.newName = name
 }
 
 // NewRenameSessionState creates a new RenameSessionState
 func NewRenameSessionState(sessionID, currentName string) *RenameSessionState {
-	nameInput := textinput.New()
-	nameInput.Placeholder = "enter new name"
-	nameInput.CharLimit = SessionNameCharLimit
-	nameInput.SetWidth(ModalInputWidth)
-	nameInput.SetValue(currentName)
-	nameInput.Focus()
-
-	return &RenameSessionState{
+	s := &RenameSessionState{
 		SessionID:   sessionID,
 		SessionName: currentName,
-		NameInput:   nameInput,
+		newName:     currentName,
 	}
+
+	s.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("New name").
+				Placeholder("enter new name").
+				CharLimit(SessionNameCharLimit).
+				Value(&s.newName),
+		),
+	).WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalInputWidth)
+
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }
 
 // =============================================================================
@@ -738,21 +659,16 @@ type SessionSettingsState struct {
 	Branch      string
 	BaseBranch  string
 
-	// Editable fields
-	NameInput  textinput.Model
-	Autonomous bool
-
 	// Read-only info
 	Containerized bool
 
-	Focus int // 0=name, 1=autonomous
-}
+	// Bound form values
+	name       string
+	Autonomous bool
 
-const (
-	sessionSettingsNameFocus       = 0
-	sessionSettingsAutonomousFocus = 1
-	sessionSettingsNumFields       = 2
-)
+	form        *huh.Form
+	initialized bool
+}
 
 func (*SessionSettingsState) modalState() {}
 
@@ -761,10 +677,7 @@ func (s *SessionSettingsState) Title() string {
 }
 
 func (s *SessionSettingsState) Help() string {
-	if s.Focus == sessionSettingsNameFocus {
-		return "Tab: next field  Enter: save  Esc: cancel"
-	}
-	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
+	return "Tab: next field  Enter: save  Esc: cancel"
 }
 
 func (s *SessionSettingsState) Render() string {
@@ -790,14 +703,8 @@ func (s *SessionSettingsState) Render() string {
 		containerLabel + lipgloss.NewStyle().Foreground(ColorSecondary).Render(containerValue),
 	)
 
-	// Editable fields
+	// Editable fields via huh form
 	editHeader := renderSectionHeader("Settings:")
-
-	nameView := renderInputField("Name", "", s.NameInput, sessionSettingsNameFocus, s.Focus, ModalInputWidth)
-	autonomousView := renderCheckboxField(
-		"Autonomous",
-		"Run without user prompts",
-		s.Autonomous, sessionSettingsAutonomousFocus, s.Focus)
 
 	help := ModalHelpStyle.Render(s.Help())
 
@@ -808,74 +715,53 @@ func (s *SessionSettingsState) Render() string {
 		baseLine,
 		containerLine,
 		editHeader,
-		nameView,
-		autonomousView,
+		s.form.View(),
 		help,
 	)
 }
 
 func (s *SessionSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	keyMsg, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return s, nil
-	}
-
-	switch keyMsg.String() {
-	case keys.Tab:
-		s.Focus = (s.Focus + 1) % sessionSettingsNumFields
-		if s.Focus == sessionSettingsNameFocus {
-			s.NameInput.Focus()
-		} else {
-			s.NameInput.Blur()
-		}
-		return s, nil
-	case keys.ShiftTab:
-		s.Focus = (s.Focus - 1 + sessionSettingsNumFields) % sessionSettingsNumFields
-		if s.Focus == sessionSettingsNameFocus {
-			s.NameInput.Focus()
-		} else {
-			s.NameInput.Blur()
-		}
-		return s, nil
-	case keys.Space:
-		if s.Focus == sessionSettingsAutonomousFocus {
-			s.Autonomous = !s.Autonomous
-		}
-		return s, nil
-	}
-
-	// Forward to name input when focused
-	if s.Focus == sessionSettingsNameFocus {
-		var cmd tea.Cmd
-		s.NameInput, cmd = s.NameInput.Update(msg)
-		return s, cmd
-	}
-
-	return s, nil
+	var cmd tea.Cmd
+	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	return s, cmd
 }
 
 // GetNewName returns the new name entered by the user.
 func (s *SessionSettingsState) GetNewName() string {
-	return s.NameInput.Value()
+	return s.name
 }
 
 // NewSessionSettingsState creates a new SessionSettingsState.
 func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, autonomous, containerized bool) *SessionSettingsState {
-	nameInput := textinput.New()
-	nameInput.Placeholder = "enter session name"
-	nameInput.CharLimit = SessionNameCharLimit
-	nameInput.SetWidth(ModalInputWidth)
-	nameInput.SetValue(currentName)
-	nameInput.Focus()
-
-	return &SessionSettingsState{
+	s := &SessionSettingsState{
 		SessionID:     sessionID,
 		SessionName:   currentName,
 		Branch:        branch,
 		BaseBranch:    baseBranch,
-		NameInput:     nameInput,
+		name:          currentName,
 		Autonomous:    autonomous,
 		Containerized: containerized,
-		Focus:         sessionSettingsNameFocus,
 	}
+
+	s.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Name").
+				Placeholder("enter session name").
+				CharLimit(SessionNameCharLimit).
+				Value(&s.name),
+			huh.NewConfirm().
+				Title("Autonomous").
+				Description("Run without user prompts").
+				Affirmative("Yes").
+				Negative("No").
+				Value(&s.Autonomous),
+		),
+	).WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalInputWidth)
+
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }

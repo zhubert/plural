@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	huh "charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/zhubert/plural/internal/config"
@@ -156,9 +156,12 @@ func NewWorkspaceListState(workspaces []config.Workspace, sessionCounts map[stri
 // =============================================================================
 
 type NewWorkspaceState struct {
-	NameInput   textinput.Model
 	IsRename    bool   // true if renaming an existing workspace
 	WorkspaceID string // set when renaming
+
+	form        *huh.Form
+	initialized bool
+	name        string
 }
 
 func (*NewWorkspaceState) modalState() {}
@@ -176,59 +179,53 @@ func (s *NewWorkspaceState) Help() string {
 
 func (s *NewWorkspaceState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
-
-	label := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Render("Name:")
-
-	inputStyle := lipgloss.NewStyle().
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(ColorPrimary).
-		PaddingLeft(1)
-	inputView := inputStyle.Render(s.NameInput.View())
-
 	help := ModalHelpStyle.Render(s.Help())
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, label, inputView, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, s.form.View(), help)
 }
 
 func (s *NewWorkspaceState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.NameInput, cmd = s.NameInput.Update(msg)
+	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
 	return s, cmd
 }
 
 // GetName returns the workspace name input value
 func (s *NewWorkspaceState) GetName() string {
-	return s.NameInput.Value()
+	return s.name
+}
+
+func newWorkspaceForm(s *NewWorkspaceState, placeholder string) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Name").
+				Placeholder(placeholder).
+				CharLimit(SessionNameCharLimit).
+				Value(&s.name),
+		),
+	).WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalInputWidth)
 }
 
 // NewNewWorkspaceState creates a state for creating a new workspace
 func NewNewWorkspaceState() *NewWorkspaceState {
-	input := textinput.New()
-	input.Placeholder = "e.g., Feature Work, Bug Fixes"
-	input.CharLimit = SessionNameCharLimit
-	input.SetWidth(ModalInputWidth)
-	input.Focus()
-
-	return &NewWorkspaceState{
-		NameInput: input,
-	}
+	s := &NewWorkspaceState{}
+	s.form = newWorkspaceForm(s, "e.g., Feature Work, Bug Fixes")
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }
 
 // NewRenameWorkspaceState creates a state for renaming an existing workspace
 func NewRenameWorkspaceState(workspaceID, currentName string) *NewWorkspaceState {
-	input := textinput.New()
-	input.Placeholder = "New name"
-	input.CharLimit = SessionNameCharLimit
-	input.SetWidth(ModalInputWidth)
-	input.SetValue(currentName)
-	input.Focus()
-
-	return &NewWorkspaceState{
-		NameInput:   input,
+	s := &NewWorkspaceState{
 		IsRename:    true,
 		WorkspaceID: workspaceID,
+		name:        currentName,
 	}
+	s.form = newWorkspaceForm(s, "New name")
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }

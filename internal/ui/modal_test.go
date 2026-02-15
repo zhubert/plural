@@ -674,20 +674,26 @@ func TestNewAddMCPServerState(t *testing.T) {
 	repos := []string{"/repo1", "/repo2"}
 	state := NewAddMCPServerState(repos)
 
-	if !state.IsGlobal {
-		t.Error("Default should be global")
-	}
-
-	if len(state.Repos) != 2 {
-		t.Errorf("Expected 2 repos, got %d", len(state.Repos))
-	}
-
-	if state.InputIndex != 0 {
-		t.Errorf("Expected InputIndex 0, got %d", state.InputIndex)
-	}
-
 	if state.Title() != "Add MCP Server" {
 		t.Errorf("Expected title 'Add MCP Server', got %q", state.Title())
+	}
+
+	// Default values should be empty strings and global scope
+	name, command, args, repoPath, isGlobal := state.GetValues()
+	if name != "" {
+		t.Errorf("Expected empty name, got %q", name)
+	}
+	if command != "" {
+		t.Errorf("Expected empty command, got %q", command)
+	}
+	if args != "" {
+		t.Errorf("Expected empty args, got %q", args)
+	}
+	if !isGlobal {
+		t.Error("Default should be global")
+	}
+	if repoPath != "" {
+		t.Errorf("Expected empty repoPath for global, got %q", repoPath)
 	}
 }
 
@@ -695,95 +701,33 @@ func TestAddMCPServerState_GetValues(t *testing.T) {
 	repos := []string{"/repo1", "/repo2"}
 	state := NewAddMCPServerState(repos)
 
-	// Set values
-	state.NameInput.SetValue("test-server")
-	state.CmdInput.SetValue("npx")
-	state.ArgsInput.SetValue("@mcp/test")
-
+	// Default GetValues should return empty strings and global=true
 	name, command, args, repoPath, isGlobal := state.GetValues()
 
-	if name != "test-server" {
-		t.Errorf("Expected name 'test-server', got %q", name)
+	if name != "" {
+		t.Errorf("Expected empty name, got %q", name)
 	}
-	if command != "npx" {
-		t.Errorf("Expected command 'npx', got %q", command)
+	if command != "" {
+		t.Errorf("Expected empty command, got %q", command)
 	}
-	if args != "@mcp/test" {
-		t.Errorf("Expected args '@mcp/test', got %q", args)
+	if args != "" {
+		t.Errorf("Expected empty args, got %q", args)
 	}
 	if !isGlobal {
-		t.Error("Expected isGlobal true")
+		t.Error("Expected isGlobal true by default")
 	}
 	if repoPath != "" {
 		t.Errorf("Expected empty repoPath for global, got %q", repoPath)
 	}
 
-	// Per-repo
-	state.IsGlobal = false
-	state.RepoIndex = 1
-	_, _, _, repoPath, isGlobal = state.GetValues()
-	if isGlobal {
-		t.Error("Expected isGlobal false")
+	// Without repos
+	stateNoRepos := NewAddMCPServerState([]string{})
+	_, _, _, repoPath, isGlobal = stateNoRepos.GetValues()
+	if !isGlobal {
+		t.Error("Expected isGlobal true with no repos")
 	}
-	if repoPath != "/repo2" {
-		t.Errorf("Expected repoPath '/repo2', got %q", repoPath)
-	}
-}
-
-func TestAddMCPServerState_Navigation(t *testing.T) {
-	repos := []string{"/repo1"}
-	state := NewAddMCPServerState(repos)
-
-	// Start at scope selector (index 0)
-	if state.InputIndex != 0 {
-		t.Errorf("Expected InputIndex 0, got %d", state.InputIndex)
-	}
-
-	// Global mode - advance should skip repo selector (index 1)
-	state.AdvanceInput()
-	if state.InputIndex != 2 { // Skip to name input
-		t.Errorf("Expected InputIndex 2 after advance (global), got %d", state.InputIndex)
-	}
-
-	// Continue advancing
-	state.AdvanceInput()
-	if state.InputIndex != 3 { // Command input
-		t.Errorf("Expected InputIndex 3, got %d", state.InputIndex)
-	}
-
-	state.AdvanceInput()
-	if state.InputIndex != 4 { // Args input
-		t.Errorf("Expected InputIndex 4, got %d", state.InputIndex)
-	}
-
-	// Retreat
-	state.RetreatInput()
-	if state.InputIndex != 3 {
-		t.Errorf("Expected InputIndex 3 after retreat, got %d", state.InputIndex)
-	}
-
-	// Retreat back to scope
-	state.RetreatInput()
-	state.RetreatInput()
-	if state.InputIndex != 0 {
-		t.Errorf("Expected InputIndex 0, got %d", state.InputIndex)
-	}
-}
-
-func TestAddMCPServerState_PerRepoNavigation(t *testing.T) {
-	repos := []string{"/repo1"}
-	state := NewAddMCPServerState(repos)
-	state.IsGlobal = false
-
-	// Per-repo mode - advance should go to repo selector
-	state.AdvanceInput()
-	if state.InputIndex != 1 { // Repo selector
-		t.Errorf("Expected InputIndex 1 (per-repo), got %d", state.InputIndex)
-	}
-
-	state.AdvanceInput()
-	if state.InputIndex != 2 { // Name input
-		t.Errorf("Expected InputIndex 2, got %d", state.InputIndex)
+	if repoPath != "" {
+		t.Errorf("Expected empty repoPath with no repos, got %q", repoPath)
 	}
 }
 
@@ -791,17 +735,17 @@ func TestAddMCPServerState_Render(t *testing.T) {
 	repos := []string{"/repo1", "/repo2"}
 	state := NewAddMCPServerState(repos)
 
-	// Global scope
 	render := state.Render()
 	if render == "" {
 		t.Error("Render should not be empty")
 	}
+}
 
-	// Per-repo scope
-	state.IsGlobal = false
-	render = state.Render()
-	if render == "" {
-		t.Error("Render for per-repo should not be empty")
+func TestAddMCPServerState_Help(t *testing.T) {
+	state := NewAddMCPServerState([]string{"/repo1"})
+	help := state.Help()
+	if help == "" {
+		t.Error("Help should not be empty")
 	}
 }
 
