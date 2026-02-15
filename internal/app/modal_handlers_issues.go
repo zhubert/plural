@@ -11,6 +11,7 @@ import (
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural/internal/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -73,12 +74,12 @@ func (m *Model) handleSelectIssueSourceModal(key string, msg tea.KeyPressMsg, st
 
 		if source == "asana" {
 			projectID := m.config.GetAsanaProject(state.RepoPath)
-			m.modal.Show(ui.NewImportIssuesStateWithSource(state.RepoPath, repoName, source, projectID))
+			m.modal.Show(ui.NewImportIssuesStateWithSource(state.RepoPath, repoName, source, projectID, process.ContainersSupported(), claude.ContainerAuthAvailable()))
 			return m, m.fetchIssues(state.RepoPath, source, projectID)
 		}
 
 		// Default: GitHub
-		m.modal.Show(ui.NewImportIssuesState(state.RepoPath, repoName))
+		m.modal.Show(ui.NewImportIssuesState(state.RepoPath, repoName, process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, m.fetchIssues(state.RepoPath, "github", "")
 	case keys.Up, "k", keys.Down, "j":
 		// Forward navigation keys to modal
@@ -116,7 +117,7 @@ func (m *Model) showIssueSourceOrFetch(repoPath string) (tea.Model, tea.Cmd) {
 
 	// If only one source, skip selection modal and go directly to import
 	if len(availableSources) == 1 {
-		m.modal.Show(ui.NewImportIssuesState(repoPath, repoName))
+		m.modal.Show(ui.NewImportIssuesState(repoPath, repoName, process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, m.fetchIssues(repoPath, "github", "")
 	}
 
@@ -142,7 +143,7 @@ func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *
 			return m, nil
 		}
 		m.modal.Hide()
-		return m.createSessionsFromIssues(state.RepoPath, selected)
+		return m.createSessionsFromIssues(state.RepoPath, selected, state.GetUseContainers(), state.GetAutonomous())
 	case keys.Up, "k", keys.Down, "j", keys.Space:
 		// Forward navigation and space (toggle) keys to modal
 		modal, cmd := m.modal.Update(msg)
@@ -160,7 +161,7 @@ type issueSessionInfo struct {
 
 // createSessionsFromIssues creates new sessions for each selected issue/task.
 // Works with both GitHub issues and Asana tasks.
-func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.IssueItem) (tea.Model, tea.Cmd) {
+func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.IssueItem, useContainers, autonomous bool) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 
 	var createdSessions []issueSessionInfo
@@ -213,6 +214,10 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 			Title:  issue.Title,
 			URL:    issue.URL,
 		}
+
+		// Set containerized and autonomous flags
+		sess.Containerized = useContainers
+		sess.Autonomous = autonomous
 
 		// Create initial message with issue context
 		var initialMsg string

@@ -14,7 +14,7 @@ import (
 // =============================================================================
 
 func TestNewImportIssuesState(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	if state.RepoPath != "/repo/path" {
 		t.Errorf("expected repo path '/repo/path', got '%s'", state.RepoPath)
@@ -34,7 +34,7 @@ func TestNewImportIssuesState(t *testing.T) {
 }
 
 func TestNewImportIssuesStateWithSource(t *testing.T) {
-	state := NewImportIssuesStateWithSource("/repo/path", "test-repo", "asana", "project123")
+	state := NewImportIssuesStateWithSource("/repo/path", "test-repo", "asana", "project123", true, true)
 
 	if state.Source != "asana" {
 		t.Errorf("expected source 'asana', got '%s'", state.Source)
@@ -45,21 +45,21 @@ func TestNewImportIssuesStateWithSource(t *testing.T) {
 }
 
 func TestImportIssuesState_Title_GitHub(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	if state.Title() != "Import GitHub Issues" {
 		t.Errorf("expected title 'Import GitHub Issues', got '%s'", state.Title())
 	}
 }
 
 func TestImportIssuesState_Title_Asana(t *testing.T) {
-	state := NewImportIssuesStateWithSource("/repo/path", "test-repo", "asana", "")
+	state := NewImportIssuesStateWithSource("/repo/path", "test-repo", "asana", "", true, true)
 	if state.Title() != "Import Asana Tasks" {
 		t.Errorf("expected title 'Import Asana Tasks', got '%s'", state.Title())
 	}
 }
 
 func TestImportIssuesState_PreferredWidth(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	width := state.PreferredWidth()
 
 	if width != ModalWidthWide {
@@ -73,7 +73,7 @@ func TestImportIssuesState_PreferredWidth(t *testing.T) {
 }
 
 func TestImportIssuesState_ImplementsModalWithPreferredWidth(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	// Verify it implements the interface
 	_, ok := interface{}(state).(ModalWithPreferredWidth)
@@ -83,7 +83,7 @@ func TestImportIssuesState_ImplementsModalWithPreferredWidth(t *testing.T) {
 }
 
 func TestImportIssuesState_Help_Loading(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.Loading = true
 
 	help := state.Help()
@@ -93,7 +93,7 @@ func TestImportIssuesState_Help_Loading(t *testing.T) {
 }
 
 func TestImportIssuesState_Help_Error(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetError("Test error")
 
 	help := state.Help()
@@ -103,7 +103,7 @@ func TestImportIssuesState_Help_Error(t *testing.T) {
 }
 
 func TestImportIssuesState_Help_Normal(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.Loading = false
 
 	help := state.Help()
@@ -113,7 +113,7 @@ func TestImportIssuesState_Help_Normal(t *testing.T) {
 }
 
 func TestImportIssuesState_SetIssues(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.Loading = true
 
 	issues := []IssueItem{
@@ -135,7 +135,7 @@ func TestImportIssuesState_SetIssues(t *testing.T) {
 }
 
 func TestImportIssuesState_SetError(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.Loading = true
 
 	state.SetError("Failed to load")
@@ -149,7 +149,7 @@ func TestImportIssuesState_SetError(t *testing.T) {
 }
 
 func TestImportIssuesState_Update_Navigation(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Issue 1", Source: "github"},
 		{ID: "2", Title: "Issue 2", Source: "github"},
@@ -190,7 +190,7 @@ func TestImportIssuesState_Update_Navigation(t *testing.T) {
 }
 
 func TestImportIssuesState_Update_NavigationWithVimKeys(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Issue 1", Source: "github"},
 		{ID: "2", Title: "Issue 2", Source: "github"},
@@ -212,7 +212,7 @@ func TestImportIssuesState_Update_NavigationWithVimKeys(t *testing.T) {
 }
 
 func TestImportIssuesState_Update_ToggleSelection(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Issue 1", Source: "github"},
 		{ID: "2", Title: "Issue 2", Source: "github"},
@@ -238,7 +238,7 @@ func TestImportIssuesState_Update_ToggleSelection(t *testing.T) {
 }
 
 func TestImportIssuesState_Update_Scrolling(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	// Create more issues than maxVisible
 	issues := make([]IssueItem, 15)
@@ -279,7 +279,7 @@ func TestImportIssuesState_Update_Scrolling(t *testing.T) {
 }
 
 func TestImportIssuesState_GetSelectedIssues(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Issue 1", Source: "github", Selected: false},
 		{ID: "2", Title: "Issue 2", Source: "github", Selected: true},
@@ -300,7 +300,7 @@ func TestImportIssuesState_GetSelectedIssues(t *testing.T) {
 }
 
 func TestImportIssuesState_GetSelectedIssues_None(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Issue 1", Source: "github", Selected: false},
 		{ID: "2", Title: "Issue 2", Source: "github", Selected: false},
@@ -313,7 +313,7 @@ func TestImportIssuesState_GetSelectedIssues_None(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_Loading(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.Loading = true
 
 	rendered := state.Render()
@@ -323,7 +323,7 @@ func TestImportIssuesState_Render_Loading(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_Error(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetError("Network error")
 
 	rendered := state.Render()
@@ -333,7 +333,7 @@ func TestImportIssuesState_Render_Error(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_NoIssues(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{})
 
 	rendered := state.Render()
@@ -343,7 +343,7 @@ func TestImportIssuesState_Render_NoIssues(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_WithIssues_GitHub(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "123", Title: "Fix bug", Source: "github"},
 		{ID: "456", Title: "Add feature", Source: "github"},
@@ -359,7 +359,7 @@ func TestImportIssuesState_Render_WithIssues_GitHub(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_WithIssues_Asana(t *testing.T) {
-	state := NewImportIssuesStateWithSource("/repo/path", "test-repo", "asana", "")
+	state := NewImportIssuesStateWithSource("/repo/path", "test-repo", "asana", "", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1234567890", Title: "Complete task", Source: "asana"},
 	})
@@ -375,7 +375,7 @@ func TestImportIssuesState_Render_WithIssues_Asana(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_TitleTruncation(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	// Create an issue with a very long title
 	longTitle := strings.Repeat("a", 200)
@@ -396,7 +396,7 @@ func TestImportIssuesState_Render_TitleTruncation(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_UnicodeTitleTruncation(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	// Create an issue with multi-byte Unicode characters
 	// Use bullet points (•) which are 3 bytes in UTF-8
@@ -426,7 +426,7 @@ func TestImportIssuesState_Render_UnicodeTitleTruncation(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_SelectedCount(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Issue 1", Source: "github", Selected: true},
 		{ID: "2", Title: "Issue 2", Source: "github", Selected: false},
@@ -445,7 +445,7 @@ func TestImportIssuesState_Render_SelectedCount(t *testing.T) {
 }
 
 func TestImportIssuesState_Render_ScrollIndicators(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	// Create more issues than maxVisible
 	issues := make([]IssueItem, 15)

@@ -26,6 +26,15 @@ type ImportIssuesState struct {
 	Source        string // "github" or "asana"
 	ProjectID     string // Asana project GID (only used for Asana)
 
+	// Container and autonomous mode options
+	UseContainers          bool // Whether to run sessions in containers
+	ContainersSupported    bool // Whether Docker is available
+	ContainerAuthAvailable bool // Whether API key credentials are available
+	Autonomous             bool // Whether to run in autonomous mode (auto-enables containers)
+
+	// Focus: 0 = issue list, 1 = autonomous checkbox (if containers supported), 2 = container checkbox (if containers supported)
+	Focus int
+
 	// Size tracking
 	availableWidth int // Actual width available after modal is clamped to screen
 }
@@ -60,7 +69,10 @@ func (s *ImportIssuesState) Help() string {
 	if s.LoadError != "" {
 		return "Esc: close"
 	}
-	return "up/down navigate  Space: toggle  Enter: import  Esc: cancel"
+	if s.ContainersSupported && (s.Focus == 1 || s.Focus == 2) {
+		return "Space: toggle  Tab: next field  Enter: import  Esc: cancel"
+	}
+	return "up/down navigate  Space: toggle  Tab: next field  Enter: import  Esc: cancel"
 }
 
 func (s *ImportIssuesState) Render() string {
@@ -204,16 +216,96 @@ func (s *ImportIssuesState) Render() string {
 	}
 	countSection := countStyle.Render(countText)
 
-	help := ModalHelpStyle.Render(s.Help())
+	var parts []string
+	parts = append(parts, title, repoLabel, repoName, description, issueList, countSection)
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoName, description, issueList, countSection, help)
+	// Autonomous mode checkbox (only when containers supported)
+	if s.ContainersSupported {
+		autoLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Autonomous mode:")
+
+		autoCheckbox := "[ ]"
+		if s.Autonomous {
+			autoCheckbox = "[x]"
+		}
+		autoCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 1 {
+			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
+		}
+		autoDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Orchestrator: delegates to children, can create PRs")
+		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
+
+		parts = append(parts, autoLabel, autoView)
+
+		// Container mode checkbox (only when not autonomous - autonomous forces containers)
+		containerLabel := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			MarginTop(1).
+			Render("Container mode:")
+
+		containerCheckbox := "[ ]"
+		if s.UseContainers || s.Autonomous {
+			containerCheckbox = "[x]"
+		}
+		containerCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 2 && !s.Autonomous {
+			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
+		} else {
+			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
+		}
+
+		var containerDesc string
+		if s.Autonomous {
+			containerDesc = "(required for autonomous mode)"
+		} else {
+			containerDesc = "Sandbox: isolated environment with Docker"
+		}
+		containerDescStyle := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render(containerDesc)
+		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDescStyle)
+
+		parts = append(parts, containerLabel, containerView)
+
+		// Show auth warning if containers enabled but no auth
+		if (s.UseContainers || s.Autonomous) && !s.ContainerAuthAvailable {
+			authWarning := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				Bold(true).
+				Width(55).
+				PaddingLeft(2).
+				Render(ContainerAuthHelp)
+			parts = append(parts, authWarning)
+		}
+	}
+
+	help := ModalHelpStyle.Render(s.Help())
+	parts = append(parts, help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
+		case keys.Tab:
+			if s.ContainersSupported {
+				// Cycle through: 0 (issue list) -> 1 (autonomous) -> 2 (containers) -> 0
+				s.Focus = (s.Focus + 1) % 3
+			}
 		case keys.Up, "k":
-			if s.SelectedIndex > 0 {
+			// Only navigate issue list when focus is on it
+			if s.Focus == 0 && s.SelectedIndex > 0 {
 				s.SelectedIndex--
 				// Scroll up if needed
 				if s.SelectedIndex < s.ScrollOffset {
@@ -221,7 +313,8 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				}
 			}
 		case keys.Down, "j":
-			if s.SelectedIndex < len(s.Issues)-1 {
+			// Only navigate issue list when focus is on it
+			if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
 				s.SelectedIndex++
 				// Scroll down if needed
 				if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
@@ -229,9 +322,22 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				}
 			}
 		case keys.Space:
-			// Toggle selection
-			if s.SelectedIndex < len(s.Issues) {
-				s.Issues[s.SelectedIndex].Selected = !s.Issues[s.SelectedIndex].Selected
+			// Toggle selection based on focus
+			if s.Focus == 0 {
+				// Toggle issue selection
+				if s.SelectedIndex < len(s.Issues) {
+					s.Issues[s.SelectedIndex].Selected = !s.Issues[s.SelectedIndex].Selected
+				}
+			} else if s.Focus == 1 && s.ContainersSupported {
+				// Toggle autonomous mode
+				s.Autonomous = !s.Autonomous
+				// Autonomous mode requires containers
+				if s.Autonomous {
+					s.UseContainers = true
+				}
+			} else if s.Focus == 2 && s.ContainersSupported && !s.Autonomous {
+				// Toggle container mode (only if not autonomous)
+				s.UseContainers = !s.UseContainers
 			}
 		}
 	}
@@ -249,6 +355,16 @@ func (s *ImportIssuesState) GetSelectedIssues() []IssueItem {
 	return selected
 }
 
+// GetUseContainers returns whether container mode is selected
+func (s *ImportIssuesState) GetUseContainers() bool {
+	return s.UseContainers || s.Autonomous
+}
+
+// GetAutonomous returns whether autonomous mode is selected
+func (s *ImportIssuesState) GetAutonomous() bool {
+	return s.Autonomous
+}
+
 // SetIssues sets the issues list and clears loading state
 func (s *ImportIssuesState) SetIssues(issues []IssueItem) {
 	s.Issues = issues
@@ -263,30 +379,36 @@ func (s *ImportIssuesState) SetError(err string) {
 }
 
 // NewImportIssuesState creates a new ImportIssuesState in loading state for GitHub issues.
-func NewImportIssuesState(repoPath, repoName string) *ImportIssuesState {
+func NewImportIssuesState(repoPath, repoName string, containersSupported, containerAuthAvailable bool) *ImportIssuesState {
 	return &ImportIssuesState{
-		RepoPath:       repoPath,
-		RepoName:       repoName,
-		Loading:        true,
-		SelectedIndex:  0,
-		ScrollOffset:   0,
-		maxVisible:     IssuesModalMaxVisible,
-		Source:         "github",
-		availableWidth: ModalWidthWide, // Default, will be updated by SetSize()
+		RepoPath:               repoPath,
+		RepoName:               repoName,
+		Loading:                true,
+		SelectedIndex:          0,
+		ScrollOffset:           0,
+		maxVisible:             IssuesModalMaxVisible,
+		Source:                 "github",
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0,
+		availableWidth:         ModalWidthWide, // Default, will be updated by SetSize()
 	}
 }
 
 // NewImportIssuesStateWithSource creates a new ImportIssuesState for a specific source.
-func NewImportIssuesStateWithSource(repoPath, repoName, source, projectID string) *ImportIssuesState {
+func NewImportIssuesStateWithSource(repoPath, repoName, source, projectID string, containersSupported, containerAuthAvailable bool) *ImportIssuesState {
 	return &ImportIssuesState{
-		RepoPath:       repoPath,
-		RepoName:       repoName,
-		Loading:        true,
-		SelectedIndex:  0,
-		ScrollOffset:   0,
-		maxVisible:     IssuesModalMaxVisible,
-		Source:         source,
-		ProjectID:      projectID,
-		availableWidth: ModalWidthWide, // Default, will be updated by SetSize()
+		RepoPath:               repoPath,
+		RepoName:               repoName,
+		Loading:                true,
+		SelectedIndex:          0,
+		ScrollOffset:           0,
+		maxVisible:             IssuesModalMaxVisible,
+		Source:                 source,
+		ProjectID:              projectID,
+		ContainersSupported:    containersSupported,
+		ContainerAuthAvailable: containerAuthAvailable,
+		Focus:                  0,
+		availableWidth:         ModalWidthWide, // Default, will be updated by SetSize()
 	}
 }
