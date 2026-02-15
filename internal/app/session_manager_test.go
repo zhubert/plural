@@ -973,6 +973,10 @@ func TestSessionManager_SaveMessages_Error(t *testing.T) {
 	os.MkdirAll(readOnlyDir, 0500)
 	defer os.Chmod(readOnlyDir, 0700)
 	t.Setenv("HOME", readOnlyDir)
+	// Clear XDG vars so paths resolve under HOME
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
 	paths.Reset()
 	t.Cleanup(paths.Reset)
 
@@ -1031,6 +1035,10 @@ func TestSessionManager_SaveRunnerMessages_Error(t *testing.T) {
 	os.MkdirAll(readOnlyDir, 0500)
 	defer os.Chmod(readOnlyDir, 0700)
 	t.Setenv("HOME", readOnlyDir)
+	// Clear XDG vars so paths resolve under HOME
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
 	paths.Reset()
 	t.Cleanup(paths.Reset)
 
