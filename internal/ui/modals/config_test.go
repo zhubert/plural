@@ -32,14 +32,18 @@ func newTestSettingsStateWithContainers(branchPrefix string, notifs bool,
 // =============================================================================
 
 func TestSettingsState_Render_NoContainerSection_WhenUnsupported(t *testing.T) {
-	// WithHideFunc controls navigation (skipping hidden groups), not rendering.
-	// In stack layout, all groups are always rendered. Verify the form renders
-	// successfully and contains the general settings fields.
 	s := newTestSettingsState("", false)
-	rendered := s.Render()
 
-	if !strings.Contains(rendered, "Settings") {
-		t.Error("should contain title")
+	if s.ContainersSupported {
+		t.Error("ContainersSupported should be false")
+	}
+
+	// General settings should render correctly even without container support
+	rendered := s.Render()
+	for _, expected := range []string{"Settings", "Theme", "Default branch prefix", "Options"} {
+		if !strings.Contains(rendered, expected) {
+			t.Errorf("should contain %q in rendered output", expected)
+		}
 	}
 }
 
@@ -183,14 +187,30 @@ func TestSettingsState_Title(t *testing.T) {
 // --- Autonomous global settings tests ---
 
 func TestSettingsState_AutonomousSection_HiddenWithoutContainers(t *testing.T) {
-	// WithHideFunc controls navigation (skipping hidden groups), not rendering.
-	// In stack layout, all groups are always rendered. Verify the form renders
-	// successfully without errors.
 	s := newTestSettingsState("", false)
-	rendered := s.Render()
 
+	if s.ContainersSupported {
+		t.Error("ContainersSupported should be false")
+	}
+
+	// General settings should render correctly
+	rendered := s.Render()
 	if !strings.Contains(rendered, "Settings") {
 		t.Error("should contain title")
+	}
+
+	// Autonomous-related getters should return defaults when containers not supported
+	if s.GetAutoMaxTurns() != "" {
+		t.Errorf("auto max turns should be empty without containers, got %q", s.GetAutoMaxTurns())
+	}
+	if s.GetAutoMaxDuration() != "" {
+		t.Errorf("auto max duration should be empty without containers, got %q", s.GetAutoMaxDuration())
+	}
+	if s.GetIssueMaxConcurrent() != "" {
+		t.Errorf("issue max concurrent should be empty without containers, got %q", s.GetIssueMaxConcurrent())
+	}
+	if s.AutoAddressPRComments {
+		t.Error("AutoAddressPRComments should default to false without containers")
 	}
 }
 
