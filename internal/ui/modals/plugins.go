@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	huh "charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/keys"
 )
@@ -527,7 +528,9 @@ func (s *PluginsState) SetData(marketplaces []MarketplaceDisplay, plugins []Plug
 // =============================================================================
 
 type AddMarketplaceState struct {
-	SourceInput textinput.Model
+	form        *huh.Form
+	initialized bool
+	source      string
 }
 
 func (*AddMarketplaceState) modalState() {}
@@ -541,44 +544,43 @@ func (s *AddMarketplaceState) Help() string {
 func (s *AddMarketplaceState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
-	label := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		MarginTop(1).
-		Render("GitHub repo or URL:")
-
-	input := s.SourceInput.View()
-
 	example := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		Italic(true).
-		MarginTop(1).
 		Render("e.g., anthropics/claude-code-plugins")
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, label, input, example, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, s.form.View(), example, help)
 }
 
 func (s *AddMarketplaceState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.SourceInput, cmd = s.SourceInput.Update(msg)
+	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
 	return s, cmd
 }
 
 // GetValue returns the source input value
 func (s *AddMarketplaceState) GetValue() string {
-	return s.SourceInput.Value()
+	return s.source
 }
 
 // NewAddMarketplaceState creates a new AddMarketplaceState
 func NewAddMarketplaceState() *AddMarketplaceState {
-	sourceInput := textinput.New()
-	sourceInput.Placeholder = "owner/repo or https://..."
-	sourceInput.CharLimit = MarketplaceSourceCharLimit
-	sourceInput.SetWidth(ModalInputWidth)
-	sourceInput.Focus()
+	s := &AddMarketplaceState{}
+	s.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("GitHub repo or URL").
+				Placeholder("owner/repo or https://...").
+				CharLimit(MarketplaceSourceCharLimit).
+				Value(&s.source),
+		),
+	).WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalInputWidth)
 
-	return &AddMarketplaceState{
-		SourceInput: sourceInput,
-	}
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }

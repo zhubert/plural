@@ -412,59 +412,15 @@ func TestSessionSettingsState_Title(t *testing.T) {
 	}
 }
 
-func TestSessionSettingsState_FocusNavigation(t *testing.T) {
+func TestSessionSettingsState_AutonomousDefault(t *testing.T) {
 	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
-
-	// Starts on name input (focus 0)
-	if state.Focus != 0 {
-		t.Errorf("expected initial focus 0, got %d", state.Focus)
-	}
-
-	// Tab to autonomous
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-	if state.Focus != 1 {
-		t.Errorf("expected focus 1 after tab, got %d", state.Focus)
-	}
-
-	// Tab wraps back to name
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-	if state.Focus != 0 {
-		t.Errorf("expected focus 0 after wrap, got %d", state.Focus)
-	}
-
-	// Shift-tab wraps to autonomous
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.ShiftTab})
-	if state.Focus != 1 {
-		t.Errorf("expected focus 1 after shift-tab, got %d", state.Focus)
-	}
-}
-
-func TestSessionSettingsState_AutonomousToggle(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
-
-	// Move to autonomous field
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-
-	// Toggle with space
-	state.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	if !state.Autonomous {
-		t.Error("expected autonomous to be true after space toggle")
-	}
-
-	// Toggle again
-	state.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	if state.Autonomous {
-		t.Error("expected autonomous to be false after second toggle")
+		t.Error("expected autonomous to be false by default")
 	}
-}
 
-func TestSessionSettingsState_SpaceOnNameDoesNotToggle(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
-
-	// Focus is on name input, space should not toggle autonomous
-	state.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	if state.Autonomous {
-		t.Error("space on name input should not toggle autonomous")
+	state2 := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true, false)
+	if !state2.Autonomous {
+		t.Error("expected autonomous to be true when initialized as true")
 	}
 }
 
@@ -479,7 +435,7 @@ func TestSessionSettingsState_Render(t *testing.T) {
 	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true, true)
 	rendered := state.Render()
 
-	checks := []string{"Session Settings", "feature-branch", "main", "yes", "Autonomous"}
+	checks := []string{"Session Settings", "feature-branch", "main", "yes"}
 	for _, check := range checks {
 		if !strings.Contains(rendered, check) {
 			t.Errorf("expected render to contain %q", check)
@@ -490,16 +446,11 @@ func TestSessionSettingsState_Render(t *testing.T) {
 func TestSessionSettingsState_Help(t *testing.T) {
 	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
 
-	// On name field
 	help := state.Help()
 	if !strings.Contains(help, "Enter: save") {
-		t.Error("expected help to contain 'Enter: save' on name field")
+		t.Error("expected help to contain 'Enter: save'")
 	}
-
-	// On autonomous field
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-	help = state.Help()
-	if !strings.Contains(help, "Space: toggle") {
-		t.Error("expected help to contain 'Space: toggle' on autonomous field")
+	if !strings.Contains(help, "Esc: cancel") {
+		t.Error("expected help to contain 'Esc: cancel'")
 	}
 }

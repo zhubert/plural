@@ -351,7 +351,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		// Save autonomous global settings
 		if state.ContainersSupported {
 			m.config.SetAutoAddressPRComments(state.AutoAddressPRComments)
-			if v := state.AutoMaxTurnsInput.Value(); v != "" {
+			if v := state.GetAutoMaxTurns(); v != "" {
 				turns, err := strconv.Atoi(v)
 				if err != nil || turns <= 0 {
 					m.modal.SetError("Max autonomous turns must be a positive number")
@@ -359,7 +359,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 				}
 				m.config.SetAutoMaxTurns(turns)
 			}
-			if v := state.AutoMaxDurationInput.Value(); v != "" {
+			if v := state.GetAutoMaxDuration(); v != "" {
 				dur, err := strconv.Atoi(v)
 				if err != nil || dur <= 0 {
 					m.modal.SetError("Max autonomous duration must be a positive number")
@@ -367,7 +367,7 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 				}
 				m.config.SetAutoMaxDurationMin(dur)
 			}
-			if v := state.IssueMaxConcurrentInput.Value(); v != "" {
+			if v := state.GetIssueMaxConcurrent(); v != "" {
 				n, err := strconv.Atoi(v)
 				if err != nil || n <= 0 {
 					m.modal.SetError("Max concurrent sessions must be a positive number")

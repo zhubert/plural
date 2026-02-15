@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	huh "charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/keys"
 )
@@ -232,31 +233,25 @@ type AsanaProjectOption struct {
 const AsanaProjectMaxVisible = 5
 
 type SettingsState struct {
-	// Theme selection (focus 0)
-	Themes             []string // Theme keys
-	ThemeDisplayNames  []string // Display names for themes
-	SelectedThemeIndex int
-	OriginalTheme      string // To detect if theme changed
-
-	BranchPrefixInput    textinput.Model
+	// Bound form values
+	selectedTheme        string
+	OriginalTheme        string // To detect if theme changed
+	branchPrefix         string
 	NotificationsEnabled bool
 	AutoCleanupMerged    bool // Auto-cleanup sessions when PR merged/closed
 	AutoBroadcastPR      bool // Auto-create PRs when broadcast group completes
+	containerImage       string
+	ContainersSupported  bool // Whether Docker is available for container mode
+	AutoAddressPRComments bool
+	autoMaxTurns         string
+	autoMaxDuration      string
+	issueMaxConcurrent   string
 
-	// Container image (only shown when ContainersSupported)
-	ContainerImageInput textinput.Model
-	ContainersSupported bool // Whether Docker is available for container mode
-
-	// Autonomous settings (only shown when ContainersSupported)
-	AutoAddressPRComments    bool
-	AutoMaxTurnsInput        textinput.Model
-	AutoMaxDurationInput     textinput.Model
-	IssueMaxConcurrentInput  textinput.Model
-
-	Focus int // 0=theme, 1=branch prefix, 2=notifications, 3=auto-cleanup, 4=auto-broadcast, [5+=container fields]
+	form        *huh.Form
+	initialized bool
 
 	// Size tracking
-	availableWidth int // Actual width available after modal is clamped to screen
+	availableWidth int
 }
 
 func (*SettingsState) modalState() {}
@@ -264,22 +259,14 @@ func (*SettingsState) modalState() {}
 func (s *SettingsState) PreferredWidth() int { return ModalWidthWide }
 
 // SetSize updates the available width for rendering content.
-// Called by the modal container before Render() to notify the modal of its actual size.
 func (s *SettingsState) SetSize(width, height int) {
 	s.availableWidth = width
-	contentWidth := s.contentWidth()
-	s.BranchPrefixInput.SetWidth(contentWidth)
-	s.ContainerImageInput.SetWidth(contentWidth)
-	s.AutoMaxTurnsInput.SetWidth(contentWidth)
-	s.AutoMaxDurationInput.SetWidth(contentWidth)
-	s.IssueMaxConcurrentInput.SetWidth(contentWidth)
+	s.form.WithWidth(s.contentWidth())
 }
 
-// contentWidth returns the width available for content inside the modal.
-// Falls back to ModalWidthWide if availableWidth is not set.
 func (s *SettingsState) contentWidth() int {
 	if s.availableWidth > 0 {
-		return s.availableWidth - 10 // Leave room for padding
+		return s.availableWidth - 10
 	}
 	return ModalWidthWide - 10
 }
@@ -287,249 +274,24 @@ func (s *SettingsState) contentWidth() int {
 func (s *SettingsState) Title() string { return "Settings" }
 
 func (s *SettingsState) Help() string {
-	if s.Focus == 0 {
-		return "Tab: next field  Left/Right: change theme  Enter: save  Esc: cancel"
-	}
-	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
+	return "Tab: next field  Enter: save  Esc: cancel"
 }
 
 func (s *SettingsState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
-
-	// --- General section ---
-	generalHeader := renderSectionHeader("General")
-
-	themeLabel := lipgloss.NewStyle().
-		Foreground(ColorTextMuted).
-		Render("Theme:")
-	themeName := ""
-	if s.SelectedThemeIndex < len(s.ThemeDisplayNames) {
-		themeName = s.ThemeDisplayNames[s.SelectedThemeIndex]
-	}
-	themeView := s.renderSelectorField(themeName, s.SelectedThemeIndex, len(s.Themes), 0)
-
-	prefixView := renderInputField(
-		"Default branch prefix",
-		"Applied to all new branches (e.g., \"zhubert/\" creates branches like \"zhubert/plural-...\")",
-		s.BranchPrefixInput, 1, s.Focus, s.contentWidth())
-
-	notifView := renderCheckboxField(
-		"Desktop notifications",
-		"Notify when Claude finishes while app is in background",
-		s.NotificationsEnabled, 2, s.Focus)
-
-	cleanupView := renderCheckboxField(
-		"Auto-cleanup merged sessions",
-		"Automatically delete sessions when their PR is merged or closed",
-		s.AutoCleanupMerged, 3, s.Focus)
-
-	broadcastPRView := renderCheckboxField(
-		"Auto-create broadcast PRs",
-		"Auto-create PRs when all broadcast group sessions complete",
-		s.AutoBroadcastPR, 4, s.Focus)
-
-	parts := []string{title, generalHeader, themeLabel, themeView, prefixView, notifView, cleanupView, broadcastPRView}
-
-	// Container image field (only on Apple Silicon)
-	if s.ContainersSupported {
-		containerView := renderInputField(
-			"Container image",
-			"Image name used for container mode sessions",
-			s.ContainerImageInput, s.containerImageFocusIndex(), s.Focus, s.contentWidth())
-		parts = append(parts, containerView)
-	}
-
-	// --- Autonomous section ---
-	if s.ContainersSupported {
-		autoHeader := renderSectionHeader("Autonomous:")
-
-		autoAddressView := renderCheckboxField(
-			"Auto-address PR comments",
-			"Auto-fetch and address new PR review comments",
-			s.AutoAddressPRComments, s.autoAddressFocusIndex(), s.Focus)
-
-		maxTurnsView := renderInputField("Max autonomous turns", "",
-			s.AutoMaxTurnsInput, s.autoMaxTurnsFocusIndex(), s.Focus, s.contentWidth())
-		maxDurationView := renderInputField("Max autonomous duration (min)", "",
-			s.AutoMaxDurationInput, s.autoMaxDurationFocusIndex(), s.Focus, s.contentWidth())
-		maxConcurrentView := renderInputField("Max concurrent auto-sessions", "",
-			s.IssueMaxConcurrentInput, s.issueMaxConcurrentFocusIndex(), s.Focus, s.contentWidth())
-
-		parts = append(parts, autoHeader, autoAddressView, maxTurnsView, maxDurationView, maxConcurrentView)
-	}
-
 	help := ModalHelpStyle.Render(s.Help())
-	parts = append(parts, help)
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	return lipgloss.JoinVertical(lipgloss.Left, title, s.form.View(), help)
 }
-
-// renderSelectorField renders a left/right arrow selector with focus border.
-func (s *SettingsState) renderSelectorField(displayName string, index, total, focusIdx int) string {
-	style := lipgloss.NewStyle()
-	if s.Focus == focusIdx {
-		style = style.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		style = style.PaddingLeft(2)
-	}
-	leftArrow := " "
-	rightArrow := " "
-	if index > 0 {
-		leftArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render("<")
-	}
-	if index < total-1 {
-		rightArrow = lipgloss.NewStyle().Foreground(ColorPrimary).Render(">")
-	}
-	display := lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render(displayName)
-	return style.Render(leftArrow + " " + display + " " + rightArrow)
-}
-
-// numFields returns the number of focusable fields in the settings modal.
-func (s *SettingsState) numFields() int {
-	base := 5 // theme, branch prefix, notifications, auto-cleanup, auto-broadcast-PR
-	if s.ContainersSupported {
-		base++ // container image
-		base += 4 // auto-address PR, max turns, max duration, max concurrent
-	}
-	return base
-}
-
-// containerImageFocusIndex returns the focus index for the container image field.
-// Only meaningful when ContainersSupported is true.
-func (s *SettingsState) containerImageFocusIndex() int {
-	return 5 // theme=0, prefix=1, notifications=2, auto-cleanup=3, auto-broadcast=4, container image=5
-}
-
-// autoAddressFocusIndex returns the focus index for auto-address PR comments checkbox.
-func (s *SettingsState) autoAddressFocusIndex() int {
-	return 6 // after container image
-}
-
-// autoMaxTurnsFocusIndex returns the focus index for max autonomous turns input.
-func (s *SettingsState) autoMaxTurnsFocusIndex() int {
-	return 7
-}
-
-// autoMaxDurationFocusIndex returns the focus index for max autonomous duration input.
-func (s *SettingsState) autoMaxDurationFocusIndex() int {
-	return 8
-}
-
-// issueMaxConcurrentFocusIndex returns the focus index for max concurrent sessions input.
-func (s *SettingsState) issueMaxConcurrentFocusIndex() int {
-	return 9
-}
-
-
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	numFields := s.numFields()
-
-	keyMsg, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return s, nil
-	}
-
-	key := keyMsg.String()
-
-	switch key {
-	case keys.Tab:
-		s.Focus = (s.Focus + 1) % numFields
-		s.updateInputFocus()
-		return s, nil
-	case keys.ShiftTab:
-		s.Focus = (s.Focus - 1 + numFields) % numFields
-		s.updateInputFocus()
-		return s, nil
-	case keys.Space:
-		switch {
-		case s.Focus == 2:
-			s.NotificationsEnabled = !s.NotificationsEnabled
-		case s.Focus == 3:
-			s.AutoCleanupMerged = !s.AutoCleanupMerged
-		case s.Focus == 4:
-			s.AutoBroadcastPR = !s.AutoBroadcastPR
-		case s.ContainersSupported && s.Focus == s.autoAddressFocusIndex():
-			s.AutoAddressPRComments = !s.AutoAddressPRComments
-		}
-		return s, nil
-	case keys.Left, "h":
-		if s.Focus == 0 && len(s.Themes) > 0 {
-			if s.SelectedThemeIndex > 0 {
-				s.SelectedThemeIndex--
-			}
-			return s, nil
-		}
-	case keys.Right, "l":
-		if s.Focus == 0 && len(s.Themes) > 0 {
-			if s.SelectedThemeIndex < len(s.Themes)-1 {
-				s.SelectedThemeIndex++
-			}
-			return s, nil
-		}
-	}
-
-	// Handle text input updates when focused on branch prefix
-	if s.Focus == 1 {
-		var cmd tea.Cmd
-		s.BranchPrefixInput, cmd = s.BranchPrefixInput.Update(msg)
-		return s, cmd
-	}
-
-	// Handle text input updates when focused on container image
-	if s.ContainersSupported && s.Focus == s.containerImageFocusIndex() {
-		var cmd tea.Cmd
-		s.ContainerImageInput, cmd = s.ContainerImageInput.Update(msg)
-		return s, cmd
-	}
-
-	// Handle text input updates for autonomous global fields
-	if s.ContainersSupported {
-		switch s.Focus {
-		case s.autoMaxTurnsFocusIndex():
-			var cmd tea.Cmd
-			s.AutoMaxTurnsInput, cmd = s.AutoMaxTurnsInput.Update(msg)
-			return s, cmd
-		case s.autoMaxDurationFocusIndex():
-			var cmd tea.Cmd
-			s.AutoMaxDurationInput, cmd = s.AutoMaxDurationInput.Update(msg)
-			return s, cmd
-		case s.issueMaxConcurrentFocusIndex():
-			var cmd tea.Cmd
-			s.IssueMaxConcurrentInput, cmd = s.IssueMaxConcurrentInput.Update(msg)
-			return s, cmd
-		}
-	}
-
-	return s, nil
-}
-
-// updateInputFocus manages focus state for text inputs based on current Focus index.
-func (s *SettingsState) updateInputFocus() {
-	// Blur all first
-	s.BranchPrefixInput.Blur()
-	s.ContainerImageInput.Blur()
-	s.AutoMaxTurnsInput.Blur()
-	s.AutoMaxDurationInput.Blur()
-	s.IssueMaxConcurrentInput.Blur()
-
-	// Focus the active one
-	switch {
-	case s.Focus == 1:
-		s.BranchPrefixInput.Focus()
-	case s.ContainersSupported && s.Focus == s.containerImageFocusIndex():
-		s.ContainerImageInput.Focus()
-	case s.ContainersSupported && s.Focus == s.autoMaxTurnsFocusIndex():
-		s.AutoMaxTurnsInput.Focus()
-	case s.ContainersSupported && s.Focus == s.autoMaxDurationFocusIndex():
-		s.AutoMaxDurationInput.Focus()
-	case s.ContainersSupported && s.Focus == s.issueMaxConcurrentFocusIndex():
-		s.IssueMaxConcurrentInput.Focus()
-	}
+	var cmd tea.Cmd
+	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	return s, cmd
 }
 
 // GetBranchPrefix returns the branch prefix value
 func (s *SettingsState) GetBranchPrefix() string {
-	return s.BranchPrefixInput.Value()
+	return s.branchPrefix
 }
 
 // GetNotificationsEnabled returns whether notifications are enabled
@@ -539,20 +301,52 @@ func (s *SettingsState) GetNotificationsEnabled() bool {
 
 // GetContainerImage returns the container image name, or empty string if unchanged/empty.
 func (s *SettingsState) GetContainerImage() string {
-	return strings.TrimSpace(s.ContainerImageInput.Value())
+	return strings.TrimSpace(s.containerImage)
+}
+
+// GetAutoMaxTurns returns the max autonomous turns value.
+func (s *SettingsState) GetAutoMaxTurns() string {
+	return s.autoMaxTurns
+}
+
+// GetAutoMaxDuration returns the max autonomous duration value.
+func (s *SettingsState) GetAutoMaxDuration() string {
+	return s.autoMaxDuration
+}
+
+// GetIssueMaxConcurrent returns the max concurrent auto-sessions value.
+func (s *SettingsState) GetIssueMaxConcurrent() string {
+	return s.issueMaxConcurrent
 }
 
 // GetSelectedTheme returns the selected theme key.
 func (s *SettingsState) GetSelectedTheme() string {
-	if len(s.Themes) == 0 || s.SelectedThemeIndex >= len(s.Themes) {
-		return ""
-	}
-	return s.Themes[s.SelectedThemeIndex]
+	return s.selectedTheme
 }
 
 // ThemeChanged returns true if the selected theme differs from the original.
 func (s *SettingsState) ThemeChanged() bool {
-	return s.GetSelectedTheme() != s.OriginalTheme
+	return s.selectedTheme != s.OriginalTheme
+}
+
+// SetAutoMaxTurns sets the initial value for max autonomous turns.
+func (s *SettingsState) SetAutoMaxTurns(v string) {
+	s.autoMaxTurns = v
+}
+
+// SetAutoMaxDuration sets the initial value for max autonomous duration.
+func (s *SettingsState) SetAutoMaxDuration(v string) {
+	s.autoMaxDuration = v
+}
+
+// SetIssueMaxConcurrent sets the initial value for max concurrent sessions.
+func (s *SettingsState) SetIssueMaxConcurrent(v string) {
+	s.issueMaxConcurrent = v
+}
+
+// SetBranchPrefix sets the branch prefix value (for testing).
+func (s *SettingsState) SetBranchPrefix(v string) {
+	s.branchPrefix = v
 }
 
 // =============================================================================
@@ -1032,55 +826,96 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	currentBranchPrefix string, notificationsEnabled bool,
 	containersSupported bool, containerImage string) *SettingsState {
 
-	// Find the index of the current theme
-	selectedThemeIndex := 0
-	for i, t := range themes {
-		if t == currentTheme {
-			selectedThemeIndex = i
-			break
-		}
+	s := &SettingsState{
+		selectedTheme:        currentTheme,
+		OriginalTheme:        currentTheme,
+		branchPrefix:         currentBranchPrefix,
+		NotificationsEnabled: notificationsEnabled,
+		containerImage:       containerImage,
+		ContainersSupported:  containersSupported,
+		availableWidth:       ModalWidthWide,
 	}
 
-	prefixInput := textinput.New()
-	prefixInput.Placeholder = "e.g., zhubert/ (leave empty for no prefix)"
-	prefixInput.CharLimit = BranchPrefixCharLimit
-	prefixInput.SetWidth(ModalWidthWide - 10)
-	prefixInput.SetValue(currentBranchPrefix)
-
-	containerImageInput := textinput.New()
-	containerImageInput.Placeholder = "ghcr.io/zhubert/plural-claude"
-	containerImageInput.CharLimit = 200
-	containerImageInput.SetWidth(ModalWidthWide - 10)
-	containerImageInput.SetValue(containerImage)
-
-	autoMaxTurnsInput := textinput.New()
-	autoMaxTurnsInput.Placeholder = "50"
-	autoMaxTurnsInput.CharLimit = 5
-	autoMaxTurnsInput.SetWidth(ModalWidthWide - 10)
-
-	autoMaxDurationInput := textinput.New()
-	autoMaxDurationInput.Placeholder = "30"
-	autoMaxDurationInput.CharLimit = 5
-	autoMaxDurationInput.SetWidth(ModalWidthWide - 10)
-
-	issueMaxConcurrentInput := textinput.New()
-	issueMaxConcurrentInput.Placeholder = "3"
-	issueMaxConcurrentInput.CharLimit = 3
-	issueMaxConcurrentInput.SetWidth(ModalWidthWide - 10)
-
-	return &SettingsState{
-		Themes:                  themes,
-		ThemeDisplayNames:       themeDisplayNames,
-		SelectedThemeIndex:      selectedThemeIndex,
-		OriginalTheme:           currentTheme,
-		BranchPrefixInput:       prefixInput,
-		NotificationsEnabled:    notificationsEnabled,
-		ContainerImageInput:     containerImageInput,
-		ContainersSupported:     containersSupported,
-		AutoMaxTurnsInput:       autoMaxTurnsInput,
-		AutoMaxDurationInput:    autoMaxDurationInput,
-		IssueMaxConcurrentInput: issueMaxConcurrentInput,
-		Focus:                   0,
-		availableWidth:          ModalWidthWide,
+	// Build theme options
+	themeOptions := make([]huh.Option[string], len(themes))
+	for i := range themes {
+		themeOptions[i] = huh.NewOption(themeDisplayNames[i], themes[i])
 	}
+
+	// General settings group
+	generalGroup := huh.NewGroup(
+		huh.NewSelect[string]().
+			Title("Theme").
+			Options(themeOptions...).
+			Value(&s.selectedTheme),
+		huh.NewInput().
+			Title("Default branch prefix").
+			Description("Applied to all new branches").
+			Placeholder("e.g., zhubert/").
+			CharLimit(BranchPrefixCharLimit).
+			Value(&s.branchPrefix),
+		huh.NewConfirm().
+			Title("Desktop notifications").
+			Description("Notify when Claude finishes in background").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&s.NotificationsEnabled),
+		huh.NewConfirm().
+			Title("Auto-cleanup merged sessions").
+			Description("Delete sessions when PR is merged or closed").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&s.AutoCleanupMerged),
+		huh.NewConfirm().
+			Title("Auto-create broadcast PRs").
+			Description("Create PRs when broadcast group completes").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&s.AutoBroadcastPR),
+	)
+
+	// Container settings group (conditionally shown)
+	containerGroup := huh.NewGroup(
+		huh.NewInput().
+			Title("Container image").
+			Description("Image name used for container mode sessions").
+			Placeholder("ghcr.io/zhubert/plural-claude").
+			CharLimit(200).
+			Value(&s.containerImage),
+	).WithHideFunc(func() bool { return !containersSupported })
+
+	// Autonomous settings group (conditionally shown)
+	autonomousGroup := huh.NewGroup(
+		huh.NewConfirm().
+			Title("Auto-address PR comments").
+			Description("Auto-fetch and address new PR review comments").
+			Affirmative("Yes").
+			Negative("No").
+			Value(&s.AutoAddressPRComments),
+		huh.NewInput().
+			Title("Max autonomous turns").
+			Placeholder("50").
+			CharLimit(5).
+			Value(&s.autoMaxTurns),
+		huh.NewInput().
+			Title("Max autonomous duration (min)").
+			Placeholder("30").
+			CharLimit(5).
+			Value(&s.autoMaxDuration),
+		huh.NewInput().
+			Title("Max concurrent auto-sessions").
+			Placeholder("3").
+			CharLimit(3).
+			Value(&s.issueMaxConcurrent),
+	).WithHideFunc(func() bool { return !containersSupported })
+
+	s.form = huh.NewForm(generalGroup, containerGroup, autonomousGroup).
+		WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(s.contentWidth()).
+		WithLayout(huh.LayoutStack)
+
+	s.initialized = true
+	initHuhForm(s.form)
+	return s
 }
