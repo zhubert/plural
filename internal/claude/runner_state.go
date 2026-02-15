@@ -30,10 +30,12 @@ type MCPChannels struct {
 	MergeChildResp   chan mcp.MergeChildResponse
 
 	// Host tool channels (nil when not an autonomous supervisor session)
-	CreatePRReq    chan mcp.CreatePRRequest
-	CreatePRResp   chan mcp.CreatePRResponse
-	PushBranchReq  chan mcp.PushBranchRequest
-	PushBranchResp chan mcp.PushBranchResponse
+	CreatePRReq           chan mcp.CreatePRRequest
+	CreatePRResp          chan mcp.CreatePRResponse
+	PushBranchReq         chan mcp.PushBranchRequest
+	PushBranchResp        chan mcp.PushBranchResponse
+	GetReviewCommentsReq  chan mcp.GetReviewCommentsRequest
+	GetReviewCommentsResp chan mcp.GetReviewCommentsResponse
 }
 
 // NewMCPChannels creates a new MCPChannels with buffered channels.
@@ -66,6 +68,8 @@ func (m *MCPChannels) InitHostToolChannels() {
 	m.CreatePRResp = make(chan mcp.CreatePRResponse, PermissionChannelBuffer)
 	m.PushBranchReq = make(chan mcp.PushBranchRequest, PermissionChannelBuffer)
 	m.PushBranchResp = make(chan mcp.PushBranchResponse, PermissionChannelBuffer)
+	m.GetReviewCommentsReq = make(chan mcp.GetReviewCommentsRequest, PermissionChannelBuffer)
+	m.GetReviewCommentsResp = make(chan mcp.GetReviewCommentsResponse, PermissionChannelBuffer)
 }
 
 // Close closes all channels. Safe to call multiple times.
@@ -133,6 +137,14 @@ func (m *MCPChannels) Close() {
 	if m.PushBranchResp != nil {
 		close(m.PushBranchResp)
 		m.PushBranchResp = nil
+	}
+	if m.GetReviewCommentsReq != nil {
+		close(m.GetReviewCommentsReq)
+		m.GetReviewCommentsReq = nil
+	}
+	if m.GetReviewCommentsResp != nil {
+		close(m.GetReviewCommentsResp)
+		m.GetReviewCommentsResp = nil
 	}
 }
 

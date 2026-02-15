@@ -46,10 +46,12 @@ type MockRunner struct {
 	mergeChildRespChan  chan mcp.MergeChildResponse
 
 	// Host tool channels
-	createPRReqChan    chan mcp.CreatePRRequest
-	createPRRespChan   chan mcp.CreatePRResponse
-	pushBranchReqChan  chan mcp.PushBranchRequest
-	pushBranchRespChan chan mcp.PushBranchResponse
+	createPRReqChan           chan mcp.CreatePRRequest
+	createPRRespChan          chan mcp.CreatePRResponse
+	pushBranchReqChan         chan mcp.PushBranchRequest
+	pushBranchRespChan        chan mcp.PushBranchResponse
+	getReviewCommentsReqChan  chan mcp.GetReviewCommentsRequest
+	getReviewCommentsRespChan chan mcp.GetReviewCommentsResponse
 
 	// Callbacks for test assertions
 	OnSend             func(content []ContentBlock)
@@ -476,6 +478,8 @@ func (m *MockRunner) SetHostTools(hostTools bool) {
 		m.createPRRespChan = make(chan mcp.CreatePRResponse, 1)
 		m.pushBranchReqChan = make(chan mcp.PushBranchRequest, 1)
 		m.pushBranchRespChan = make(chan mcp.PushBranchResponse, 1)
+		m.getReviewCommentsReqChan = make(chan mcp.GetReviewCommentsRequest, 1)
+		m.getReviewCommentsRespChan = make(chan mcp.GetReviewCommentsResponse, 1)
 	}
 }
 
@@ -521,6 +525,29 @@ func (m *MockRunner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 	}
 	select {
 	case m.pushBranchRespChan <- resp:
+	default:
+	}
+}
+
+// GetReviewCommentsRequestChan implements RunnerInterface.
+func (m *MockRunner) GetReviewCommentsRequestChan() <-chan mcp.GetReviewCommentsRequest {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped {
+		return nil
+	}
+	return m.getReviewCommentsReqChan
+}
+
+// SendGetReviewCommentsResponse implements RunnerInterface.
+func (m *MockRunner) SendGetReviewCommentsResponse(resp mcp.GetReviewCommentsResponse) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.stopped || m.getReviewCommentsRespChan == nil {
+		return
+	}
+	select {
+	case m.getReviewCommentsRespChan <- resp:
 	default:
 	}
 }
@@ -583,6 +610,12 @@ func (m *MockRunner) Stop() {
 	}
 	if m.pushBranchRespChan != nil {
 		close(m.pushBranchRespChan)
+	}
+	if m.getReviewCommentsReqChan != nil {
+		close(m.getReviewCommentsReqChan)
+	}
+	if m.getReviewCommentsRespChan != nil {
+		close(m.getReviewCommentsRespChan)
 	}
 	if m.responseChan != nil {
 		// Only close if we control it

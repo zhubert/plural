@@ -57,6 +57,7 @@ func (r *Runner) ensureServerRunning() error {
 		socketOpts = append(socketOpts, mcp.WithHostToolChannels(
 			r.mcp.CreatePRReq, r.mcp.CreatePRResp,
 			r.mcp.PushBranchReq, r.mcp.PushBranchResp,
+			r.mcp.GetReviewCommentsReq, r.mcp.GetReviewCommentsResp,
 		))
 	}
 

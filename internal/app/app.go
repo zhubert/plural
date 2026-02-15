@@ -244,6 +244,12 @@ type PushBranchRequestMsg struct {
 	Request   mcp.PushBranchRequest
 }
 
+// GetReviewCommentsRequestMsg is sent when the automated supervisor's MCP tool get_review_comments is called
+type GetReviewCommentsRequestMsg struct {
+	SessionID string
+	Request   mcp.GetReviewCommentsRequest
+}
+
 // ContainerImageUpdateMsg is sent when the background container image update check completes
 type ContainerImageUpdateMsg struct {
 	NeedsUpdate bool
@@ -797,6 +803,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PushBranchRequestMsg:
 		return m.handlePushBranchRequestMsg(msg)
+
+	case GetReviewCommentsRequestMsg:
+		return m.handleGetReviewCommentsRequestMsg(msg)
 
 	case ContainerImageUpdateMsg:
 		if msg.NeedsUpdate {

@@ -52,6 +52,8 @@ type RunnerInterface interface {
 	SendCreatePRResponse(resp mcp.CreatePRResponse)
 	PushBranchRequestChan() <-chan mcp.PushBranchRequest
 	SendPushBranchResponse(resp mcp.PushBranchResponse)
+	GetReviewCommentsRequestChan() <-chan mcp.GetReviewCommentsRequest
+	SendGetReviewCommentsResponse(resp mcp.GetReviewCommentsResponse)
 
 	// Lifecycle
 	Stop()
