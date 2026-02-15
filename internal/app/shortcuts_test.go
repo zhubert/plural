@@ -930,13 +930,13 @@ func TestShortcutBroadcast_OpensModal(t *testing.T) {
 	}
 }
 
-func TestShortcutSettings_OpensModal(t *testing.T) {
+func TestShortcutRepoSettings_OpensModal(t *testing.T) {
 	t.Run("RepoSelected", func(t *testing.T) {
 		cfg := testConfig()
 		m := testModelWithSize(cfg, 120, 40)
 
 		// With repos but no sessions, sidebar starts on a repo
-		shortcutSettings(m)
+		shortcutRepoSettings(m)
 
 		if !m.modal.IsVisible() {
 			t.Error("expected modal to be visible")
@@ -955,28 +955,43 @@ func TestShortcutSettings_OpensModal(t *testing.T) {
 		m = sendKey(m, "enter")
 		m = sendKey(m, "tab") // back to sidebar
 
-		shortcutSettings(m)
+		shortcutRepoSettings(m)
 
 		if !m.modal.IsVisible() {
 			t.Error("expected modal to be visible")
 		}
-		// With a session selected, shows global settings
-		_, ok := m.modal.State.(*ui.SettingsState)
+		// With a session selected, shows the session's repo settings
+		_, ok := m.modal.State.(*ui.RepoSettingsState)
 		if !ok {
-			t.Errorf("expected SettingsState modal, got %T", m.modal.State)
+			t.Errorf("expected RepoSettingsState modal, got %T", m.modal.State)
 		}
 	})
 }
 
-func TestCtrlComma_OpensGlobalSettingsFromSidebar(t *testing.T) {
+func TestShortcutGlobalSettings_OpensModal(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+
+	shortcutGlobalSettings(m)
+
+	if !m.modal.IsVisible() {
+		t.Error("expected modal to be visible")
+	}
+	_, ok := m.modal.State.(*ui.SettingsState)
+	if !ok {
+		t.Errorf("expected SettingsState modal, got %T", m.modal.State)
+	}
+}
+
+func TestAltComma_OpensGlobalSettingsFromSidebar(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Sidebar is focused by default
-	_, _, handled := m.ExecuteShortcut(keys.CtrlComma)
+	_, _, handled := m.ExecuteShortcut(keys.AltComma)
 	if !handled {
-		t.Error("Expected ctrl-, to be handled from sidebar")
+		t.Error("Expected opt-, to be handled from sidebar")
 	}
 	if !m.modal.IsVisible() {
 		t.Error("Expected modal to be visible")
@@ -987,7 +1002,7 @@ func TestCtrlComma_OpensGlobalSettingsFromSidebar(t *testing.T) {
 	}
 }
 
-func TestCtrlComma_OpensGlobalSettingsFromChat(t *testing.T) {
+func TestAltComma_OpensGlobalSettingsFromChat(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
@@ -998,9 +1013,9 @@ func TestCtrlComma_OpensGlobalSettingsFromChat(t *testing.T) {
 		t.Fatal("Expected chat to be focused")
 	}
 
-	_, _, handled := m.ExecuteShortcut(keys.CtrlComma)
+	_, _, handled := m.ExecuteShortcut(keys.AltComma)
 	if !handled {
-		t.Error("Expected ctrl-, to be handled from chat")
+		t.Error("Expected opt-, to be handled from chat")
 	}
 	if !m.modal.IsVisible() {
 		t.Error("Expected modal to be visible")
@@ -1011,14 +1026,14 @@ func TestCtrlComma_OpensGlobalSettingsFromChat(t *testing.T) {
 	}
 }
 
-func TestCtrlComma_AlwaysGlobalEvenWhenRepoSelected(t *testing.T) {
+func TestAltComma_AlwaysGlobalEvenWhenRepoSelected(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)
 
-	// Sidebar starts on a repo - comma would show repo settings, but ctrl-, should show global
-	_, _, handled := m.ExecuteShortcut(keys.CtrlComma)
+	// Sidebar starts on a repo - comma would show repo settings, but opt-, should show global
+	_, _, handled := m.ExecuteShortcut(keys.AltComma)
 	if !handled {
-		t.Error("Expected ctrl-, to be handled")
+		t.Error("Expected opt-, to be handled")
 	}
 	if !m.modal.IsVisible() {
 		t.Error("Expected modal to be visible")

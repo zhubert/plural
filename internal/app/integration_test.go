@@ -9,6 +9,7 @@ import (
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -1654,7 +1655,7 @@ func TestFlow_OpenAndCloseMultipleModals(t *testing.T) {
 	}
 
 	// Open and close settings modal
-	m = sendKey(m, ",")
+	m = sendKey(m, keys.AltComma)
 	if !m.modal.IsVisible() {
 		t.Error("Settings modal should be open")
 	}

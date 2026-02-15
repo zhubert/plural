@@ -109,6 +109,8 @@ func keyPress(key string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 	case keys.ShiftTab:
 		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
+	case keys.AltComma:
+		return tea.KeyPressMsg{Code: ',', Mod: tea.ModAlt}
 	default:
 		// Regular character - for single characters, set both Code and Text
 		if len(key) == 1 {
