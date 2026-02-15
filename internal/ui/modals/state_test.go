@@ -30,13 +30,15 @@ func TestNewHelpStateFromSections(t *testing.T) {
 
 	state := NewHelpStateFromSections(sections)
 
-	// Should start with the first shortcut selected (skipping section header)
+	// Verify the initial selection is the first shortcut from the input sections
+	// (section headers are skipped, so the first selectable item is sections[0].Shortcuts[0])
 	shortcut := state.GetSelectedShortcut()
 	if shortcut == nil {
 		t.Fatal("expected non-nil shortcut initially")
 	}
-	if shortcut.Key != "tab" {
-		t.Errorf("expected initial shortcut key 'tab', got %q", shortcut.Key)
+	expectedKey := sections[0].Shortcuts[0].Key
+	if shortcut.Key != expectedKey {
+		t.Errorf("expected initial shortcut key %q, got %q", expectedKey, shortcut.Key)
 	}
 }
 
@@ -70,10 +72,13 @@ func TestHelpState_Update_Navigation(t *testing.T) {
 	}
 	state := NewHelpStateFromSections(sections)
 
-	// Initial selection should be "a"
+	// Verify initial selection is "a" before testing navigation
 	shortcut := state.GetSelectedShortcut()
-	if shortcut == nil || shortcut.Key != "a" {
-		t.Fatalf("expected initial shortcut 'a', got %v", shortcut)
+	if shortcut == nil {
+		t.Fatal("expected non-nil initial shortcut")
+	}
+	if shortcut.Key != "a" {
+		t.Fatalf("expected initial shortcut key 'a', got %q", shortcut.Key)
 	}
 
 	// Test down navigation (j key)

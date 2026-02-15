@@ -46,6 +46,8 @@ func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.
 }
 
 // handleHelpModal handles key events for the Help modal.
+// Note: HelpState implements ModalWithSize, but SetSize is called from Modal.View()
+// (not from Update), so there is no recursion when forwarding messages here.
 func (m *Model) handleHelpModal(key string, msg tea.KeyPressMsg, state *ui.HelpState) (tea.Model, tea.Cmd) {
 	// While filtering, forward all keys to the list (Esc cancels filter, Enter applies)
 	if state.IsFiltering() {
