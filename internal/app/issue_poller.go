@@ -45,23 +45,34 @@ func IssuePollTick() tea.Cmd {
 // checkForNewIssues checks all repos with issue polling enabled for new issues.
 // It filters by label, deduplicates against existing sessions, and respects concurrency limits.
 func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessions []config.Session) tea.Cmd {
+	log := logger.WithComponent("issue-poller")
+	log.Debug("checking for new issues")
+
 	// Collect repos with issue polling enabled
 	repos := cfg.GetRepos()
+	log.Debug("repos found", "count", len(repos))
+
 	type repoPolling struct {
 		Path  string
 		Label string
 	}
 	var pollingRepos []repoPolling
 	for _, repoPath := range repos {
-		if cfg.GetRepoIssuePolling(repoPath) {
+		enabled := cfg.GetRepoIssuePolling(repoPath)
+		log.Debug("checking repo", "path", repoPath, "polling_enabled", enabled)
+		if enabled {
+			label := cfg.GetRepoIssueLabels(repoPath)
+			log.Debug("adding repo to polling list", "path", repoPath, "label", label)
 			pollingRepos = append(pollingRepos, repoPolling{
 				Path:  repoPath,
-				Label: cfg.GetRepoIssueLabels(repoPath),
+				Label: label,
 			})
 		}
 	}
 
+	log.Debug("polling repos collected", "count", len(pollingRepos))
 	if len(pollingRepos) == 0 {
+		log.Debug("no repos with polling enabled, skipping")
 		return nil
 	}
 

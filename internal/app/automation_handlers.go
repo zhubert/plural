@@ -1002,6 +1002,14 @@ func (m *Model) handlePRCreatedFromToolMsg(msg PRCreatedFromToolMsg) (tea.Model,
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	log.Info("marked session as PR created via tool", "prURL", msg.PRURL)
+
+	// Start CI polling for auto-merge if enabled
+	sess := m.config.GetSession(msg.SessionID)
+	if sess != nil && sess.Autonomous && m.config.GetRepoAutoMerge(sess.RepoPath) {
+		log.Info("starting CI polling for auto-merge", "branch", sess.Branch)
+		return m, m.pollCIForAutoMerge(msg.SessionID)
+	}
+
 	return m, nil
 }
 
