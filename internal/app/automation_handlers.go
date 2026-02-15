@@ -456,7 +456,7 @@ func (m *Model) createChildSession(supervisorID, taskDescription string) tea.Cmd
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.sessionListeners(sess.ID, runner, responseChan)...)
 	cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Created child session: %s", sess.Branch)))
-	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+	cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 	// Only transition to streaming state if not already there, to avoid
 	// disrupting user interaction in the currently active session.
 	if m.state != StateStreamingClaude {
@@ -727,7 +727,7 @@ func (m *Model) handleCreateChildRequestMsg(msg CreateChildRequestMsg) (tea.Mode
 	cmds = append(cmds, m.sessionListeners(msg.SessionID, runner, nil)...)
 	// Register child listeners
 	cmds = append(cmds, m.sessionListeners(childSess.ID, childRunner, responseChan)...)
-	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+	cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 
 	return m, tea.Batch(cmds...)
 }

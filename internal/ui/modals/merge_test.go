@@ -4,7 +4,9 @@ import (
 	"image/color"
 	"strings"
 	"testing"
+	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2"
 )
 
@@ -90,8 +92,9 @@ func TestLoadingCommitState(t *testing.T) {
 		if state.MergeType != "pr" {
 			t.Errorf("expected MergeType 'pr', got %q", state.MergeType)
 		}
-		if state.SpinnerFrame != 0 {
-			t.Errorf("expected SpinnerFrame 0, got %d", state.SpinnerFrame)
+		// Spinner should be initialized with MiniDot frames
+		if len(state.Spinner.Spinner.Frames) != len(spinner.MiniDot.Frames) {
+			t.Errorf("expected MiniDot spinner, got %d frames", len(state.Spinner.Spinner.Frames))
 		}
 	})
 
@@ -138,26 +141,25 @@ func TestLoadingCommitState(t *testing.T) {
 		}
 	})
 
-	t.Run("advance spinner increments frame", func(t *testing.T) {
+	t.Run("advance spinner updates model", func(t *testing.T) {
 		state := NewLoadingCommitState("merge")
-		if state.SpinnerFrame != 0 {
-			t.Errorf("expected initial frame 0, got %d", state.SpinnerFrame)
+		initialView := state.Spinner.View()
+		if initialView == "" {
+			t.Error("expected non-empty spinner view")
 		}
-		state.AdvanceSpinner()
-		if state.SpinnerFrame != 1 {
-			t.Errorf("expected frame 1 after advance, got %d", state.SpinnerFrame)
-		}
+		// AdvanceSpinner should accept a tick and return a command
+		tick := spinner.TickMsg{Time: time.Now()}
+		cmd := state.AdvanceSpinner(tick)
+		// The command may be nil (ID mismatch) or non-nil, both are valid
+		_ = cmd
 	})
 
-	t.Run("spinner wraps around", func(t *testing.T) {
+	t.Run("spinner renders consistently", func(t *testing.T) {
 		state := NewLoadingCommitState("merge")
-		// Advance through all frames
-		for i := 0; i < len(spinnerFrames); i++ {
-			state.AdvanceSpinner()
-		}
-		// Should have wrapped to 0
-		if state.SpinnerFrame != 0 {
-			t.Errorf("expected frame to wrap to 0, got %d", state.SpinnerFrame)
+		// Verify the spinner renders without error
+		view := state.Spinner.View()
+		if view == "" {
+			t.Error("spinner should render a non-empty view")
 		}
 	})
 

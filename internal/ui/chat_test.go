@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/claude"
@@ -846,19 +848,21 @@ Some text between.
 }
 
 func TestRenderSpinner(t *testing.T) {
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(ColorUser).Bold(true)),
+	)
 	verbs := []string{"Thinking", "Pondering", "Analyzing"}
 	for _, verb := range verbs {
-		for i := 0; i < len(spinnerFrames); i++ {
-			result := renderSpinner(verb, i)
-			if result == "" {
-				t.Errorf("renderSpinner(%q, %d) returned empty string", verb, i)
-			}
-			if !strings.Contains(result, verb) {
-				t.Errorf("renderSpinner(%q, %d) = %q, should contain verb", verb, i, result)
-			}
-			if !strings.Contains(result, "...") {
-				t.Errorf("renderSpinner(%q, %d) = %q, should contain ellipsis", verb, i, result)
-			}
+		result := renderSpinner(verb, sp)
+		if result == "" {
+			t.Errorf("renderSpinner(%q) returned empty string", verb)
+		}
+		if !strings.Contains(result, verb) {
+			t.Errorf("renderSpinner(%q) = %q, should contain verb", verb, result)
+		}
+		if !strings.Contains(result, "...") {
+			t.Errorf("renderSpinner(%q) = %q, should contain ellipsis", verb, result)
 		}
 	}
 }
@@ -1932,18 +1936,21 @@ func TestChat_ZeroStreamStartTimeGivesZeroElapsed(t *testing.T) {
 	}
 }
 
-// TestChat_StopwatchContinuesDuringStreaming verifies that the stopwatch tick
+// TestChat_SpinnerContinuesDuringStreaming verifies that the spinner tick
 // continues while streaming content is being received, not just while waiting.
-func TestChat_StopwatchContinuesDuringStreaming(t *testing.T) {
+func TestChat_SpinnerContinuesDuringStreaming(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)
 	chat.SetSize(80, 24)
 
-	// Start waiting (this starts the stopwatch tick)
+	// Create a tick message (ID 0 is accepted by all spinners)
+	tick := spinner.TickMsg{Time: time.Now()}
+
+	// Start waiting (this starts the spinner)
 	chat.SetWaiting(true)
-	cmd := chat.handleStopwatchTick()
+	cmd := chat.handleSpinnerTick(tick)
 	if cmd == nil {
-		t.Error("Expected stopwatch to tick while waiting")
+		t.Error("Expected spinner to tick while waiting")
 	}
 
 	// Simulate receiving streaming content (waiting becomes false, but streaming is active)
@@ -1951,32 +1958,35 @@ func TestChat_StopwatchContinuesDuringStreaming(t *testing.T) {
 	chat.streaming = "Hello, I'm Claude..."
 	chat.streamStartTime = time.Now()
 
-	// The stopwatch should STILL tick while streaming, even though waiting is false
-	cmd = chat.handleStopwatchTick()
+	// The spinner should STILL tick while streaming, even though waiting is false
+	cmd = chat.handleSpinnerTick(tick)
 	if cmd == nil {
-		t.Error("Expected stopwatch to continue ticking while streaming (timer was stopping when waiting became false)")
+		t.Error("Expected spinner to continue ticking while streaming (timer was stopping when waiting became false)")
 	}
 
 	// After streaming finishes, ticks should stop
 	chat.streaming = ""
-	cmd = chat.handleStopwatchTick()
+	cmd = chat.handleSpinnerTick(tick)
 	if cmd != nil {
-		t.Error("Expected stopwatch to stop after streaming finishes")
+		t.Error("Expected spinner to stop after streaming finishes")
 	}
 }
 
-// TestChat_StopwatchContinuesDuringToolUseRollup verifies that the stopwatch tick
+// TestChat_SpinnerContinuesDuringToolUseRollup verifies that the spinner tick
 // continues while tool use rollup is active, even without streaming text.
-func TestChat_StopwatchContinuesDuringToolUseRollup(t *testing.T) {
+func TestChat_SpinnerContinuesDuringToolUseRollup(t *testing.T) {
 	chat := NewChat()
 	chat.SetSession("test", nil)
 	chat.SetSize(80, 24)
 
+	// Create a tick message (ID 0 is accepted by all spinners)
+	tick := spinner.TickMsg{Time: time.Now()}
+
 	// Start waiting
 	chat.SetWaiting(true)
-	cmd := chat.handleStopwatchTick()
+	cmd := chat.handleSpinnerTick(tick)
 	if cmd == nil {
-		t.Error("Expected stopwatch to tick while waiting")
+		t.Error("Expected spinner to tick while waiting")
 	}
 
 	// Simulate tool-only streaming phase: waiting becomes false, no text streaming, but tool use rollup is active
@@ -1984,24 +1994,24 @@ func TestChat_StopwatchContinuesDuringToolUseRollup(t *testing.T) {
 	chat.streaming = ""
 	chat.AppendToolUse("Bash", "ls -la", "tool-1")
 
-	// The stopwatch should STILL tick while tool use rollup is active
-	cmd = chat.handleStopwatchTick()
+	// The spinner should STILL tick while tool use rollup is active
+	cmd = chat.handleSpinnerTick(tick)
 	if cmd == nil {
-		t.Error("Expected stopwatch to continue ticking while tool use rollup is active (Issue #144)")
+		t.Error("Expected spinner to continue ticking while tool use rollup is active (Issue #144)")
 	}
 
 	// Add another tool use to the rollup
 	chat.AppendToolUse("Read", "/path/to/file", "tool-2")
-	cmd = chat.handleStopwatchTick()
+	cmd = chat.handleSpinnerTick(tick)
 	if cmd == nil {
-		t.Error("Expected stopwatch to continue ticking with multiple tool uses in rollup")
+		t.Error("Expected spinner to continue ticking with multiple tool uses in rollup")
 	}
 
 	// After tool use rollup is cleared, ticks should stop
 	chat.toolUseRollup = nil
-	cmd = chat.handleStopwatchTick()
+	cmd = chat.handleSpinnerTick(tick)
 	if cmd != nil {
-		t.Error("Expected stopwatch to stop after tool use rollup is cleared")
+		t.Error("Expected spinner to stop after tool use rollup is cleared")
 	}
 }
 
@@ -2237,21 +2247,22 @@ func TestToolUseConstants(t *testing.T) {
 	}
 }
 
-func TestSpinnerFrames(t *testing.T) {
-	if len(spinnerFrames) == 0 {
-		t.Error("spinnerFrames should not be empty")
+func TestSpinnerModel(t *testing.T) {
+	sp := NewSpinnerState()
+	if len(sp.Model.Spinner.Frames) == 0 {
+		t.Error("spinner should have frames")
 	}
 
-	if len(spinnerFrameHoldTimes) != len(spinnerFrames) {
-		t.Errorf("spinnerFrameHoldTimes length (%d) should match spinnerFrames (%d)",
-			len(spinnerFrameHoldTimes), len(spinnerFrames))
+	// Verify it uses MiniDot
+	if len(sp.Model.Spinner.Frames) != len(spinner.MiniDot.Frames) {
+		t.Errorf("expected MiniDot spinner with %d frames, got %d",
+			len(spinner.MiniDot.Frames), len(sp.Model.Spinner.Frames))
 	}
 
-	// Verify all hold times are positive
-	for i, holdTime := range spinnerFrameHoldTimes {
-		if holdTime < 1 {
-			t.Errorf("spinnerFrameHoldTimes[%d] = %d, should be >= 1", i, holdTime)
-		}
+	// Verify View returns a non-empty string
+	view := sp.Model.View()
+	if view == "" {
+		t.Error("spinner.View() should not be empty")
 	}
 }
 
@@ -4946,12 +4957,14 @@ func TestRenderFinalStats_WithCacheEfficiency(t *testing.T) {
 }
 
 func TestRenderStreamingStatus_WithCacheEfficiency(t *testing.T) {
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+
 	// Test with cache read tokens during streaming
 	stats := &claude.StreamStats{
 		OutputTokens:    100,
 		CacheReadTokens: 50000,
 	}
-	result := renderStreamingStatus("Thinking", 0, 5*time.Second, stats, "")
+	result := renderStreamingStatus("Thinking", sp, 5*time.Second, stats, "")
 	// formatTokenCount formats 50000 as "50.0k"
 	if !strings.Contains(result, "cache: 50.0k") {
 		t.Errorf("renderStreamingStatus should show cache tokens, got %q", result)
@@ -4964,9 +4977,71 @@ func TestRenderStreamingStatus_WithCacheEfficiency(t *testing.T) {
 	stats = &claude.StreamStats{
 		OutputTokens: 100,
 	}
-	result = renderStreamingStatus("Thinking", 0, 5*time.Second, stats, "")
+	result = renderStreamingStatus("Thinking", sp, 5*time.Second, stats, "")
 	if strings.Contains(result, "cache:") {
 		t.Errorf("renderStreamingStatus should not show cache when no cache tokens, got %q", result)
+	}
+}
+
+// =============================================================================
+// Container Initialization Progress Tests
+// =============================================================================
+
+func TestRenderContainerInitStatus_ProgressBar(t *testing.T) {
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	prog := progress.New(progress.WithWidth(30), progress.WithoutPercentage())
+
+	result := renderContainerInitStatus(sp, 2*time.Second, prog)
+
+	// Should contain "Starting container..."
+	if !strings.Contains(result, "Starting container") {
+		t.Errorf("expected 'Starting container' in output, got %q", result)
+	}
+
+	// Should contain elapsed time
+	if !strings.Contains(result, "2s") {
+		t.Errorf("expected '2s' elapsed in output, got %q", result)
+	}
+
+	// Should contain a newline for the progress bar line
+	if !strings.Contains(result, "\n") {
+		t.Errorf("expected progress bar on new line, got %q", result)
+	}
+}
+
+func TestRenderContainerInitStatus_ProgressClampedAt95(t *testing.T) {
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	prog := progress.New(progress.WithWidth(30), progress.WithoutPercentage())
+
+	// At exactly 5s, should be 95%
+	result5s := renderContainerInitStatus(sp, 5*time.Second, prog)
+	// At 10s (way over), should still be 95% (same bar as 5s)
+	result10s := renderContainerInitStatus(sp, 10*time.Second, prog)
+
+	// Both should render the same progress bar (clamped at 95%)
+	// Extract the progress bar line (after the newline)
+	lines5s := strings.Split(result5s, "\n")
+	lines10s := strings.Split(result10s, "\n")
+
+	if len(lines5s) < 2 || len(lines10s) < 2 {
+		t.Fatalf("expected at least 2 lines in output")
+	}
+
+	// The progress bar lines should be identical (both at 95%)
+	if lines5s[1] != lines10s[1] {
+		t.Errorf("progress bar should be clamped at 95%%:\n  5s bar: %q\n 10s bar: %q", lines5s[1], lines10s[1])
+	}
+}
+
+func TestRenderContainerInitStatus_ProgressAtZero(t *testing.T) {
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	prog := progress.New(progress.WithWidth(30), progress.WithoutPercentage())
+
+	result := renderContainerInitStatus(sp, 0, prog)
+
+	// Should still render without error
+	if result == "" {
+		t.Error("expected non-empty result at zero elapsed")
 	}
 }
 
@@ -5119,8 +5194,13 @@ func TestChat_RenderStreamingStatus_WithSubagent(t *testing.T) {
 	elapsed := 5 * time.Second
 	stats := &claude.StreamStats{OutputTokens: 100}
 
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(ColorUser).Bold(true)),
+	)
+
 	// Without subagent
-	statusNoSubagent := renderStreamingStatus("Thinking", 0, elapsed, stats, "")
+	statusNoSubagent := renderStreamingStatus("Thinking", sp, elapsed, stats, "")
 	if strings.Contains(statusNoSubagent, "haiku") {
 		t.Error("Status without subagent should not contain haiku")
 	}
@@ -5129,7 +5209,7 @@ func TestChat_RenderStreamingStatus_WithSubagent(t *testing.T) {
 	}
 
 	// With subagent (Haiku)
-	statusWithSubagent := renderStreamingStatus("Thinking", 0, elapsed, stats, "claude-haiku-4-5-20251001")
+	statusWithSubagent := renderStreamingStatus("Thinking", sp, elapsed, stats, "claude-haiku-4-5-20251001")
 	if !strings.Contains(statusWithSubagent, "haiku") {
 		t.Error("Status with haiku subagent should contain 'haiku'")
 	}

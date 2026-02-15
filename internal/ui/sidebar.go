@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,17 +15,6 @@ import (
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 )
-
-// sidebarSpinnerFrames uses the same shimmering spinner as the chat panel
-// Inspired by Claude Code's flower-like spinner
-var sidebarSpinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
-
-// sidebarSpinnerHoldTimes defines how long each frame should be held (in ticks)
-// First and last frames hold longer for a "breathing" effect
-var sidebarSpinnerHoldTimes = []int{3, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 3}
-
-// SidebarTickMsg is sent to advance the spinner animation
-type SidebarTickMsg time.Time
 
 // sidebarItemKind distinguishes between repo headers and sessions in the sidebar.
 type sidebarItemKind int
@@ -74,9 +63,8 @@ type Sidebar struct {
 	pendingQuestions   map[string]bool // Map of session IDs that have pending questions
 	idleWithResponse   map[string]bool // Map of session IDs that finished streaming (user hasn't responded)
 	uncommittedChanges map[string]bool // Map of session IDs that have uncommitted changes
-	hasNewComments     map[string]bool // Map of session IDs that have new PR review comments
-	spinnerFrame       int             // Current spinner animation frame
-	spinnerTick        int             // Tick counter for frame hold timing
+	hasNewComments map[string]bool  // Map of session IDs that have new PR review comments
+	spinner        spinner.Model   // Spinner for streaming sessions
 
 	// Multi-select mode
 	multiSelectMode  bool
@@ -100,6 +88,10 @@ func NewSidebar() *Sidebar {
 	ti.Placeholder = "search..."
 	ti.CharLimit = SidebarSearchCharLimit
 
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+	)
+
 	return &Sidebar{
 		selectedIdx:        0,
 		streamingSessions:  make(map[string]bool),
@@ -110,6 +102,7 @@ func NewSidebar() *Sidebar {
 		hasNewComments:     make(map[string]bool),
 		selectedSessions:   make(map[string]bool),
 		searchInput:        ti,
+		spinner:            sp,
 	}
 }
 
@@ -659,11 +652,10 @@ func (s *Sidebar) visibleSessions() []config.Session {
 	return s.sessions
 }
 
-// SidebarTick returns a command that sends a tick message after a delay
-func SidebarTick() tea.Cmd {
-	return tea.Tick(300*time.Millisecond, func(t time.Time) tea.Msg {
-		return SidebarTickMsg(t)
-	})
+// SidebarTick returns a command that starts the sidebar spinner animation.
+// Call this when beginning an operation that needs the sidebar spinner.
+func (s *Sidebar) SidebarTick() tea.Cmd {
+	return s.spinner.Tick
 }
 
 // EnterSearchMode activates search mode
@@ -751,20 +743,11 @@ func (s *Sidebar) getDisplaySessions() []config.Session {
 // Update handles messages
 func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 	switch msg := msg.(type) {
-	case SidebarTickMsg:
-		var cmds []tea.Cmd
+	case spinner.TickMsg:
 		if s.IsStreaming() {
-			// Advance the spinner with easing (some frames hold longer)
-			s.spinnerTick++
-			holdTime := sidebarSpinnerHoldTimes[s.spinnerFrame%len(sidebarSpinnerHoldTimes)]
-			if s.spinnerTick >= holdTime {
-				s.spinnerTick = 0
-				s.spinnerFrame = (s.spinnerFrame + 1) % len(sidebarSpinnerFrames)
-			}
-			cmds = append(cmds, SidebarTick())
-		}
-		if len(cmds) > 0 {
-			return s, tea.Batch(cmds...)
+			var cmd tea.Cmd
+			s.spinner, cmd = s.spinner.Update(msg)
+			return s, cmd
 		}
 		return s, nil
 
@@ -1097,7 +1080,7 @@ func (s *Sidebar) renderSessionNode(sess config.Session, depth int, isSelected b
 		symbolColor = ColorWarning
 	} else if s.IsSessionStreaming(sess.ID) {
 		// Streaming - use animated spinner
-		nodeSymbol = sidebarSpinnerFrames[s.spinnerFrame]
+		nodeSymbol = s.spinner.View()
 		symbolColor = ColorPrimary
 	} else if sess.MergedToParent || sess.Merged {
 		// Merged to parent or main branch

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/changelog"
 	"github.com/zhubert/plural/internal/claude"
@@ -847,21 +848,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	// Handle tick messages - both panels need these regardless of focus
-	switch msg.(type) {
-	case ui.SidebarTickMsg:
-		sidebar, cmd := m.sidebar.Update(msg)
-		m.sidebar = sidebar
-		cmds = append(cmds, cmd)
-		return m, tea.Batch(cmds...)
-	case ui.StopwatchTickMsg:
-		// Update chat panel spinner if waiting
-		chat, cmd := m.chat.Update(msg)
+	switch typedMsg := msg.(type) {
+	case spinner.TickMsg:
+		// Forward spinner ticks to both chat and sidebar
+		chat, chatCmd := m.chat.Update(typedMsg)
 		m.chat = chat
-		cmds = append(cmds, cmd)
+		cmds = append(cmds, chatCmd)
+		sidebar, sidebarCmd := m.sidebar.Update(typedMsg)
+		m.sidebar = sidebar
+		cmds = append(cmds, sidebarCmd)
 		// Also update loading commit modal spinner if visible
 		if loadingState, ok := m.modal.State.(*ui.LoadingCommitState); ok {
-			loadingState.AdvanceSpinner()
-			cmds = append(cmds, ui.StopwatchTick())
+			cmd := loadingState.AdvanceSpinner(typedMsg)
+			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
 	case ui.SelectionCopyMsg:
@@ -1402,8 +1401,8 @@ func (m *Model) sendMessage() (tea.Model, tea.Cmd) {
 
 	// Return commands to listen for session events plus UI ticks
 	cmds := append(m.sessionListeners(sessionID, runner, responseChan),
-		ui.SidebarTick(),
-		ui.StopwatchTick(),
+		m.sidebar.SidebarTick(),
+		m.chat.SpinnerTick(),
 	)
 	return m, tea.Batch(cmds...)
 }

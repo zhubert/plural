@@ -931,13 +931,14 @@ func TestHelpModal_Navigate(t *testing.T) {
 	m = sendKey(m, "?")
 	state := m.modal.State.(*ui.HelpState)
 
-	initialIndex := state.SelectedIndex
+	initialShortcut := state.GetSelectedShortcut()
 
 	// Navigate down
-	m = sendKey(m, "down")
+	m = sendKey(m, "j")
 	state = m.modal.State.(*ui.HelpState)
 
-	if state.SelectedIndex == initialIndex {
+	newShortcut := state.GetSelectedShortcut()
+	if initialShortcut != nil && newShortcut != nil && newShortcut.Key == initialShortcut.Key {
 		t.Log("Navigation may have limited options")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/app"
 	"github.com/zhubert/plural/internal/claude"
@@ -497,12 +498,9 @@ func (e *Executor) captureAnimatedFrames(stepIndex int, totalDuration time.Durat
 
 // sendTickMessages sends tick messages to animate spinners.
 func (e *Executor) sendTickMessages() {
-	// Send sidebar tick to advance spinner
-	result, _ := e.model.Update(ui.SidebarTickMsg(time.Now()))
-	e.model = result.(*app.Model)
-
-	// Send stopwatch tick for chat spinner
-	result, _ = e.model.Update(ui.StopwatchTickMsg(time.Now()))
+	// Send spinner tick to advance both chat and sidebar spinners
+	// ID 0 is accepted by all spinners as a wildcard
+	result, _ := e.model.Update(spinner.TickMsg{Time: time.Now()})
 	e.model = result.(*app.Model)
 }
 

@@ -47,6 +47,13 @@ func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.
 
 // handleHelpModal handles key events for the Help modal.
 func (m *Model) handleHelpModal(key string, msg tea.KeyPressMsg, state *ui.HelpState) (tea.Model, tea.Cmd) {
+	// While filtering, forward all keys to the list (Esc cancels filter, Enter applies)
+	if state.IsFiltering() {
+		modal, cmd := m.modal.Update(msg)
+		m.modal = modal
+		return m, cmd
+	}
+
 	switch key {
 	case keys.Escape, "?", "q":
 		m.modal.Hide()

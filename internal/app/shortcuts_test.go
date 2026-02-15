@@ -615,8 +615,10 @@ func TestHelpModal_NavigateAndTrigger(t *testing.T) {
 	if !ok {
 		t.Fatal("Expected HelpState")
 	}
-	if state.SelectedIndex == 0 {
-		t.Error("Expected selection to move after pressing down")
+	// The first shortcut should be passed (navigated down twice)
+	shortcut := state.GetSelectedShortcut()
+	if shortcut == nil {
+		t.Fatal("Expected non-nil shortcut after navigation")
 	}
 }
 

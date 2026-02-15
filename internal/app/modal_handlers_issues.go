@@ -302,7 +302,7 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 		}
 
 		m.setState(StateStreamingClaude)
-		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+		cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 	}
 
 	if len(cmds) > 0 {
@@ -468,7 +468,7 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		}
 
 		m.setState(StateStreamingClaude)
-		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+		cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 	}
 
 	if len(cmds) > 0 {

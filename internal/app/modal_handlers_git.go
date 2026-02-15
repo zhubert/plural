@@ -90,7 +90,7 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 			if parentSess != nil {
 				m.pendingCommit.ParentSessionID = parentSess.ID
 			}
-			return m, tea.Batch(m.generateCommitMessage(sess.ID, sess.WorkTree), ui.StopwatchTick())
+			return m, tea.Batch(m.generateCommitMessage(sess.ID, sess.WorkTree), m.chat.SpinnerTick())
 		}
 
 		// No changes - proceed directly with merge/PR/push
@@ -350,8 +350,8 @@ Please resolve these merge conflicts by:
 	responseChan := runner.SendContent(ctx, content)
 
 	cmds := append(m.sessionListeners(sess.ID, runner, responseChan),
-		ui.SidebarTick(),
-		ui.StopwatchTick(),
+		m.sidebar.SidebarTick(),
+		m.chat.SpinnerTick(),
 	)
 	return m, tea.Batch(cmds...)
 }
@@ -476,8 +476,8 @@ func (m *Model) sendReviewCommentsToSession(sessionID string, comments []ui.Revi
 	responseChan := runner.SendContent(ctx, content)
 
 	cmds := append(m.sessionListeners(sess.ID, runner, responseChan),
-		ui.SidebarTick(),
-		ui.StopwatchTick(),
+		m.sidebar.SidebarTick(),
+		m.chat.SpinnerTick(),
 	)
 	return m, tea.Batch(cmds...)
 }
