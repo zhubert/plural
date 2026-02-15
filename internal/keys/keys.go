@@ -50,6 +50,7 @@ var (
 	CtrlP      = (tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl}).String()                // "ctrl+p"
 	CtrlE      = (tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl}).String()                // "ctrl+e"
 	CtrlR      = (tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl}).String()                // "ctrl+r"
+	CtrlComma  = (tea.KeyPressMsg{Code: ',', Mod: tea.ModCtrl}).String()                // "ctrl+,"
 	CtrlSlash  = (tea.KeyPressMsg{Code: '/', Mod: tea.ModCtrl}).String()                // "ctrl+/"
 	CtrlShiftB = (tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl | tea.ModShift}).String() // "ctrl+shift+b"
 	CtrlUp     = (tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModCtrl}).String()          // "ctrl+up"

@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -965,6 +966,67 @@ func TestShortcutSettings_OpensModal(t *testing.T) {
 			t.Errorf("expected SettingsState modal, got %T", m.modal.State)
 		}
 	})
+}
+
+func TestCtrlComma_OpensGlobalSettingsFromSidebar(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Sidebar is focused by default
+	_, _, handled := m.ExecuteShortcut(keys.CtrlComma)
+	if !handled {
+		t.Error("Expected ctrl-, to be handled from sidebar")
+	}
+	if !m.modal.IsVisible() {
+		t.Error("Expected modal to be visible")
+	}
+	_, ok := m.modal.State.(*ui.SettingsState)
+	if !ok {
+		t.Errorf("Expected SettingsState (global settings), got %T", m.modal.State)
+	}
+}
+
+func TestCtrlComma_OpensGlobalSettingsFromChat(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Switch to chat focus
+	m = sendKey(m, "enter")
+	if !m.chat.IsFocused() {
+		t.Fatal("Expected chat to be focused")
+	}
+
+	_, _, handled := m.ExecuteShortcut(keys.CtrlComma)
+	if !handled {
+		t.Error("Expected ctrl-, to be handled from chat")
+	}
+	if !m.modal.IsVisible() {
+		t.Error("Expected modal to be visible")
+	}
+	_, ok := m.modal.State.(*ui.SettingsState)
+	if !ok {
+		t.Errorf("Expected SettingsState (global settings), got %T", m.modal.State)
+	}
+}
+
+func TestCtrlComma_AlwaysGlobalEvenWhenRepoSelected(t *testing.T) {
+	cfg := testConfig()
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Sidebar starts on a repo - comma would show repo settings, but ctrl-, should show global
+	_, _, handled := m.ExecuteShortcut(keys.CtrlComma)
+	if !handled {
+		t.Error("Expected ctrl-, to be handled")
+	}
+	if !m.modal.IsVisible() {
+		t.Error("Expected modal to be visible")
+	}
+	_, ok := m.modal.State.(*ui.SettingsState)
+	if !ok {
+		t.Errorf("Expected SettingsState (global settings) even with repo selected, got %T", m.modal.State)
+	}
 }
 
 func TestPreviewInMain_NoCommitWhenClean(t *testing.T) {

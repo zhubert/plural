@@ -218,10 +218,17 @@ var ShortcutRegistry = []Shortcut{
 	},
 	{
 		Key:             ",",
-		Description:     "Settings",
+		Description:     "Settings (repo or global)",
 		Category:        CategoryConfiguration,
 		RequiresSidebar: true,
 		Handler:         shortcutSettings,
+	},
+	{
+		Key:         keys.CtrlComma,
+		DisplayKey:  "ctrl-,",
+		Description: "Global settings",
+		Category:    CategoryConfiguration,
+		Handler:     shortcutGlobalSettings,
 	},
 	{
 		Key:             "w",
@@ -654,6 +661,10 @@ func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
 	}
 
 	// Otherwise show global settings
+	return shortcutGlobalSettings(m)
+}
+
+func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 	settingsState := ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
