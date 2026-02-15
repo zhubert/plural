@@ -70,7 +70,7 @@ func (s *ImportIssuesState) Help() string {
 		return "Esc: close"
 	}
 	if s.ContainersSupported && (s.Focus == 1 || s.Focus == 2) {
-		return "Space: toggle  Tab: next field  Enter: import  Esc: cancel"
+		return "up/down navigate  Space: toggle  Tab: next field  Enter: import  Esc: cancel"
 	}
 	return "up/down navigate  Space: toggle  Tab: next field  Enter: import  Esc: cancel"
 }
@@ -304,21 +304,55 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				s.Focus = (s.Focus + 1) % 3
 			}
 		case keys.Up, "k":
-			// Only navigate issue list when focus is on it
-			if s.Focus == 0 && s.SelectedIndex > 0 {
-				s.SelectedIndex--
-				// Scroll up if needed
-				if s.SelectedIndex < s.ScrollOffset {
-					s.ScrollOffset = s.SelectedIndex
+			if s.ContainersSupported {
+				// Navigate between focus areas when containers are supported
+				if s.Focus == 1 {
+					// From autonomous checkbox, move up to issue list
+					s.Focus = 0
+				} else if s.Focus == 2 {
+					// From container checkbox, move up to autonomous checkbox
+					s.Focus = 1
+				} else if s.Focus == 0 && s.SelectedIndex > 0 {
+					// Navigate issue list
+					s.SelectedIndex--
+					// Scroll up if needed
+					if s.SelectedIndex < s.ScrollOffset {
+						s.ScrollOffset = s.SelectedIndex
+					}
+				}
+			} else {
+				// Without container support, only navigate issue list
+				if s.Focus == 0 && s.SelectedIndex > 0 {
+					s.SelectedIndex--
+					if s.SelectedIndex < s.ScrollOffset {
+						s.ScrollOffset = s.SelectedIndex
+					}
 				}
 			}
 		case keys.Down, "j":
-			// Only navigate issue list when focus is on it
-			if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
-				s.SelectedIndex++
-				// Scroll down if needed
-				if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
-					s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
+			if s.ContainersSupported {
+				// Navigate between focus areas when containers are supported
+				if s.Focus == 1 {
+					// From autonomous checkbox, move down to container checkbox
+					s.Focus = 2
+				} else if s.Focus == 2 {
+					// From container checkbox, wrap to issue list
+					s.Focus = 0
+				} else if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
+					// Navigate issue list
+					s.SelectedIndex++
+					// Scroll down if needed
+					if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
+						s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
+					}
+				}
+			} else {
+				// Without container support, only navigate issue list
+				if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
+					s.SelectedIndex++
+					if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
+						s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
+					}
 				}
 			}
 		case keys.Space:
