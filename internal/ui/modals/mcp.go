@@ -138,9 +138,8 @@ type AddMCPServerState struct {
 	command  string
 	args     string
 
-	repos       []string
-	form        *huh.Form
-	initialized bool
+	repos []string
+	form  *huh.Form
 }
 
 func (*AddMCPServerState) modalState() {}
@@ -159,7 +158,7 @@ func (s *AddMCPServerState) Render() string {
 
 func (s *AddMCPServerState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
 	return s, cmd
 }
 
@@ -238,7 +237,6 @@ func NewAddMCPServerState(repos []string) *AddMCPServerState {
 		WithWidth(ModalInputWidth).
 		WithLayout(huh.LayoutStack)
 
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }

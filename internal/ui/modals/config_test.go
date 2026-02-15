@@ -17,14 +17,14 @@ var (
 // newTestSettingsState is a helper that prepends theme data to NewSettingsState calls.
 func newTestSettingsState(branchPrefix string, notifs bool) *SettingsState {
 	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, false, "") // no containers by default
+		branchPrefix, notifs, false, "", false, false, false)
 }
 
 // newTestSettingsStateWithContainers is like newTestSettingsState but with container support.
 func newTestSettingsStateWithContainers(branchPrefix string, notifs bool,
 	containersSupported bool, containerImage string) *SettingsState {
 	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, containersSupported, containerImage)
+		branchPrefix, notifs, containersSupported, containerImage, false, false, false)
 }
 
 // =============================================================================
@@ -198,8 +198,8 @@ func TestSettingsState_AutonomousSection_ShownWithContainers(t *testing.T) {
 	s := newTestSettingsStateWithContainers("", false, true, "")
 	rendered := s.Render()
 
-	if !strings.Contains(rendered, "Auto-address PR comments") {
-		t.Error("Auto-address PR comments field should appear")
+	if !strings.Contains(rendered, "Autonomous options") {
+		t.Error("Autonomous options section should appear")
 	}
 	if !strings.Contains(rendered, "Max autonomous turns") {
 		t.Error("Max autonomous turns field should appear")
@@ -753,21 +753,28 @@ func TestForkSessionState_InheritsParentContainerized(t *testing.T) {
 	}
 }
 
-func TestForkSessionState_ContainerCheckbox_Render_WhenSupported(t *testing.T) {
-	s := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
-	rendered := s.Render()
+func TestForkSessionState_ContainerOption_WhenSupported(t *testing.T) {
+	s := NewForkSessionState("parent", "parent-id", "/repo", true, true, false)
 
-	if !strings.Contains(rendered, "Run in container") {
-		t.Error("Container checkbox should appear when supported")
+	// Container option should be enabled via MultiSelect when parent was containerized
+	if !s.GetUseContainers() {
+		t.Error("UseContainers should be true when inherited from containerized parent")
+	}
+
+	// Non-containerized parent
+	s2 := NewForkSessionState("parent", "parent-id", "/repo", false, true, false)
+	if s2.GetUseContainers() {
+		t.Error("UseContainers should be false when parent was not containerized")
 	}
 }
 
-func TestForkSessionState_ContainerCheckbox_Render_WhenUnsupported(t *testing.T) {
+func TestForkSessionState_ContainerOption_WhenUnsupported(t *testing.T) {
 	s := NewForkSessionState("parent", "parent-id", "/repo", false, false, false)
 	rendered := s.Render()
 
+	// Without containers supported, the container option should not be in the form
 	if strings.Contains(rendered, "Run in container") {
-		t.Error("Container checkbox should not appear when unsupported")
+		t.Error("Container option should not appear when unsupported")
 	}
 }
 

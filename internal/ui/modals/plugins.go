@@ -528,9 +528,8 @@ func (s *PluginsState) SetData(marketplaces []MarketplaceDisplay, plugins []Plug
 // =============================================================================
 
 type AddMarketplaceState struct {
-	form        *huh.Form
-	initialized bool
-	source      string
+	form   *huh.Form
+	source string
 }
 
 func (*AddMarketplaceState) modalState() {}
@@ -556,7 +555,7 @@ func (s *AddMarketplaceState) Render() string {
 
 func (s *AddMarketplaceState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
 	return s, cmd
 }
 
@@ -580,7 +579,6 @@ func NewAddMarketplaceState() *AddMarketplaceState {
 		WithShowHelp(false).
 		WithWidth(ModalInputWidth)
 
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }

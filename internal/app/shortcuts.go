@@ -675,11 +675,10 @@ func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 		m.config.GetNotificationsEnabled(),
 		process.ContainersSupported(),
 		m.config.GetContainerImage(),
+		m.config.GetAutoCleanupMerged(),
+		m.config.GetAutoBroadcastPR(),
+		m.config.GetAutoAddressPRComments(),
 	)
-	settingsState.AutoCleanupMerged = m.config.GetAutoCleanupMerged()
-	settingsState.AutoBroadcastPR = m.config.GetAutoBroadcastPR()
-	// Autonomous global settings
-	settingsState.AutoAddressPRComments = m.config.GetAutoAddressPRComments()
 	settingsState.SetAutoMaxTurns(strconv.Itoa(m.config.GetAutoMaxTurns()))
 	settingsState.SetAutoMaxDuration(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
 	settingsState.SetIssueMaxConcurrent(strconv.Itoa(m.config.GetIssueMaxConcurrent()))

@@ -398,7 +398,7 @@ func TestForkSessionModal_Open(t *testing.T) {
 	}
 }
 
-func TestForkSessionModal_ToggleCopyMessages(t *testing.T) {
+func TestForkSessionModal_CopyMessagesDefault(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
@@ -406,14 +406,18 @@ func TestForkSessionModal_ToggleCopyMessages(t *testing.T) {
 	m = sendKey(m, "f")
 	state := m.modal.State.(*ui.ForkSessionState)
 
-	// Initial state - copy messages should be true by default (per constructor)
+	// Copy messages should be true by default (per constructor)
 	if !state.CopyMessages {
 		t.Error("CopyMessages should be true by default")
 	}
-
-	// Verify ShouldCopyMessages accessor works
 	if !state.ShouldCopyMessages() {
 		t.Error("ShouldCopyMessages should return true by default")
+	}
+
+	// Verify rendered output contains the Options field
+	rendered := state.Render()
+	if !strings.Contains(rendered, "Options") {
+		t.Error("rendered fork modal should contain 'Options' MultiSelect field")
 	}
 }
 
@@ -552,6 +556,7 @@ func TestSettingsModal_Open(t *testing.T) {
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
 		false, "",
+		false, false, false,
 	))
 	if !m.modal.IsVisible() {
 		t.Fatal("Settings modal should be visible")
@@ -572,6 +577,7 @@ func TestSettingsModal_CancelWithEscape(t *testing.T) {
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
 		false, "",
+		false, false, false,
 	))
 	state := m.modal.State.(*ui.SettingsState)
 
@@ -600,6 +606,7 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
 		false, "",
+		false, false, false,
 	))
 	state := m.modal.State.(*ui.SettingsState)
 
@@ -674,6 +681,7 @@ func TestSettingsModal_UpdatesBranchPrefix(t *testing.T) {
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
 		false, "",
+		false, false, false,
 	))
 	state := m.modal.State.(*ui.SettingsState)
 
@@ -753,8 +761,11 @@ func TestAddMCPServerModal_SubmitEmptyFields(t *testing.T) {
 		t.Fatalf("Expected AddMCPServerState, got %T", m.modal.State)
 	}
 
-	// Fields start empty by default (huh form initialized with empty values)
-	_ = state
+	// Verify fields start empty by default
+	name, command, _, _, _ := state.GetValues()
+	if name != "" || command != "" {
+		t.Fatal("Expected empty fields by default")
+	}
 
 	// Try to submit
 	m = sendKey(m, "enter")
@@ -1948,25 +1959,19 @@ func TestSessionSettingsModal_ToggleAutonomous(t *testing.T) {
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
+	// Test with autonomous initially false
 	state := ui.NewSessionSettingsState("session-1", "feature-branch", "feature-branch", "main", false, false)
 	m.modal.Show(state)
-
 	s := m.modal.State.(*ui.SessionSettingsState)
-
-	// Initial state: autonomous should be false
 	if s.Autonomous {
 		t.Error("expected autonomous to be false initially")
 	}
 
-	// Directly set autonomous to true and verify
-	s.Autonomous = true
-	if !s.Autonomous {
-		t.Error("expected autonomous to be true after setting")
-	}
-
-	// Set back to false
-	s.Autonomous = false
-	if s.Autonomous {
-		t.Error("expected autonomous to be false after unsetting")
+	// Test with autonomous initially true
+	state2 := ui.NewSessionSettingsState("session-1", "feature-branch", "feature-branch", "main", true, false)
+	m.modal.Show(state2)
+	s2 := m.modal.State.(*ui.SessionSettingsState)
+	if !s2.Autonomous {
+		t.Error("expected autonomous to be true when initialized as true")
 	}
 }

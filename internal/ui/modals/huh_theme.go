@@ -17,17 +17,7 @@ func initHuhForm(form *huh.Form) {
 // huhFormUpdate is the common Update logic for huh-based modals.
 // It intercepts Enter and Escape (handled by the app-layer modal handlers)
 // and delegates everything else to the huh form.
-func huhFormUpdate(form *huh.Form, initialized *bool, msg tea.Msg) (*huh.Form, tea.Cmd) {
-	// Legacy lazy init path for safety — forms should be eagerly initialized
-	// via initHuhForm() in constructors, but handle the case where they aren't.
-	if !*initialized {
-		*initialized = true
-		initCmd := form.Init()
-		m, updateCmd := form.Update(msg)
-		form = m.(*huh.Form)
-		return form, tea.Batch(initCmd, updateCmd)
-	}
-
+func huhFormUpdate(form *huh.Form, msg tea.Msg) (*huh.Form, tea.Cmd) {
 	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
 		switch keyMsg.String() {
 		case keys.Enter, keys.Escape:

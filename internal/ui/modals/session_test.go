@@ -435,10 +435,11 @@ func TestSessionSettingsState_Render(t *testing.T) {
 	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true, true)
 	rendered := state.Render()
 
-	checks := []string{"Session Settings", "feature-branch", "main", "yes"}
+	// Check info section and form structure
+	checks := []string{"Session Settings", "feature-branch", "main", "yes", "Options"}
 	for _, check := range checks {
 		if !strings.Contains(rendered, check) {
-			t.Errorf("expected render to contain %q", check)
+			t.Errorf("expected render to contain %q\nFull render:\n%s", check, rendered)
 		}
 	}
 }

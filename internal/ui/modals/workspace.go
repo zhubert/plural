@@ -159,9 +159,8 @@ type NewWorkspaceState struct {
 	IsRename    bool   // true if renaming an existing workspace
 	WorkspaceID string // set when renaming
 
-	form        *huh.Form
-	initialized bool
-	name        string
+	form *huh.Form
+	name string
 }
 
 func (*NewWorkspaceState) modalState() {}
@@ -185,7 +184,7 @@ func (s *NewWorkspaceState) Render() string {
 
 func (s *NewWorkspaceState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
 	return s, cmd
 }
 
@@ -212,7 +211,6 @@ func newWorkspaceForm(s *NewWorkspaceState, placeholder string) *huh.Form {
 func NewNewWorkspaceState() *NewWorkspaceState {
 	s := &NewWorkspaceState{}
 	s.form = newWorkspaceForm(s, "e.g., Feature Work, Bug Fixes")
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }
@@ -225,7 +223,6 @@ func NewRenameWorkspaceState(workspaceID, currentName string) *NewWorkspaceState
 		name:        currentName,
 	}
 	s.form = newWorkspaceForm(s, "New name")
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }

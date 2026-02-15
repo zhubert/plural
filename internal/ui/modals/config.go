@@ -2,6 +2,7 @@ package modals
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -234,25 +235,35 @@ const AsanaProjectMaxVisible = 5
 
 type SettingsState struct {
 	// Bound form values
-	selectedTheme        string
-	OriginalTheme        string // To detect if theme changed
-	branchPrefix         string
-	NotificationsEnabled bool
-	AutoCleanupMerged    bool // Auto-cleanup sessions when PR merged/closed
-	AutoBroadcastPR      bool // Auto-create PRs when broadcast group completes
-	containerImage       string
-	ContainersSupported  bool // Whether Docker is available for container mode
+	selectedTheme         string
+	OriginalTheme         string // To detect if theme changed
+	branchPrefix          string
+	NotificationsEnabled  bool
+	AutoCleanupMerged     bool // Auto-cleanup sessions when PR merged/closed
+	AutoBroadcastPR       bool // Auto-create PRs when broadcast group completes
+	containerImage        string
+	ContainersSupported   bool // Whether Docker is available for container mode
 	AutoAddressPRComments bool
-	autoMaxTurns         string
-	autoMaxDuration      string
-	issueMaxConcurrent   string
+	autoMaxTurns          string
+	autoMaxDuration       string
+	issueMaxConcurrent    string
 
-	form        *huh.Form
-	initialized bool
+	// MultiSelect bindings
+	generalOptions    []string
+	autonomousOptions []string
+
+	form *huh.Form
 
 	// Size tracking
 	availableWidth int
 }
+
+const (
+	optionNotifications  = "notifications"
+	optionAutoCleanup    = "auto-cleanup"
+	optionAutoBroadcast  = "auto-broadcast"
+	optionAutoAddressPR  = "auto-address-pr"
+)
 
 func (*SettingsState) modalState() {}
 
@@ -285,8 +296,17 @@ func (s *SettingsState) Render() string {
 
 func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
+	s.syncFromMultiSelect()
 	return s, cmd
+}
+
+// syncFromMultiSelect updates boolean fields from the MultiSelect bindings.
+func (s *SettingsState) syncFromMultiSelect() {
+	s.NotificationsEnabled = slices.Contains(s.generalOptions, optionNotifications)
+	s.AutoCleanupMerged = slices.Contains(s.generalOptions, optionAutoCleanup)
+	s.AutoBroadcastPR = slices.Contains(s.generalOptions, optionAutoBroadcast)
+	s.AutoAddressPRComments = slices.Contains(s.autonomousOptions, optionAutoAddressPR)
 }
 
 // GetBranchPrefix returns the branch prefix value
@@ -824,22 +844,46 @@ func renderInputField(label, desc string, input textinput.Model, focusIdx, curre
 // NewSettingsState creates a new SettingsState with the current settings values.
 func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme string,
 	currentBranchPrefix string, notificationsEnabled bool,
-	containersSupported bool, containerImage string) *SettingsState {
+	containersSupported bool, containerImage string,
+	autoCleanupMerged bool, autoBroadcastPR bool, autoAddressPRComments bool) *SettingsState {
 
 	s := &SettingsState{
-		selectedTheme:        currentTheme,
-		OriginalTheme:        currentTheme,
-		branchPrefix:         currentBranchPrefix,
-		NotificationsEnabled: notificationsEnabled,
-		containerImage:       containerImage,
-		ContainersSupported:  containersSupported,
-		availableWidth:       ModalWidthWide,
+		selectedTheme:         currentTheme,
+		OriginalTheme:         currentTheme,
+		branchPrefix:          currentBranchPrefix,
+		NotificationsEnabled:  notificationsEnabled,
+		AutoCleanupMerged:     autoCleanupMerged,
+		AutoBroadcastPR:       autoBroadcastPR,
+		AutoAddressPRComments: autoAddressPRComments,
+		containerImage:        containerImage,
+		ContainersSupported:   containersSupported,
+		availableWidth:        ModalWidthWide,
 	}
 
 	// Build theme options
 	themeOptions := make([]huh.Option[string], len(themes))
 	for i := range themes {
 		themeOptions[i] = huh.NewOption(themeDisplayNames[i], themes[i])
+	}
+
+	// Build general options MultiSelect
+	generalOpts := []huh.Option[string]{
+		huh.NewOption("Desktop notifications", optionNotifications).
+			Selected(notificationsEnabled),
+		huh.NewOption("Auto-cleanup merged sessions", optionAutoCleanup).
+			Selected(autoCleanupMerged),
+		huh.NewOption("Auto-create broadcast PRs", optionAutoBroadcast).
+			Selected(autoBroadcastPR),
+	}
+	// Initialize the enabledOptions slice to match
+	if notificationsEnabled {
+		s.generalOptions = append(s.generalOptions, optionNotifications)
+	}
+	if autoCleanupMerged {
+		s.generalOptions = append(s.generalOptions, optionAutoCleanup)
+	}
+	if autoBroadcastPR {
+		s.generalOptions = append(s.generalOptions, optionAutoBroadcast)
 	}
 
 	// General settings group
@@ -854,24 +898,11 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 			Placeholder("e.g., zhubert/").
 			CharLimit(BranchPrefixCharLimit).
 			Value(&s.branchPrefix),
-		huh.NewConfirm().
-			Title("Desktop notifications").
-			Description("Notify when Claude finishes in background").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&s.NotificationsEnabled),
-		huh.NewConfirm().
-			Title("Auto-cleanup merged sessions").
-			Description("Delete sessions when PR is merged or closed").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&s.AutoCleanupMerged),
-		huh.NewConfirm().
-			Title("Auto-create broadcast PRs").
-			Description("Create PRs when broadcast group completes").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&s.AutoBroadcastPR),
+		huh.NewMultiSelect[string]().
+			Title("Options").
+			Options(generalOpts...).
+			Height(len(generalOpts)).
+			Value(&s.generalOptions),
 	)
 
 	// Container settings group (conditionally shown)
@@ -884,14 +915,22 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 			Value(&s.containerImage),
 	).WithHideFunc(func() bool { return !containersSupported })
 
+	// Build autonomous options MultiSelect
+	autoOpts := []huh.Option[string]{
+		huh.NewOption("Auto-address PR comments", optionAutoAddressPR).
+			Selected(autoAddressPRComments),
+	}
+	if autoAddressPRComments {
+		s.autonomousOptions = append(s.autonomousOptions, optionAutoAddressPR)
+	}
+
 	// Autonomous settings group (conditionally shown)
 	autonomousGroup := huh.NewGroup(
-		huh.NewConfirm().
-			Title("Auto-address PR comments").
-			Description("Auto-fetch and address new PR review comments").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&s.AutoAddressPRComments),
+		huh.NewMultiSelect[string]().
+			Title("Autonomous options").
+			Options(autoOpts...).
+			Height(len(autoOpts)).
+			Value(&s.autonomousOptions),
 		huh.NewInput().
 			Title("Max autonomous turns").
 			Placeholder("50").
@@ -915,7 +954,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		WithWidth(s.contentWidth()).
 		WithLayout(huh.LayoutStack)
 
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }
