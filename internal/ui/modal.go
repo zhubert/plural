@@ -147,12 +147,14 @@ func themeKeysAndNames() ([]string, []string) {
 
 // NewSettingsState creates a new SettingsState with theme data injected automatically.
 func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool,
-	containersSupported bool, containerImage string) *SettingsState {
+	containersSupported bool, containerImage string,
+	autoCleanupMerged bool, autoBroadcastPR bool, autoAddressPRComments bool) *SettingsState {
 	themeKeys, themeDisplayNames := themeKeysAndNames()
 	currentTheme := string(CurrentThemeName())
 	return modals.NewSettingsState(themeKeys, themeDisplayNames, currentTheme,
 		currentBranchPrefix, notificationsEnabled,
-		containersSupported, containerImage)
+		containersSupported, containerImage,
+		autoCleanupMerged, autoBroadcastPR, autoAddressPRComments)
 }
 
 // NewRepoSettingsState creates a new RepoSettingsState for the given repo.

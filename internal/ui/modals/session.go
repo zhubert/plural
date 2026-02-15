@@ -2,6 +2,7 @@ package modals
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -439,10 +440,15 @@ type ForkSessionState struct {
 	ContainersSupported    bool   // Whether Docker is available for container mode
 	ContainerAuthAvailable bool   // Whether API key credentials are available for container mode
 	branchName             string // Bound form value
+	enabledOptions         []string // MultiSelect binding
 
-	form        *huh.Form
-	initialized bool
+	form *huh.Form
 }
+
+const (
+	optionCopyMessages  = "copy-messages"
+	optionUseContainers = "use-containers"
+)
 
 func (*ForkSessionState) modalState() {}
 
@@ -486,8 +492,15 @@ func (s *ForkSessionState) Render() string {
 
 func (s *ForkSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
+	s.syncFromMultiSelect()
 	return s, cmd
+}
+
+// syncFromMultiSelect updates boolean fields from the MultiSelect binding.
+func (s *ForkSessionState) syncFromMultiSelect() {
+	s.CopyMessages = slices.Contains(s.enabledOptions, optionCopyMessages)
+	s.UseContainers = slices.Contains(s.enabledOptions, optionUseContainers)
 }
 
 // GetBranchName returns the custom branch name
@@ -525,38 +538,39 @@ func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, pa
 		ContainerAuthAvailable: containerAuthAvailable,
 	}
 
-	fields := []huh.Field{
-		huh.NewConfirm().
-			Title("Copy conversation history").
-			Description("Include messages from parent session").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&s.CopyMessages),
-		huh.NewInput().
-			Title("Branch name").
-			Placeholder("optional (leave empty for auto)").
-			CharLimit(BranchNameCharLimit).
-			Value(&s.branchName),
+	// Build MultiSelect options
+	options := []huh.Option[string]{
+		huh.NewOption("Copy conversation history", optionCopyMessages).
+			Selected(true), // Default to copying
 	}
+	s.enabledOptions = append(s.enabledOptions, optionCopyMessages)
 
 	if containersSupported {
-		fields = append(fields,
-			huh.NewConfirm().
-				Title("Run in container").
-				Description("Sandboxed container (no permission prompts)").
-				Affirmative("Yes").
-				Negative("No").
-				Value(&s.UseContainers),
-		)
+		opt := huh.NewOption("Run in container — sandboxed (no permission prompts)", optionUseContainers).
+			Selected(parentContainerized)
+		options = append(options, opt)
+		if parentContainerized {
+			s.enabledOptions = append(s.enabledOptions, optionUseContainers)
+		}
 	}
 
 	s.form = huh.NewForm(
-		huh.NewGroup(fields...),
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Options").
+				Options(options...).
+				Height(len(options)).
+				Value(&s.enabledOptions),
+			huh.NewInput().
+				Title("Branch name").
+				Placeholder("optional (leave empty for auto)").
+				CharLimit(BranchNameCharLimit).
+				Value(&s.branchName),
+		),
 	).WithTheme(ModalTheme()).
 		WithShowHelp(false).
 		WithWidth(ModalInputWidth)
 
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }
@@ -569,9 +583,8 @@ type RenameSessionState struct {
 	SessionID   string
 	SessionName string
 
-	form        *huh.Form
-	initialized bool
-	newName     string
+	form    *huh.Form
+	newName string
 }
 
 func (*RenameSessionState) modalState() {}
@@ -609,7 +622,7 @@ func (s *RenameSessionState) Render() string {
 
 func (s *RenameSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
 	return s, cmd
 }
 
@@ -643,7 +656,6 @@ func NewRenameSessionState(sessionID, currentName string) *RenameSessionState {
 		WithShowHelp(false).
 		WithWidth(ModalInputWidth)
 
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }
@@ -663,12 +675,14 @@ type SessionSettingsState struct {
 	Containerized bool
 
 	// Bound form values
-	name       string
-	Autonomous bool
+	name           string
+	Autonomous     bool
+	enabledOptions []string // MultiSelect binding
 
-	form        *huh.Form
-	initialized bool
+	form *huh.Form
 }
+
+const optionAutonomous = "autonomous"
 
 func (*SessionSettingsState) modalState() {}
 
@@ -722,8 +736,14 @@ func (s *SessionSettingsState) Render() string {
 
 func (s *SessionSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
-	s.form, cmd = huhFormUpdate(s.form, &s.initialized, msg)
+	s.form, cmd = huhFormUpdate(s.form, msg)
+	s.syncFromMultiSelect()
 	return s, cmd
+}
+
+// syncFromMultiSelect updates boolean fields from the MultiSelect binding.
+func (s *SessionSettingsState) syncFromMultiSelect() {
+	s.Autonomous = slices.Contains(s.enabledOptions, optionAutonomous)
 }
 
 // GetNewName returns the new name entered by the user.
@@ -743,6 +763,13 @@ func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, 
 		Containerized: containerized,
 	}
 
+	if autonomous {
+		s.enabledOptions = append(s.enabledOptions, optionAutonomous)
+	}
+
+	autonomousOpt := huh.NewOption("Autonomous — run without user prompts", optionAutonomous).
+		Selected(autonomous)
+
 	s.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -750,18 +777,16 @@ func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, 
 				Placeholder("enter session name").
 				CharLimit(SessionNameCharLimit).
 				Value(&s.name),
-			huh.NewConfirm().
-				Title("Autonomous").
-				Description("Run without user prompts").
-				Affirmative("Yes").
-				Negative("No").
-				Value(&s.Autonomous),
+			huh.NewMultiSelect[string]().
+				Title("Options").
+				Options(autonomousOpt).
+				Height(1).
+				Value(&s.enabledOptions),
 		),
 	).WithTheme(ModalTheme()).
 		WithShowHelp(false).
 		WithWidth(ModalInputWidth)
 
-	s.initialized = true
 	initHuhForm(s.form)
 	return s
 }
