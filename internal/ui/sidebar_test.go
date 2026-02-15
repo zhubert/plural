@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/bubbles/v2/spinner"
 	"github.com/zhubert/plural/internal/config"
 )
 
@@ -262,21 +263,19 @@ func TestSidebar_PendingPermission(t *testing.T) {
 	}
 }
 
-func TestSidebar_SpinnerFrames(t *testing.T) {
-	if len(sidebarSpinnerFrames) == 0 {
-		t.Error("sidebarSpinnerFrames should not be empty")
+func TestSidebar_SpinnerModel(t *testing.T) {
+	sidebar := NewSidebar()
+
+	// Verify the spinner uses MiniDot
+	if len(sidebar.spinner.Spinner.Frames) != len(spinner.MiniDot.Frames) {
+		t.Errorf("expected MiniDot spinner with %d frames, got %d",
+			len(spinner.MiniDot.Frames), len(sidebar.spinner.Spinner.Frames))
 	}
 
-	if len(sidebarSpinnerHoldTimes) != len(sidebarSpinnerFrames) {
-		t.Errorf("sidebarSpinnerHoldTimes length (%d) should match sidebarSpinnerFrames (%d)",
-			len(sidebarSpinnerHoldTimes), len(sidebarSpinnerFrames))
-	}
-
-	// Verify all hold times are positive
-	for i, holdTime := range sidebarSpinnerHoldTimes {
-		if holdTime < 1 {
-			t.Errorf("sidebarSpinnerHoldTimes[%d] = %d, should be >= 1", i, holdTime)
-		}
+	// Verify View returns a non-empty string
+	view := sidebar.spinner.View()
+	if view == "" {
+		t.Error("spinner.View() should not be empty")
 	}
 }
 
@@ -367,8 +366,9 @@ func TestSidebar_View_MultipleSpinners(t *testing.T) {
 	// Get the view and check for spinners
 	view := sidebar.View()
 
-	// Count spinner occurrences - the first spinner frame is "·"
-	spinnerCount := strings.Count(view, sidebarSpinnerFrames[0])
+	// Count spinner occurrences - check for the current spinner frame
+	spinnerView := sidebar.spinner.View()
+	spinnerCount := strings.Count(view, spinnerView)
 
 	if spinnerCount < 3 {
 		t.Errorf("Expected at least 3 spinners in view, got %d. View:\n%s", spinnerCount, view)
@@ -401,8 +401,9 @@ func TestSidebar_View_MultipleSpinners_ForkedSessions(t *testing.T) {
 	// Get the view and check for spinners
 	view := sidebar.View()
 
-	// Count spinner occurrences - the first spinner frame is "·"
-	spinnerCount := strings.Count(view, sidebarSpinnerFrames[0])
+	// Count spinner occurrences - check for the current spinner frame
+	spinnerView := sidebar.spinner.View()
+	spinnerCount := strings.Count(view, spinnerView)
 
 	if spinnerCount < 3 {
 		t.Errorf("Expected at least 3 spinners in view for forked sessions, got %d. View:\n%s", spinnerCount, view)
@@ -501,10 +502,10 @@ func TestSidebar_RenderSessionNode_StreamingSymbol(t *testing.T) {
 
 	result := sidebar.renderSessionNode(session, 0, false, false, true)
 
-	// Should contain the current spinner frame (first frame is "·")
-	spinnerFrame := sidebarSpinnerFrames[sidebar.spinnerFrame]
-	if !strings.Contains(result, spinnerFrame) {
-		t.Errorf("Streaming session should show spinner frame %q, got %q", spinnerFrame, result)
+	// Should contain the current spinner frame from the MiniDot spinner
+	spinnerView := sidebar.spinner.View()
+	if !strings.Contains(result, spinnerView) {
+		t.Errorf("Streaming session should show spinner frame %q, got %q", spinnerView, result)
 	}
 }
 

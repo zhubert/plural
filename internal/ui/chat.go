@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
@@ -102,8 +104,9 @@ type Chat struct {
 	subagentModel string // Active subagent model (empty when no subagent active)
 
 	// Container initialization state
-	containerInitializing bool      // true during container startup
-	containerInitStart    time.Time // When container init started
+	containerInitializing bool           // true during container startup
+	containerInitStart    time.Time      // When container init started
+	containerProgress     progress.Model // Progress bar for container init
 }
 
 // NewChat creates a new chat panel
@@ -1269,7 +1272,7 @@ func (c *Chat) updateContent() {
 			if !c.streamStartTime.IsZero() {
 				elapsed = time.Since(c.streamStartTime)
 			}
-			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats, c.subagentModel))
+			sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Model, elapsed, c.streamStats, c.subagentModel))
 		} else if c.waiting {
 			if len(c.messages) > 0 {
 				sb.WriteString("\n\n")
@@ -1281,12 +1284,12 @@ func (c *Chat) updateContent() {
 			if c.containerInitializing && !c.containerInitStart.IsZero() {
 				elapsed = time.Since(c.containerInitStart)
 				// Show container initialization message instead of normal waiting status
-				sb.WriteString(renderContainerInitStatus(c.spinner.Idx, elapsed))
+				sb.WriteString(renderContainerInitStatus(c.spinner.Model, elapsed, c.containerProgress))
 			} else {
 				if !c.streamStartTime.IsZero() {
 					elapsed = time.Since(c.streamStartTime)
 				}
-				sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Idx, elapsed, c.streamStats, c.subagentModel))
+				sb.WriteString(renderStreamingStatus(c.spinner.Verb, c.spinner.Model, elapsed, c.streamStats, c.subagentModel))
 			}
 		} else if c.spinner.FlashFrame >= 0 {
 			// Show completion flash animation with final stats
@@ -1504,8 +1507,8 @@ func (c *Chat) Update(msg tea.Msg) (*Chat, tea.Cmd) {
 		}
 		return c, nil
 
-	case StopwatchTickMsg:
-		cmd := c.handleStopwatchTick()
+	case spinner.TickMsg:
+		cmd := c.handleSpinnerTick(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}

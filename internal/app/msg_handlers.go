@@ -502,8 +502,8 @@ func (m *Model) handleSendPendingMessageMsg(msg SendPendingMessageMsg) (tea.Mode
 	responseChan := runner.SendContent(ctx, content)
 
 	cmds := append(m.sessionListeners(msg.SessionID, runner, responseChan),
-		ui.SidebarTick(),
-		ui.StopwatchTick(),
+		m.sidebar.SidebarTick(),
+		m.chat.SpinnerTick(),
 	)
 	return m, tea.Batch(cmds...)
 }

@@ -3,7 +3,9 @@ package ui
 import (
 	"time"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
+	"charm.land/lipgloss/v2"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
 )
@@ -133,16 +135,20 @@ func (p *PendingImage) SizeKB() int {
 
 // SpinnerState tracks the waiting/streaming spinner animation.
 type SpinnerState struct {
-	Idx        int    // Current spinner frame index
-	Tick       int    // Tick counter for frame hold timing
-	Verb       string // Random verb to display while waiting (e.g., "Thinking")
+	Model      spinner.Model // Bubbles spinner for frame animation
+	Verb       string        // Random verb to display while waiting (e.g., "Thinking")
 	StartTime  time.Time
 	FlashFrame int // Completion flash animation: -1 = inactive, 0-2 = animation frames
 }
 
 // NewSpinnerState creates a new SpinnerState.
 func NewSpinnerState() *SpinnerState {
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(ColorUser).Bold(true)),
+	)
 	return &SpinnerState{
+		Model:      sp,
 		FlashFrame: -1,
 	}
 }

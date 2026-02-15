@@ -30,20 +30,13 @@ func TestNewHelpStateFromSections(t *testing.T) {
 
 	state := NewHelpStateFromSections(sections)
 
-	if len(state.Sections) != 2 {
-		t.Errorf("expected 2 sections, got %d", len(state.Sections))
+	// Should start with the first shortcut selected (skipping section header)
+	shortcut := state.GetSelectedShortcut()
+	if shortcut == nil {
+		t.Fatal("expected non-nil shortcut initially")
 	}
-
-	if len(state.FlatShortcuts) != 4 {
-		t.Errorf("expected 4 flattened shortcuts, got %d", len(state.FlatShortcuts))
-	}
-
-	if state.SelectedIndex != 0 {
-		t.Errorf("expected initial selected index to be 0, got %d", state.SelectedIndex)
-	}
-
-	if state.ScrollOffset != 0 {
-		t.Errorf("expected initial scroll offset to be 0, got %d", state.ScrollOffset)
+	if shortcut.Key != "tab" {
+		t.Errorf("expected initial shortcut key 'tab', got %q", shortcut.Key)
 	}
 }
 
@@ -55,7 +48,9 @@ func TestHelpState_Title(t *testing.T) {
 }
 
 func TestHelpState_Help(t *testing.T) {
-	state := &HelpState{}
+	state := NewHelpStateFromSections([]HelpSection{
+		{Title: "Test", Shortcuts: []HelpShortcut{{Key: "a", Desc: "action"}}},
+	})
 	help := state.Help()
 	if help == "" {
 		t.Error("expected non-empty help text")
@@ -75,29 +70,29 @@ func TestHelpState_Update_Navigation(t *testing.T) {
 	}
 	state := NewHelpStateFromSections(sections)
 
-	// Test down navigation
-	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: "down"}
+	// Initial selection should be "a"
+	shortcut := state.GetSelectedShortcut()
+	if shortcut == nil || shortcut.Key != "a" {
+		t.Fatalf("expected initial shortcut 'a', got %v", shortcut)
+	}
+
+	// Test down navigation (j key)
+	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: "j"}
 	newState, _ := state.Update(keyDownMsg)
 	if s, ok := newState.(*HelpState); ok {
-		if s.SelectedIndex != 1 {
-			t.Errorf("expected selected index 1 after down, got %d", s.SelectedIndex)
+		shortcut = s.GetSelectedShortcut()
+		if shortcut == nil || shortcut.Key != "b" {
+			t.Errorf("expected shortcut 'b' after down, got %v", shortcut)
 		}
 	}
 
-	// Test up navigation
-	keyUpMsg := tea.KeyPressMsg{Code: 0, Text: "up"}
+	// Test up navigation (k key)
+	keyUpMsg := tea.KeyPressMsg{Code: 0, Text: "k"}
 	newState, _ = state.Update(keyUpMsg)
 	if s, ok := newState.(*HelpState); ok {
-		if s.SelectedIndex != 0 {
-			t.Errorf("expected selected index 0 after up, got %d", s.SelectedIndex)
-		}
-	}
-
-	// Test up at start (should stay at 0)
-	newState, _ = state.Update(keyUpMsg)
-	if s, ok := newState.(*HelpState); ok {
-		if s.SelectedIndex != 0 {
-			t.Errorf("expected selected index to stay 0 when at start, got %d", s.SelectedIndex)
+		shortcut = s.GetSelectedShortcut()
+		if shortcut == nil || shortcut.Key != "a" {
+			t.Errorf("expected shortcut 'a' after up, got %v", shortcut)
 		}
 	}
 }
@@ -114,14 +109,15 @@ func TestHelpState_Update_NavigationBounds(t *testing.T) {
 	}
 	state := NewHelpStateFromSections(sections)
 
-	// Navigate to the end
-	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: "down"}
-	state.Update(keyDownMsg) // Now at 1
+	// Navigate to the end (section header + a + b = 3 items, start at index 1 = "a")
+	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: "j"}
+	state.Update(keyDownMsg) // Now at "b"
 
-	// Try to go past the end
+	// Try to go past the end - should stay at "b"
 	state.Update(keyDownMsg)
-	if state.SelectedIndex != 1 {
-		t.Errorf("expected selected index to stay at 1 when at end, got %d", state.SelectedIndex)
+	shortcut := state.GetSelectedShortcut()
+	if shortcut == nil || shortcut.Key != "b" {
+		t.Errorf("expected shortcut to stay at 'b' when at end, got %v", shortcut)
 	}
 }
 
@@ -146,7 +142,7 @@ func TestHelpState_GetSelectedShortcut(t *testing.T) {
 	}
 
 	// Navigate and check again
-	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: "down"}
+	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: "j"}
 	state.Update(keyDownMsg)
 
 	shortcut = state.GetSelectedShortcut()
@@ -159,10 +155,7 @@ func TestHelpState_GetSelectedShortcut(t *testing.T) {
 }
 
 func TestHelpState_GetSelectedShortcut_Empty(t *testing.T) {
-	state := &HelpState{
-		FlatShortcuts: []HelpShortcut{},
-		SelectedIndex: 0,
-	}
+	state := NewHelpStateFromSections(nil)
 
 	shortcut := state.GetSelectedShortcut()
 	if shortcut != nil {
@@ -184,6 +177,70 @@ func TestHelpState_Render(t *testing.T) {
 	rendered := state.Render()
 	if rendered == "" {
 		t.Error("expected non-empty rendered output")
+	}
+}
+
+func TestHelpState_ImplementsModalWithSize(t *testing.T) {
+	state := NewHelpStateFromSections(nil)
+	_, ok := interface{}(state).(ModalWithSize)
+	if !ok {
+		t.Error("HelpState should implement ModalWithSize")
+	}
+}
+
+func TestHelpState_SetSize(t *testing.T) {
+	sections := []HelpSection{
+		{
+			Title: "Test",
+			Shortcuts: []HelpShortcut{
+				{Key: "a", Desc: "action a"},
+			},
+		},
+	}
+	state := NewHelpStateFromSections(sections)
+
+	// Should not panic with various sizes
+	state.SetSize(80, 24)
+	state.SetSize(40, 10)
+	state.SetSize(20, 3)
+
+	// Should render after resize
+	rendered := state.Render()
+	if rendered == "" {
+		t.Error("expected non-empty rendered output after resize")
+	}
+}
+
+func TestHelpState_SectionHeadersNotTriggerable(t *testing.T) {
+	sections := []HelpSection{
+		{
+			Title:     "Empty Section",
+			Shortcuts: []HelpShortcut{},
+		},
+	}
+	state := NewHelpStateFromSections(sections)
+
+	// With only a section header and no shortcuts, selected shortcut should be nil
+	shortcut := state.GetSelectedShortcut()
+	if shortcut != nil {
+		t.Error("expected nil shortcut when only section headers exist")
+	}
+}
+
+func TestHelpState_IsFiltering(t *testing.T) {
+	sections := []HelpSection{
+		{
+			Title: "Test",
+			Shortcuts: []HelpShortcut{
+				{Key: "a", Desc: "action a"},
+			},
+		},
+	}
+	state := NewHelpStateFromSections(sections)
+
+	// Initially not filtering
+	if state.IsFiltering() {
+		t.Error("expected IsFiltering to be false initially")
 	}
 }
 

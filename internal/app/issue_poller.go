@@ -13,7 +13,6 @@ import (
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
-	"github.com/zhubert/plural/internal/ui"
 )
 
 const issuePollInterval = 2 * time.Minute
@@ -280,7 +279,7 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-created %d session(s) from issues", created)))
-		cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+		cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 		// Only transition to streaming state if not already there, to avoid
 		// disrupting user interaction in the currently active session.
 		if m.state != StateStreamingClaude {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -143,13 +144,9 @@ func NewMergeState(sessionName string, hasRemote bool, changesSummary string, pa
 // LoadingCommitState - State for waiting on commit message generation
 // =============================================================================
 
-// spinnerFrames are the characters used for the shimmering spinner animation
-// Same frames as used in chat_animation.go for consistency
-var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
-
 type LoadingCommitState struct {
-	MergeType    string // "merge", "pr", "push", or "parent"
-	SpinnerFrame int    // Current spinner animation frame
+	MergeType string        // "merge", "pr", "push", or "parent"
+	Spinner   spinner.Model // Bubbles spinner for animation
 }
 
 func (*LoadingCommitState) modalState() {}
@@ -185,14 +182,10 @@ func (s *LoadingCommitState) Render() string {
 	operationSection := operationStyle.Render("After commit: " + operationLabel)
 
 	// Render spinner with "Waiting for Claude..." message
-	frame := spinnerFrames[s.SpinnerFrame%len(spinnerFrames)]
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorUser).
-		Bold(true)
 	verbStyle := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
 		Italic(true)
-	spinnerLine := spinnerStyle.Render(frame) + " " + verbStyle.Render("Waiting for Claude...")
+	spinnerLine := s.Spinner.View() + " " + verbStyle.Render("Waiting for Claude...")
 
 	help := ModalHelpStyle.Render(s.Help())
 
@@ -204,16 +197,22 @@ func (s *LoadingCommitState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	return s, nil
 }
 
-// AdvanceSpinner moves to the next spinner frame
-func (s *LoadingCommitState) AdvanceSpinner() {
-	s.SpinnerFrame = (s.SpinnerFrame + 1) % len(spinnerFrames)
+// AdvanceSpinner updates the spinner by forwarding a tick message
+func (s *LoadingCommitState) AdvanceSpinner(msg spinner.TickMsg) tea.Cmd {
+	var cmd tea.Cmd
+	s.Spinner, cmd = s.Spinner.Update(msg)
+	return cmd
 }
 
 // NewLoadingCommitState creates a new LoadingCommitState
 func NewLoadingCommitState(mergeType string) *LoadingCommitState {
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(ColorUser).Bold(true)),
+	)
 	return &LoadingCommitState{
-		MergeType:    mergeType,
-		SpinnerFrame: 0,
+		MergeType: mergeType,
+		Spinner:   sp,
 	}
 }
 

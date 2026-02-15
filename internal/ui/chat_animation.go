@@ -6,13 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	pclaude "github.com/zhubert/plural/internal/claude"
 )
-
-// StopwatchTickMsg is sent to update the animated waiting display
-type StopwatchTickMsg time.Time
 
 // CompletionFlashTickMsg is sent to animate the completion checkmark flash
 type CompletionFlashTickMsg time.Time
@@ -49,21 +48,6 @@ func randomThinkingVerb() string {
 	return thinkingVerbs[rand.Intn(len(thinkingVerbs))]
 }
 
-// spinnerFrames are the characters used for the shimmering spinner animation
-// Inspired by Claude Code's flower-like spinner
-var spinnerFrames = []string{"·", "✺", "✹", "✸", "✷", "✶", "✵", "✴", "✳", "✲", "✱", "✧", "✦", "·"}
-
-// spinnerFrameHoldTimes defines how long each frame should be held (in ticks)
-// All frames have equal duration for smooth animation
-var spinnerFrameHoldTimes = []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}
-
-// StopwatchTick returns a command that sends a tick message after a delay
-func StopwatchTick() tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
-		return StopwatchTickMsg(t)
-	})
-}
-
 // CompletionFlashTick returns a command that sends a completion flash tick
 func CompletionFlashTick() tea.Cmd {
 	return tea.Tick(160*time.Millisecond, func(t time.Time) tea.Msg {
@@ -95,37 +79,21 @@ func (c *Chat) IsSelectionFlashing() bool {
 	return c.selection.FlashFrame >= 0
 }
 
-// renderSpinner renders the shimmering spinner with the thinking verb.
+// renderSpinner renders the spinner with the thinking verb.
 // Returns the spinner character followed by the verb text.
-func renderSpinner(verb string, frameIdx int) string {
-	// Get the current spinner frame
-	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
-
-	// Style for the spinner character - uses theme's user color
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorUser).
-		Bold(true)
-
+func renderSpinner(verb string, sp spinner.Model) string {
 	// Style for the verb text - uses theme's primary color, italic
 	verbStyle := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
 		Italic(true)
 
-	return spinnerStyle.Render(frame) + " " + verbStyle.Render(verb+"...")
+	return sp.View() + " " + verbStyle.Render(verb+"...")
 }
 
 // renderStreamingStatus renders the full status line during streaming.
-// Format: ✺ Thinking... (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
-// Or with subagent: ✺ Thinking... [haiku working] (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
-func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, stats *pclaude.StreamStats, subagentModel string) string {
-	// Get the current spinner frame
-	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
-
-	// Style for the spinner character - uses theme's user color
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorUser).
-		Bold(true)
-
+// Format: ⠋ Thinking... (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
+// Or with subagent: ⠋ Thinking... [haiku working] (esc to interrupt • 12s • ↓ 342 tokens • cache: 138k)
+func renderStreamingStatus(verb string, sp spinner.Model, elapsed time.Duration, stats *pclaude.StreamStats, subagentModel string) string {
 	// Style for the verb text - uses theme's primary color, italic
 	verbStyle := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
@@ -160,19 +128,11 @@ func renderStreamingStatus(verb string, frameIdx int, elapsed time.Duration, sta
 	}
 
 	meta := metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
-	return spinnerStyle.Render(frame) + " " + verbPart + " " + meta
+	return sp.View() + " " + verbPart + " " + meta
 }
 
-// renderContainerInitStatus renders the container initialization status line
-func renderContainerInitStatus(frameIdx int, elapsed time.Duration) string {
-	// Get the current spinner frame
-	frame := spinnerFrames[frameIdx%len(spinnerFrames)]
-
-	// Style for the spinner character - uses theme's user color
-	spinnerStyle := lipgloss.NewStyle().
-		Foreground(ColorUser).
-		Bold(true)
-
+// renderContainerInitStatus renders the container initialization status line with progress bar
+func renderContainerInitStatus(sp spinner.Model, elapsed time.Duration, prog progress.Model) string {
 	// Style for the message text - uses theme's primary color, italic
 	messageStyle := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
@@ -191,7 +151,16 @@ func renderContainerInitStatus(frameIdx int, elapsed time.Duration) string {
 	parts = append(parts, formatElapsed(elapsed))
 
 	meta := metaStyle.Render("(" + strings.Join(parts, " • ") + ")")
-	return spinnerStyle.Render(frame) + " " + message + " " + meta
+
+	// Time-based progress: fills to ~95% over 5 seconds
+	const estimatedDuration = 5 * time.Second
+	pct := float64(elapsed) / float64(estimatedDuration)
+	if pct > 0.95 {
+		pct = 0.95
+	}
+	bar := prog.ViewAs(pct)
+
+	return sp.View() + " " + message + " " + meta + "\n  " + bar
 }
 
 // formatElapsed formats a duration for display (e.g., "12s", "1m30s")
@@ -352,8 +321,6 @@ func (c *Chat) SetWaiting(waiting bool) {
 	c.waiting = waiting
 	if waiting {
 		c.spinner.Verb = randomThinkingVerb()
-		c.spinner.Idx = 0
-		c.spinner.Tick = 0
 		c.streamStartTime = time.Now()
 		c.streamStats = nil // Reset stats for new request
 		c.finalStats = nil  // Clear previous final stats
@@ -366,8 +333,6 @@ func (c *Chat) SetWaitingWithStart(waiting bool, startTime time.Time) {
 	c.waiting = waiting
 	if waiting {
 		c.spinner.Verb = randomThinkingVerb()
-		c.spinner.Idx = 0
-		c.spinner.Tick = 0
 		c.streamStartTime = startTime
 		c.streamStats = nil // Reset stats for new request
 		c.finalStats = nil  // Clear previous final stats
@@ -385,6 +350,11 @@ func (c *Chat) SetContainerInitializing(initializing bool, startTime time.Time) 
 	c.containerInitializing = initializing
 	if initializing {
 		c.containerInitStart = startTime
+		c.containerProgress = progress.New(
+			progress.WithColors(ColorPrimary, ColorSecondary),
+			progress.WithWidth(30),
+			progress.WithoutPercentage(),
+		)
 	} else {
 		c.containerInitStart = time.Time{}
 	}
@@ -396,25 +366,17 @@ func (c *Chat) IsContainerInitializing() bool {
 	return c.containerInitializing
 }
 
-// handleStopwatchTick handles the spinner animation tick
-func (c *Chat) handleStopwatchTick() tea.Cmd {
+// handleSpinnerTick handles the bubbles spinner tick message
+func (c *Chat) handleSpinnerTick(msg spinner.TickMsg) tea.Cmd {
 	// Continue ticking while waiting for response OR actively streaming OR active tool use rollup
 	if !c.waiting && c.streaming == "" && c.toolUseRollup == nil {
 		return nil
 	}
 
-	// Advance the spinner with easing (some frames hold longer)
-	c.spinner.Tick++
-	holdTime := spinnerFrameHoldTimes[c.spinner.Idx%len(spinnerFrameHoldTimes)]
-	if c.spinner.Tick >= holdTime {
-		c.spinner.Tick = 0
-		c.spinner.Idx++
-		if c.spinner.Idx >= len(spinnerFrames) {
-			c.spinner.Idx = 0
-		}
-	}
+	var cmd tea.Cmd
+	c.spinner.Model, cmd = c.spinner.Model.Update(msg)
 	c.updateContent()
-	return StopwatchTick()
+	return cmd
 }
 
 // handleCompletionFlashTick handles the completion flash animation tick
@@ -433,4 +395,10 @@ func (c *Chat) handleCompletionFlashTick() tea.Cmd {
 		return CompletionFlashTick()
 	}
 	return nil
+}
+
+// SpinnerTick returns a command that starts the spinner animation.
+// Call this when beginning an operation that needs the spinner.
+func (c *Chat) SpinnerTick() tea.Cmd {
+	return c.spinner.Model.Tick
 }

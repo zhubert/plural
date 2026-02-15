@@ -850,7 +850,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	m.setState(StateStreamingClaude)
 
 	// Add UI update ticks
-	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+	cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 
 	// Show status message
 	msg := fmt.Sprintf("Broadcasting to %d repo(s)", len(createdSessions))
@@ -936,7 +936,7 @@ func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (t
 	m.chat.ClearInput()
 
 	// Add UI update ticks
-	cmds = append(cmds, ui.SidebarTick(), ui.StopwatchTick())
+	cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 
 	// Show status message
 	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Sent to %d session(s)", sentCount)))
