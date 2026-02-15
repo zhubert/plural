@@ -1663,21 +1663,20 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 
 // handleAsanaProjectsFetchedMsg handles the fetched Asana projects for the settings modal.
 func (m *Model) handleAsanaProjectsFetchedMsg(msg AsanaProjectsFetchedMsg) (tea.Model, tea.Cmd) {
-	// Convert issues.AsanaProject to ui.AsanaProjectOption and prepend "(none)" entry
-	options := make([]ui.AsanaProjectOption, 0, len(msg.Projects)+1)
-	options = append(options, ui.AsanaProjectOption{GID: "", Name: "(none)"})
-	for _, p := range msg.Projects {
-		options = append(options, ui.AsanaProjectOption{GID: p.GID, Name: p.Name})
-	}
-
 	// Deliver to whichever settings modal is currently open
 	switch state := m.modal.State.(type) {
 	case *ui.RepoSettingsState:
 		if msg.Error != nil {
 			state.SetAsanaProjectsError("Failed to fetch projects: " + msg.Error.Error())
-		} else {
-			state.SetAsanaProjects(options)
+			return m, nil
 		}
+		// Convert issues.AsanaProject to ui.AsanaProjectOption and prepend "(none)" entry
+		options := make([]ui.AsanaProjectOption, 0, len(msg.Projects)+1)
+		options = append(options, ui.AsanaProjectOption{GID: "", Name: "(none)"})
+		for _, p := range msg.Projects {
+			options = append(options, ui.AsanaProjectOption{GID: p.GID, Name: p.Name})
+		}
+		state.SetAsanaProjects(options)
 	default:
 		// Modal closed or wrong type - ignore
 	}

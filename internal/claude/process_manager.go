@@ -1050,8 +1050,8 @@ func friendlyContainerError(stderr string, containerized bool) string {
 	}
 
 	if strings.Contains(stderr, "container name") && strings.Contains(stderr, "already in use") {
-		return "A container from a previous session is still running. " +
-			"Try deleting the session and creating a new one, or run 'plural clean'."
+		return "A stale container could not be cleaned up automatically. " +
+			"Run 'plural clean' to remove orphaned containers."
 	}
 
 	return stderr

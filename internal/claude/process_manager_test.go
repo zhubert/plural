@@ -1891,7 +1891,7 @@ func TestFriendlyContainerError(t *testing.T) {
 			name:          "container name conflict",
 			stderr:        `docker: Error response from daemon: Conflict. The container name "/plural-abc123" is already in use by container "def456".`,
 			containerized: true,
-			wantContains:  "previous session is still running",
+			wantContains:  "could not be cleaned up automatically",
 		},
 		{
 			name:          "unknown error passes through",
