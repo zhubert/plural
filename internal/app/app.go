@@ -252,9 +252,11 @@ type ContainerImageUpdateMsg struct {
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
-	if savedTheme := cfg.GetTheme(); savedTheme != "" {
-		ui.SetThemeByName(savedTheme)
+	savedTheme := cfg.GetTheme()
+	if savedTheme == "" {
+		savedTheme = string(ui.DefaultTheme)
 	}
+	ui.SetThemeByName(savedTheme)
 
 	gitSvc := git.NewGitService()
 	sessionSvc := session.NewSessionService()
