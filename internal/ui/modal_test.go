@@ -695,32 +695,8 @@ func TestNewAddMCPServerState(t *testing.T) {
 	if repoPath != "" {
 		t.Errorf("Expected empty repoPath for global, got %q", repoPath)
 	}
-}
 
-func TestAddMCPServerState_GetValues(t *testing.T) {
-	repos := []string{"/repo1", "/repo2"}
-	state := NewAddMCPServerState(repos)
-
-	// Default GetValues should return empty strings and global=true
-	name, command, args, repoPath, isGlobal := state.GetValues()
-
-	if name != "" {
-		t.Errorf("Expected empty name, got %q", name)
-	}
-	if command != "" {
-		t.Errorf("Expected empty command, got %q", command)
-	}
-	if args != "" {
-		t.Errorf("Expected empty args, got %q", args)
-	}
-	if !isGlobal {
-		t.Error("Expected isGlobal true by default")
-	}
-	if repoPath != "" {
-		t.Errorf("Expected empty repoPath for global, got %q", repoPath)
-	}
-
-	// Without repos
+	// Without repos — should still default to global with empty repoPath
 	stateNoRepos := NewAddMCPServerState([]string{})
 	_, _, _, repoPath, isGlobal = stateNoRepos.GetValues()
 	if !isGlobal {

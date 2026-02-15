@@ -350,21 +350,29 @@ func (s *SettingsState) ThemeChanged() bool {
 }
 
 // SetAutoMaxTurns sets the initial value for max autonomous turns.
+// Must be called before the form is displayed to the user. Works because
+// huh binds via pointer, so mutations to the struct field reflect in the form.
 func (s *SettingsState) SetAutoMaxTurns(v string) {
 	s.autoMaxTurns = v
 }
 
 // SetAutoMaxDuration sets the initial value for max autonomous duration.
+// Must be called before the form is displayed to the user. Works because
+// huh binds via pointer, so mutations to the struct field reflect in the form.
 func (s *SettingsState) SetAutoMaxDuration(v string) {
 	s.autoMaxDuration = v
 }
 
 // SetIssueMaxConcurrent sets the initial value for max concurrent sessions.
+// Must be called before the form is displayed to the user. Works because
+// huh binds via pointer, so mutations to the struct field reflect in the form.
 func (s *SettingsState) SetIssueMaxConcurrent(v string) {
 	s.issueMaxConcurrent = v
 }
 
-// SetBranchPrefix sets the branch prefix value (for testing).
+// SetBranchPrefix sets the branch prefix value.
+// Must be called before the form is displayed to the user. Works because
+// huh binds via pointer, so mutations to the struct field reflect in the form.
 func (s *SettingsState) SetBranchPrefix(v string) {
 	s.branchPrefix = v
 }

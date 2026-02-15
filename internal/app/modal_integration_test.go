@@ -414,10 +414,10 @@ func TestForkSessionModal_CopyMessagesDefault(t *testing.T) {
 		t.Error("ShouldCopyMessages should return true by default")
 	}
 
-	// Verify rendered output contains the Options field
+	// Verify rendered output shows the copy messages option in the form
 	rendered := state.Render()
-	if !strings.Contains(rendered, "Options") {
-		t.Error("rendered fork modal should contain 'Options' MultiSelect field")
+	if !strings.Contains(rendered, "Copy conversation history") {
+		t.Error("rendered fork modal should show 'Copy conversation history' option")
 	}
 }
 
@@ -1960,18 +1960,31 @@ func TestSessionSettingsModal_ToggleAutonomous(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Test with autonomous initially false
-	state := ui.NewSessionSettingsState("session-1", "feature-branch", "feature-branch", "main", false, false)
+	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false, false)
 	m.modal.Show(state)
 	s := m.modal.State.(*ui.SessionSettingsState)
 	if s.Autonomous {
 		t.Error("expected autonomous to be false initially")
 	}
 
-	// Test with autonomous initially true
-	state2 := ui.NewSessionSettingsState("session-1", "feature-branch", "feature-branch", "main", true, false)
+	// Verify the rendered form includes the Options MultiSelect
+	rendered := s.Render()
+	if !strings.Contains(rendered, "Options") {
+		t.Error("rendered session settings should contain 'Options' MultiSelect")
+	}
+	if !strings.Contains(rendered, "Name") {
+		t.Error("rendered session settings should contain 'Name' input field")
+	}
+
+	// Test with autonomous initially true — verify form binding propagates
+	state2 := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", true, false)
 	m.modal.Show(state2)
 	s2 := m.modal.State.(*ui.SessionSettingsState)
 	if !s2.Autonomous {
 		t.Error("expected autonomous to be true when initialized as true")
+	}
+	// Verify GetNewName accessor works with the form binding
+	if s2.GetNewName() != "my-session" {
+		t.Errorf("expected GetNewName() to return 'my-session', got %q", s2.GetNewName())
 	}
 }
