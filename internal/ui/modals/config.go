@@ -480,7 +480,7 @@ func (s *RepoSettingsState) Render() string {
 
 		issuePollingView := renderCheckboxField(
 			"Issue polling",
-			"Auto-poll for new issues and create sessions",
+			"Auto-poll for new issues and create autonomous supervisor sessions",
 			s.IssuePolling, s.issuePollingFocusIndex(), s.Focus)
 		issueLabelView := renderInputField(
 			"Issue filter label", "",
