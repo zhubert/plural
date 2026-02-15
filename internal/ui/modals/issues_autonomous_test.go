@@ -158,7 +158,7 @@ func TestImportIssuesState_NavigationOnlyWhenFocusedOnList(t *testing.T) {
 		{ID: "2", Title: "Issue 2", Source: "github"},
 	})
 
-	// Initially at focus 0, can navigate
+	// Initially at focus 0, can navigate issue list
 	downMsg := tea.KeyPressMsg{Code: 0, Text: keys.Down}
 	state.Update(downMsg)
 	if state.SelectedIndex != 1 {
@@ -169,22 +169,25 @@ func TestImportIssuesState_NavigationOnlyWhenFocusedOnList(t *testing.T) {
 	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
 	state.Update(tabMsg) // Focus 1 (autonomous)
 
-	// Try to navigate down - should not work
+	// Down arrow when focused on checkboxes changes focus, not selectedIndex
 	state.Update(downMsg)
+	if state.Focus != 2 {
+		t.Errorf("expected focus to move to 2 (containers), got %d", state.Focus)
+	}
 	if state.SelectedIndex != 1 {
 		t.Errorf("expected selected index to remain 1 when not focused on list, got %d", state.SelectedIndex)
 	}
 
-	// Move focus back to list
-	state.Update(tabMsg) // Focus 2 (containers)
-	state.Update(tabMsg) // Focus 0 (list)
-
-	// Now navigation should work again
-	state.Update(downMsg)
-	if state.SelectedIndex != 1 {
-		t.Errorf("expected selected index to stay at 1 (already at max), got %d", state.SelectedIndex)
-	}
+	// Move focus back to list using up arrows
 	upMsg := tea.KeyPressMsg{Code: 0, Text: keys.Up}
+	state.Update(upMsg) // Focus 2 -> 1
+	state.Update(upMsg) // Focus 1 -> 0
+
+	if state.Focus != 0 {
+		t.Errorf("expected focus 0 (list), got %d", state.Focus)
+	}
+
+	// Now navigation should work on issue list
 	state.Update(upMsg)
 	if state.SelectedIndex != 0 {
 		t.Errorf("expected selected index 0 after navigating up, got %d", state.SelectedIndex)
@@ -220,6 +223,48 @@ func TestImportIssuesState_GetMethods(t *testing.T) {
 	}
 	if !state.GetUseContainers() {
 		t.Error("expected GetUseContainers to return true when UseContainers is true")
+	}
+}
+
+func TestImportIssuesState_ArrowNavigationBetweenCheckboxes(t *testing.T) {
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
+	state.SetIssues([]IssueItem{
+		{ID: "1", Title: "Issue 1", Source: "github"},
+		{ID: "2", Title: "Issue 2", Source: "github"},
+	})
+
+	// Tab to autonomous checkbox (focus 1)
+	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
+	state.Update(tabMsg)
+	if state.Focus != 1 {
+		t.Fatalf("expected focus 1, got %d", state.Focus)
+	}
+
+	// Down arrow should move to containers checkbox (focus 2)
+	downMsg := tea.KeyPressMsg{Code: 0, Text: keys.Down}
+	state.Update(downMsg)
+	if state.Focus != 2 {
+		t.Errorf("expected down arrow to move from autonomous to containers (focus 2), got %d", state.Focus)
+	}
+
+	// Up arrow should move back to autonomous checkbox (focus 1)
+	upMsg := tea.KeyPressMsg{Code: 0, Text: keys.Up}
+	state.Update(upMsg)
+	if state.Focus != 1 {
+		t.Errorf("expected up arrow to move from containers to autonomous (focus 1), got %d", state.Focus)
+	}
+
+	// Up arrow again should move to issue list (focus 0)
+	state.Update(upMsg)
+	if state.Focus != 0 {
+		t.Errorf("expected up arrow to move from autonomous to issue list (focus 0), got %d", state.Focus)
+	}
+
+	// Down arrow from containers should wrap to issue list (focus 0)
+	state.Focus = 2
+	state.Update(downMsg)
+	if state.Focus != 0 {
+		t.Errorf("expected down arrow from containers to wrap to issue list (focus 0), got %d", state.Focus)
 	}
 }
 

@@ -144,7 +144,7 @@ func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *
 		}
 		m.modal.Hide()
 		return m.createSessionsFromIssues(state.RepoPath, selected, state.GetUseContainers(), state.GetAutonomous())
-	case keys.Up, "k", keys.Down, "j", keys.Space:
+	case keys.Up, "k", keys.Down, "j", keys.Space, keys.Tab:
 		// Forward navigation and space (toggle) keys to modal
 		modal, cmd := m.modal.Update(msg)
 		m.modal = modal
