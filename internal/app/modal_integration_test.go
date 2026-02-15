@@ -2156,3 +2156,51 @@ func TestCreateParallelSessions_NonContainerizedParent(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionSettingsModal_CancelWithEscape(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false, false)
+	m.modal.Show(state)
+
+	if !m.modal.IsVisible() {
+		t.Fatal("expected modal to be visible")
+	}
+
+	m = sendKey(m, "esc")
+	if m.modal.IsVisible() {
+		t.Error("expected modal to be hidden after escape")
+	}
+}
+
+func TestSessionSettingsModal_ToggleAutonomous(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	state := ui.NewSessionSettingsState("session-1", "feature-branch", "feature-branch", "main", false, false)
+	m.modal.Show(state)
+
+	// Tab to autonomous field
+	m = sendKey(m, "tab")
+	s := m.modal.State.(*ui.SessionSettingsState)
+	if s.Focus != 1 {
+		t.Fatalf("expected focus 1 (autonomous), got %d", s.Focus)
+	}
+
+	// Toggle autonomous on with space
+	m = sendKey(m, "space")
+	s = m.modal.State.(*ui.SessionSettingsState)
+	if !s.Autonomous {
+		t.Error("expected autonomous to be true after space toggle")
+	}
+
+	// Toggle back off
+	m = sendKey(m, "space")
+	s = m.modal.State.(*ui.SessionSettingsState)
+	if s.Autonomous {
+		t.Error("expected autonomous to be false after second toggle")
+	}
+}

@@ -1214,7 +1214,7 @@ func TestSidebar_SearchMode(t *testing.T) {
 	}
 }
 
-func TestSidebar_SelectSessionWithEnter(t *testing.T) {
+func TestSidebar_AutoSelectsSessionOnNavigate(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
@@ -1223,15 +1223,21 @@ func TestSidebar_SelectSessionWithEnter(t *testing.T) {
 		t.Error("Should have no active session initially")
 	}
 
-	m = sendKey(m, "enter")
+	// Navigate to next session (SetSessions auto-advances to session-1, so j goes to session-2)
+	m = sendKey(m, "j")
 
 	if m.activeSession == nil {
-		t.Error("Session should be active after pressing enter")
+		t.Error("Session should be active after navigating")
 	}
 
 	selected := m.sidebar.SelectedSession()
 	if selected != nil && m.activeSession.ID != selected.ID {
 		t.Errorf("Active session ID %s should match selected ID %s", m.activeSession.ID, selected.ID)
+	}
+
+	// Focus should remain on sidebar
+	if m.focus != FocusSidebar {
+		t.Error("Focus should remain on sidebar after auto-select")
 	}
 }
 
@@ -1601,28 +1607,15 @@ func TestFlow_CreateSessionNavigateAndChat(t *testing.T) {
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	// Navigate down in sidebar
+	// Navigate down in sidebar - auto-selects the session
 	m = sendKey(m, "j")
-	selected := m.sidebar.SelectedSession()
-	if selected == nil {
-		t.Fatal("Should have selected session after navigation")
-	}
-
-	// Select session with Enter
-	m = sendKey(m, "enter")
 	if m.activeSession == nil {
-		t.Fatal("Should have active session after enter")
+		t.Fatal("Should have active session after navigating to it")
 	}
 
-	// Should be in chat
-	if m.focus != FocusChat {
-		t.Errorf("Should be in chat after selecting session, got focus=%v", m.focus)
-	}
-
-	// Switch to sidebar
-	m = sendKey(m, "tab")
+	// Focus should remain on sidebar (auto-select keeps sidebar focus)
 	if m.focus != FocusSidebar {
-		t.Errorf("Should be in sidebar after tab, got focus=%v", m.focus)
+		t.Errorf("Should be in sidebar after auto-select, got focus=%v", m.focus)
 	}
 
 	// Open delete modal

@@ -1224,3 +1224,86 @@ func (m *Model) executeBulkSendPrompt(sessionIDs []string, prompt string) (tea.M
 	// Call the existing broadcastToSessions function which handles all the logic
 	return m.broadcastToSessions(sessions, prompt)
 }
+
+// handleSessionSettingsModal handles key events for the Session Settings modal.
+func (m *Model) handleSessionSettingsModal(key string, msg tea.KeyPressMsg, state *ui.SessionSettingsState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.modal.Hide()
+		return m, nil
+	case keys.Enter:
+		newName := state.GetNewName()
+		if newName == "" {
+			m.modal.SetError("Name cannot be empty")
+			return m, nil
+		}
+
+		sess := m.config.GetSession(state.SessionID)
+		if sess == nil {
+			m.modal.SetError("Session not found")
+			return m, nil
+		}
+
+		// Handle rename if name changed
+		oldBranch := sess.Branch
+		branchPrefix := m.config.GetDefaultBranchPrefix()
+		newBranch := branchPrefix + newName
+
+		if newBranch != oldBranch {
+			// Validate the new branch name
+			if err := session.ValidateBranchName(newName); err != nil {
+				m.modal.SetError(err.Error())
+				return m, nil
+			}
+
+			// Check if new branch already exists
+			ctx := context.Background()
+			if m.sessionService.BranchExists(ctx, sess.RepoPath, newBranch) {
+				m.modal.SetError("Branch already exists: " + newBranch)
+				return m, nil
+			}
+
+			// Rename the git branch
+			if err := m.gitService.RenameBranch(ctx, sess.WorkTree, oldBranch, newBranch); err != nil {
+				m.modal.SetError("Failed to rename branch: " + err.Error())
+				return m, nil
+			}
+
+			// Update session name and branch
+			if !m.config.RenameSession(state.SessionID, newBranch, newBranch) {
+				m.modal.SetError("Failed to rename session")
+				return m, nil
+			}
+		}
+
+		// Handle autonomous mode change
+		if state.Autonomous != sess.Autonomous {
+			m.config.SetSessionAutonomous(state.SessionID, state.Autonomous)
+		}
+
+		// Save config
+		if err := m.config.Save(); err != nil {
+			logger.Get().Error("failed to save session settings", "error", err)
+			m.modal.SetError("Failed to save: " + err.Error())
+			return m, nil
+		}
+		logger.WithSession(state.SessionID).Info("saved session settings")
+
+		// Update sidebar and header
+		m.sidebar.SetSessions(m.getFilteredSessions())
+		if m.activeSession != nil && m.activeSession.ID == state.SessionID {
+			if newBranch := branchPrefix + newName; newBranch != oldBranch {
+				m.activeSession.Name = newBranch
+				m.activeSession.Branch = newBranch
+				m.header.SetSessionName(newBranch)
+			}
+			m.activeSession.Autonomous = state.Autonomous
+		}
+		m.modal.Hide()
+		return m, nil
+	}
+	// Forward other keys to the modal for focus/input handling
+	modal, cmd := m.modal.Update(msg)
+	m.modal = modal
+	return m, cmd
+}
