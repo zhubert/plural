@@ -5,6 +5,7 @@ go 1.25.4
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
+	charm.land/huh/v2 v2.0.0-20260105203756-d8977490d20c
 	charm.land/lipgloss/v2 v2.0.0-beta.3.0.20251205162909-7869489d8971
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260112120624-d903450b6504
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	charm.land/huh/v2 v2.0.0-20260105203756-d8977490d20c // indirect
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/catppuccin/go v0.2.0 // indirect
