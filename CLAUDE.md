@@ -126,6 +126,8 @@ Auth: `ANTHROPIC_API_KEY`, macOS keychain `anthropic_api_key`, or `CLAUDE_CODE_O
 
 Key files: `process_manager.go` (builds `docker run` args), `mcp_config.go` (container MCP config), `cmd/mcp_server.go` (`--auto-approve` flag).
 
+**Docker Image Architecture**: The `ghcr.io/zhubert/plural-claude` image downloads the plural binary from GitHub releases at build time (rather than building from source). This makes the image stable and reusable across versions. The Dockerfile accepts a `PLURAL_VERSION` build arg (default: `latest`) to pin to a specific version. See `Dockerfile` and `scripts/build-container.sh`.
+
 ### Flash Messages
 
 ```go

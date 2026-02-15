@@ -33,6 +33,9 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest
 
+      # Build multi-arch Docker image.
+      # The Dockerfile downloads the plural binary from GitHub releases (latest or specific version),
+      # so the Docker image is stable and doesn't need to be rebuilt every time plural is updated.
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -42,3 +45,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Pass PLURAL_VERSION=latest to download the latest plural binary from GitHub releases
+          build-args: |
+            PLURAL_VERSION=latest
