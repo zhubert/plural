@@ -673,15 +673,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.modal.Show(state)
 					return m, nil
 				}
-				// Select session
+				// If a session is selected (already auto-selected via navigation),
+				// switch focus to chat
 				if sess := m.sidebar.SelectedSession(); sess != nil {
-					m.selectSession(sess)
-					// Check if this session has an unsent initial message (from issue import)
-					if initialMsg := m.sessionState().GetInitialMessage(sess.ID); initialMsg != "" {
-						m.sessionState().GetOrCreate(sess.ID).SetPendingMsg(initialMsg)
-						return m, func() tea.Msg {
-							return SendPendingMessageMsg{SessionID: sess.ID}
-						}
+					if m.activeSession == nil || m.activeSession.ID != sess.ID {
+						m.selectSession(sess)
+					} else {
+						m.focus = FocusChat
+						m.sidebar.SetFocused(false)
+						m.chat.SetFocused(true)
 					}
 					return m, nil
 				}
@@ -929,6 +929,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sidebar, cmd := m.sidebar.Update(msg)
 		m.sidebar = sidebar
 		cmds = append(cmds, cmd)
+
+		// Auto-select session when navigating with keyboard
+		if _, isKey := msg.(tea.KeyPressMsg); isKey {
+			if sess := m.sidebar.SelectedSession(); sess != nil {
+				if m.activeSession == nil || m.activeSession.ID != sess.ID {
+					m.selectSession(sess)
+					// Keep focus on sidebar (selectSession moves it to chat)
+					m.focus = FocusSidebar
+					m.sidebar.SetFocused(true)
+					m.chat.SetFocused(false)
+				}
+			}
+		}
 	} else {
 		chat, cmd := m.chat.Update(msg)
 		m.chat = chat

@@ -725,3 +725,156 @@ func NewRenameSessionState(sessionID, currentName string) *RenameSessionState {
 		NameInput:   nameInput,
 	}
 }
+
+// =============================================================================
+// SessionSettingsState - State for the per-session Settings modal
+// =============================================================================
+
+// SessionSettingsState holds per-session settings shown when a session is selected in the sidebar.
+type SessionSettingsState struct {
+	SessionID   string
+	SessionName string
+	Branch      string
+	BaseBranch  string
+
+	// Editable fields
+	NameInput  textinput.Model
+	Autonomous bool
+
+	// Read-only info
+	Containerized bool
+
+	Focus int // 0=name, 1=autonomous
+}
+
+const (
+	sessionSettingsNameFocus       = 0
+	sessionSettingsAutonomousFocus = 1
+	sessionSettingsNumFields       = 2
+)
+
+func (*SessionSettingsState) modalState() {}
+
+func (s *SessionSettingsState) Title() string {
+	return "Session Settings"
+}
+
+func (s *SessionSettingsState) Help() string {
+	if s.Focus == sessionSettingsNameFocus {
+		return "Tab: next field  Enter: save  Esc: cancel"
+	}
+	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
+}
+
+func (s *SessionSettingsState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	// Info section
+	infoHeader := renderSectionHeader("Info:")
+
+	branchLabel := lipgloss.NewStyle().Foreground(ColorTextMuted).Render("Branch: ")
+	branchValue := lipgloss.NewStyle().Foreground(ColorSecondary).Render(s.Branch)
+	branchLine := lipgloss.NewStyle().PaddingLeft(2).Render(branchLabel + branchValue)
+
+	baseLabel := lipgloss.NewStyle().Foreground(ColorTextMuted).Render("Base: ")
+	baseValue := lipgloss.NewStyle().Foreground(ColorSecondary).Render(s.BaseBranch)
+	baseLine := lipgloss.NewStyle().PaddingLeft(2).Render(baseLabel + baseValue)
+
+	containerLabel := lipgloss.NewStyle().Foreground(ColorTextMuted).Render("Container: ")
+	containerValue := "no"
+	if s.Containerized {
+		containerValue = "yes"
+	}
+	containerLine := lipgloss.NewStyle().PaddingLeft(2).Render(
+		containerLabel + lipgloss.NewStyle().Foreground(ColorSecondary).Render(containerValue),
+	)
+
+	// Editable fields
+	editHeader := renderSectionHeader("Settings:")
+
+	nameView := renderInputField("Name", "", s.NameInput, sessionSettingsNameFocus, s.Focus, ModalInputWidth)
+	autonomousView := renderCheckboxField(
+		"Autonomous",
+		"Run without user prompts",
+		s.Autonomous, sessionSettingsAutonomousFocus, s.Focus)
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		title,
+		infoHeader,
+		branchLine,
+		baseLine,
+		containerLine,
+		editHeader,
+		nameView,
+		autonomousView,
+		help,
+	)
+}
+
+func (s *SessionSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return s, nil
+	}
+
+	switch keyMsg.String() {
+	case keys.Tab:
+		s.Focus = (s.Focus + 1) % sessionSettingsNumFields
+		if s.Focus == sessionSettingsNameFocus {
+			s.NameInput.Focus()
+		} else {
+			s.NameInput.Blur()
+		}
+		return s, nil
+	case keys.ShiftTab:
+		s.Focus = (s.Focus - 1 + sessionSettingsNumFields) % sessionSettingsNumFields
+		if s.Focus == sessionSettingsNameFocus {
+			s.NameInput.Focus()
+		} else {
+			s.NameInput.Blur()
+		}
+		return s, nil
+	case keys.Space:
+		if s.Focus == sessionSettingsAutonomousFocus {
+			s.Autonomous = !s.Autonomous
+		}
+		return s, nil
+	}
+
+	// Forward to name input when focused
+	if s.Focus == sessionSettingsNameFocus {
+		var cmd tea.Cmd
+		s.NameInput, cmd = s.NameInput.Update(msg)
+		return s, cmd
+	}
+
+	return s, nil
+}
+
+// GetNewName returns the new name entered by the user.
+func (s *SessionSettingsState) GetNewName() string {
+	return s.NameInput.Value()
+}
+
+// NewSessionSettingsState creates a new SessionSettingsState.
+func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, autonomous, containerized bool) *SessionSettingsState {
+	nameInput := textinput.New()
+	nameInput.Placeholder = "enter session name"
+	nameInput.CharLimit = SessionNameCharLimit
+	nameInput.SetWidth(ModalInputWidth)
+	nameInput.SetValue(currentName)
+	nameInput.Focus()
+
+	return &SessionSettingsState{
+		SessionID:     sessionID,
+		SessionName:   currentName,
+		Branch:        branch,
+		BaseBranch:    baseBranch,
+		NameInput:     nameInput,
+		Autonomous:    autonomous,
+		Containerized: containerized,
+		Focus:         sessionSettingsNameFocus,
+	}
+}

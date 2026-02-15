@@ -951,19 +951,19 @@ func TestShortcutRepoSettings_OpensModal(t *testing.T) {
 		cfg := testConfigWithSessions()
 		m := testModelWithSize(cfg, 120, 40)
 		m.sidebar.SetSessions(cfg.Sessions)
-		// Select a session (auto-advances past repo header)
-		m = sendKey(m, "enter")
-		m = sendKey(m, "tab") // back to sidebar
+		// SetSessions auto-advances to session-1, so sidebar already points at a session
 
 		shortcutRepoSettings(m)
 
 		if !m.modal.IsVisible() {
 			t.Error("expected modal to be visible")
 		}
-		// With a session selected, shows the session's repo settings
-		_, ok := m.modal.State.(*ui.RepoSettingsState)
+		state, ok := m.modal.State.(*ui.SessionSettingsState)
 		if !ok {
-			t.Errorf("expected RepoSettingsState modal, got %T", m.modal.State)
+			t.Errorf("expected SessionSettingsState modal, got %T", m.modal.State)
+		}
+		if state.SessionID != "session-1" {
+			t.Errorf("expected session-1, got %s", state.SessionID)
 		}
 	})
 }
@@ -1093,5 +1093,57 @@ func TestPreviewInMain_NoCommitWhenClean(t *testing.T) {
 		if call.Name == "git" && len(call.Args) > 0 && call.Args[0] == "commit" {
 			t.Error("Expected no commit when session worktree is clean")
 		}
+	}
+}
+
+func TestSidebarNavigation_AutoSelectsSession(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Initially no active session (SetSessions auto-advances cursor to session-1
+	// but doesn't trigger auto-select since no Update loop runs)
+	if m.activeSession != nil {
+		t.Fatal("expected no active session initially")
+	}
+
+	// Navigate down from session-1 (index 1) to session-2 (index 2)
+	// This triggers auto-select of session-2
+	m = sendKey(m, "j")
+
+	// Session-2 should be auto-selected
+	if m.activeSession == nil {
+		t.Fatal("expected session to be auto-selected on navigate")
+	}
+	if m.activeSession.ID != "session-2" {
+		t.Errorf("expected session-2, got %s", m.activeSession.ID)
+	}
+
+	// Focus should remain on sidebar
+	if m.focus != FocusSidebar {
+		t.Error("expected focus to remain on sidebar after auto-select")
+	}
+}
+
+func TestSidebarNavigation_AutoSelectsNewSessionOnMove(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Navigate down to session-2 (from session-1 which SetSessions auto-advanced to)
+	m = sendKey(m, "j")
+	if m.activeSession == nil || m.activeSession.ID != "session-2" {
+		t.Fatal("expected session-2 to be auto-selected")
+	}
+
+	// Navigate up back to session-1
+	m = sendKey(m, "k")
+	if m.activeSession == nil || m.activeSession.ID != "session-1" {
+		t.Errorf("expected session-1 after navigating up, got %v", m.activeSession)
+	}
+
+	// Focus should still be on sidebar
+	if m.focus != FocusSidebar {
+		t.Error("expected focus to remain on sidebar")
 	}
 }

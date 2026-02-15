@@ -300,7 +300,7 @@ var DisplayOnlyShortcuts = []Shortcut{
 	{DisplayKey: "↑/↓ or j/k", Description: "Navigate session list", Category: CategoryNavigation},
 	{DisplayKey: "PgUp/PgDn", Description: "Scroll chat or session list", Category: CategoryNavigation},
 	{DisplayKey: "ctrl-u/ctrl-d", Description: "Scroll half page up/down", Category: CategoryNavigation},
-	{DisplayKey: "Enter", Description: "Select session / Send message", Category: CategoryNavigation},
+	{DisplayKey: "Enter", Description: "Send message / New session action", Category: CategoryNavigation},
 	{DisplayKey: "Esc", Description: "Cancel search / Stop streaming", Category: CategoryNavigation},
 
 	// Chat (display-only, context-sensitive)
@@ -661,9 +661,9 @@ func shortcutRepoSettings(m *Model) (tea.Model, tea.Cmd) {
 		return m.showRepoSettings(repoPath)
 	}
 
-	// If a session is selected, show its repo's settings
+	// If a session is selected in the sidebar, show session-specific settings
 	if sess := m.sidebar.SelectedSession(); sess != nil {
-		return m.showRepoSettings(sess.RepoPath)
+		return m.showSessionSettings(sess)
 	}
 
 	return m, nil
@@ -706,6 +706,27 @@ func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
 	if asanaPATSet {
 		return m, m.fetchAsanaProjects()
 	}
+	return m, nil
+}
+
+// showSessionSettings opens the session-specific settings modal.
+func (m *Model) showSessionSettings(sess *config.Session) (tea.Model, tea.Cmd) {
+	// Strip branch prefix for display in the name input
+	name := sess.Name
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+	if branchPrefix != "" {
+		name = strings.TrimPrefix(name, branchPrefix)
+	}
+
+	state := ui.NewSessionSettingsState(
+		sess.ID,
+		name,
+		sess.Branch,
+		sess.BaseBranch,
+		sess.Autonomous,
+		sess.Containerized,
+	)
+	m.modal.Show(state)
 	return m, nil
 }
 

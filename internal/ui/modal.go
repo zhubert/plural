@@ -64,6 +64,7 @@ type (
 	ContainerCommandState    = modals.ContainerCommandState
 	AsanaProjectOption       = modals.AsanaProjectOption
 	RepoSettingsState        = modals.RepoSettingsState
+	SessionSettingsState     = modals.SessionSettingsState
 )
 
 // Re-export broadcast action constants
@@ -90,6 +91,7 @@ var (
 	NewNewSessionState                = modals.NewNewSessionState
 	NewForkSessionState               = modals.NewForkSessionState
 	NewRenameSessionState             = modals.NewRenameSessionState
+	NewSessionSettingsState           = modals.NewSessionSettingsState
 	NewMergeState                     = modals.NewMergeState
 	NewLoadingCommitState             = modals.NewLoadingCommitState
 	NewEditCommitState                = modals.NewEditCommitState
