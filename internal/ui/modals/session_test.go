@@ -405,6 +405,50 @@ func TestNewSessionState_LockedRepo_TabSkipsRepoFocus_WithContainers(t *testing.
 	}
 }
 
+func TestNewSessionState_DockerHintWhenContainersNotSupported(t *testing.T) {
+	initTestStyles()
+
+	state := NewNewSessionState(makeRepos(3), false, false)
+	rendered := state.Render()
+
+	if !strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+		t.Error("expected Docker hint when containers not supported")
+	}
+}
+
+func TestNewSessionState_NoDockerHintWhenContainersSupported(t *testing.T) {
+	initTestStyles()
+
+	state := NewNewSessionState(makeRepos(3), true, true)
+	rendered := state.Render()
+
+	if strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+		t.Error("should not show Docker hint when containers are supported")
+	}
+}
+
+func TestForkSessionState_DockerHintWhenContainersNotSupported(t *testing.T) {
+	initTestStyles()
+
+	state := NewForkSessionState("parent", "parent-id", "/repo", false, false, false)
+	rendered := state.Render()
+
+	if !strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+		t.Error("expected Docker hint in fork modal when containers not supported")
+	}
+}
+
+func TestForkSessionState_NoDockerHintWhenContainersSupported(t *testing.T) {
+	initTestStyles()
+
+	state := NewForkSessionState("parent", "parent-id", "/repo", false, true, true)
+	rendered := state.Render()
+
+	if strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+		t.Error("should not show Docker hint in fork modal when containers are supported")
+	}
+}
+
 func TestSessionSettingsState_Title(t *testing.T) {
 	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
 	if state.Title() != "Session Settings" {

@@ -197,6 +197,14 @@ func (s *NewSessionState) Render() string {
 				Render(ContainerAuthHelp)
 			parts = append(parts, authWarning)
 		}
+	} else {
+		dockerHint := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginTop(1).
+			PaddingLeft(2).
+			Render("Install Docker to enable container and autonomous modes")
+		parts = append(parts, dockerHint)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -482,6 +490,16 @@ func (s *ForkSessionState) Render() string {
 			PaddingLeft(2).
 			Render(ContainerAuthHelp)
 		parts = append(parts, authWarning)
+	}
+
+	if !s.ContainersSupported {
+		dockerHint := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginTop(1).
+			PaddingLeft(2).
+			Render("Install Docker to enable container and autonomous modes")
+		parts = append(parts, dockerHint)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
