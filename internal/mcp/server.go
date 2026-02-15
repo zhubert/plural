@@ -56,13 +56,15 @@ type Server struct {
 	listChildrenResp <-chan ListChildrenResponse // Receive list children responses from TUI
 	mergeChildChan   chan<- MergeChildRequest    // Send merge child requests to TUI
 	mergeChildResp   <-chan MergeChildResponse   // Receive merge child responses from TUI
-	hasHostTools     bool                        // Whether to expose host operation tools (create_pr, push_branch)
-	createPRChan     chan<- CreatePRRequest      // Send create PR requests to TUI
-	createPRResp     <-chan CreatePRResponse     // Receive create PR responses from TUI
-	pushBranchChan   chan<- PushBranchRequest    // Send push branch requests to TUI
-	pushBranchResp   <-chan PushBranchResponse   // Receive push branch responses from TUI
-	mu               sync.Mutex
-	log              *slog.Logger // Logger with session context
+	hasHostTools         bool                              // Whether to expose host operation tools (create_pr, push_branch, get_review_comments)
+	createPRChan         chan<- CreatePRRequest            // Send create PR requests to TUI
+	createPRResp         <-chan CreatePRResponse           // Receive create PR responses from TUI
+	pushBranchChan       chan<- PushBranchRequest          // Send push branch requests to TUI
+	pushBranchResp       <-chan PushBranchResponse         // Receive push branch responses from TUI
+	getReviewCommentsChan chan<- GetReviewCommentsRequest  // Send get review comments requests to TUI
+	getReviewCommentsResp <-chan GetReviewCommentsResponse // Receive get review comments responses from TUI
+	mu                   sync.Mutex
+	log                  *slog.Logger // Logger with session context
 }
 
 // ServerOption is a functional option for configuring Server
@@ -85,10 +87,11 @@ func WithSupervisor(
 	}
 }
 
-// WithHostTools enables host operation tools (create_pr, push_branch)
+// WithHostTools enables host operation tools (create_pr, push_branch, get_review_comments)
 func WithHostTools(
 	createPRChan chan<- CreatePRRequest, createPRResp <-chan CreatePRResponse,
 	pushBranchChan chan<- PushBranchRequest, pushBranchResp <-chan PushBranchResponse,
+	getReviewCommentsChan chan<- GetReviewCommentsRequest, getReviewCommentsResp <-chan GetReviewCommentsResponse,
 ) ServerOption {
 	return func(s *Server) {
 		s.hasHostTools = true
@@ -96,6 +99,8 @@ func WithHostTools(
 		s.createPRResp = createPRResp
 		s.pushBranchChan = pushBranchChan
 		s.pushBranchResp = pushBranchResp
+		s.getReviewCommentsChan = getReviewCommentsChan
+		s.getReviewCommentsResp = getReviewCommentsResp
 	}
 }
 
@@ -280,6 +285,14 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) {
 					},
 				},
 			},
+			ToolDefinition{
+				Name:        "get_review_comments",
+				Description: "Fetch all review comments from the pull request for the current branch. Returns top-level PR comments, review body comments, and inline code review comments. This runs on the host machine.",
+				InputSchema: InputSchema{
+					Type:       "object",
+					Properties: map[string]Property{},
+				},
+			},
 		)
 	}
 
@@ -307,6 +320,8 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) {
 		s.handleCreatePR(req, params)
 	case "push_branch":
 		s.handlePushBranch(req, params)
+	case "get_review_comments":
+		s.handleGetReviewComments(req, params)
 	default:
 		s.log.Warn("unknown tool", "tool", params.Name)
 		s.sendError(req.ID, -32602, "Unknown tool", nil)
@@ -749,6 +764,37 @@ func (s *Server) handlePushBranch(req *JSONRPCRequest, params ToolCallParams) {
 		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
 	case <-time.After(HostToolReceiveTimeout):
 		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for push result"}`)
+	}
+}
+
+// handleGetReviewComments handles the get_review_comments host tool
+func (s *Server) handleGetReviewComments(req *JSONRPCRequest, params ToolCallParams) {
+	if !s.hasHostTools || s.getReviewCommentsChan == nil {
+		s.sendToolResult(req.ID, true, `{"error":"get_review_comments is only available in automated supervisor sessions"}`)
+		return
+	}
+
+	s.log.Info("get_review_comments called")
+
+	reviewReq := GetReviewCommentsRequest{ID: req.ID}
+
+	select {
+	case s.getReviewCommentsChan <- reviewReq:
+	case <-time.After(ChannelSendTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
+		return
+	}
+
+	select {
+	case resp := <-s.getReviewCommentsResp:
+		resultJSON, err := json.Marshal(resp)
+		if err != nil {
+			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
+			return
+		}
+		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
+	case <-time.After(HostToolReceiveTimeout):
+		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for review comments"}`)
 	}
 }
 

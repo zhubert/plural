@@ -251,3 +251,25 @@ type PushBranchResponse struct {
 	Success bool        `json:"success"`         // Whether push was successful
 	Error   string      `json:"error,omitempty"` // Error message if push failed
 }
+
+// GetReviewCommentsRequest represents a request from an automated supervisor to get PR review comments
+type GetReviewCommentsRequest struct {
+	ID interface{} `json:"id"` // JSON-RPC request ID for response correlation
+}
+
+// ReviewComment represents a single review comment for JSON serialization
+type ReviewComment struct {
+	Author string `json:"author"`          // GitHub username
+	Body   string `json:"body"`            // Comment text
+	Path   string `json:"path,omitempty"`  // File path (empty for top-level comments)
+	Line   int    `json:"line,omitempty"`  // Line number (0 for top-level comments)
+	URL    string `json:"url,omitempty"`   // Permalink
+}
+
+// GetReviewCommentsResponse represents the result of fetching PR review comments
+type GetReviewCommentsResponse struct {
+	ID       interface{}     `json:"id"`                // Correlates with request ID
+	Success  bool            `json:"success"`           // Whether fetch was successful
+	Comments []ReviewComment `json:"comments,omitempty"` // List of review comments
+	Error    string          `json:"error,omitempty"`   // Error message if fetch failed
+}

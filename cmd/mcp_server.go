@@ -217,14 +217,18 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	var createPRRespChan chan mcp.CreatePRResponse
 	var pushBranchChan chan mcp.PushBranchRequest
 	var pushBranchRespChan chan mcp.PushBranchResponse
+	var getReviewCommentsChan chan mcp.GetReviewCommentsRequest
+	var getReviewCommentsRespChan chan mcp.GetReviewCommentsResponse
 
 	if mcpHostTools {
 		createPRChan = make(chan mcp.CreatePRRequest)
 		createPRRespChan = make(chan mcp.CreatePRResponse, 1)
 		pushBranchChan = make(chan mcp.PushBranchRequest)
 		pushBranchRespChan = make(chan mcp.PushBranchResponse, 1)
+		getReviewCommentsChan = make(chan mcp.GetReviewCommentsRequest)
+		getReviewCommentsRespChan = make(chan mcp.GetReviewCommentsResponse, 1)
 
-		wg.Add(2)
+		wg.Add(3)
 
 		go func() {
 			defer wg.Done()
@@ -250,9 +254,22 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 			}
 		}()
 
+		go func() {
+			defer wg.Done()
+			for req := range getReviewCommentsChan {
+				resp, fwdErr := client.SendGetReviewCommentsRequest(req)
+				if fwdErr != nil {
+					getReviewCommentsRespChan <- mcp.GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				} else {
+					getReviewCommentsRespChan <- resp
+				}
+			}
+		}()
+
 		serverOpts = append(serverOpts, mcp.WithHostTools(
 			createPRChan, createPRRespChan,
 			pushBranchChan, pushBranchRespChan,
+			getReviewCommentsChan, getReviewCommentsRespChan,
 		))
 	}
 
@@ -277,6 +294,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	if mcpHostTools {
 		close(createPRChan)
 		close(pushBranchChan)
+		close(getReviewCommentsChan)
 	}
 	wg.Wait()
 	close(respChan)
@@ -290,6 +308,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	if mcpHostTools {
 		close(createPRRespChan)
 		close(pushBranchRespChan)
+		close(getReviewCommentsRespChan)
 	}
 
 	if err != nil {

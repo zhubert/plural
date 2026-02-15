@@ -616,6 +616,33 @@ func (r *Runner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 	}
 }
 
+// GetReviewCommentsRequestChan returns the channel for receiving get review comments requests.
+func (r *Runner) GetReviewCommentsRequestChan() <-chan mcp.GetReviewCommentsRequest {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.stopped || r.mcp == nil {
+		return nil
+	}
+	return r.mcp.GetReviewCommentsReq
+}
+
+// SendGetReviewCommentsResponse sends a response to a get review comments request.
+func (r *Runner) SendGetReviewCommentsResponse(resp mcp.GetReviewCommentsResponse) {
+	r.mu.RLock()
+	stopped := r.stopped
+	var ch chan mcp.GetReviewCommentsResponse
+	if r.mcp != nil {
+		ch = r.mcp.GetReviewCommentsResp
+	}
+	r.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	if !safeSendChannel(ch, resp) {
+		r.log.Debug("SendGetReviewCommentsResponse channel full or closed, ignoring")
+	}
+}
+
 // IsStreaming returns whether this runner is currently streaming a response
 func (r *Runner) IsStreaming() bool {
 	r.mu.RLock()

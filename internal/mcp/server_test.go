@@ -1104,10 +1104,12 @@ func TestServer_handleToolsList_supervisor(t *testing.T) {
 		createPRResp := make(chan CreatePRResponse, 1)
 		pushBranchChan := make(chan PushBranchRequest, 1)
 		pushBranchResp := make(chan PushBranchResponse, 1)
+		getReviewCommentsChan := make(chan GetReviewCommentsRequest, 1)
+		getReviewCommentsResp := make(chan GetReviewCommentsResponse, 1)
 
 		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
 			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp),
-			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
+			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp, getReviewCommentsChan, getReviewCommentsResp))
 
 		if !s.isSupervisor {
 			t.Error("server should be supervisor")
@@ -1352,9 +1354,11 @@ func TestServer_handleCreatePR(t *testing.T) {
 		createPRResp := make(chan CreatePRResponse, 1)
 		pushBranchChan := make(chan PushBranchRequest, 1)
 		pushBranchResp := make(chan PushBranchResponse, 1)
+		getReviewCommentsChan := make(chan GetReviewCommentsRequest, 1)
+		getReviewCommentsResp := make(chan GetReviewCommentsResponse, 1)
 
 		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
-			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
+			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp, getReviewCommentsChan, getReviewCommentsResp))
 
 		go func() {
 			req := <-createPRChan
@@ -1405,9 +1409,11 @@ func TestServer_handlePushBranch(t *testing.T) {
 		createPRResp := make(chan CreatePRResponse, 1)
 		pushBranchChan := make(chan PushBranchRequest, 1)
 		pushBranchResp := make(chan PushBranchResponse, 1)
+		getReviewCommentsChan := make(chan GetReviewCommentsRequest, 1)
+		getReviewCommentsResp := make(chan GetReviewCommentsResponse, 1)
 
 		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test",
-			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp))
+			WithHostTools(createPRChan, createPRResp, pushBranchChan, pushBranchResp, getReviewCommentsChan, getReviewCommentsResp))
 
 		go func() {
 			req := <-pushBranchChan

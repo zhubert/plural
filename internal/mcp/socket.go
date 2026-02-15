@@ -38,35 +38,38 @@ const (
 type MessageType string
 
 const (
-	MessageTypePermission   MessageType = "permission"
-	MessageTypeQuestion     MessageType = "question"
-	MessageTypePlanApproval MessageType = "planApproval"
-	MessageTypeCreateChild  MessageType = "createChild"
-	MessageTypeListChildren MessageType = "listChildren"
-	MessageTypeMergeChild   MessageType = "mergeChild"
-	MessageTypeCreatePR     MessageType = "createPR"
-	MessageTypePushBranch   MessageType = "pushBranch"
+	MessageTypePermission        MessageType = "permission"
+	MessageTypeQuestion          MessageType = "question"
+	MessageTypePlanApproval      MessageType = "planApproval"
+	MessageTypeCreateChild       MessageType = "createChild"
+	MessageTypeListChildren      MessageType = "listChildren"
+	MessageTypeMergeChild        MessageType = "mergeChild"
+	MessageTypeCreatePR          MessageType = "createPR"
+	MessageTypePushBranch        MessageType = "pushBranch"
+	MessageTypeGetReviewComments MessageType = "getReviewComments"
 )
 
 // SocketMessage wraps permission, question, plan approval, or supervisor requests/responses
 type SocketMessage struct {
-	Type             MessageType           `json:"type"`
-	PermReq          *PermissionRequest    `json:"permReq,omitempty"`
-	PermResp         *PermissionResponse   `json:"permResp,omitempty"`
-	QuestReq         *QuestionRequest      `json:"questReq,omitempty"`
-	QuestResp        *QuestionResponse     `json:"questResp,omitempty"`
-	PlanReq          *PlanApprovalRequest  `json:"planReq,omitempty"`
-	PlanResp         *PlanApprovalResponse `json:"planResp,omitempty"`
-	CreateChildReq   *CreateChildRequest   `json:"createChildReq,omitempty"`
-	CreateChildResp  *CreateChildResponse  `json:"createChildResp,omitempty"`
-	ListChildrenReq  *ListChildrenRequest  `json:"listChildrenReq,omitempty"`
-	ListChildrenResp *ListChildrenResponse `json:"listChildrenResp,omitempty"`
-	MergeChildReq    *MergeChildRequest    `json:"mergeChildReq,omitempty"`
-	MergeChildResp   *MergeChildResponse   `json:"mergeChildResp,omitempty"`
-	CreatePRReq      *CreatePRRequest      `json:"createPRReq,omitempty"`
-	CreatePRResp     *CreatePRResponse     `json:"createPRResp,omitempty"`
-	PushBranchReq    *PushBranchRequest    `json:"pushBranchReq,omitempty"`
-	PushBranchResp   *PushBranchResponse   `json:"pushBranchResp,omitempty"`
+	Type                  MessageType                  `json:"type"`
+	PermReq               *PermissionRequest           `json:"permReq,omitempty"`
+	PermResp              *PermissionResponse          `json:"permResp,omitempty"`
+	QuestReq              *QuestionRequest             `json:"questReq,omitempty"`
+	QuestResp             *QuestionResponse            `json:"questResp,omitempty"`
+	PlanReq               *PlanApprovalRequest         `json:"planReq,omitempty"`
+	PlanResp              *PlanApprovalResponse        `json:"planResp,omitempty"`
+	CreateChildReq        *CreateChildRequest          `json:"createChildReq,omitempty"`
+	CreateChildResp       *CreateChildResponse         `json:"createChildResp,omitempty"`
+	ListChildrenReq       *ListChildrenRequest         `json:"listChildrenReq,omitempty"`
+	ListChildrenResp      *ListChildrenResponse        `json:"listChildrenResp,omitempty"`
+	MergeChildReq         *MergeChildRequest           `json:"mergeChildReq,omitempty"`
+	MergeChildResp        *MergeChildResponse          `json:"mergeChildResp,omitempty"`
+	CreatePRReq           *CreatePRRequest             `json:"createPRReq,omitempty"`
+	CreatePRResp          *CreatePRResponse            `json:"createPRResp,omitempty"`
+	PushBranchReq         *PushBranchRequest           `json:"pushBranchReq,omitempty"`
+	PushBranchResp        *PushBranchResponse          `json:"pushBranchResp,omitempty"`
+	GetReviewCommentsReq  *GetReviewCommentsRequest    `json:"getReviewCommentsReq,omitempty"`
+	GetReviewCommentsResp *GetReviewCommentsResponse   `json:"getReviewCommentsResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
@@ -84,16 +87,18 @@ type SocketServer struct {
 	createChildResp  <-chan CreateChildResponse
 	listChildrenReq  chan<- ListChildrenRequest
 	listChildrenResp <-chan ListChildrenResponse
-	mergeChildReq    chan<- MergeChildRequest
-	mergeChildResp   <-chan MergeChildResponse
-	createPRReq      chan<- CreatePRRequest
-	createPRResp     <-chan CreatePRResponse
-	pushBranchReq    chan<- PushBranchRequest
-	pushBranchResp   <-chan PushBranchResponse
-	closed           bool           // Set to true when Close() is called
-	closedMu         sync.RWMutex   // Guards closed flag
-	wg               sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
-	log              *slog.Logger   // Logger with session context
+	mergeChildReq         chan<- MergeChildRequest
+	mergeChildResp        <-chan MergeChildResponse
+	createPRReq           chan<- CreatePRRequest
+	createPRResp          <-chan CreatePRResponse
+	pushBranchReq         chan<- PushBranchRequest
+	pushBranchResp        <-chan PushBranchResponse
+	getReviewCommentsReq  chan<- GetReviewCommentsRequest
+	getReviewCommentsResp <-chan GetReviewCommentsResponse
+	closed                bool           // Set to true when Close() is called
+	closedMu              sync.RWMutex   // Guards closed flag
+	wg                    sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
+	log                   *slog.Logger   // Logger with session context
 }
 
 // NewSocketServer creates a new socket server for the given session
@@ -158,12 +163,15 @@ func WithSupervisorChannels(
 func WithHostToolChannels(
 	createPRReq chan<- CreatePRRequest, createPRResp <-chan CreatePRResponse,
 	pushBranchReq chan<- PushBranchRequest, pushBranchResp <-chan PushBranchResponse,
+	getReviewCommentsReq chan<- GetReviewCommentsRequest, getReviewCommentsResp <-chan GetReviewCommentsResponse,
 ) SocketServerOption {
 	return func(s *SocketServer) {
 		s.createPRReq = createPRReq
 		s.createPRResp = createPRResp
 		s.pushBranchReq = pushBranchReq
 		s.pushBranchResp = pushBranchResp
+		s.getReviewCommentsReq = getReviewCommentsReq
+		s.getReviewCommentsResp = getReviewCommentsResp
 	}
 }
 
@@ -347,6 +355,8 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 			s.handleCreatePRMessage(conn, msg.CreatePRReq)
 		case MessageTypePushBranch:
 			s.handlePushBranchMessage(conn, msg.PushBranchReq)
+		case MessageTypeGetReviewComments:
+			s.handleGetReviewCommentsMessage(conn, msg.GetReviewCommentsReq)
 		default:
 			s.log.Warn("unknown message type", "type", msg.Type)
 		}
@@ -726,6 +736,46 @@ func (s *SocketServer) sendPushBranchResponse(conn net.Conn, resp PushBranchResp
 	}
 }
 
+func (s *SocketServer) handleGetReviewCommentsMessage(conn net.Conn, req *GetReviewCommentsRequest) {
+	if req == nil || s.getReviewCommentsReq == nil {
+		s.log.Warn("get review comments request ignored (nil request or no channel)")
+		s.sendGetReviewCommentsResponse(conn, GetReviewCommentsResponse{Success: false, Error: "Host tools not available"})
+		return
+	}
+
+	s.log.Info("received get review comments request")
+
+	select {
+	case s.getReviewCommentsReq <- *req:
+	case <-time.After(SocketReadTimeout):
+		s.log.Warn("timeout sending get review comments request to TUI")
+		s.sendGetReviewCommentsResponse(conn, GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
+		return
+	}
+
+	select {
+	case resp := <-s.getReviewCommentsResp:
+		s.sendGetReviewCommentsResponse(conn, resp)
+		s.log.Info("sent get review comments response", "success", resp.Success, "commentCount", len(resp.Comments))
+	case <-time.After(HostToolResponseTimeout):
+		s.log.Warn("timeout waiting for get review comments response")
+		s.sendGetReviewCommentsResponse(conn, GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Timeout"})
+	}
+}
+
+func (s *SocketServer) sendGetReviewCommentsResponse(conn net.Conn, resp GetReviewCommentsResponse) {
+	msg := SocketMessage{Type: MessageTypeGetReviewComments, GetReviewCommentsResp: &resp}
+	respJSON, err := json.Marshal(msg)
+	if err != nil {
+		s.log.Error("failed to marshal get review comments response", "error", err)
+		return
+	}
+	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
+		s.log.Error("write error", "error", err)
+	}
+}
+
 // Close shuts down the socket server and waits for the Run() goroutine to exit.
 func (s *SocketServer) Close() error {
 	s.log.Info("closing socket server")
@@ -1029,6 +1079,32 @@ func (c *SocketClient) SendPushBranchRequest(req PushBranchRequest) (PushBranchR
 		return PushBranchResponse{}, fmt.Errorf("expected push branch response, got nil")
 	}
 	return *respMsg.PushBranchResp, nil
+}
+
+// SendGetReviewCommentsRequest sends a get review comments request and waits for response
+func (c *SocketClient) SendGetReviewCommentsRequest(req GetReviewCommentsRequest) (GetReviewCommentsResponse, error) {
+	msg := SocketMessage{Type: MessageTypeGetReviewComments, GetReviewCommentsReq: &req}
+	reqJSON, err := json.Marshal(msg)
+	if err != nil {
+		return GetReviewCommentsResponse{}, err
+	}
+	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
+	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
+		return GetReviewCommentsResponse{}, fmt.Errorf("write get review comments request: %w", err)
+	}
+	c.conn.SetReadDeadline(time.Now().Add(HostToolResponseTimeout))
+	line, err := c.reader.ReadString('\n')
+	if err != nil {
+		return GetReviewCommentsResponse{}, fmt.Errorf("read get review comments response: %w", err)
+	}
+	var respMsg SocketMessage
+	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
+		return GetReviewCommentsResponse{}, err
+	}
+	if respMsg.GetReviewCommentsResp == nil {
+		return GetReviewCommentsResponse{}, fmt.Errorf("expected get review comments response, got nil")
+	}
+	return *respMsg.GetReviewCommentsResp, nil
 }
 
 // Close closes the client connection

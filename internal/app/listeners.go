@@ -43,6 +43,7 @@ func (m *Model) sessionListeners(sessionID string, runner claude.RunnerInterface
 		cmds = append(cmds,
 			m.listenForCreatePRRequest(sessionID, runner),
 			m.listenForPushBranchRequest(sessionID, runner),
+			m.listenForGetReviewCommentsRequest(sessionID, runner),
 		)
 	}
 
@@ -196,6 +197,21 @@ func (m *Model) listenForPushBranchRequest(sessionID string, runner claude.Runne
 			return nil
 		}
 		return PushBranchRequestMsg{SessionID: sessionID, Request: req}
+	}
+}
+
+// listenForGetReviewCommentsRequest creates a command to listen for get review comments requests from an automated supervisor
+func (m *Model) listenForGetReviewCommentsRequest(sessionID string, runner claude.RunnerInterface) tea.Cmd {
+	ch := runner.GetReviewCommentsRequestChan()
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		req, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return GetReviewCommentsRequestMsg{SessionID: sessionID, Request: req}
 	}
 }
 

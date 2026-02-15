@@ -1068,3 +1068,71 @@ func (m *Model) handlePushBranchRequestMsg(msg PushBranchRequestMsg) (tea.Model,
 	cmds = append(cmds, pushCmd)
 	return m, tea.Batch(cmds...)
 }
+
+// handleGetReviewCommentsRequestMsg handles a get_review_comments MCP tool call from an automated supervisor.
+func (m *Model) handleGetReviewCommentsRequestMsg(msg GetReviewCommentsRequestMsg) (tea.Model, tea.Cmd) {
+	log := logger.WithSession(msg.SessionID)
+	runner := m.sessionMgr.GetRunner(msg.SessionID)
+	if runner == nil {
+		log.Warn("get review comments request for unknown session")
+		return m, nil
+	}
+
+	sess := m.config.GetSession(msg.SessionID)
+	if sess == nil {
+		runner.SendGetReviewCommentsResponse(mcp.GetReviewCommentsResponse{
+			ID:    msg.Request.ID,
+			Error: "Session not found",
+		})
+		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	}
+
+	log.Info("get_review_comments called via MCP tool", "branch", sess.Branch)
+
+	// Capture values for the goroutine
+	requestID := msg.Request.ID
+	repoPath := sess.RepoPath
+	branch := sess.Branch
+	gitSvc := m.gitService
+
+	// Re-register listeners first
+	cmds := m.sessionListeners(msg.SessionID, runner, nil)
+
+	// Fetch review comments asynchronously
+	fetchCmd := func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		comments, err := gitSvc.FetchPRReviewComments(ctx, repoPath, branch)
+		if err != nil {
+			runner.SendGetReviewCommentsResponse(mcp.GetReviewCommentsResponse{
+				ID:      requestID,
+				Success: false,
+				Error:   fmt.Sprintf("Failed to fetch review comments: %v", err),
+			})
+			return nil
+		}
+
+		// Convert git.PRReviewComment to mcp.ReviewComment
+		mcpComments := make([]mcp.ReviewComment, len(comments))
+		for i, c := range comments {
+			mcpComments[i] = mcp.ReviewComment{
+				Author: c.Author,
+				Body:   c.Body,
+				Path:   c.Path,
+				Line:   c.Line,
+				URL:    c.URL,
+			}
+		}
+
+		runner.SendGetReviewCommentsResponse(mcp.GetReviewCommentsResponse{
+			ID:       requestID,
+			Success:  true,
+			Comments: mcpComments,
+		})
+		return nil
+	}
+
+	cmds = append(cmds, fetchCmd)
+	return m, tea.Batch(cmds...)
+}
