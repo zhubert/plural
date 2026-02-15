@@ -413,7 +413,8 @@ func NewNewSessionState(repos []string, containersSupported bool, containerAuthA
 		RepoIndex:    0,
 		ScrollOffset: 0,
 		BaseOptions: []string{
-			"From current local branch",
+			"From current branch",
+			"From local default branch",
 			"From remote default branch (latest)",
 		},
 		BaseIndex:              0,

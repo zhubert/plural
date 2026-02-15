@@ -23,6 +23,8 @@ const (
 	BasePointOrigin BasePoint = "origin"
 	// BasePointHead branches from the current local HEAD
 	BasePointHead BasePoint = "head"
+	// BasePointLocalDefault branches from the local default branch (e.g., main) without fetching
+	BasePointLocalDefault BasePoint = "local-default"
 )
 
 // MaxBranchNameValidation is the maximum length for user-provided branch names.
@@ -192,6 +194,22 @@ func (s *SessionService) Create(ctx context.Context, repoPath string, customBran
 			log.Info("remote branch not found, falling back to HEAD", "startPoint", startPoint)
 			startPoint = "HEAD"
 			baseBranch = s.getCurrentBranchName(ctx, repoPath)
+		}
+	case BasePointLocalDefault:
+		// Use the local default branch (e.g., main) without fetching
+		defaultBranch := s.GetDefaultBranch(ctx, repoPath)
+		startPoint = defaultBranch
+		baseBranch = defaultBranch
+
+		// Check if the local branch exists
+		_, _, err := s.executor.Run(ctx, repoPath, "git", "rev-parse", "--verify", startPoint)
+		if err != nil {
+			// Local branch doesn't exist, fall back to HEAD
+			log.Info("local default branch not found, falling back to HEAD", "startPoint", startPoint)
+			startPoint = "HEAD"
+			baseBranch = s.getCurrentBranchName(ctx, repoPath)
+		} else {
+			log.Info("using local default branch as base", "baseBranch", baseBranch)
 		}
 	case BasePointHead:
 		fallthrough

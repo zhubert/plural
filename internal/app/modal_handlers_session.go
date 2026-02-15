@@ -290,9 +290,14 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			m.modal.SetError("Branch already exists: " + fullBranchName)
 			return m, nil
 		}
-		basePoint := session.BasePointOrigin
-		if state.GetBaseIndex() == 1 {
+		var basePoint session.BasePoint
+		switch state.GetBaseIndex() {
+		case 0:
 			basePoint = session.BasePointHead
+		case 1:
+			basePoint = session.BasePointLocalDefault
+		default:
+			basePoint = session.BasePointOrigin
 		}
 		// Check container prerequisites asynchronously BEFORE creating the session
 		useContainers := state.GetUseContainers()

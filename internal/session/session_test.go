@@ -1633,6 +1633,92 @@ func TestCreate_BaseBranch_FromCurrentBranch(t *testing.T) {
 	}
 }
 
+func TestCreate_BaseBranch_FromLocalDefault(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Switch to a feature branch so HEAD != main
+	cmd := exec.Command("git", "checkout", "-b", "feature-branch")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to create branch: %v", err)
+	}
+
+	// Add a local-only commit on feature-branch
+	localFile := filepath.Join(localPath, "feature-only.txt")
+	if err := os.WriteFile(localFile, []byte("feature content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+	cmd = exec.Command("git", "add", ".")
+	cmd.Dir = localPath
+	cmd.Run()
+	cmd = exec.Command("git", "commit", "-m", "Feature commit")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Create a session from local default branch
+	session, err := svc.Create(ctx, localPath, "from-local-default", "", BasePointLocalDefault)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	// BaseBranch should be "main" (the local default), not "feature-branch"
+	if session.BaseBranch != "main" {
+		t.Errorf("BaseBranch = %q, want %q", session.BaseBranch, "main")
+	}
+
+	// The session should NOT have the feature-only file (it branched from local main)
+	featureFile := filepath.Join(session.WorkTree, "feature-only.txt")
+	if _, err := os.Stat(featureFile); !os.IsNotExist(err) {
+		t.Error("Session from local default should NOT have the feature-only file")
+	}
+}
+
+func TestCreate_FromLocalDefault_VsOriginAndCurrent(t *testing.T) {
+	localPath, remotePath := createTestRepoWithRemote(t)
+	defer os.RemoveAll(localPath)
+	defer os.RemoveAll(remotePath)
+	defer cleanupWorktrees(localPath)
+
+	// Add a commit to local main that is NOT pushed to remote
+	localMainFile := filepath.Join(localPath, "local-main-only.txt")
+	if err := os.WriteFile(localMainFile, []byte("local main content"), 0644); err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = localPath
+	cmd.Run()
+	cmd = exec.Command("git", "commit", "-m", "Local main commit")
+	cmd.Dir = localPath
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Session from local default should have the local-main-only file
+	sessionLocal, err := svc.Create(ctx, localPath, "from-local", "", BasePointLocalDefault)
+	if err != nil {
+		t.Fatalf("Create from local default failed: %v", err)
+	}
+	localMainInWorktree := filepath.Join(sessionLocal.WorkTree, "local-main-only.txt")
+	if _, err := os.Stat(localMainInWorktree); os.IsNotExist(err) {
+		t.Error("Session from local default SHOULD have the local-main-only file")
+	}
+
+	// Session from origin should NOT have the local-main-only file
+	sessionOrigin, err := svc.Create(ctx, localPath, "from-origin", "", BasePointOrigin)
+	if err != nil {
+		t.Fatalf("Create from origin failed: %v", err)
+	}
+	originMainInWorktree := filepath.Join(sessionOrigin.WorkTree, "local-main-only.txt")
+	if _, err := os.Stat(originMainInWorktree); !os.IsNotExist(err) {
+		t.Error("Session from origin should NOT have the local-main-only file")
+	}
+}
+
 func TestCreateFromBranch_BaseBranch(t *testing.T) {
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
