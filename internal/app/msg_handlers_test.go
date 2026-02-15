@@ -542,7 +542,7 @@ func TestHandleGitHubIssuesFetchedMsg_WithIssues(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Show import issues modal first
-	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1"))
+	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1", true, true))
 
 	msg := GitHubIssuesFetchedMsg{
 		RepoPath: "/test/repo1",
@@ -569,7 +569,7 @@ func TestHandleGitHubIssuesFetchedMsg_WithError(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Show import issues modal first
-	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1"))
+	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1", true, true))
 
 	msg := GitHubIssuesFetchedMsg{
 		RepoPath: "/test/repo1",
@@ -610,7 +610,7 @@ func TestHandleIssuesFetchedMsg_WithIssues(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Show import issues modal
-	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1"))
+	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1", true, true))
 
 	msg := IssuesFetchedMsg{
 		RepoPath: "/test/repo1",
@@ -637,7 +637,7 @@ func TestHandleIssuesFetchedMsg_WithError(t *testing.T) {
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1"))
+	m.modal.Show(ui.NewImportIssuesState("/test/repo1", "repo1", true, true))
 
 	msg := IssuesFetchedMsg{
 		RepoPath: "/test/repo1",
