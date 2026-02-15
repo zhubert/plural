@@ -831,6 +831,11 @@ func TestCreatePR_UsesBaseBranchNotDefaultBranch(t *testing.T) {
 		Stdout: []byte("https://github.com/owner/repo/pull/123\n"),
 	})
 
+	// Skip this test if gh CLI is not available
+	if _, err := exec.LookPath("gh"); err != nil {
+		t.Skip("gh CLI not available, skipping test")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
