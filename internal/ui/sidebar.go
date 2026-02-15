@@ -996,11 +996,11 @@ func (s *Sidebar) View() string {
 
 			// "+ New Session" action item
 			isNewSelected := itemIdx == s.selectedIdx
-			newLabel := "  + New Session"
+			newLabel := "+ New Session"
 			if isNewSelected {
 				newStyle := SidebarSelectedStyle.Width(innerWidth)
 				selectedStartLine = len(allLines)
-				rendered := newStyle.Render("> + New Session")
+				rendered := newStyle.Render("> " + newLabel)
 				for _, line := range strings.Split(rendered, "\n") {
 					allLines = append(allLines, line)
 				}
@@ -1008,7 +1008,7 @@ func (s *Sidebar) View() string {
 				newStyle := lipgloss.NewStyle().
 					Foreground(ColorTextMuted).
 					Italic(true)
-				allLines = append(allLines, newStyle.Render(newLabel))
+				allLines = append(allLines, newStyle.Render("  "+newLabel))
 			}
 			itemIdx++
 		}

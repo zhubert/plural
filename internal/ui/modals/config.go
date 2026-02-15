@@ -605,6 +605,9 @@ func (s *RepoSettingsState) contentWidth() int {
 }
 
 func (s *RepoSettingsState) Help() string {
+	if s.numFields() == 0 {
+		return "Esc: close"
+	}
 	if s.Focus == s.asanaFocusIndex() && s.AsanaPATSet {
 		return "Tab: next field  Up/Down: navigate  Enter: select  Esc: cancel"
 	}
@@ -638,6 +641,17 @@ func (s *RepoSettingsState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
 	parts := []string{title}
+
+	if s.numFields() == 0 {
+		noSettings := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginTop(1).
+			Render("No per-repo settings available.\nEnable containers or configure Asana to see options here.")
+		help := ModalHelpStyle.Render(s.Help())
+		parts = append(parts, noSettings, help)
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	}
 
 	if s.ContainersSupported {
 		autoHeader := renderSectionHeader("Autonomous:")
@@ -944,11 +958,7 @@ func NewRepoSettingsState(repoPath string, containersSupported bool, asanaPATSet
 	searchInput.CharLimit = 100
 	searchInput.SetWidth(ModalWidthWide - 14)
 
-	// Default focus to first available field
 	initialFocus := 0
-	if !containersSupported && asanaPATSet {
-		initialFocus = 0 // asana is the only field
-	}
 
 	return &RepoSettingsState{
 		RepoPath:            repoPath,
