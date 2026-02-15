@@ -166,6 +166,14 @@ func (s *BroadcastState) Render() string {
 		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
 
 		parts = append(parts, autoLabel, autoView)
+	} else {
+		dockerHint := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			MarginTop(1).
+			PaddingLeft(2).
+			Render("Install Docker to enable container and autonomous modes")
+		parts = append(parts, dockerHint)
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
