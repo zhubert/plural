@@ -106,7 +106,7 @@ func TestModal_View_WidthClamping(t *testing.T) {
 	modal := NewModal()
 
 	// Use ImportIssuesState which implements ModalWithPreferredWidth (120 chars)
-	state := NewImportIssuesState("/repo/path", "test-repo")
+	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 	state.SetIssues([]IssueItem{
 		{ID: "1", Title: "Test issue", Source: "github"},
 	})
