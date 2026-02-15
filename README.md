@@ -125,12 +125,21 @@ Run Claude CLI inside a Docker container for defense-in-depth security. The cont
 - External MCP servers not supported
 - Containers are defense-in-depth, not a complete security boundary
 
-**Building the default image:**
+**Pre-built images:**
 ```bash
-docker build -t ghcr.io/zhubert/plural-claude .
+docker pull ghcr.io/zhubert/plural-claude
 ```
 
-Pre-built images are available: `docker pull ghcr.io/zhubert/plural-claude`
+**Building a custom image:**
+```bash
+# Build with latest plural binary from GitHub releases
+./scripts/build-container.sh ghcr.io/zhubert/plural-claude
+
+# Build with a specific plural version
+./scripts/build-container.sh ghcr.io/zhubert/plural-claude v0.1.0
+```
+
+The Docker image downloads the plural binary from GitHub releases rather than building from source, making it stable and version-independent. This means you don't need to rebuild the image every time plural is updated.
 
 ### Rich Chat Features
 
