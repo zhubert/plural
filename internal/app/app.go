@@ -1200,7 +1200,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	}
 
 	// Restore container initialization state
-	if result.ContainerInitializing {
+	// Only show container init progress if session hasn't started yet
+	if result.ContainerInitializing && !sess.Started {
 		m.chat.SetContainerInitializing(true, result.ContainerInitStart)
 	} else {
 		m.chat.SetContainerInitializing(false, time.Time{})
