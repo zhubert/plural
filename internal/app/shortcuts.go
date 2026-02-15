@@ -218,10 +218,18 @@ var ShortcutRegistry = []Shortcut{
 	},
 	{
 		Key:             ",",
-		Description:     "Settings",
+		Description:     "Repo settings",
 		Category:        CategoryConfiguration,
 		RequiresSidebar: true,
-		Handler:         shortcutSettings,
+		Handler:         shortcutRepoSettings,
+	},
+	{
+		Key:        keys.AltComma,
+		DisplayKey: "opt-,",
+
+		Description: "Global settings",
+		Category:    CategoryConfiguration,
+		Handler:     shortcutGlobalSettings,
 	},
 	{
 		Key:             "w",
@@ -646,14 +654,22 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func shortcutSettings(m *Model) (tea.Model, tea.Cmd) {
-	// If a repo is selected in the sidebar, show repo-specific settings
+func shortcutRepoSettings(m *Model) (tea.Model, tea.Cmd) {
+	// If a repo is selected in the sidebar, show its settings
 	if m.sidebar.IsRepoSelected() {
 		repoPath := m.sidebar.SelectedRepo()
 		return m.showRepoSettings(repoPath)
 	}
 
-	// Otherwise show global settings
+	// If a session is selected, show its repo's settings
+	if sess := m.sidebar.SelectedSession(); sess != nil {
+		return m.showRepoSettings(sess.RepoPath)
+	}
+
+	return m, nil
+}
+
+func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 	settingsState := ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),

@@ -55,3 +55,8 @@ var (
 	CtrlUp     = (tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModCtrl}).String()          // "ctrl+up"
 	CtrlDown   = (tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModCtrl}).String()        // "ctrl+down"
 )
+
+// Alt combinations
+var (
+	AltComma = (tea.KeyPressMsg{Code: ',', Mod: tea.ModAlt}).String() // "alt+,"
+)
