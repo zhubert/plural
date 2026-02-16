@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -1147,5 +1148,46 @@ func TestSidebarNavigation_AutoSelectsNewSessionOnMove(t *testing.T) {
 	// Focus should still be on sidebar
 	if m.focus != FocusSidebar {
 		t.Error("expected focus to remain on sidebar")
+	}
+}
+
+// =============================================================================
+// Terminal Detection Tests
+// =============================================================================
+
+func TestDetectTerminalApp(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected string
+	}{
+		{"ghostty lowercase", "ghostty", "Ghostty"},
+		{"ghostty mixed case", "Ghostty", "Ghostty"},
+		{"iterm", "iTerm.app", "iTerm2"},
+		{"iterm lowercase", "iterm.app", "iTerm2"},
+		{"apple terminal", "Apple_Terminal", "Terminal"},
+		{"apple terminal lowercase", "apple_terminal", "Terminal"},
+		{"wezterm", "WezTerm", "WezTerm"},
+		{"wezterm lowercase", "wezterm", "WezTerm"},
+		{"kitty", "kitty", "kitty"},
+		{"kitty uppercase", "Kitty", "kitty"},
+		{"alacritty", "alacritty", "Alacritty"},
+		{"alacritty mixed case", "Alacritty", "Alacritty"},
+		{"empty string", "", "Terminal"},
+		{"unknown terminal", "some-random-terminal", "Terminal"},
+		{"tmux", "tmux", "Terminal"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := os.Getenv("TERM_PROGRAM")
+			os.Setenv("TERM_PROGRAM", tt.envValue)
+			defer os.Setenv("TERM_PROGRAM", original)
+
+			result := detectTerminalApp()
+			if result != tt.expected {
+				t.Errorf("detectTerminalApp() with TERM_PROGRAM=%q = %q, want %q", tt.envValue, result, tt.expected)
+			}
+		})
 	}
 }

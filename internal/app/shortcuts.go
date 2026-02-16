@@ -894,6 +894,29 @@ type TerminalErrorMsg struct {
 	Error string
 }
 
+// detectTerminalApp returns the macOS application name for the user's current terminal.
+// It reads the TERM_PROGRAM environment variable (set by most modern terminal emulators)
+// and maps it to the corresponding app name. Falls back to "Terminal" if unrecognized.
+func detectTerminalApp() string {
+	termProgram := os.Getenv("TERM_PROGRAM")
+	switch strings.ToLower(termProgram) {
+	case "ghostty":
+		return "Ghostty"
+	case "iterm.app":
+		return "iTerm2"
+	case "apple_terminal":
+		return "Terminal"
+	case "wezterm":
+		return "WezTerm"
+	case "kitty":
+		return "kitty"
+	case "alacritty":
+		return "Alacritty"
+	default:
+		return "Terminal"
+	}
+}
+
 // openTerminalForSession returns a command that opens a terminal for the given session.
 // If the session is containerized, it opens an interactive shell inside the container.
 // Otherwise, it opens a terminal window at the worktree path.
@@ -944,16 +967,26 @@ func openTerminalInContainer(sess *config.Session) tea.Cmd {
 
 		switch runtime.GOOS {
 		case "darwin":
-			// macOS: use AppleScript to open Terminal.app with docker exec command
-			// The docker exec command will drop us into the /workspace directory
+			termApp := detectTerminalApp()
+			log.Debug("detected terminal app for container", "terminal", termApp, "TERM_PROGRAM", os.Getenv("TERM_PROGRAM"))
+
 			escapedContainer := strings.ReplaceAll(containerName, `\`, `\\`)
 			escapedContainer = strings.ReplaceAll(escapedContainer, `"`, `\"`)
-			script := fmt.Sprintf(`tell application "Terminal"
+			dockerCmd := fmt.Sprintf("docker exec -it %s /bin/sh", containerName)
+
+			var cmd *exec.Cmd
+			switch termApp {
+			case "kitty":
+				cmd = exec.Command("kitty", "--single-instance", "sh", "-c", dockerCmd)
+			case "WezTerm":
+				cmd = exec.Command("wezterm", "cli", "spawn", "--new-window", "--", "sh", "-c", dockerCmd)
+			default:
+				script := fmt.Sprintf(`tell application "%s"
 	do script "docker exec -it %s /bin/sh"
 	activate
-end tell`, escapedContainer)
-			cmd := exec.Command("osascript", "-e", script)
-			log.Debug("running AppleScript to open Terminal with docker exec")
+end tell`, termApp, escapedContainer)
+				cmd = exec.Command("osascript", "-e", script)
+			}
 
 			output, err := cmd.CombinedOutput()
 			if err != nil {
@@ -964,7 +997,7 @@ end tell`, escapedContainer)
 				log.Error("failed to open terminal in container", "error", errMsg)
 				return TerminalErrorMsg{Error: errMsg}
 			}
-			log.Debug("terminal opened successfully in container")
+			log.Debug("terminal opened successfully in container", "terminal", termApp)
 			return nil
 
 		case "linux":
@@ -978,6 +1011,43 @@ end tell`, escapedContainer)
 				{"konsole", []string{"-e", containerCmd}},
 				{"xfce4-terminal", []string{"-e", containerCmd}},
 				{"xterm", []string{"-e", containerCmd}},
+			}
+
+			// If TERM_PROGRAM is set, try to use that terminal first
+			if termProgram := os.Getenv("TERM_PROGRAM"); termProgram != "" {
+				var detected struct {
+					name string
+					args []string
+				}
+				switch strings.ToLower(termProgram) {
+				case "ghostty":
+					detected = struct {
+						name string
+						args []string
+					}{"ghostty", []string{"-e", "sh", "-c", containerCmd}}
+				case "kitty":
+					detected = struct {
+						name string
+						args []string
+					}{"kitty", []string{"--single-instance", "sh", "-c", containerCmd}}
+				case "wezterm":
+					detected = struct {
+						name string
+						args []string
+					}{"wezterm", []string{"cli", "spawn", "--new-window", "--", "sh", "-c", containerCmd}}
+				case "alacritty":
+					detected = struct {
+						name string
+						args []string
+					}{"alacritty", []string{"-e", "sh", "-c", containerCmd}}
+				}
+				if detected.name != "" {
+					log.Debug("prepending detected terminal from TERM_PROGRAM", "terminal", detected.name)
+					terminals = append([]struct {
+						name string
+						args []string
+					}{detected}, terminals...)
+				}
 			}
 
 			var cmd *exec.Cmd
@@ -1018,18 +1088,29 @@ func openTerminalAtPath(path string) tea.Cmd {
 
 		switch runtime.GOOS {
 		case "darwin":
-			// macOS: use 'open' command with Terminal.app
-			// Escape backslashes and quotes for AppleScript string
+			termApp := detectTerminalApp()
+			log.Debug("detected terminal app", "terminal", termApp, "TERM_PROGRAM", os.Getenv("TERM_PROGRAM"))
+
 			escapedPath := strings.ReplaceAll(path, `\`, `\\`)
 			escapedPath = strings.ReplaceAll(escapedPath, `"`, `\"`)
-			script := fmt.Sprintf(`tell application "Terminal"
+
+			var cmd *exec.Cmd
+			switch termApp {
+			case "kitty":
+				// kitty uses its own CLI to open new OS windows
+				cmd = exec.Command("kitty", "--single-instance", "--directory", path)
+			case "WezTerm":
+				// WezTerm has a CLI for spawning windows
+				cmd = exec.Command("wezterm", "cli", "spawn", "--new-window", "--cwd", path)
+			default:
+				// Terminal.app, iTerm2, Ghostty, Alacritty, and others use AppleScript
+				script := fmt.Sprintf(`tell application "%s"
 	do script "cd \"%s\""
 	activate
-end tell`, escapedPath)
-			cmd := exec.Command("osascript", "-e", script)
-			log.Debug("running AppleScript to open Terminal")
+end tell`, termApp, escapedPath)
+				cmd = exec.Command("osascript", "-e", script)
+			}
 
-			// Run and capture any error output
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				errMsg := fmt.Sprintf("Failed to open terminal: %v", err)
@@ -1039,7 +1120,7 @@ end tell`, escapedPath)
 				log.Error("failed to open terminal", "error", errMsg)
 				return TerminalErrorMsg{Error: errMsg}
 			}
-			log.Debug("terminal opened successfully")
+			log.Debug("terminal opened successfully", "terminal", termApp)
 			return nil
 
 		case "linux":
@@ -1052,6 +1133,43 @@ end tell`, escapedPath)
 				{"konsole", []string{"--workdir", path}},
 				{"xfce4-terminal", []string{"--working-directory=" + path}},
 				{"xterm", []string{"-e", fmt.Sprintf("cd %q && $SHELL", path)}},
+			}
+
+			// If TERM_PROGRAM is set, try to use that terminal first
+			if termProgram := os.Getenv("TERM_PROGRAM"); termProgram != "" {
+				var detected struct {
+					name string
+					args []string
+				}
+				switch strings.ToLower(termProgram) {
+				case "ghostty":
+					detected = struct {
+						name string
+						args []string
+					}{"ghostty", []string{"-e", fmt.Sprintf("cd %q && exec $SHELL", path)}}
+				case "kitty":
+					detected = struct {
+						name string
+						args []string
+					}{"kitty", []string{"--single-instance", "--directory", path}}
+				case "wezterm":
+					detected = struct {
+						name string
+						args []string
+					}{"wezterm", []string{"cli", "spawn", "--new-window", "--cwd", path}}
+				case "alacritty":
+					detected = struct {
+						name string
+						args []string
+					}{"alacritty", []string{"--working-directory", path}}
+				}
+				if detected.name != "" {
+					log.Debug("prepending detected terminal from TERM_PROGRAM", "terminal", detected.name)
+					terminals = append([]struct {
+						name string
+						args []string
+					}{detected}, terminals...)
+				}
 			}
 
 			var cmd *exec.Cmd
