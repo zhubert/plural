@@ -7,7 +7,7 @@
 //   - mcp_config.go: MCP server configuration and socket management
 //   - process_manager.go: Process lifecycle and auto-recovery
 //   - runner_interface.go: Interfaces for testing
-//   - mock_runner.go: Mock runner for testing and demos
+//   - mock_runner.go: Mock runner for testing
 //   - todo.go: TodoWrite tool parsing
 //   - plugins.go: Plugin/marketplace management
 package claude

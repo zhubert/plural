@@ -17,8 +17,7 @@ func NewGitService() *GitService {
 }
 
 // NewGitServiceWithExecutor creates a new GitService with a custom executor.
-// This is primarily used for testing and demo generation where a mock
-// executor is needed.
+// This is primarily used for testing where a mock executor is needed.
 func NewGitServiceWithExecutor(exec pexec.CommandExecutor) *GitService {
 	return &GitService{executor: exec}
 }
