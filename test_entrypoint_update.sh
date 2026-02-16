@@ -12,6 +12,7 @@ NC='\033[0m' # No Color
 
 TESTS_PASSED=0
 TESTS_FAILED=0
+ORIG_PATH="$PATH"
 
 # Test helper functions
 pass() {
@@ -53,6 +54,62 @@ create_mock_api_response() {
     ]
 }
 EOF
+}
+
+# Create a mock curl script that returns local files instead of making network requests.
+# This is more portable than using file:// URLs, which some curl builds don't support.
+setup_mock_curl() {
+    mkdir -p /tmp/plural-test-mock
+    cat > /tmp/plural-test-mock/curl <<'MOCK_EOF'
+#!/bin/sh
+# Mock curl: returns local mock data based on URL patterns.
+# Extract the URL from arguments (last non-flag, non-flag-value argument).
+URL=""
+SKIP_NEXT=0
+for arg in "$@"; do
+    if [ "$SKIP_NEXT" = "1" ]; then
+        SKIP_NEXT=0
+        continue
+    fi
+    case "$arg" in
+        --connect-timeout|--max-time) SKIP_NEXT=1 ;;
+        -*)  ;;
+        *)   URL="$arg" ;;
+    esac
+done
+
+case "$URL" in
+    *api.github.com*|*mock-api*)
+        cat /tmp/mock-api.json 2>/dev/null
+        ;;
+    *.tar.gz)
+        cat /tmp/mock-tarball.tar.gz 2>/dev/null
+        ;;
+    *)
+        echo "" >&2
+        exit 1
+        ;;
+esac
+MOCK_EOF
+    chmod +x /tmp/plural-test-mock/curl
+}
+
+teardown_mock_curl() {
+    rm -rf /tmp/plural-test-mock
+    export PATH="$ORIG_PATH"
+}
+
+# Create a mock tarball containing a fake plural binary
+create_mock_tarball() {
+    NEW_VERSION="$1"
+    mkdir -p /tmp/plural-test-tarball
+    cat > /tmp/plural-test-tarball/plural <<EOF
+#!/bin/sh
+echo "plural version $NEW_VERSION"
+EOF
+    chmod +x /tmp/plural-test-tarball/plural
+    tar -czf /tmp/mock-tarball.tar.gz -C /tmp/plural-test-tarball plural
+    rm -rf /tmp/plural-test-tarball
 }
 
 # Extract the update function from entrypoint.sh for testing
@@ -124,7 +181,7 @@ update_plural_binary() {
 
     echo "[plural-update] Downloading from: $DOWNLOAD_URL"
 
-    # For testing, we skip the actual download
+    # For testing, we can skip the actual download
     if [ -n "$SKIP_DOWNLOAD" ]; then
         echo "[plural-update] Skipping download (test mode)"
         return 0
@@ -137,7 +194,7 @@ update_plural_binary() {
             chmod +x "$PLURAL_BIN"
             echo "[plural-update] Successfully updated to $LATEST_VERSION"
         else
-            echo "[plural-update] Failed to extract binary, skipping update"
+            echo "[plural-update] Failed to extract binary from downloaded archive, skipping update"
             return 0
         fi
     else
@@ -180,10 +237,11 @@ EOF
     create_mock_api_response "v0.2.0" "x86_64"
 
     export PLURAL_BIN=/tmp/test-plural-noversion
-    export GITHUB_API_URL="file:///tmp/mock-api.json"
+    export PATH="/tmp/plural-test-mock:$ORIG_PATH"
     export SKIP_DOWNLOAD=1
     OUTPUT=$(sh /tmp/update_test.sh 2>&1)
-    unset PLURAL_BIN GITHUB_API_URL SKIP_DOWNLOAD
+    unset PLURAL_BIN SKIP_DOWNLOAD
+    export PATH="$ORIG_PATH"
 
     if echo "$OUTPUT" | grep -q "Current version: unknown"; then
         pass "Handles missing current version gracefully"
@@ -200,10 +258,11 @@ test_same_version() {
     create_mock_api_response "v0.1.5" "x86_64"
 
     export PLURAL_BIN=/tmp/test-plural
-    export GITHUB_API_URL="file:///tmp/mock-api.json"
+    export PATH="/tmp/plural-test-mock:$ORIG_PATH"
     export SKIP_DOWNLOAD=1
     OUTPUT=$(sh /tmp/update_test.sh 2>&1)
-    unset PLURAL_BIN GITHUB_API_URL SKIP_DOWNLOAD
+    unset PLURAL_BIN SKIP_DOWNLOAD
+    export PATH="$ORIG_PATH"
 
     if echo "$OUTPUT" | grep -q "Already running latest version"; then
         pass "Skips update when versions match"
@@ -220,10 +279,11 @@ test_new_version_available() {
     create_mock_api_response "v0.2.0" "x86_64"
 
     export PLURAL_BIN=/tmp/test-plural
-    export GITHUB_API_URL="file:///tmp/mock-api.json"
+    export PATH="/tmp/plural-test-mock:$ORIG_PATH"
     export SKIP_DOWNLOAD=1
     OUTPUT=$(sh /tmp/update_test.sh 2>&1)
-    unset PLURAL_BIN GITHUB_API_URL SKIP_DOWNLOAD
+    unset PLURAL_BIN SKIP_DOWNLOAD
+    export PATH="$ORIG_PATH"
 
     if echo "$OUTPUT" | grep -q "New version available.*v0.1.5.*v0.2.0"; then
         pass "Detects new version available"
@@ -238,7 +298,9 @@ test_network_failure() {
 
     create_mock_plural "v0.1.5"
 
+    # Use real curl (not mock) with an invalid URL to test network failure handling
     export PLURAL_BIN=/tmp/test-plural
+    export PATH="$ORIG_PATH"
     export GITHUB_API_URL="http://invalid.example.com/nonexistent"
     export SKIP_DOWNLOAD=1
     OUTPUT=$(sh /tmp/update_test.sh 2>&1)
@@ -260,11 +322,12 @@ test_malformed_api_response() {
     echo "invalid json" > /tmp/mock-api.json
 
     export PLURAL_BIN=/tmp/test-plural
-    export GITHUB_API_URL="file:///tmp/mock-api.json"
+    export PATH="/tmp/plural-test-mock:$ORIG_PATH"
     export SKIP_DOWNLOAD=1
     OUTPUT=$(sh /tmp/update_test.sh 2>&1)
     EXITCODE=$?
-    unset PLURAL_BIN GITHUB_API_URL SKIP_DOWNLOAD
+    unset PLURAL_BIN SKIP_DOWNLOAD
+    export PATH="$ORIG_PATH"
 
     if [ $EXITCODE -eq 0 ] && echo "$OUTPUT" | grep -q "Could not determine latest version"; then
         pass "Handles malformed API response gracefully"
@@ -291,15 +354,64 @@ test_architecture_detection() {
     create_mock_api_response "v0.2.0" "$EXPECTED_ARCH"
 
     export PLURAL_BIN=/tmp/test-plural
-    export GITHUB_API_URL="file:///tmp/mock-api.json"
+    export PATH="/tmp/plural-test-mock:$ORIG_PATH"
     export SKIP_DOWNLOAD=1
     OUTPUT=$(sh /tmp/update_test.sh 2>&1)
-    unset PLURAL_BIN GITHUB_API_URL SKIP_DOWNLOAD
+    unset PLURAL_BIN SKIP_DOWNLOAD
+    export PATH="$ORIG_PATH"
 
     if echo "$OUTPUT" | grep -q "Downloading from.*Linux_${EXPECTED_ARCH}"; then
         pass "Correctly maps architecture $ARCH to $EXPECTED_ARCH"
     else
         fail "Did not correctly map architecture"
+    fi
+}
+
+# Test 8: Full download, extract, and install flow (integration test)
+test_download_extract_install() {
+    info "Test: Full download, extract, and install flow"
+
+    create_mock_plural "v0.1.5"
+
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "x86_64" ]; then
+        EXPECTED_ARCH="x86_64"
+    elif [ "$ARCH" = "aarch64" ]; then
+        EXPECTED_ARCH="arm64"
+    else
+        EXPECTED_ARCH="$ARCH"
+    fi
+
+    create_mock_api_response "v0.2.0" "$EXPECTED_ARCH"
+    create_mock_tarball "v0.2.0"
+
+    # Run WITHOUT SKIP_DOWNLOAD so the full download/extract/install path executes
+    export PLURAL_BIN=/tmp/test-plural
+    export PATH="/tmp/plural-test-mock:$ORIG_PATH"
+    OUTPUT=$(sh /tmp/update_test.sh 2>&1)
+    EXITCODE=$?
+    export PATH="$ORIG_PATH"
+
+    if [ $EXITCODE -ne 0 ]; then
+        fail "Download/extract/install exited with non-zero status: $EXITCODE"
+        unset PLURAL_BIN
+        return
+    fi
+
+    if ! echo "$OUTPUT" | grep -q "Successfully updated to v0.2.0"; then
+        fail "Did not report successful update"
+        unset PLURAL_BIN
+        return
+    fi
+
+    # Verify the binary was actually replaced with the new version
+    NEW_VERSION=$($PLURAL_BIN --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    unset PLURAL_BIN
+
+    if [ "$NEW_VERSION" = "v0.2.0" ]; then
+        pass "Full download/extract/install flow works end-to-end"
+    else
+        fail "Binary was not updated (expected v0.2.0, got $NEW_VERSION)"
     fi
 }
 
@@ -312,6 +424,7 @@ main() {
 
     # Setup
     create_test_function
+    setup_mock_curl
 
     # Run tests
     test_skip_update
@@ -321,9 +434,11 @@ main() {
     test_network_failure
     test_malformed_api_response
     test_architecture_detection
+    test_download_extract_install
 
     # Cleanup
-    rm -f /tmp/test-plural* /tmp/mock-api.json /tmp/update_test.sh
+    teardown_mock_curl
+    rm -f /tmp/test-plural* /tmp/mock-api.json /tmp/mock-tarball.tar.gz /tmp/update_test.sh
 
     # Summary
     echo ""
