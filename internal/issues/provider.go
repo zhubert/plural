@@ -6,12 +6,13 @@ import (
 	"context"
 )
 
-// Source identifies the origin of an issue (GitHub, Asana, etc.)
+// Source identifies the origin of an issue (GitHub, Asana, Linear, etc.)
 type Source string
 
 const (
 	SourceGitHub Source = "github"
 	SourceAsana  Source = "asana"
+	SourceLinear Source = "linear"
 )
 
 // Issue represents a generic issue/task from any supported source.
@@ -35,21 +36,25 @@ type Provider interface {
 	// The projectID parameter is provider-specific:
 	//   - GitHub: ignored (uses gh CLI with repoPath as working directory)
 	//   - Asana: the Asana project GID
+	//   - Linear: the Linear team ID
 	FetchIssues(ctx context.Context, repoPath, projectID string) ([]Issue, error)
 
 	// IsConfigured returns true if this provider is configured and usable for the given repo.
 	// For GitHub: always true (gh CLI is a prerequisite)
 	// For Asana: true if ASANA_PAT env var is set AND repo has a mapped project
+	// For Linear: true if LINEAR_API_KEY env var is set AND repo has a mapped team
 	IsConfigured(repoPath string) bool
 
 	// GenerateBranchName returns a branch name for the given issue.
 	// For GitHub: "issue-{number}"
 	// For Asana: "task-{slug}" where slug is derived from task name
+	// For Linear: "linear-{identifier}" where identifier is lowercased (e.g., "linear-eng-123")
 	GenerateBranchName(issue Issue) string
 
 	// GetPRLinkText returns the text to add to PR body to link/close the issue.
 	// For GitHub: "Fixes #123"
 	// For Asana: "" (Asana doesn't support auto-close via commit message)
+	// For Linear: "Fixes ENG-123" (Linear supports auto-close via identifier mentions)
 	GetPRLinkText(issue Issue) string
 }
 

@@ -271,7 +271,8 @@ func New(cfg *config.Config, version string) *Model {
 	// Initialize issue providers
 	githubProvider := issues.NewGitHubProvider(gitSvc)
 	asanaProvider := issues.NewAsanaProvider(cfg)
-	issueRegistry := issues.NewProviderRegistry(githubProvider, asanaProvider)
+	linearProvider := issues.NewLinearProvider(cfg)
+	issueRegistry := issues.NewProviderRegistry(githubProvider, asanaProvider, linearProvider)
 
 	m := &Model{
 		config:         cfg,

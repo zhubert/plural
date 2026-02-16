@@ -57,6 +57,8 @@ func (s *ImportIssuesState) Title() string {
 	switch s.Source {
 	case "asana":
 		return "Import Asana Tasks"
+	case "linear":
+		return "Import Linear Issues"
 	default:
 		return "Import GitHub Issues"
 	}
@@ -95,6 +97,9 @@ func (s *ImportIssuesState) Render() string {
 		if s.Source == "asana" {
 			loadingMsg = "Fetching tasks from Asana..."
 		}
+		if s.Source == "linear" {
+			loadingMsg = "Fetching issues from Linear..."
+		}
 		loadingText := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
@@ -116,6 +121,9 @@ func (s *ImportIssuesState) Render() string {
 		if s.Source == "asana" {
 			noIssuesMsg = "No incomplete tasks found"
 		}
+		if s.Source == "linear" {
+			noIssuesMsg = "No active issues found"
+		}
 		noIssues := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
@@ -127,6 +135,9 @@ func (s *ImportIssuesState) Render() string {
 	descMsg := "Select issues to import as sessions:"
 	if s.Source == "asana" {
 		descMsg = "Select tasks to import as sessions:"
+	}
+	if s.Source == "linear" {
+		descMsg = "Select issues to import as sessions:"
 	}
 	description := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
@@ -170,6 +181,9 @@ func (s *ImportIssuesState) Render() string {
 		var maxTitleLen int
 		if issue.Source == "asana" {
 			maxTitleLen = availableWidth - 8 // "  > [x] "
+		} else if issue.Source == "linear" {
+			// Account for identifier (e.g., "ENG-123: ")
+			maxTitleLen = availableWidth - 15
 		} else {
 			// Account for issue number (estimate ~7 chars for "#12345: ")
 			maxTitleLen = availableWidth - 15
@@ -181,10 +195,12 @@ func (s *ImportIssuesState) Render() string {
 			titleText = string(titleRunes[:maxTitleLen-3]) + "..."
 		}
 
-		// Format depends on source: GitHub uses "#123", Asana just shows title
+		// Format depends on source: GitHub uses "#123", Asana just shows title, Linear shows identifier
 		var issueLine string
 		if issue.Source == "asana" {
 			issueLine = fmt.Sprintf("%s %s", checkbox, titleText)
+		} else if issue.Source == "linear" {
+			issueLine = fmt.Sprintf("%s %s: %s", checkbox, issue.ID, titleText)
 		} else {
 			issueLine = fmt.Sprintf("%s #%s: %s", checkbox, issue.ID, titleText)
 		}

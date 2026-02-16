@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
@@ -78,6 +79,12 @@ func (m *Model) handleSelectIssueSourceModal(key string, msg tea.KeyPressMsg, st
 			return m, m.fetchIssues(state.RepoPath, source, projectID)
 		}
 
+		if source == "linear" {
+			teamID := m.config.GetLinearTeam(state.RepoPath)
+			m.modal.Show(ui.NewImportIssuesStateWithSource(state.RepoPath, repoName, source, teamID, process.ContainersSupported(), claude.ContainerAuthAvailable()))
+			return m, m.fetchIssues(state.RepoPath, source, teamID)
+		}
+
 		// Default: GitHub
 		m.modal.Show(ui.NewImportIssuesState(state.RepoPath, repoName, process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, m.fetchIssues(state.RepoPath, "github", "")
@@ -111,6 +118,17 @@ func (m *Model) showIssueSourceOrFetch(repoPath string) (tea.Model, tea.Cmd) {
 			availableSources = append(availableSources, ui.IssueSource{
 				Name:   "Asana Tasks",
 				Source: "asana",
+			})
+		}
+	}
+
+	// Check if Linear is configured for this repo
+	if m.issueRegistry != nil {
+		linearProvider := m.issueRegistry.GetProvider(issues.SourceLinear)
+		if linearProvider != nil && linearProvider.IsConfigured(repoPath) {
+			availableSources = append(availableSources, ui.IssueSource{
+				Name:   "Linear Issues",
+				Source: "linear",
 			})
 		}
 	}
@@ -185,6 +203,8 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 		if branchName == "" {
 			if issue.Source == "asana" {
 				branchName = fmt.Sprintf("task-%s", issue.ID)
+			} else if issue.Source == "linear" {
+				branchName = fmt.Sprintf("linear-%s", strings.ToLower(issue.ID))
 			} else {
 				branchName = fmt.Sprintf("issue-%s", issue.ID)
 			}
@@ -224,6 +244,9 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 		if issue.Source == "asana" {
 			initialMsg = fmt.Sprintf("Asana Task: %s\n\n%s\n\n---\nPlease help me work on this task.",
 				issue.Title, issue.Body)
+		} else if issue.Source == "linear" {
+			initialMsg = fmt.Sprintf("Linear Issue %s: %s\n\n%s\n\n---\nPlease help me work on this issue.",
+				issue.ID, issue.Title, issue.Body)
 		} else {
 			initialMsg = fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nPlease help me work on this issue.",
 				issue.ID, issue.Title, issue.Body)

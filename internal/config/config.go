@@ -19,6 +19,7 @@ type Config struct {
 	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`   // Per-repo allowed tools
 	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
 	RepoAsanaProject  map[string]string      `json:"repo_asana_project,omitempty"`   // Per-repo Asana project GID mapping
+	RepoLinearTeam    map[string]string      `json:"repo_linear_team,omitempty"`    // Per-repo Linear team ID mapping
 	ContainerImage    string                 `json:"container_image,omitempty"`      // Container image for containerized sessions
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
@@ -124,6 +125,9 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoAsanaProject == nil {
 		c.RepoAsanaProject = make(map[string]string)
+	}
+	if c.RepoLinearTeam == nil {
+		c.RepoLinearTeam = make(map[string]string)
 	}
 	if c.Workspaces == nil {
 		c.Workspaces = []Workspace{}
@@ -408,6 +412,35 @@ func (c *Config) SetAsanaProject(repoPath, projectGID string) {
 // HasAsanaProject returns true if the repo has an Asana project configured
 func (c *Config) HasAsanaProject(repoPath string) bool {
 	return c.GetAsanaProject(repoPath) != ""
+}
+
+// GetLinearTeam returns the Linear team ID for a repo, or empty string if not configured
+func (c *Config) GetLinearTeam(repoPath string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.RepoLinearTeam == nil {
+		return ""
+	}
+	return c.RepoLinearTeam[repoPath]
+}
+
+// SetLinearTeam sets the Linear team ID for a repo
+func (c *Config) SetLinearTeam(repoPath, teamID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.RepoLinearTeam == nil {
+		c.RepoLinearTeam = make(map[string]string)
+	}
+	if teamID == "" {
+		delete(c.RepoLinearTeam, repoPath)
+	} else {
+		c.RepoLinearTeam[repoPath] = teamID
+	}
+}
+
+// HasLinearTeam returns true if the repo has a Linear team configured
+func (c *Config) HasLinearTeam(repoPath string) bool {
+	return c.GetLinearTeam(repoPath) != ""
 }
 
 // GetContainerImage returns the container image name, defaulting to "ghcr.io/zhubert/plural-claude"
