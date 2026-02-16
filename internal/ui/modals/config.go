@@ -482,15 +482,15 @@ func (s *RepoSettingsState) Render() string {
 			"Issue polling",
 			"Auto-poll for new issues and create autonomous supervisor sessions",
 			s.IssuePolling, s.issuePollingFocusIndex(), s.Focus)
-		issueLabelView := renderInputField(
-			"Issue filter label", "",
-			s.IssueLabelInput, s.issueLabelFocusIndex(), s.Focus, s.contentWidth())
 		autoMergeView := renderCheckboxField(
 			"Auto-merge after CI",
 			"Auto-merge PR when CI passes",
 			s.AutoMerge, s.autoMergeFocusIndex(), s.Focus)
+		issueLabelView := renderInputField(
+			"Issue filter label", "",
+			s.IssueLabelInput, s.issueLabelFocusIndex(), s.Focus, s.contentWidth())
 
-		parts = append(parts, autoHeader, issuePollingView, issueLabelView, autoMergeView)
+		parts = append(parts, autoHeader, issuePollingView, autoMergeView, issueLabelView)
 	}
 
 	// Asana project selector
