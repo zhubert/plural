@@ -418,8 +418,8 @@ func (m *Model) Init() tea.Cmd {
 		},
 		// Start background PR merge detection polling
 		PRPollTick(),
-		// Start background issue polling
-		IssuePollTick(),
+		// Start background issue polling (immediate check + recurring tick)
+		func() tea.Msg { return IssuePollTickMsg(time.Now()) },
 		// Check for container image updates in the background
 		m.checkContainerImageUpdate(),
 	)

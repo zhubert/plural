@@ -15,7 +15,7 @@ import (
 	"github.com/zhubert/plural/internal/session"
 )
 
-const issuePollInterval = 2 * time.Minute
+const issuePollInterval = 30 * time.Second
 
 // IssuePollTickMsg triggers an issue polling cycle
 type IssuePollTickMsg time.Time
