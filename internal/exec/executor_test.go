@@ -3,6 +3,7 @@ package exec
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -320,26 +321,45 @@ func TestMockExecutor_RuleOrder(t *testing.T) {
 
 func TestDefaultExecutor(t *testing.T) {
 	// Verify DefaultExecutor is set
-	if DefaultExecutor == nil {
+	if GetDefaultExecutor() == nil {
 		t.Fatal("DefaultExecutor should not be nil")
 	}
 
 	// Verify it's a RealExecutor
-	if _, ok := DefaultExecutor.(*RealExecutor); !ok {
-		t.Errorf("DefaultExecutor should be *RealExecutor, got %T", DefaultExecutor)
+	if _, ok := GetDefaultExecutor().(*RealExecutor); !ok {
+		t.Errorf("DefaultExecutor should be *RealExecutor, got %T", GetDefaultExecutor())
 	}
 
 	// Test SetDefaultExecutor
 	mock := NewMockExecutor(nil)
-	originalExecutor := DefaultExecutor
+	originalExecutor := GetDefaultExecutor()
 
 	SetDefaultExecutor(mock)
-	if DefaultExecutor != mock {
+	if GetDefaultExecutor() != mock {
 		t.Error("SetDefaultExecutor did not set the executor")
 	}
 
 	// Restore original
 	SetDefaultExecutor(originalExecutor)
+}
+
+func TestDefaultExecutorConcurrentAccess(t *testing.T) {
+	original := GetDefaultExecutor()
+	defer SetDefaultExecutor(original)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			SetDefaultExecutor(NewMockExecutor(nil))
+		}()
+		go func() {
+			defer wg.Done()
+			_ = GetDefaultExecutor()
+		}()
+	}
+	wg.Wait()
 }
 
 func TestMockCommandHandle_PipeIdempotent(t *testing.T) {
