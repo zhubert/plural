@@ -1934,7 +1934,7 @@ func TestBuildContainerRunArgs_WithRepoPath(t *testing.T) {
 
 	// Check that repo mount exists at the original absolute path
 	found := false
-	expectedMount := "/tmp/repo:/tmp/repo:ro"
+	expectedMount := "/tmp/repo:/tmp/repo"
 	for i, arg := range result.Args {
 		if arg == "-v" && i+1 < len(result.Args) {
 			if result.Args[i+1] == expectedMount {
