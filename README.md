@@ -144,7 +144,7 @@ The Docker image downloads the plural binary from GitHub releases rather than bu
 **Automatic updates:**
 The container checks for newer plural versions on startup and automatically updates if available. This happens:
 - On every container start
-- Automatically in the background (status logged with `[plural-update]` prefix)
+- Automatically during container initialization (status logged with `[plural-update]` prefix)
 - With graceful fallback if GitHub is unreachable
 
 To disable auto-updates:

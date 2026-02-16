@@ -161,13 +161,15 @@ update_plural_binary() {
     echo "[plural-update] New version available, updating from $CURRENT_VERSION to $LATEST_VERSION..."
 
     # Determine architecture (map Docker arch to GoReleaser arch)
+    # Only x86_64 and aarch64/arm64 are supported by releases
     ARCH=$(uname -m)
     if [ "$ARCH" = "x86_64" ]; then
         GOARCH="x86_64"
-    elif [ "$ARCH" = "aarch64" ]; then
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
         GOARCH="arm64"
     else
-        GOARCH="$ARCH"
+        echo "[plural-update] Unsupported architecture: $ARCH, skipping update"
+        return 0
     fi
 
     # Find download URL for this architecture
@@ -345,10 +347,23 @@ test_architecture_detection() {
 
     if [ "$ARCH" = "x86_64" ]; then
         EXPECTED_ARCH="x86_64"
-    elif [ "$ARCH" = "aarch64" ]; then
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
         EXPECTED_ARCH="arm64"
     else
-        EXPECTED_ARCH="$ARCH"
+        # Unsupported architecture - verify the script reports it
+        create_mock_api_response "v0.2.0" "$ARCH"
+        export PLURAL_BIN=/tmp/test-plural
+        export PATH="/tmp/plural-test-mock:$ORIG_PATH"
+        export SKIP_DOWNLOAD=1
+        OUTPUT=$(sh /tmp/update_test.sh 2>&1)
+        unset PLURAL_BIN SKIP_DOWNLOAD
+        export PATH="$ORIG_PATH"
+        if echo "$OUTPUT" | grep -q "Unsupported architecture"; then
+            pass "Correctly reports unsupported architecture $ARCH"
+        else
+            fail "Did not report unsupported architecture"
+        fi
+        return
     fi
 
     create_mock_api_response "v0.2.0" "$EXPECTED_ARCH"
@@ -376,10 +391,11 @@ test_download_extract_install() {
     ARCH=$(uname -m)
     if [ "$ARCH" = "x86_64" ]; then
         EXPECTED_ARCH="x86_64"
-    elif [ "$ARCH" = "aarch64" ]; then
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
         EXPECTED_ARCH="arm64"
     else
-        EXPECTED_ARCH="$ARCH"
+        pass "Skipping download test on unsupported architecture: $ARCH"
+        return
     fi
 
     create_mock_api_response "v0.2.0" "$EXPECTED_ARCH"
@@ -422,6 +438,9 @@ main() {
     echo "================================"
     echo ""
 
+    # Ensure cleanup on exit or interruption
+    trap 'teardown_mock_curl; rm -f /tmp/test-plural* /tmp/mock-api.json /tmp/mock-tarball.tar.gz /tmp/update_test.sh; rm -rf /tmp/plural-test-tarball' EXIT INT TERM
+
     # Setup
     create_test_function
     setup_mock_curl
@@ -436,9 +455,7 @@ main() {
     test_architecture_detection
     test_download_extract_install
 
-    # Cleanup
-    teardown_mock_curl
-    rm -f /tmp/test-plural* /tmp/mock-api.json /tmp/mock-tarball.tar.gz /tmp/update_test.sh
+    # Cleanup handled by trap
 
     # Summary
     echo ""
