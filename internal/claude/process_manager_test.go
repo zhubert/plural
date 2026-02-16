@@ -1932,7 +1932,7 @@ func TestBuildContainerRunArgs_WithRepoPath(t *testing.T) {
 		t.Fatalf("buildContainerRunArgs failed: %v", err)
 	}
 
-	// Check that repo mount exists at the original absolute path
+	// Check that repo mount exists at the original absolute path (read-write, not read-only)
 	found := false
 	expectedMount := "/tmp/repo:/tmp/repo"
 	for i, arg := range result.Args {

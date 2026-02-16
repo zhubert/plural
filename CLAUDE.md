@@ -128,6 +128,13 @@ Key files: `process_manager.go` (builds `docker run` args), `mcp_config.go` (con
 
 **Docker Image Architecture**: The `ghcr.io/zhubert/plural-claude` image downloads the plural binary from GitHub releases at build time (rather than building from source). This makes the image stable and reusable across versions. The Dockerfile accepts a `PLURAL_VERSION` build arg (default: `latest`) to pin to a specific version. See `Dockerfile` and `scripts/build-container.sh`.
 
+**Auto-update on Startup**: The container's entrypoint.sh checks for newer plural versions at startup and automatically downloads/installs updates if available. This runs before switching to the claude user, ensuring the binary at `/usr/local/bin/plural` stays current. The update check:
+- Times out quickly (5s connect, 10s total for API check)
+- Falls back gracefully on network failures
+- Logs all update activity with `[plural-update]` prefix
+- Can be disabled by setting `PLURAL_SKIP_UPDATE=1` env var
+- Uses the same architecture mapping as the Dockerfile (amd64→x86_64, arm64→arm64)
+
 ### Flash Messages
 
 ```go

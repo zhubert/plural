@@ -141,6 +141,17 @@ docker pull ghcr.io/zhubert/plural-claude
 
 The Docker image downloads the plural binary from GitHub releases rather than building from source, making it stable and version-independent. This means you don't need to rebuild the image every time plural is updated.
 
+**Automatic updates:**
+The container checks for newer plural versions on startup and automatically updates if available. This happens:
+- On every container start
+- Silently in the background (logs show update status)
+- With graceful fallback if GitHub is unreachable
+
+To disable auto-updates:
+```bash
+export PLURAL_SKIP_UPDATE=1
+```
+
 ### Rich Chat Features
 
 - **Image pasting**: Share screenshots and diagrams directly with Claude
