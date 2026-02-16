@@ -449,12 +449,12 @@ func (s *RepoSettingsState) numFields() int {
 
 // Focus indices for repo settings fields
 func (s *RepoSettingsState) issuePollingFocusIndex() int { return 0 }
-func (s *RepoSettingsState) issueLabelFocusIndex() int   { return 1 }
-func (s *RepoSettingsState) autoMergeFocusIndex() int    { return 2 }
+func (s *RepoSettingsState) autoMergeFocusIndex() int    { return 1 }
+func (s *RepoSettingsState) issueLabelFocusIndex() int   { return 2 }
 
 func (s *RepoSettingsState) asanaFocusIndex() int {
 	if s.ContainersSupported {
-		return 3 // after issue polling, issue label, auto-merge
+		return 3 // after issue polling, auto-merge, issue label
 	}
 	return 0 // first field if no containers
 }
@@ -482,15 +482,15 @@ func (s *RepoSettingsState) Render() string {
 			"Issue polling",
 			"Auto-poll for new issues and create autonomous supervisor sessions",
 			s.IssuePolling, s.issuePollingFocusIndex(), s.Focus)
-		issueLabelView := renderInputField(
-			"Issue filter label", "",
-			s.IssueLabelInput, s.issueLabelFocusIndex(), s.Focus, s.contentWidth())
 		autoMergeView := renderCheckboxField(
 			"Auto-merge after CI",
 			"Auto-merge PR when CI passes",
 			s.AutoMerge, s.autoMergeFocusIndex(), s.Focus)
+		issueLabelView := renderInputField(
+			"Issue filter label", "",
+			s.IssueLabelInput, s.issueLabelFocusIndex(), s.Focus, s.contentWidth())
 
-		parts = append(parts, autoHeader, issuePollingView, issueLabelView, autoMergeView)
+		parts = append(parts, autoHeader, issuePollingView, autoMergeView, issueLabelView)
 	}
 
 	// Asana project selector
