@@ -416,21 +416,6 @@ func (s *GitService) MergePR(ctx context.Context, repoPath, branch string, delet
 	return nil
 }
 
-// GeneratePRTitleAndBody uses Claude to generate a PR title and body from the branch changes.
-// If issueNumber is provided (non-zero), it will be included as "Fixes #N" in the PR body.
-// Deprecated: use GeneratePRTitleAndBodyWithIssueRef for new code.
-func (s *GitService) GeneratePRTitleAndBody(ctx context.Context, repoPath, branch string, issueNumber int) (title, body string, err error) {
-	// Convert legacy issueNumber to IssueRef for backwards compatibility
-	var issueRef *config.IssueRef
-	if issueNumber > 0 {
-		issueRef = &config.IssueRef{
-			Source: "github",
-			ID:     fmt.Sprintf("%d", issueNumber),
-		}
-	}
-	return s.GeneratePRTitleAndBodyWithIssueRef(ctx, repoPath, branch, "", issueRef)
-}
-
 // GeneratePRTitleAndBodyWithIssueRef uses Claude to generate a PR title and body from the branch changes.
 // If issueRef is provided, it will add appropriate link text based on the source:
 //   - GitHub: adds "Fixes #{number}" to auto-close the issue
