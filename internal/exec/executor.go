@@ -337,10 +337,22 @@ var _ CommandExecutor = (*MockExecutor)(nil)
 var _ CommandHandle = (*realCommandHandle)(nil)
 var _ CommandHandle = (*mockCommandHandle)(nil)
 
-// DefaultExecutor is the global default executor (can be swapped for testing).
-var DefaultExecutor CommandExecutor = NewRealExecutor()
+// defaultExecutorMu protects defaultExecutor for concurrent access.
+var defaultExecutorMu sync.RWMutex
+
+// defaultExecutor is the global default executor (can be swapped for testing).
+var defaultExecutor CommandExecutor = NewRealExecutor()
+
+// GetDefaultExecutor returns the global default executor.
+func GetDefaultExecutor() CommandExecutor {
+	defaultExecutorMu.RLock()
+	defer defaultExecutorMu.RUnlock()
+	return defaultExecutor
+}
 
 // SetDefaultExecutor sets the global default executor.
 func SetDefaultExecutor(e CommandExecutor) {
-	DefaultExecutor = e
+	defaultExecutorMu.Lock()
+	defer defaultExecutorMu.Unlock()
+	defaultExecutor = e
 }
