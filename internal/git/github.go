@@ -26,8 +26,7 @@ type ReviewDecision string
 const (
 	ReviewApproved         ReviewDecision = "APPROVED"
 	ReviewChangesRequested ReviewDecision = "CHANGES_REQUESTED"
-	ReviewRequired         ReviewDecision = "REVIEW_REQUIRED"
-	ReviewNone             ReviewDecision = "" // No review required or no reviews yet
+	ReviewNone             ReviewDecision = "" // No actionable reviews yet
 )
 
 // GetPRState returns the state of a PR for the given branch using the gh CLI.
@@ -376,27 +375,54 @@ func (s *GitService) CheckPRChecks(ctx context.Context, repoPath, branch string)
 	return CIStatusPassing, nil
 }
 
-// CheckPRReviewDecision returns the review decision for a PR.
-// Uses `gh pr view --json reviewDecision` to check the overall review state.
+// CheckPRReviewDecision returns the review decision for a PR by inspecting
+// individual reviews. GitHub's reviewDecision field only works with branch
+// protection rules, so we derive the decision ourselves by looking at each
+// reviewer's most recent actionable review state.
 func (s *GitService) CheckPRReviewDecision(ctx context.Context, repoPath, branch string) (ReviewDecision, error) {
-	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "view", branch, "--json", "reviewDecision")
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "view", branch, "--json", "reviews")
 	if err != nil {
 		return ReviewNone, fmt.Errorf("gh pr view failed: %w", err)
 	}
 
 	var result struct {
-		ReviewDecision string `json:"reviewDecision"`
+		Reviews []struct {
+			Author struct {
+				Login string `json:"login"`
+			} `json:"author"`
+			State string `json:"state"`
+		} `json:"reviews"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
-		return ReviewNone, fmt.Errorf("failed to parse review decision: %w", err)
+		return ReviewNone, fmt.Errorf("failed to parse reviews: %w", err)
 	}
 
-	switch ReviewDecision(result.ReviewDecision) {
-	case ReviewApproved, ReviewChangesRequested, ReviewRequired:
-		return ReviewDecision(result.ReviewDecision), nil
-	default:
-		return ReviewNone, nil
+	// For each unique author, find their latest actionable review.
+	// Reviews are ordered by submission time (earliest first).
+	latestByAuthor := make(map[string]string)
+	for _, review := range result.Reviews {
+		switch review.State {
+		case "APPROVED", "CHANGES_REQUESTED":
+			latestByAuthor[review.Author.Login] = review.State
+		}
+		// Ignore COMMENTED, DISMISSED, PENDING — not actionable decisions
 	}
+
+	// Derive decision: any CHANGES_REQUESTED wins, else any APPROVED wins
+	hasApproved := false
+	for _, state := range latestByAuthor {
+		if state == "CHANGES_REQUESTED" {
+			return ReviewChangesRequested, nil
+		}
+		if state == "APPROVED" {
+			hasApproved = true
+		}
+	}
+	if hasApproved {
+		return ReviewApproved, nil
+	}
+
+	return ReviewNone, nil
 }
 
 // MergePR merges a PR for the given branch using squash merge.

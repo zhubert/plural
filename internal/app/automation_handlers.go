@@ -613,7 +613,7 @@ func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Mo
 		}
 		return m, m.pollForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
 
-	case git.ReviewRequired, git.ReviewNone:
+	case git.ReviewNone:
 		log.Debug("waiting for review", "branch", sess.Branch, "attempt", msg.Attempt, "decision", msg.ReviewDecision)
 		// Only show message on first attempt to avoid spam
 		if msg.Attempt == 1 {

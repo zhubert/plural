@@ -624,23 +624,6 @@ func TestHandleAutoMergePollResultMsg(t *testing.T) {
 			description: "should continue polling while changes are requested",
 		},
 		{
-			name: "review required waits (step 2)",
-			setupConfig: func() *config.Config {
-				cfg := testConfigWithSessions()
-				cfg.Sessions[0].Autonomous = true
-				cfg.Sessions[0].PRCreated = true
-				return cfg
-			},
-			msg: AutoMergePollResultMsg{
-				SessionID:      "session-1",
-				ReviewDecision: git.ReviewRequired,
-				CIStatus:       git.CIStatusPassing,
-				Attempt:        1,
-			},
-			wantCmd:     true,
-			description: "should continue polling while waiting for review",
-		},
-		{
 			name: "approved and CI passing merges (step 3+4)",
 			setupConfig: func() *config.Config {
 				cfg := testConfigWithSessions()
@@ -734,7 +717,7 @@ func TestHandleAutoMergePollResultMsg(t *testing.T) {
 			},
 			msg: AutoMergePollResultMsg{
 				SessionID:      "session-1",
-				ReviewDecision: git.ReviewRequired,
+				ReviewDecision: git.ReviewNone,
 				CIStatus:       git.CIStatusPassing,
 				Attempt:        maxAutoMergePollAttempts,
 			},
@@ -850,7 +833,7 @@ func TestHandleAutoMergePollResultMsg_ReviewNoneTimesOut(t *testing.T) {
 	}
 	_, cmd := m.handleAutoMergePollResultMsg(msg)
 
-	// Should give up with a flash warning, same as ReviewRequired timeout
+	// Should give up with a flash warning, same as ReviewNone timeout
 	if cmd == nil {
 		t.Error("expected non-nil cmd (flash warning for timeout)")
 	}

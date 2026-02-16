@@ -933,23 +933,38 @@ func TestCheckPRReviewDecision(t *testing.T) {
 		want     ReviewDecision
 	}{
 		{
-			name:     "approved",
-			response: `{"reviewDecision":"APPROVED"}`,
+			name:     "single approval",
+			response: `{"reviews":[{"author":{"login":"alice"},"state":"APPROVED"}]}`,
 			want:     ReviewApproved,
 		},
 		{
-			name:     "changes requested",
-			response: `{"reviewDecision":"CHANGES_REQUESTED"}`,
+			name:     "single changes requested",
+			response: `{"reviews":[{"author":{"login":"alice"},"state":"CHANGES_REQUESTED"}]}`,
 			want:     ReviewChangesRequested,
 		},
 		{
-			name:     "review required",
-			response: `{"reviewDecision":"REVIEW_REQUIRED"}`,
-			want:     ReviewRequired,
+			name:     "changes requested then approved (same author)",
+			response: `{"reviews":[{"author":{"login":"alice"},"state":"CHANGES_REQUESTED"},{"author":{"login":"alice"},"state":"APPROVED"}]}`,
+			want:     ReviewApproved,
 		},
 		{
-			name:     "empty (no review required)",
-			response: `{"reviewDecision":""}`,
+			name:     "approved then changes requested (same author)",
+			response: `{"reviews":[{"author":{"login":"alice"},"state":"APPROVED"},{"author":{"login":"alice"},"state":"CHANGES_REQUESTED"}]}`,
+			want:     ReviewChangesRequested,
+		},
+		{
+			name:     "multiple reviewers: one approves, one requests changes",
+			response: `{"reviews":[{"author":{"login":"alice"},"state":"APPROVED"},{"author":{"login":"bob"},"state":"CHANGES_REQUESTED"}]}`,
+			want:     ReviewChangesRequested,
+		},
+		{
+			name:     "only COMMENTED and DISMISSED reviews",
+			response: `{"reviews":[{"author":{"login":"alice"},"state":"COMMENTED"},{"author":{"login":"bob"},"state":"DISMISSED"}]}`,
+			want:     ReviewNone,
+		},
+		{
+			name:     "empty reviews",
+			response: `{"reviews":[]}`,
 			want:     ReviewNone,
 		},
 	}
@@ -957,7 +972,7 @@ func TestCheckPRReviewDecision(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := pexec.NewMockExecutor(nil)
-			mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviewDecision"}, pexec.MockResponse{
+			mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews"}, pexec.MockResponse{
 				Stdout: []byte(tt.response),
 			})
 
@@ -975,7 +990,7 @@ func TestCheckPRReviewDecision(t *testing.T) {
 
 func TestCheckPRReviewDecision_CLIError(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviewDecision"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews"}, pexec.MockResponse{
 		Err: fmt.Errorf("gh failed"),
 	})
 
