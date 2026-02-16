@@ -674,11 +674,11 @@ func TestRepoSettingsState_FocusIndices_ContainersAndAsana(t *testing.T) {
 	if idx := s.issuePollingFocusIndex(); idx != 0 {
 		t.Errorf("Expected issuePolling focus index 0, got %d", idx)
 	}
-	if idx := s.issueLabelFocusIndex(); idx != 1 {
-		t.Errorf("Expected issueLabel focus index 1, got %d", idx)
+	if idx := s.autoMergeFocusIndex(); idx != 1 {
+		t.Errorf("Expected autoMerge focus index 1, got %d", idx)
 	}
-	if idx := s.autoMergeFocusIndex(); idx != 2 {
-		t.Errorf("Expected autoMerge focus index 2, got %d", idx)
+	if idx := s.issueLabelFocusIndex(); idx != 2 {
+		t.Errorf("Expected issueLabel focus index 2, got %d", idx)
 	}
 	if idx := s.asanaFocusIndex(); idx != 3 {
 		t.Errorf("Expected asana focus index 3, got %d", idx)

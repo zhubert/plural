@@ -449,12 +449,12 @@ func (s *RepoSettingsState) numFields() int {
 
 // Focus indices for repo settings fields
 func (s *RepoSettingsState) issuePollingFocusIndex() int { return 0 }
-func (s *RepoSettingsState) issueLabelFocusIndex() int   { return 1 }
-func (s *RepoSettingsState) autoMergeFocusIndex() int    { return 2 }
+func (s *RepoSettingsState) autoMergeFocusIndex() int    { return 1 }
+func (s *RepoSettingsState) issueLabelFocusIndex() int   { return 2 }
 
 func (s *RepoSettingsState) asanaFocusIndex() int {
 	if s.ContainersSupported {
-		return 3 // after issue polling, issue label, auto-merge
+		return 3 // after issue polling, auto-merge, issue label
 	}
 	return 0 // first field if no containers
 }
