@@ -13,7 +13,7 @@ import (
 	pexec "github.com/zhubert/plural/internal/exec"
 )
 
-// svc creates a new GitService for testing
+// svc creates a new GitService for testing (used by integration tests)
 var svc = NewGitService()
 
 // ctx is a background context for testing
@@ -85,67 +85,87 @@ func TestResult_Fields(t *testing.T) {
 }
 
 func TestHasRemoteOrigin_NoRemote(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"remote", "get-url", "origin"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: No such remote 'origin'"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	if svc.HasRemoteOrigin(ctx, repoPath) {
+	if s.HasRemoteOrigin(ctx, "/repo") {
 		t.Error("HasRemoteOrigin should return false for repo without origin")
 	}
 }
 
 func TestHasRemoteOrigin_WithRemote(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"remote", "get-url", "origin"}, pexec.MockResponse{
+		Stdout: []byte("https://github.com/test/test.git\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Add a remote origin
-	cmd := exec.Command("git", "remote", "add", "origin", "https://github.com/test/test.git")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to add remote: %v", err)
-	}
-
-	if !svc.HasRemoteOrigin(ctx, repoPath) {
+	if !s.HasRemoteOrigin(ctx, "/repo") {
 		t.Error("HasRemoteOrigin should return true for repo with origin")
 	}
 }
 
 func TestHasRemoteOrigin_InvalidPath(t *testing.T) {
-	if svc.HasRemoteOrigin(ctx, "/nonexistent/path") {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"remote", "get-url", "origin"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	if s.HasRemoteOrigin(ctx, "/nonexistent/path") {
 		t.Error("HasRemoteOrigin should return false for invalid path")
 	}
 }
 
-func TestGetDefaultBranch_Master(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+func TestGetDefaultBranch_FromSymbolicRef(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"symbolic-ref", "refs/remotes/origin/HEAD"}, pexec.MockResponse{
+		Stdout: []byte("refs/remotes/origin/main\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// By default, new repos might use main or master depending on git config
-	// Let's explicitly create master branch
-	cmd := exec.Command("git", "checkout", "-b", "master")
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	branch := svc.GetDefaultBranch(ctx, repoPath)
-	// Should return either main or master
-	if branch != "main" && branch != "master" {
-		t.Errorf("GetDefaultBranch = %q, want 'main' or 'master'", branch)
+	branch := s.GetDefaultBranch(ctx, "/repo")
+	if branch != "main" {
+		t.Errorf("GetDefaultBranch = %q, want 'main'", branch)
 	}
 }
 
-func TestGetDefaultBranch_Main(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+func TestGetDefaultBranch_FallbackToMain(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// symbolic-ref fails (no remote)
+	mock.AddExactMatch("git", []string{"symbolic-ref", "refs/remotes/origin/HEAD"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref"),
+	})
+	// rev-parse --verify main succeeds
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "main"}, pexec.MockResponse{
+		Stdout: []byte("abc123\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Rename default branch to main
-	cmd := exec.Command("git", "branch", "-M", "main")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Skip("Could not rename branch to main")
+	branch := s.GetDefaultBranch(ctx, "/repo")
+	if branch != "main" {
+		t.Errorf("GetDefaultBranch = %q, want 'main'", branch)
 	}
+}
 
-	branch := svc.GetDefaultBranch(ctx, repoPath)
-	if branch != "main" && branch != "master" {
-		t.Errorf("GetDefaultBranch = %q, want 'main' or 'master'", branch)
+func TestGetDefaultBranch_FallbackToMaster(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	// symbolic-ref fails
+	mock.AddExactMatch("git", []string{"symbolic-ref", "refs/remotes/origin/HEAD"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: ref refs/remotes/origin/HEAD is not a symbolic ref"),
+	})
+	// rev-parse --verify main also fails
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "main"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: Needed a single revision"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	branch := s.GetDefaultBranch(ctx, "/repo")
+	if branch != "master" {
+		t.Errorf("GetDefaultBranch = %q, want 'master'", branch)
 	}
 }
 
@@ -307,10 +327,13 @@ func TestCreatePR_NoGh(t *testing.T) {
 }
 
 func TestGetWorktreeStatus_NoChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	status, err := s.GetWorktreeStatus(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -329,22 +352,20 @@ func TestGetWorktreeStatus_NoChanges(t *testing.T) {
 }
 
 func TestGetWorktreeStatus_WithChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(" M test.txt\n?? new.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/test.txt b/test.txt\n--- a/test.txt\n+++ b/test.txt\n@@ -1 +1 @@\n-test content\n+modified content\n"),
+	})
+	// Mock for untracked file diff
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--no-index", "/dev/null", "new.txt"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/dev/null b/new.txt\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+new content\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create a new file (untracked)
-	newFile := filepath.Join(repoPath, "new.txt")
-	if err := os.WriteFile(newFile, []byte("new content"), 0644); err != nil {
-		t.Fatalf("Failed to create new file: %v", err)
-	}
-
-	// Modify existing file
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	status, err := s.GetWorktreeStatus(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -363,16 +384,20 @@ func TestGetWorktreeStatus_WithChanges(t *testing.T) {
 }
 
 func TestGetWorktreeStatus_SingleFile(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("?? single.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	// Mock for untracked file diff
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--no-index", "/dev/null", "single.txt"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/dev/null b/single.txt\n+++ b/single.txt\n@@ -0,0 +1 @@\n+content\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create one new file
-	newFile := filepath.Join(repoPath, "single.txt")
-	if err := os.WriteFile(newFile, []byte("content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	status, err := s.GetWorktreeStatus(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -383,106 +408,94 @@ func TestGetWorktreeStatus_SingleFile(t *testing.T) {
 }
 
 func TestGetWorktreeStatus_InvalidPath(t *testing.T) {
-	_, err := svc.GetWorktreeStatus(ctx, "/nonexistent/path")
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	_, err := s.GetWorktreeStatus(ctx, "/nonexistent/path")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
 }
 
 func TestCommitAll_Success(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"add", "-A"}, pexec.MockResponse{})
+	mock.AddExactMatch("git", []string{"commit", "-m", "Test commit message"}, pexec.MockResponse{
+		Stdout: []byte("[main abc1234] Test commit message\n 1 file changed, 1 insertion(+)\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create changes
-	newFile := filepath.Join(repoPath, "committed.txt")
-	if err := os.WriteFile(newFile, []byte("to be committed"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	// Verify changes exist before commit
-	status, _ := svc.GetWorktreeStatus(ctx, repoPath)
-	if !status.HasChanges {
-		t.Fatal("Expected changes before commit")
-	}
-
-	// Commit all changes
-	err := svc.CommitAll(ctx, repoPath, "Test commit message")
+	err := s.CommitAll(ctx, "/repo", "Test commit message")
 	if err != nil {
 		t.Fatalf("CommitAll failed: %v", err)
 	}
 
-	// Verify no changes after commit
-	status, _ = svc.GetWorktreeStatus(ctx, repoPath)
-	if status.HasChanges {
-		t.Error("Expected no changes after CommitAll")
+	// Verify both git add and git commit were called
+	calls := mock.GetCalls()
+	if len(calls) != 2 {
+		t.Fatalf("Expected 2 calls, got %d", len(calls))
 	}
-
-	// Verify commit was created with correct message
-	cmd := exec.Command("git", "log", "-1", "--pretty=%s")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("Failed to get commit message: %v", err)
+	if calls[0].Args[0] != "add" {
+		t.Errorf("Expected first call to be 'git add', got args: %v", calls[0].Args)
 	}
-
-	if string(output) != "Test commit message\n" {
-		t.Errorf("Expected commit message 'Test commit message', got %q", string(output))
+	if calls[1].Args[0] != "commit" {
+		t.Errorf("Expected second call to be 'git commit', got args: %v", calls[1].Args)
 	}
 }
 
 func TestCommitAll_NoChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"add", "-A"}, pexec.MockResponse{})
+	mock.AddExactMatch("git", []string{"commit", "-m", "Empty commit"}, pexec.MockResponse{
+		Stdout: []byte("nothing to commit, working tree clean\n"),
+		Err:    fmt.Errorf("exit status 1"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Try to commit with no changes - should fail
-	err := svc.CommitAll(ctx, repoPath, "Empty commit")
+	err := s.CommitAll(ctx, "/repo", "Empty commit")
 	if err == nil {
 		t.Error("Expected CommitAll to fail with no changes")
 	}
 }
 
 func TestCommitAll_MultipleFiles(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"add", "-A"}, pexec.MockResponse{})
+	mock.AddExactMatch("git", []string{"commit", "-m", "Multiple files commit"}, pexec.MockResponse{
+		Stdout: []byte("[main abc1234] Multiple files commit\n 4 files changed\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create multiple files
-	for i := 0; i < 3; i++ {
-		file := filepath.Join(repoPath, filepath.Base(repoPath)+string(rune('a'+i))+".txt")
-		if err := os.WriteFile(file, []byte("content"), 0644); err != nil {
-			t.Fatalf("Failed to create file: %v", err)
-		}
-	}
-
-	// Modify existing file too
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte("modified"), 0644); err != nil {
-		t.Fatalf("Failed to modify file: %v", err)
-	}
-
-	// Commit all
-	err := svc.CommitAll(ctx, repoPath, "Multiple files commit")
+	err := s.CommitAll(ctx, "/repo", "Multiple files commit")
 	if err != nil {
 		t.Fatalf("CommitAll failed: %v", err)
-	}
-
-	// Verify clean state
-	status, _ := svc.GetWorktreeStatus(ctx, repoPath)
-	if status.HasChanges {
-		t.Error("Expected no changes after committing multiple files")
 	}
 }
 
 func TestGenerateCommitMessage_Success(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	// Mock GetWorktreeStatus: status --porcelain
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("?? feature.txt\n"),
+	})
+	// Mock diff HEAD (called by GetWorktreeStatus)
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	// Mock untracked file diff (called by parseFileDiffs)
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--no-index", "/dev/null", "feature.txt"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/dev/null b/feature.txt\n+++ b/feature.txt\n@@ -0,0 +1 @@\n+feature content\n"),
+	})
+	// Mock diff --stat HEAD (called by GenerateCommitMessage)
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--stat", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte(" feature.txt | 1 +\n 1 file changed, 1 insertion(+)\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create changes
-	newFile := filepath.Join(repoPath, "feature.txt")
-	if err := os.WriteFile(newFile, []byte("feature content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	msg, err := svc.GenerateCommitMessage(ctx, repoPath)
+	msg, err := s.GenerateCommitMessage(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GenerateCommitMessage failed: %v", err)
 	}
@@ -491,39 +504,26 @@ func TestGenerateCommitMessage_Success(t *testing.T) {
 		t.Error("Expected non-empty commit message")
 	}
 
-	// Should contain summary
-	if !contains(msg, "1 file") {
+	if !strings.Contains(msg, "1 file") {
 		t.Errorf("Expected message to contain file count, got: %s", msg)
 	}
 
-	// Should contain file name
-	if !contains(msg, "feature.txt") {
+	if !strings.Contains(msg, "feature.txt") {
 		t.Errorf("Expected message to contain filename, got: %s", msg)
 	}
 }
 
 func TestGenerateCommitMessage_NoChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	_, err := svc.GenerateCommitMessage(ctx, repoPath)
+	_, err := s.GenerateCommitMessage(ctx, "/repo")
 	if err == nil {
 		t.Error("Expected error when generating commit message with no changes")
 	}
-}
-
-// contains checks if s contains substr
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestMergeToMain_WithProvidedCommitMessage(t *testing.T) {
@@ -567,7 +567,7 @@ func TestMergeToMain_WithProvidedCommitMessage(t *testing.T) {
 	cmd = exec.Command("git", "log", "--oneline", "-2")
 	cmd.Dir = repoPath
 	output, _ := cmd.Output()
-	if !contains(string(output), "Custom commit message") {
+	if !strings.Contains(string(output), "Custom commit message") {
 		t.Logf("Git log: %s", output)
 		// Note: This may not always work depending on merge behavior
 	}
@@ -608,22 +608,16 @@ func TestCreatePR_WithProvidedCommitMessage(t *testing.T) {
 }
 
 func TestGetWorktreeStatus_StagedChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("A  staged.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/staged.txt b/staged.txt\nnew file mode 100644\n--- /dev/null\n+++ b/staged.txt\n@@ -0,0 +1 @@\n+staged content\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create and stage a file
-	newFile := filepath.Join(repoPath, "staged.txt")
-	if err := os.WriteFile(newFile, []byte("staged content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	cmd := exec.Command("git", "add", "staged.txt")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to stage file: %v", err)
-	}
-
-	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	status, err := s.GetWorktreeStatus(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -632,42 +626,27 @@ func TestGetWorktreeStatus_StagedChanges(t *testing.T) {
 		t.Error("Expected HasChanges to be true for staged files")
 	}
 
-	// Diff should include staged changes
 	if status.Diff == "" {
 		t.Error("Expected Diff to contain staged changes")
 	}
 
-	// Verify staged changes are not duplicated in diff
-	// Count how many times "diff --git a/staged.txt" appears
 	diffCount := strings.Count(status.Diff, "diff --git a/staged.txt")
 	if diffCount != 1 {
-		t.Errorf("Expected staged file diff to appear once, got %d times. This indicates double-counting of staged changes", diffCount)
+		t.Errorf("Expected staged file diff to appear once, got %d times", diffCount)
 	}
 }
 
 func TestGetWorktreeStatus_StagedAndUnstaged(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("A  staged.txt\n M test.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/staged.txt b/staged.txt\nnew file mode 100644\n--- /dev/null\n+++ b/staged.txt\n@@ -0,0 +1 @@\n+staged content\ndiff --git a/test.txt b/test.txt\n--- a/test.txt\n+++ b/test.txt\n@@ -1 +1 @@\n-test content\n+modified content\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create and stage a file
-	stagedFile := filepath.Join(repoPath, "staged.txt")
-	if err := os.WriteFile(stagedFile, []byte("staged content"), 0644); err != nil {
-		t.Fatalf("Failed to create staged file: %v", err)
-	}
-
-	cmd := exec.Command("git", "add", "staged.txt")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to stage file: %v", err)
-	}
-
-	// Modify an existing file without staging
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	status, err := svc.GetWorktreeStatus(ctx, repoPath)
+	status, err := s.GetWorktreeStatus(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -676,7 +655,6 @@ func TestGetWorktreeStatus_StagedAndUnstaged(t *testing.T) {
 		t.Error("Expected HasChanges to be true")
 	}
 
-	// Both files should appear in the diff, each exactly once
 	stagedDiffCount := strings.Count(status.Diff, "diff --git a/staged.txt")
 	testDiffCount := strings.Count(status.Diff, "diff --git a/test.txt")
 
@@ -750,7 +728,7 @@ func TestMergeToMain_NoChangesToCommit(t *testing.T) {
 
 	var sawNoChangesMsg bool
 	for result := range ch {
-		if contains(result.Output, "No uncommitted changes") {
+		if strings.Contains(result.Output, "No uncommitted changes") {
 			sawNoChangesMsg = true
 		}
 		if result.Error != nil {
@@ -887,35 +865,44 @@ func TestCreatePR_UsesBaseBranchNotDefaultBranch(t *testing.T) {
 }
 
 func TestCommitAll_InvalidPath(t *testing.T) {
-	err := svc.CommitAll(ctx, "/nonexistent/path", "Test commit")
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"add", "-A"}, pexec.MockResponse{
+		Stderr: []byte("fatal: not a git repository\n"),
+		Err:    fmt.Errorf("exit status 128"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	err := s.CommitAll(ctx, "/nonexistent/path", "Test commit")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
 }
 
 func TestGetWorktreeStatus_DiffFallback(t *testing.T) {
-	// This tests the fallback behavior when diff HEAD fails
-	// Create a new repo without any commits
-	tmpDir, err := os.MkdirTemp("", "plural-git-nohead-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	// Tests the fallback behavior when diff HEAD fails (e.g., new repo without commits)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("?? nohead.txt\n"),
+	})
+	// diff HEAD fails (no commits yet)
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: bad default revision 'HEAD'"),
+	})
+	// Fallback: unstaged diff
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	// Fallback: staged diff
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--cached"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	// Untracked file diff
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--no-index", "/dev/null", "nohead.txt"}, pexec.MockResponse{
+		Stdout: []byte("diff --git a/dev/null b/nohead.txt\n+++ b/nohead.txt\n@@ -0,0 +1 @@\n+content\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	cmd := exec.Command("git", "init")
-	cmd.Dir = tmpDir
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to init git repo: %v", err)
-	}
-
-	// Create a file but don't commit
-	testFile := filepath.Join(tmpDir, "nohead.txt")
-	if err := os.WriteFile(testFile, []byte("content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	// This should work even without a HEAD commit
-	status, err := svc.GetWorktreeStatus(ctx, tmpDir)
+	status, err := s.GetWorktreeStatus(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetWorktreeStatus failed: %v", err)
 	}
@@ -926,30 +913,35 @@ func TestGetWorktreeStatus_DiffFallback(t *testing.T) {
 }
 
 func TestGenerateCommitMessage_MultipleFiles(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
-
-	// Create multiple files
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("?? file1.txt\n?? file2.txt\n?? file3.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	// Mock untracked file diffs for parseFileDiffs
 	for _, name := range []string{"file1.txt", "file2.txt", "file3.txt"} {
-		file := filepath.Join(repoPath, name)
-		if err := os.WriteFile(file, []byte("content"), 0644); err != nil {
-			t.Fatalf("Failed to create file: %v", err)
-		}
+		mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--no-index", "/dev/null", name}, pexec.MockResponse{
+			Stdout: []byte(fmt.Sprintf("diff --git a/dev/null b/%s\n+content\n", name)),
+		})
 	}
+	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--stat", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte(" file1.txt | 1 +\n file2.txt | 1 +\n file3.txt | 1 +\n 3 files changed, 3 insertions(+)\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	msg, err := svc.GenerateCommitMessage(ctx, repoPath)
+	msg, err := s.GenerateCommitMessage(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GenerateCommitMessage failed: %v", err)
 	}
 
-	// Should mention multiple files
-	if !contains(msg, "3 files") {
+	if !strings.Contains(msg, "3 files") {
 		t.Errorf("Expected message to mention 3 files, got: %s", msg)
 	}
 
-	// Should list all files
 	for _, name := range []string{"file1.txt", "file2.txt", "file3.txt"} {
-		if !contains(msg, name) {
+		if !strings.Contains(msg, name) {
 			t.Errorf("Expected message to contain %s, got: %s", name, msg)
 		}
 	}
@@ -1115,7 +1107,7 @@ func TestMergeToParent_WithUncommittedChanges(t *testing.T) {
 	var lastResult Result
 	for result := range ch {
 		lastResult = result
-		if contains(result.Output, "uncommitted changes") {
+		if strings.Contains(result.Output, "uncommitted changes") {
 			sawUncommittedMsg = true
 		}
 		if result.Error != nil {
@@ -1237,7 +1229,7 @@ func TestMergeToParent_NoChangesToCommit(t *testing.T) {
 
 	var sawNoChangesMsg bool
 	for result := range ch {
-		if contains(result.Output, "No uncommitted changes") {
+		if strings.Contains(result.Output, "No uncommitted changes") {
 			sawNoChangesMsg = true
 		}
 		if result.Error != nil {
@@ -1579,10 +1571,13 @@ func TestMergeToMain_PullFailsNoRemote(t *testing.T) {
 }
 
 func TestGetDiffStats_NoChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1590,27 +1585,28 @@ func TestGetDiffStats_NoChanges(t *testing.T) {
 	if stats.FilesChanged != 0 {
 		t.Errorf("Expected FilesChanged to be 0, got %d", stats.FilesChanged)
 	}
-
 	if stats.Additions != 0 {
 		t.Errorf("Expected Additions to be 0, got %d", stats.Additions)
 	}
-
 	if stats.Deletions != 0 {
 		t.Errorf("Expected Deletions to be 0, got %d", stats.Deletions)
 	}
 }
 
 func TestGetDiffStats_WithModifiedFile(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(" M test.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat"}, pexec.MockResponse{
+		Stdout: []byte("3\t1\ttest.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat", "--cached"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Modify the existing test.txt file (add lines)
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte("test content\nnew line 1\nnew line 2"), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1618,25 +1614,32 @@ func TestGetDiffStats_WithModifiedFile(t *testing.T) {
 	if stats.FilesChanged != 1 {
 		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
 	}
-
-	// Original content was "test content", now it's "test content\nnew line 1\nnew line 2"
-	// This is a modification, so we expect some additions
-	if stats.Additions < 1 {
-		t.Errorf("Expected at least 1 addition, got %d", stats.Additions)
+	if stats.Additions != 3 {
+		t.Errorf("Expected 3 additions, got %d", stats.Additions)
+	}
+	if stats.Deletions != 1 {
+		t.Errorf("Expected 1 deletion, got %d", stats.Deletions)
 	}
 }
 
 func TestGetDiffStats_WithNewFile(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("?? new.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat", "--cached"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	// Untracked file line count
+	mock.AddExactMatch("git", []string{"diff", "--no-index", "--numstat", "/dev/null", "new.txt"}, pexec.MockResponse{
+		Stdout: []byte("3\t0\tnew.txt\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create a new file (untracked)
-	newFile := filepath.Join(repoPath, "new.txt")
-	if err := os.WriteFile(newFile, []byte("line 1\nline 2\nline 3"), 0644); err != nil {
-		t.Fatalf("Failed to create new file: %v", err)
-	}
-
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1644,30 +1647,25 @@ func TestGetDiffStats_WithNewFile(t *testing.T) {
 	if stats.FilesChanged != 1 {
 		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
 	}
-
-	// Untracked files should now have their lines counted as additions
 	if stats.Additions != 3 {
-		t.Errorf("Expected Additions to be 3 for untracked file with 3 lines, got %d", stats.Additions)
+		t.Errorf("Expected Additions to be 3, got %d", stats.Additions)
 	}
 }
 
 func TestGetDiffStats_WithStagedChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("A  staged.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat", "--cached"}, pexec.MockResponse{
+		Stdout: []byte("5\t0\tstaged.txt\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create and stage a new file
-	newFile := filepath.Join(repoPath, "staged.txt")
-	if err := os.WriteFile(newFile, []byte("line 1\nline 2\nline 3\nline 4\nline 5"), 0644); err != nil {
-		t.Fatalf("Failed to create new file: %v", err)
-	}
-
-	cmd := exec.Command("git", "add", "staged.txt")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to stage file: %v", err)
-	}
-
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1675,24 +1673,25 @@ func TestGetDiffStats_WithStagedChanges(t *testing.T) {
 	if stats.FilesChanged != 1 {
 		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
 	}
-
-	// Staged new file should show 5 additions
 	if stats.Additions != 5 {
 		t.Errorf("Expected Additions to be 5, got %d", stats.Additions)
 	}
 }
 
 func TestGetDiffStats_WithDeletions(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(" M test.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat"}, pexec.MockResponse{
+		Stdout: []byte("0\t1\ttest.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat", "--cached"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Delete some content from test.txt
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte(""), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1700,32 +1699,25 @@ func TestGetDiffStats_WithDeletions(t *testing.T) {
 	if stats.FilesChanged != 1 {
 		t.Errorf("Expected FilesChanged to be 1, got %d", stats.FilesChanged)
 	}
-
-	// Original content was "test content" (1 line), now it's empty
 	if stats.Deletions < 1 {
 		t.Errorf("Expected at least 1 deletion, got %d", stats.Deletions)
 	}
 }
 
 func TestGetDiffStats_MultipleFiles(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte("A  file1.txt\nA  file2.txt\nA  file3.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat", "--cached"}, pexec.MockResponse{
+		Stdout: []byte("2\t0\tfile1.txt\n4\t0\tfile2.txt\n6\t0\tfile3.txt\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create multiple new files
-	for i := 1; i <= 3; i++ {
-		file := filepath.Join(repoPath, fmt.Sprintf("file%d.txt", i))
-		content := strings.Repeat(fmt.Sprintf("line %d\n", i), i*2) // Different sizes
-		if err := os.WriteFile(file, []byte(content), 0644); err != nil {
-			t.Fatalf("Failed to create file: %v", err)
-		}
-	}
-
-	// Stage all of them so they show in git diff --cached
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1733,41 +1725,38 @@ func TestGetDiffStats_MultipleFiles(t *testing.T) {
 	if stats.FilesChanged != 3 {
 		t.Errorf("Expected FilesChanged to be 3, got %d", stats.FilesChanged)
 	}
-
-	// file1: 2 lines, file2: 4 lines, file3: 6 lines = 12 total additions
 	if stats.Additions != 12 {
 		t.Errorf("Expected Additions to be 12, got %d", stats.Additions)
 	}
 }
 
 func TestGetDiffStats_InvalidPath(t *testing.T) {
-	_, err := svc.GetDiffStats(ctx, "/nonexistent/path")
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	_, err := s.GetDiffStats(ctx, "/nonexistent/path")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
 }
 
 func TestGetDiffStats_MixedChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"status", "--porcelain"}, pexec.MockResponse{
+		Stdout: []byte(" M test.txt\nA  new.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat"}, pexec.MockResponse{
+		Stdout: []byte("2\t1\ttest.txt\n"),
+	})
+	mock.AddExactMatch("git", []string{"diff", "--numstat", "--cached"}, pexec.MockResponse{
+		Stdout: []byte("2\t0\tnew.txt\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Modify existing file (additions and deletions)
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte("modified line\nadded line"), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	// Create a new file and stage it
-	newFile := filepath.Join(repoPath, "new.txt")
-	if err := os.WriteFile(newFile, []byte("new file content\nmore content"), 0644); err != nil {
-		t.Fatalf("Failed to create new file: %v", err)
-	}
-
-	cmd := exec.Command("git", "add", "new.txt")
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	stats, err := svc.GetDiffStats(ctx, repoPath)
+	stats, err := s.GetDiffStats(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetDiffStats failed: %v", err)
 	}
@@ -1775,12 +1764,9 @@ func TestGetDiffStats_MixedChanges(t *testing.T) {
 	if stats.FilesChanged != 2 {
 		t.Errorf("Expected FilesChanged to be 2, got %d", stats.FilesChanged)
 	}
-
-	// Both additions and deletions should be present
 	if stats.Additions == 0 {
 		t.Error("Expected some additions")
 	}
-
 	if stats.Deletions == 0 {
 		t.Error("Expected some deletions")
 	}
@@ -1835,10 +1821,13 @@ func TestBranchDivergence_CanFastForward(t *testing.T) {
 }
 
 func TestGetBranchDivergence_InSync(t *testing.T) {
-	repoPath, _, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-list", "--count", "--left-right", "origin/main...main"}, pexec.MockResponse{
+		Stdout: []byte("0\t0\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
+	divergence, err := s.GetBranchDivergence(ctx, "/repo", "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1846,37 +1835,22 @@ func TestGetBranchDivergence_InSync(t *testing.T) {
 	if divergence.Behind != 0 || divergence.Ahead != 0 {
 		t.Errorf("Expected 0 behind, 0 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
 	}
-
 	if divergence.IsDiverged() {
 		t.Error("Should not be diverged when in sync")
 	}
-
 	if !divergence.CanFastForward() {
 		t.Error("Should be able to fast-forward when in sync")
 	}
 }
 
 func TestGetBranchDivergence_LocalAhead(t *testing.T) {
-	repoPath, _, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-list", "--count", "--left-right", "origin/main...main"}, pexec.MockResponse{
+		Stdout: []byte("0\t1\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Make a local commit
-	testFile := filepath.Join(repoPath, "local.txt")
-	if err := os.WriteFile(testFile, []byte("local content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	cmd := exec.Command("git", "add", ".")
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	cmd = exec.Command("git", "commit", "-m", "local commit")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-
-	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
+	divergence, err := s.GetBranchDivergence(ctx, "/repo", "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1884,71 +1858,22 @@ func TestGetBranchDivergence_LocalAhead(t *testing.T) {
 	if divergence.Behind != 0 || divergence.Ahead != 1 {
 		t.Errorf("Expected 0 behind, 1 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
 	}
-
 	if divergence.IsDiverged() {
 		t.Error("Should not be diverged when only ahead")
 	}
-
 	if divergence.CanFastForward() {
 		t.Error("Should not be able to fast-forward when ahead")
 	}
 }
 
 func TestGetBranchDivergence_LocalBehind(t *testing.T) {
-	repoPath, remotePath, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-list", "--count", "--left-right", "origin/main...main"}, pexec.MockResponse{
+		Stdout: []byte("1\t0\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Clone the repo to another location to simulate remote changes
-	clonePath, err := os.MkdirTemp("", "plural-git-clone-*")
-	if err != nil {
-		t.Fatalf("Failed to create clone dir: %v", err)
-	}
-	defer os.RemoveAll(clonePath)
-
-	cmd := exec.Command("git", "clone", remotePath, clonePath)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to clone: %v", err)
-	}
-
-	// Configure git user in clone
-	cmd = exec.Command("git", "config", "user.email", "test@example.com")
-	cmd.Dir = clonePath
-	cmd.Run()
-
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = clonePath
-	cmd.Run()
-
-	// Make a commit in the clone and push
-	remoteFile := filepath.Join(clonePath, "remote.txt")
-	if err := os.WriteFile(remoteFile, []byte("remote content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = clonePath
-	cmd.Run()
-
-	cmd = exec.Command("git", "commit", "-m", "remote commit")
-	cmd.Dir = clonePath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-
-	cmd = exec.Command("git", "push")
-	cmd.Dir = clonePath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to push: %v", err)
-	}
-
-	// Fetch in original repo to update origin/main
-	cmd = exec.Command("git", "fetch", "origin")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to fetch: %v", err)
-	}
-
-	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
+	divergence, err := s.GetBranchDivergence(ctx, "/repo", "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -1956,87 +1881,22 @@ func TestGetBranchDivergence_LocalBehind(t *testing.T) {
 	if divergence.Behind != 1 || divergence.Ahead != 0 {
 		t.Errorf("Expected 1 behind, 0 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
 	}
-
 	if divergence.IsDiverged() {
 		t.Error("Should not be diverged when only behind")
 	}
-
 	if !divergence.CanFastForward() {
 		t.Error("Should be able to fast-forward when only behind")
 	}
 }
 
 func TestGetBranchDivergence_Diverged(t *testing.T) {
-	repoPath, remotePath, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-list", "--count", "--left-right", "origin/main...main"}, pexec.MockResponse{
+		Stdout: []byte("1\t1\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Clone to simulate remote changes
-	clonePath, err := os.MkdirTemp("", "plural-git-clone-*")
-	if err != nil {
-		t.Fatalf("Failed to create clone dir: %v", err)
-	}
-	defer os.RemoveAll(clonePath)
-
-	cmd := exec.Command("git", "clone", remotePath, clonePath)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to clone: %v", err)
-	}
-
-	// Configure git user in clone
-	cmd = exec.Command("git", "config", "user.email", "test@example.com")
-	cmd.Dir = clonePath
-	cmd.Run()
-
-	cmd = exec.Command("git", "config", "user.name", "Test User")
-	cmd.Dir = clonePath
-	cmd.Run()
-
-	// Make a commit in the clone and push (simulating remote changes)
-	remoteFile := filepath.Join(clonePath, "remote.txt")
-	if err := os.WriteFile(remoteFile, []byte("remote content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = clonePath
-	cmd.Run()
-
-	cmd = exec.Command("git", "commit", "-m", "remote commit")
-	cmd.Dir = clonePath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-
-	cmd = exec.Command("git", "push")
-	cmd.Dir = clonePath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to push: %v", err)
-	}
-
-	// Make a local commit (causes divergence)
-	localFile := filepath.Join(repoPath, "local.txt")
-	if err := os.WriteFile(localFile, []byte("local content"), 0644); err != nil {
-		t.Fatalf("Failed to create file: %v", err)
-	}
-
-	cmd = exec.Command("git", "add", ".")
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	cmd = exec.Command("git", "commit", "-m", "local commit")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-
-	// Fetch to update origin/main
-	cmd = exec.Command("git", "fetch", "origin")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to fetch: %v", err)
-	}
-
-	divergence, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/main")
+	divergence, err := s.GetBranchDivergence(ctx, "/repo", "main", "origin/main")
 	if err != nil {
 		t.Fatalf("GetBranchDivergence failed: %v", err)
 	}
@@ -2044,154 +1904,164 @@ func TestGetBranchDivergence_Diverged(t *testing.T) {
 	if divergence.Behind != 1 || divergence.Ahead != 1 {
 		t.Errorf("Expected 1 behind, 1 ahead; got %d behind, %d ahead", divergence.Behind, divergence.Ahead)
 	}
-
 	if !divergence.IsDiverged() {
 		t.Error("Should be diverged when both ahead and behind")
 	}
-
 	if divergence.CanFastForward() {
 		t.Error("Should not be able to fast-forward when diverged")
 	}
 }
 
 func TestGetBranchDivergence_InvalidBranch(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-list", "--count", "--left-right", "origin/nonexistent...main"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: bad revision 'origin/nonexistent...main'"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	_, err := svc.GetBranchDivergence(ctx, repoPath, "main", "origin/nonexistent")
+	_, err := s.GetBranchDivergence(ctx, "/repo", "main", "origin/nonexistent")
 	if err == nil {
 		t.Error("Expected error for nonexistent branch")
 	}
 }
 
 func TestHasTrackingBranch_NoTracking(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"config", "--get", "branch.main.remote"}, pexec.MockResponse{
+		Err: fmt.Errorf("exit status 1"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Get the current branch name
-	cmd := exec.Command("git", "branch", "--show-current")
-	cmd.Dir = repoPath
-	output, _ := cmd.Output()
-	branch := strings.TrimSpace(string(output))
-
-	if svc.HasTrackingBranch(ctx, repoPath, branch) {
+	if s.HasTrackingBranch(ctx, "/repo", "main") {
 		t.Error("HasTrackingBranch should return false for branch without upstream")
 	}
 }
 
 func TestHasTrackingBranch_WithTracking(t *testing.T) {
-	repoPath, _, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"config", "--get", "branch.main.remote"}, pexec.MockResponse{
+		Stdout: []byte("origin\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// main should have tracking after push -u
-	if !svc.HasTrackingBranch(ctx, repoPath, "main") {
+	if !s.HasTrackingBranch(ctx, "/repo", "main") {
 		t.Error("HasTrackingBranch should return true for branch with upstream")
 	}
 }
 
 func TestHasTrackingBranch_InvalidPath(t *testing.T) {
-	if svc.HasTrackingBranch(ctx, "/nonexistent/path", "main") {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"config", "--get", "branch.main.remote"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	if s.HasTrackingBranch(ctx, "/nonexistent/path", "main") {
 		t.Error("HasTrackingBranch should return false for invalid path")
 	}
 }
 
 func TestRemoteBranchExists_Exists(t *testing.T) {
-	repoPath, _, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "origin/main"}, pexec.MockResponse{
+		Stdout: []byte("abc123\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	if !svc.RemoteBranchExists(ctx, repoPath, "origin/main") {
+	if !s.RemoteBranchExists(ctx, "/repo", "origin/main") {
 		t.Error("RemoteBranchExists should return true for existing remote branch")
 	}
 }
 
 func TestRemoteBranchExists_NotExists(t *testing.T) {
-	repoPath, _, cleanup := createTestRepoWithRemote(t)
-	defer cleanup()
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "origin/nonexistent"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: Needed a single revision"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	if svc.RemoteBranchExists(ctx, repoPath, "origin/nonexistent") {
+	if s.RemoteBranchExists(ctx, "/repo", "origin/nonexistent") {
 		t.Error("RemoteBranchExists should return false for non-existent remote branch")
 	}
 }
 
 func TestRemoteBranchExists_NoRemote(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "origin/main"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: Needed a single revision"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	if svc.RemoteBranchExists(ctx, repoPath, "origin/main") {
+	if s.RemoteBranchExists(ctx, "/repo", "origin/main") {
 		t.Error("RemoteBranchExists should return false when no remote configured")
 	}
 }
 
 func TestRemoteBranchExists_InvalidPath(t *testing.T) {
-	if svc.RemoteBranchExists(ctx, "/nonexistent/path", "origin/main") {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "origin/main"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	if s.RemoteBranchExists(ctx, "/nonexistent/path", "origin/main") {
 		t.Error("RemoteBranchExists should return false for invalid path")
 	}
 }
 
 func TestGetCurrentBranch_Success(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("main\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	branch, err := svc.GetCurrentBranch(ctx, repoPath)
+	branch, err := s.GetCurrentBranch(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetCurrentBranch failed: %v", err)
 	}
-
-	// Should return the default branch (main or master depending on git config)
-	if branch != "main" && branch != "master" {
-		t.Errorf("GetCurrentBranch = %q, want 'main' or 'master'", branch)
+	if branch != "main" {
+		t.Errorf("GetCurrentBranch = %q, want 'main'", branch)
 	}
 }
 
 func TestGetCurrentBranch_FeatureBranch(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("my-feature\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create and checkout a feature branch
-	cmd := exec.Command("git", "checkout", "-b", "my-feature")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to create feature branch: %v", err)
-	}
-
-	branch, err := svc.GetCurrentBranch(ctx, repoPath)
+	branch, err := s.GetCurrentBranch(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("GetCurrentBranch failed: %v", err)
 	}
-
 	if branch != "my-feature" {
 		t.Errorf("GetCurrentBranch = %q, want 'my-feature'", branch)
 	}
 }
 
 func TestGetCurrentBranch_InvalidPath(t *testing.T) {
-	_, err := svc.GetCurrentBranch(ctx, "/nonexistent/path")
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	_, err := s.GetCurrentBranch(ctx, "/nonexistent/path")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
 }
 
 func TestGetCurrentBranch_DetachedHead(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--abbrev-ref", "HEAD"}, pexec.MockResponse{
+		Stdout: []byte("HEAD\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Get the current commit hash
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("Failed to get HEAD commit: %v", err)
-	}
-	commit := strings.TrimSpace(string(output))
-
-	// Checkout the commit to create detached HEAD
-	cmd = exec.Command("git", "checkout", commit)
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to checkout commit: %v", err)
-	}
-
-	_, err = svc.GetCurrentBranch(ctx, repoPath)
+	_, err := s.GetCurrentBranch(ctx, "/repo")
 	if err == nil {
 		t.Error("Expected error for detached HEAD")
 	}
@@ -2201,80 +2071,55 @@ func TestGetCurrentBranch_DetachedHead(t *testing.T) {
 }
 
 func TestCheckoutBranch_Success(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"checkout", "checkout-test"}, pexec.MockResponse{
+		Stdout: []byte("Switched to branch 'checkout-test'\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create a feature branch
-	cmd := exec.Command("git", "checkout", "-b", "checkout-test")
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to create branch: %v", err)
-	}
-
-	// Go back to default branch
-	defaultBranch := svc.GetDefaultBranch(ctx, repoPath)
-	cmd = exec.Command("git", "checkout", defaultBranch)
-	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("Failed to checkout default branch: %v", err)
-	}
-
-	// Checkout the feature branch using our function
-	err := svc.CheckoutBranch(ctx, repoPath, "checkout-test")
+	err := s.CheckoutBranch(ctx, "/repo", "checkout-test")
 	if err != nil {
 		t.Fatalf("CheckoutBranch failed: %v", err)
-	}
-
-	// Verify we're on the feature branch
-	branch, _ := svc.GetCurrentBranch(ctx, repoPath)
-	if branch != "checkout-test" {
-		t.Errorf("GetCurrentBranch = %q, want 'checkout-test'", branch)
 	}
 }
 
 func TestCheckoutBranch_NonexistentBranch(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"checkout", "nonexistent-branch"}, pexec.MockResponse{
+		Stderr: []byte("error: pathspec 'nonexistent-branch' did not match any file(s) known to git\n"),
+		Err:    fmt.Errorf("exit status 1"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	err := svc.CheckoutBranch(ctx, repoPath, "nonexistent-branch")
+	err := s.CheckoutBranch(ctx, "/repo", "nonexistent-branch")
 	if err == nil {
 		t.Error("Expected error for nonexistent branch")
 	}
 }
 
 func TestCheckoutBranch_InvalidPath(t *testing.T) {
-	err := svc.CheckoutBranch(ctx, "/nonexistent/path", "main")
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"checkout", "main"}, pexec.MockResponse{
+		Stderr: []byte("fatal: not a git repository\n"),
+		Err:    fmt.Errorf("exit status 128"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
+	err := s.CheckoutBranch(ctx, "/nonexistent/path", "main")
 	if err == nil {
 		t.Error("Expected error for invalid path")
 	}
 }
 
 func TestCheckoutBranch_WithUncommittedChanges(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	// Checkout succeeds when changes don't conflict
+	mock.AddExactMatch("git", []string{"checkout", "changes-test"}, pexec.MockResponse{
+		Stdout: []byte("Switched to branch 'changes-test'\nM\ttest.txt\n"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	// Create a feature branch and go back to default
-	cmd := exec.Command("git", "checkout", "-b", "changes-test")
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	defaultBranch := svc.GetDefaultBranch(ctx, repoPath)
-	cmd = exec.Command("git", "checkout", defaultBranch)
-	cmd.Dir = repoPath
-	cmd.Run()
-
-	// Make uncommitted changes to a tracked file
-	testFile := filepath.Join(repoPath, "test.txt")
-	if err := os.WriteFile(testFile, []byte("modified content"), 0644); err != nil {
-		t.Fatalf("Failed to modify file: %v", err)
-	}
-
-	// Try to checkout - might succeed if changes don't conflict
-	// The behavior depends on whether the changes would be overwritten
-	err := svc.CheckoutBranch(ctx, repoPath, "changes-test")
-
-	// In this case, since both branches have the same test.txt, checkout should succeed
-	// (git will keep the local changes)
+	err := s.CheckoutBranch(ctx, "/repo", "changes-test")
 	if err != nil {
 		t.Logf("CheckoutBranch with uncommitted changes: %v", err)
 	}
@@ -2462,7 +2307,7 @@ func TestSquashMergeToMain_WithUncommittedChanges(t *testing.T) {
 	var lastResult Result
 	for result := range ch {
 		lastResult = result
-		if contains(result.Output, "uncommitted changes") {
+		if strings.Contains(result.Output, "uncommitted changes") {
 			sawUncommittedMsg = true
 		}
 		if result.Error != nil {
@@ -2562,10 +2407,13 @@ func TestSquashMergeToMain_Cancelled(t *testing.T) {
 }
 
 func TestIsMergeInProgress_NoMerge(t *testing.T) {
-	repoPath := createTestRepo(t)
-	defer os.RemoveAll(repoPath)
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "MERGE_HEAD"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: Needed a single revision"),
+	})
+	s := NewGitServiceWithExecutor(mock)
 
-	inProgress, err := svc.IsMergeInProgress(ctx, repoPath)
+	inProgress, err := s.IsMergeInProgress(ctx, "/repo")
 	if err != nil {
 		t.Fatalf("IsMergeInProgress failed: %v", err)
 	}
@@ -2643,8 +2491,14 @@ func TestIsMergeInProgress_DuringMerge(t *testing.T) {
 }
 
 func TestIsMergeInProgress_InvalidPath(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("git", []string{"rev-parse", "--verify", "MERGE_HEAD"}, pexec.MockResponse{
+		Err: fmt.Errorf("fatal: not a git repository"),
+	})
+	s := NewGitServiceWithExecutor(mock)
+
 	// Should not error, just return false
-	inProgress, err := svc.IsMergeInProgress(ctx, "/nonexistent/path")
+	inProgress, err := s.IsMergeInProgress(ctx, "/nonexistent/path")
 	if err != nil {
 		t.Errorf("Expected no error for invalid path, got: %v", err)
 	}
