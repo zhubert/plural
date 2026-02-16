@@ -102,7 +102,7 @@ func (s *GitService) GetBatchPRStates(ctx context.Context, repoPath string, bran
 // PRBatchResult holds the state and comment count for a PR from a batch query.
 type PRBatchResult struct {
 	State        PRState
-	CommentCount int // len(comments) + len(reviews) from gh pr list
+	CommentCount int // len(comments) + len(actionable reviews) — excludes APPROVED/DISMISSED reviews
 }
 
 // GetBatchPRStatesWithComments returns PR states and comment counts for multiple branches.
@@ -147,9 +147,24 @@ func (s *GitService) GetBatchPRStatesWithComments(ctx context.Context, repoPath 
 		default:
 			state = PRStateOpen
 		}
+
+		// Count reviews, excluding APPROVED and DISMISSED reviews
+		// (approval reviews don't contain actionable feedback)
+		actionableReviewCount := 0
+		for _, rawReview := range pr.Reviews {
+			var review struct {
+				State string `json:"state"`
+			}
+			if err := json.Unmarshal(rawReview, &review); err == nil {
+				if review.State != "APPROVED" && review.State != "DISMISSED" {
+					actionableReviewCount++
+				}
+			}
+		}
+
 		result[pr.HeadRefName] = PRBatchResult{
 			State:        state,
-			CommentCount: len(pr.Comments) + len(pr.Reviews),
+			CommentCount: len(pr.Comments) + actionableReviewCount,
 		}
 	}
 
@@ -221,13 +236,18 @@ func (s *GitService) FetchPRReviewComments(ctx context.Context, repoPath, branch
 
 	// Review-level body comments and inline code review comments
 	for _, review := range response.Reviews {
-		// Include review body if non-empty (skip empty state-only reviews)
-		if review.Body != "" {
+		isApproval := review.State == "APPROVED" || review.State == "DISMISSED"
+
+		// Include review body if non-empty, but skip for approval/dismissed reviews
+		// (approval body text like "LGTM" isn't actionable feedback)
+		if review.Body != "" && !isApproval {
 			comments = append(comments, PRReviewComment{
 				Author: review.Author.Login,
 				Body:   review.Body,
 			})
 		}
+		// Always include inline code review comments, even from approval reviews
+		// (reviewer may have approved with nits)
 		for _, c := range review.Comments {
 			if c.Body == "" {
 				continue

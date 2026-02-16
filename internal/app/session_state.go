@@ -72,6 +72,9 @@ type SessionState struct {
 	AutonomousTurns     int       // Number of autonomous turns completed
 	AutonomousStartTime time.Time // When autonomous mode started (for duration limit)
 
+	// Auto-merge polling guard - prevents multiple concurrent polling chains
+	AutoMergePolling bool
+
 	// Pending merge child request ID (for supervisor MCP tool correlation).
 	// Uses interface{} because JSON-RPC request IDs can be numbers or strings.
 	PendingMergeChildRequestID interface{}
@@ -717,6 +720,7 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		state.ToolUseRollup = nil
 		state.AutonomousTurns = 0
 		state.AutonomousStartTime = time.Time{}
+		state.AutoMergePolling = false
 
 		state.mu.Unlock()
 		delete(m.states, sessionID)
@@ -999,6 +1003,24 @@ func (s *SessionState) SetPendingMergeChildRequestID(id interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.PendingMergeChildRequestID = id
+}
+
+// --- Thread-safe accessors for AutoMergePolling ---
+
+// GetAutoMergePolling returns whether auto-merge polling is active.
+// Thread-safe.
+func (s *SessionState) GetAutoMergePolling() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.AutoMergePolling
+}
+
+// SetAutoMergePolling sets whether auto-merge polling is active.
+// Thread-safe.
+func (s *SessionState) SetAutoMergePolling(polling bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AutoMergePolling = polling
 }
 
 // getOrCreate returns existing state or creates new one. Caller must hold lock.
