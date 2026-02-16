@@ -1,5 +1,5 @@
 // Package exec provides an abstraction over command execution for testability.
-// It allows production code to use real exec.Command while tests and demos
+// It allows production code to use real exec.Command while tests
 // can inject mock executors that return pre-recorded responses.
 package exec
 
@@ -11,7 +11,7 @@ import (
 )
 
 // CommandExecutor abstracts command execution for testability.
-// Production code uses RealExecutor, while tests/demos use MockExecutor.
+// Production code uses RealExecutor, while tests use MockExecutor.
 type CommandExecutor interface {
 	// Run executes a command and returns stdout, stderr, and any error.
 	Run(ctx context.Context, dir string, name string, args ...string) (stdout, stderr []byte, err error)

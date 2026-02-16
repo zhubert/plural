@@ -1507,7 +1507,7 @@ func (m *Model) hasAnyStreamingSessions() bool {
 	return m.sessionMgr.HasActiveStreaming()
 }
 
-// HasActiveStreaming returns true if any session is currently streaming (public for demos).
+// HasActiveStreaming returns true if any session is currently streaming.
 func (m *Model) HasActiveStreaming() bool {
 	return m.sessionMgr.HasActiveStreaming()
 }
