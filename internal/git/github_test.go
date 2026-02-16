@@ -735,3 +735,63 @@ func TestMergePR_WithoutDeletingBranch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCheckPRReviewDecision(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		want     ReviewDecision
+	}{
+		{
+			name:     "approved",
+			response: `{"reviewDecision":"APPROVED"}`,
+			want:     ReviewApproved,
+		},
+		{
+			name:     "changes requested",
+			response: `{"reviewDecision":"CHANGES_REQUESTED"}`,
+			want:     ReviewChangesRequested,
+		},
+		{
+			name:     "review required",
+			response: `{"reviewDecision":"REVIEW_REQUIRED"}`,
+			want:     ReviewRequired,
+		},
+		{
+			name:     "empty (no review required)",
+			response: `{"reviewDecision":""}`,
+			want:     ReviewNone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := pexec.NewMockExecutor(nil)
+			mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviewDecision"}, pexec.MockResponse{
+				Stdout: []byte(tt.response),
+			})
+
+			svc := NewGitServiceWithExecutor(mock)
+			decision, err := svc.CheckPRReviewDecision(context.Background(), "/repo", "feature-branch")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if decision != tt.want {
+				t.Errorf("expected %q, got %q", tt.want, decision)
+			}
+		})
+	}
+}
+
+func TestCheckPRReviewDecision_CLIError(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviewDecision"}, pexec.MockResponse{
+		Err: fmt.Errorf("gh failed"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	_, err := svc.CheckPRReviewDecision(context.Background(), "/repo", "feature-branch")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}

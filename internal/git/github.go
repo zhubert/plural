@@ -20,6 +20,16 @@ const (
 	PRStateUnknown PRState = ""
 )
 
+// ReviewDecision represents the GitHub PR review decision.
+type ReviewDecision string
+
+const (
+	ReviewApproved         ReviewDecision = "APPROVED"
+	ReviewChangesRequested ReviewDecision = "CHANGES_REQUESTED"
+	ReviewRequired         ReviewDecision = "REVIEW_REQUIRED"
+	ReviewNone             ReviewDecision = "" // No review required or no reviews yet
+)
+
 // GetPRState returns the state of a PR for the given branch using the gh CLI.
 // Returns PRStateUnknown and an error if the PR cannot be found or gh fails.
 func (s *GitService) GetPRState(ctx context.Context, repoPath, branch string) (PRState, error) {
@@ -344,6 +354,29 @@ func (s *GitService) CheckPRChecks(ctx context.Context, repoPath, branch string)
 		return CIStatusNone, nil
 	}
 	return CIStatusPassing, nil
+}
+
+// CheckPRReviewDecision returns the review decision for a PR.
+// Uses `gh pr view --json reviewDecision` to check the overall review state.
+func (s *GitService) CheckPRReviewDecision(ctx context.Context, repoPath, branch string) (ReviewDecision, error) {
+	output, err := s.executor.Output(ctx, repoPath, "gh", "pr", "view", branch, "--json", "reviewDecision")
+	if err != nil {
+		return ReviewNone, fmt.Errorf("gh pr view failed: %w", err)
+	}
+
+	var result struct {
+		ReviewDecision string `json:"reviewDecision"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		return ReviewNone, fmt.Errorf("failed to parse review decision: %w", err)
+	}
+
+	switch ReviewDecision(result.ReviewDecision) {
+	case ReviewApproved, ReviewChangesRequested, ReviewRequired:
+		return ReviewDecision(result.ReviewDecision), nil
+	default:
+		return ReviewNone, nil
+	}
 }
 
 // MergePR merges a PR for the given branch using squash merge.

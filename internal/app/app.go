@@ -780,8 +780,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case AutoPRCommentsFetchedMsg:
 		return m.handleAutoPRCommentsFetchedMsg(msg)
 
-	case CIPollResultMsg:
-		return m.handleCIPollResultMsg(msg)
+	case AutoMergePollResultMsg:
+		return m.handleAutoMergePollResultMsg(msg)
 
 	case AutoMergeResultMsg:
 		return m.handleAutoMergeResultMsg(msg)

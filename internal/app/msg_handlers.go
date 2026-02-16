@@ -408,11 +408,11 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 	case MergeTypePR:
 		m.config.MarkSessionPRCreated(sessionID)
 		log.Info("marked session as PR created")
-		// Phase 5A: Start CI polling for auto-merge candidates
+		// Phase 5A: Start auto-merge state machine (review → CI → merge)
 		sess := m.config.GetSession(sessionID)
 		if sess != nil && sess.Autonomous && m.config.GetRepoAutoMerge(sess.RepoPath) {
-			log.Info("starting CI polling for auto-merge", "branch", sess.Branch)
-			cmds = append(cmds, m.pollCIForAutoMerge(sessionID))
+			log.Info("starting auto-merge polling", "branch", sess.Branch)
+			cmds = append(cmds, m.pollForAutoMerge(sessionID))
 		}
 	case MergeTypeMerge:
 		m.config.MarkSessionMerged(sessionID)

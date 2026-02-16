@@ -36,7 +36,8 @@ type Session struct {
 	BroadcastGroupID string    `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
 	WorkspaceID      string    `json:"workspace_id,omitempty"`       // Workspace this session belongs to
 	Containerized    bool      `json:"containerized,omitempty"`      // Whether this session runs inside a container
-	PRCommentCount   int       `json:"pr_comment_count,omitempty"`   // Last-seen PR comment count (comments + reviews)
+	PRCommentCount            int       `json:"pr_comment_count,omitempty"`             // Last-seen PR comment count (comments + reviews)
+	PRCommentsAddressedCount  int       `json:"pr_comments_addressed_count,omitempty"`  // Comment count last addressed by Claude for merge
 	Autonomous       bool      `json:"autonomous,omitempty"`         // Whether this session runs in autonomous mode (no user prompts)
 	IsSupervisor     bool      `json:"is_supervisor,omitempty"`      // Whether this session is a supervisor session
 	SupervisorID     string    `json:"supervisor_id,omitempty"`      // ID of supervisor session (for child sessions)
@@ -324,6 +325,21 @@ func (c *Config) UpdateSessionPRCommentCount(sessionID string, count int) bool {
 	for i := range c.Sessions {
 		if c.Sessions[i].ID == sessionID {
 			c.Sessions[i].PRCommentCount = count
+			return true
+		}
+	}
+	return false
+}
+
+// UpdateSessionPRCommentsAddressedCount updates the addressed PR comment count for a session.
+// This tracks the comment count at the time comments were last sent to Claude for addressing.
+func (c *Config) UpdateSessionPRCommentsAddressedCount(sessionID string, count int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].PRCommentsAddressedCount = count
 			return true
 		}
 	}

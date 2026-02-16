@@ -565,6 +565,348 @@ func TestHandleAutoPRCommentsFetchedMsg_ActiveSession(t *testing.T) {
 }
 
 // =============================================================================
+// TestHandleAutoMergePollResultMsg
+// =============================================================================
+
+func TestHandleAutoMergePollResultMsg(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupConfig func() *config.Config
+		msg         AutoMergePollResultMsg
+		wantCmd     bool
+		description string
+	}{
+		{
+			name: "nil session returns nil",
+			setupConfig: func() *config.Config {
+				return testConfigWithSessions()
+			},
+			msg:         AutoMergePollResultMsg{SessionID: "nonexistent"},
+			wantCmd:     false,
+			description: "should return nil for nonexistent session",
+		},
+		{
+			name: "unaddressed comments triggers addressing (step 1)",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				cfg.Sessions[0].PRCommentsAddressedCount = 0
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewChangesRequested,
+				CommentCount:   3,
+				CIStatus:       git.CIStatusPassing,
+			},
+			wantCmd:     true,
+			description: "comments take priority over review state and CI",
+		},
+		{
+			name: "changes requested with no new comments waits (step 2)",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				cfg.Sessions[0].PRCommentsAddressedCount = 3
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewChangesRequested,
+				CommentCount:   3,
+				CIStatus:       git.CIStatusPassing,
+				Attempt:        1,
+			},
+			wantCmd:     true,
+			description: "should continue polling while changes are requested",
+		},
+		{
+			name: "review required waits (step 2)",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewRequired,
+				CIStatus:       git.CIStatusPassing,
+				Attempt:        1,
+			},
+			wantCmd:     true,
+			description: "should continue polling while waiting for review",
+		},
+		{
+			name: "approved and CI passing merges (step 3+4)",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewApproved,
+				CommentCount:   0,
+				CIStatus:       git.CIStatusPassing,
+			},
+			wantCmd:     true,
+			description: "should trigger merge",
+		},
+		{
+			name: "no review required and CI passing merges",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewNone,
+				CommentCount:   0,
+				CIStatus:       git.CIStatusPassing,
+			},
+			wantCmd:     true,
+			description: "should trigger merge when no review required",
+		},
+		{
+			name: "approved but CI failing stops",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewApproved,
+				CIStatus:       git.CIStatusFailing,
+			},
+			wantCmd:     false,
+			description: "should stop when CI fails (no retry cmd)",
+		},
+		{
+			name: "approved but CI pending continues polling",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewApproved,
+				CIStatus:       git.CIStatusPending,
+				Attempt:        1,
+			},
+			wantCmd:     true,
+			description: "should continue polling while CI is pending",
+		},
+		{
+			name: "approved and no CI configured merges",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewApproved,
+				CIStatus:       git.CIStatusNone,
+			},
+			wantCmd:     true,
+			description: "should merge when approved and no CI checks",
+		},
+		{
+			name: "max attempts waiting for review gives up",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewRequired,
+				CIStatus:       git.CIStatusPassing,
+				Attempt:        maxAutoMergePollAttempts,
+			},
+			wantCmd:     true,
+			description: "should give up after max attempts (flash warning cmd)",
+		},
+		{
+			name: "max attempts waiting for CI gives up",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg: AutoMergePollResultMsg{
+				SessionID:      "session-1",
+				ReviewDecision: git.ReviewApproved,
+				CIStatus:       git.CIStatusPending,
+				Attempt:        maxAutoMergePollAttempts,
+			},
+			wantCmd:     true,
+			description: "should give up after max attempts (flash warning cmd)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.setupConfig()
+			m, _ := testModelWithMocks(cfg, 120, 40)
+			m.sidebar.SetSessions(cfg.Sessions)
+
+			_, cmd := m.handleAutoMergePollResultMsg(tt.msg)
+
+			if tt.wantCmd && cmd == nil {
+				t.Errorf("%s: expected non-nil cmd", tt.description)
+			}
+			if !tt.wantCmd && cmd != nil {
+				t.Errorf("%s: expected nil cmd", tt.description)
+			}
+		})
+	}
+}
+
+func TestHandleAutoMergePollResultMsg_CommentsUpdateAddressedCount(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	cfg.Sessions[0].PRCommentsAddressedCount = 2
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	msg := AutoMergePollResultMsg{
+		SessionID:      "session-1",
+		ReviewDecision: git.ReviewApproved,
+		CommentCount:   5,
+		CIStatus:       git.CIStatusPassing,
+	}
+	_, _ = m.handleAutoMergePollResultMsg(msg)
+
+	// Verify addressed count was updated
+	sess := m.config.GetSession("session-1")
+	if sess.PRCommentsAddressedCount != 5 {
+		t.Errorf("expected PRCommentsAddressedCount=5, got %d", sess.PRCommentsAddressedCount)
+	}
+}
+
+func TestHandleAutoMergePollResultMsg_CommentsBlockMergeEvenWhenApproved(t *testing.T) {
+	// Even if the PR is approved and CI passes, unaddressed comments must be addressed first
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	cfg.Sessions[0].PRCommentsAddressedCount = 0
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	msg := AutoMergePollResultMsg{
+		SessionID:      "session-1",
+		ReviewDecision: git.ReviewApproved,
+		CommentCount:   3,
+		CIStatus:       git.CIStatusPassing,
+	}
+	_, cmd := m.handleAutoMergePollResultMsg(msg)
+
+	// Should address comments, not merge
+	if cmd == nil {
+		t.Error("expected non-nil cmd for comment addressing")
+	}
+
+	// The addressed count should be updated
+	sess := m.config.GetSession("session-1")
+	if sess.PRCommentsAddressedCount != 3 {
+		t.Errorf("expected PRCommentsAddressedCount=3, got %d", sess.PRCommentsAddressedCount)
+	}
+}
+
+// =============================================================================
+// TestHandleSessionPipelineCompleteMsg_RestartsAutoMergePolling
+// =============================================================================
+
+func TestHandleSessionPipelineCompleteMsg_RestartsAutoMergePolling(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupConfig func() *config.Config
+		msg         SessionPipelineCompleteMsg
+		wantCmd     bool
+	}{
+		{
+			name: "autonomous session with PR and auto-merge restarts polling",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				cfg.SetRepoAutoMerge("/test/repo1", true)
+				return cfg
+			},
+			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
+			wantCmd: true,
+		},
+		{
+			name: "autonomous session with PR but no auto-merge does not restart",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				return cfg
+			},
+			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
+			wantCmd: false,
+		},
+		{
+			name: "already merged PR does not restart",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].Autonomous = true
+				cfg.Sessions[0].PRCreated = true
+				cfg.Sessions[0].PRMerged = true
+				cfg.SetRepoAutoMerge("/test/repo1", true)
+				return cfg
+			},
+			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
+			wantCmd: false,
+		},
+		{
+			name: "non-autonomous session does not restart",
+			setupConfig: func() *config.Config {
+				cfg := testConfigWithSessions()
+				cfg.Sessions[0].PRCreated = true
+				cfg.SetRepoAutoMerge("/test/repo1", true)
+				return cfg
+			},
+			msg:     SessionPipelineCompleteMsg{SessionID: "session-1", TestsPassed: true},
+			wantCmd: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := tt.setupConfig()
+			m, _ := testModelWithMocks(cfg, 120, 40)
+			m.sidebar.SetSessions(cfg.Sessions)
+
+			_, cmd := m.handleSessionPipelineCompleteMsg(tt.msg)
+
+			if tt.wantCmd && cmd == nil {
+				t.Error("expected non-nil cmd (auto-merge polling restart)")
+			}
+			if !tt.wantCmd && cmd != nil {
+				t.Error("expected nil cmd")
+			}
+		})
+	}
+}
+
+// =============================================================================
 // TestHandleCreatePRRequestMsg
 // =============================================================================
 

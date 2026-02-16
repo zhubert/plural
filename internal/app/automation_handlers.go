@@ -65,6 +65,15 @@ func (m *Model) handleSessionPipelineCompleteMsg(msg SessionPipelineCompleteMsg)
 		}
 	}
 
+	// Restart auto-merge polling if session already has a PR and auto-merge is enabled.
+	// This handles the case where the session just finished addressing PR review comments
+	// and new commits may have triggered new CI runs that need to pass before merging.
+	if sess.Autonomous && sess.PRCreated && !sess.PRMerged && !sess.PRClosed &&
+		m.config.GetRepoAutoMerge(sess.RepoPath) {
+		log.Info("restarting auto-merge polling after session completion", "branch", sess.Branch)
+		cmds = append(cmds, m.pollForAutoMerge(msg.SessionID))
+	}
+
 	// Phase 5B: Notify supervisor if this is a child session
 	if sess.SupervisorID != "" {
 		supervisorSess := m.config.GetSession(sess.SupervisorID)
@@ -466,23 +475,30 @@ func (m *Model) createChildSession(supervisorID, taskDescription string) tea.Cmd
 	return tea.Batch(cmds...)
 }
 
-// maxCIPollAttempts is the maximum number of CI status poll attempts before giving up.
-const maxCIPollAttempts = 60 // ~30 minutes at 30s intervals
+// maxAutoMergePollAttempts is the maximum number of auto-merge poll attempts before giving up.
+const maxAutoMergePollAttempts = 60 // ~30 minutes at 30s intervals
 
-// CIPollResultMsg carries the result of a CI status check for auto-merge.
-type CIPollResultMsg struct {
-	SessionID string
-	Status    git.CIStatus
-	Attempt   int // Current poll attempt number
+// AutoMergePollResultMsg carries the result of checking review state + CI status for auto-merge.
+// The auto-merge state machine proceeds in order:
+//  1. Address any unaddressed review comments
+//  2. Wait for review approval (if required)
+//  3. Wait for CI to pass
+//  4. Merge
+type AutoMergePollResultMsg struct {
+	SessionID      string
+	ReviewDecision git.ReviewDecision
+	CommentCount   int
+	CIStatus       git.CIStatus
+	Attempt        int
 }
 
-// pollCIForAutoMerge polls CI status for a session and returns the result.
-func (m *Model) pollCIForAutoMerge(sessionID string) tea.Cmd {
-	return m.pollCIForAutoMergeAttempt(sessionID, 1)
+// pollForAutoMerge starts polling for auto-merge readiness.
+func (m *Model) pollForAutoMerge(sessionID string) tea.Cmd {
+	return m.pollForAutoMergeAttempt(sessionID, 1)
 }
 
-// pollCIForAutoMergeAttempt polls CI status with a specific attempt number.
-func (m *Model) pollCIForAutoMergeAttempt(sessionID string, attempt int) tea.Cmd {
+// pollForAutoMergeAttempt polls review state and CI status for auto-merge.
+func (m *Model) pollForAutoMergeAttempt(sessionID string, attempt int) tea.Cmd {
 	sess := m.config.GetSession(sessionID)
 	if sess == nil {
 		return nil
@@ -493,25 +509,52 @@ func (m *Model) pollCIForAutoMergeAttempt(sessionID string, attempt int) tea.Cmd
 	gitSvc := m.gitService
 
 	return func() tea.Msg {
-		// Wait before check to give CI time to start
+		// Wait before check to give CI/reviews time
 		time.Sleep(30 * time.Second)
 
 		log := logger.WithSession(sessionID)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
 
-		status, err := gitSvc.CheckPRChecks(ctx, repoPath, branch)
+		// Fetch review decision
+		reviewCtx, reviewCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer reviewCancel()
+		reviewDecision, err := gitSvc.CheckPRReviewDecision(reviewCtx, repoPath, branch)
 		if err != nil {
-			log.Warn("failed to check CI status", "error", err)
-			return CIPollResultMsg{SessionID: sessionID, Status: git.CIStatusPending, Attempt: attempt}
+			log.Warn("failed to check PR review decision", "error", err)
 		}
 
-		return CIPollResultMsg{SessionID: sessionID, Status: status, Attempt: attempt}
+		// Fetch comment count
+		commentCount := 0
+		commentCtx, commentCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer commentCancel()
+		results, err := gitSvc.GetBatchPRStatesWithComments(commentCtx, repoPath, []string{branch})
+		if err != nil {
+			log.Warn("failed to check PR comment count", "error", err)
+		} else if result, ok := results[branch]; ok {
+			commentCount = result.CommentCount
+		}
+
+		// Fetch CI status
+		ciCtx, ciCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer ciCancel()
+		ciStatus, err := gitSvc.CheckPRChecks(ciCtx, repoPath, branch)
+		if err != nil {
+			log.Warn("failed to check CI status", "error", err)
+			ciStatus = git.CIStatusPending
+		}
+
+		return AutoMergePollResultMsg{
+			SessionID:      sessionID,
+			ReviewDecision: reviewDecision,
+			CommentCount:   commentCount,
+			CIStatus:       ciStatus,
+			Attempt:        attempt,
+		}
 	}
 }
 
-// handleCIPollResultMsg handles CI poll results for auto-merge.
-func (m *Model) handleCIPollResultMsg(msg CIPollResultMsg) (tea.Model, tea.Cmd) {
+// handleAutoMergePollResultMsg implements the auto-merge state machine.
+// Priority order: address comments → wait for approval → wait for CI → merge.
+func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Model, tea.Cmd) {
 	log := logger.WithSession(msg.SessionID)
 	sess := m.config.GetSession(msg.SessionID)
 	if sess == nil {
@@ -520,10 +563,68 @@ func (m *Model) handleCIPollResultMsg(msg CIPollResultMsg) (tea.Model, tea.Cmd) 
 
 	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
 
-	switch msg.Status {
+	// Step 1: Check for unaddressed review comments (highest priority)
+	if msg.CommentCount > sess.PRCommentsAddressedCount {
+		log.Info("unaddressed review comments detected, addressing before merge",
+			"branch", sess.Branch,
+			"addressed", sess.PRCommentsAddressedCount,
+			"current", msg.CommentCount,
+		)
+		autoMsg := "[AUTO] Review comments detected, addressing before merge...\n"
+		if isActiveSession {
+			m.chat.AppendStreaming("\n" + autoMsg)
+		} else {
+			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + autoMsg)
+		}
+		// Mark these comments as addressed (we're about to send them to Claude).
+		// Polling stops here and restarts via handleSessionPipelineCompleteMsg
+		// after Claude finishes, so this count won't be checked again until then.
+		m.config.UpdateSessionPRCommentsAddressedCount(msg.SessionID, msg.CommentCount)
+		m.sidebar.SetHasNewComments(msg.SessionID, true)
+		return m, m.autoFetchAndSendPRComments(msg.SessionID)
+	}
+
+	// Step 2: Check review approval
+	switch msg.ReviewDecision {
+	case git.ReviewChangesRequested:
+		log.Info("changes requested, waiting for re-review", "branch", sess.Branch)
+		autoMsg := "[AUTO] Changes requested by reviewer, waiting for re-review...\n"
+		if isActiveSession {
+			m.chat.AppendStreaming("\n" + autoMsg)
+		} else {
+			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + autoMsg)
+		}
+		return m, m.pollForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
+
+	case git.ReviewRequired:
+		log.Debug("review required, waiting", "branch", sess.Branch, "attempt", msg.Attempt)
+		// Only show message on first attempt to avoid spam
+		if msg.Attempt == 1 {
+			autoMsg := "[AUTO] Waiting for review...\n"
+			if isActiveSession {
+				m.chat.AppendStreaming("\n" + autoMsg)
+			} else {
+				m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + autoMsg)
+			}
+		}
+		if msg.Attempt >= maxAutoMergePollAttempts {
+			log.Warn("auto-merge polling timed out waiting for review", "branch", sess.Branch)
+			failMsg := fmt.Sprintf("[AUTO] Still waiting for review after %d attempts - giving up on auto-merge\n", msg.Attempt)
+			if isActiveSession {
+				m.chat.AppendStreaming("\n" + failMsg)
+			} else {
+				m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
+			}
+			return m, m.ShowFlashWarning(fmt.Sprintf("Auto-merge timed out (waiting for review): %s", sess.Branch))
+		}
+		return m, m.pollForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
+	}
+
+	// Step 3: Review is approved (or not required). Check CI.
+	switch msg.CIStatus {
 	case git.CIStatusPassing:
-		log.Info("CI checks passed, auto-merging PR", "branch", sess.Branch)
-		autoMsg := "[AUTO] CI checks passed, merging PR...\n"
+		log.Info("review approved and CI passed, merging PR", "branch", sess.Branch)
+		autoMsg := "[AUTO] Review approved, CI checks passed. Merging PR...\n"
 		if isActiveSession {
 			m.chat.AppendStreaming("\n" + autoMsg)
 		} else {
@@ -546,24 +647,22 @@ func (m *Model) handleCIPollResultMsg(msg CIPollResultMsg) (tea.Model, tea.Cmd) 
 		return m, nil
 
 	case git.CIStatusPending:
-		// Still pending, poll again (with max attempt limit)
-		if msg.Attempt >= maxCIPollAttempts {
-			log.Warn("CI polling max attempts reached, giving up", "branch", sess.Branch, "attempts", msg.Attempt)
+		if msg.Attempt >= maxAutoMergePollAttempts {
+			log.Warn("auto-merge polling timed out waiting for CI", "branch", sess.Branch)
 			failMsg := fmt.Sprintf("[AUTO] CI checks still pending after %d attempts - giving up on auto-merge\n", msg.Attempt)
 			if isActiveSession {
 				m.chat.AppendStreaming("\n" + failMsg)
 			} else {
 				m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
 			}
-			return m, m.ShowFlashWarning(fmt.Sprintf("CI polling timed out: %s", sess.Branch))
+			return m, m.ShowFlashWarning(fmt.Sprintf("Auto-merge timed out (CI pending): %s", sess.Branch))
 		}
 		log.Debug("CI checks still pending, will poll again", "branch", sess.Branch, "attempt", msg.Attempt)
-		return m, m.pollCIForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
+		return m, m.pollForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
 
 	case git.CIStatusNone:
-		// No checks configured, merge immediately
-		log.Info("no CI checks configured, auto-merging PR", "branch", sess.Branch)
-		autoMsg := "[AUTO] No CI checks configured, merging PR...\n"
+		log.Info("review approved, no CI checks configured, merging PR", "branch", sess.Branch)
+		autoMsg := "[AUTO] Review approved, no CI checks configured. Merging PR...\n"
 		if isActiveSession {
 			m.chat.AppendStreaming("\n" + autoMsg)
 		} else {
@@ -1008,7 +1107,7 @@ func (m *Model) handlePRCreatedFromToolMsg(msg PRCreatedFromToolMsg) (tea.Model,
 	sess := m.config.GetSession(msg.SessionID)
 	if sess != nil && sess.Autonomous && m.config.GetRepoAutoMerge(sess.RepoPath) {
 		log.Info("starting CI polling for auto-merge", "branch", sess.Branch)
-		return m, m.pollCIForAutoMerge(msg.SessionID)
+		return m, m.pollForAutoMerge(msg.SessionID)
 	}
 
 	return m, nil
