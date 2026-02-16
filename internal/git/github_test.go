@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	pexec "github.com/zhubert/plural/internal/exec"
@@ -903,13 +904,30 @@ func TestMergePR_Success(t *testing.T) {
 func TestMergePR_Error(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
 	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
-		Err: fmt.Errorf("pull request is not mergeable"),
+		Err: fmt.Errorf("exit status 1"),
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
 	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestMergePR_ErrorIncludesStderr(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
+		Stderr: []byte("Pull request #42 is not mergeable: the base branch policy prohibits the merge"),
+		Err:    fmt.Errorf("exit status 1"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "prohibits the merge") {
+		t.Errorf("expected error to contain stderr message, got: %s", err.Error())
 	}
 }
 

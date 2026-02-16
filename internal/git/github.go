@@ -435,8 +435,12 @@ func (s *GitService) MergePR(ctx context.Context, repoPath, branch string, delet
 	if deleteBranch {
 		args = append(args, "--delete-branch")
 	}
-	_, err := s.executor.Output(ctx, repoPath, "gh", args...)
+	_, stderr, err := s.executor.Run(ctx, repoPath, "gh", args...)
 	if err != nil {
+		stderrStr := strings.TrimSpace(string(stderr))
+		if stderrStr != "" {
+			return fmt.Errorf("gh pr merge failed: %s", stderrStr)
+		}
 		return fmt.Errorf("gh pr merge failed: %w", err)
 	}
 	return nil
