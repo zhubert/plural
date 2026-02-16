@@ -798,13 +798,31 @@ func (s *Server) handleGetReviewComments(req *JSONRPCRequest, params ToolCallPar
 	}
 }
 
-// sendToolResult sends a tool call result with text content
+// sendToolResult sends a tool call result with text content.
+// For supervisor/host tools, wraps the result in PermissionResult format since
+// Claude CLI validates all mcp__plural__* tools as permission tools due to
+// --permission-prompt-tool flag.
 func (s *Server) sendToolResult(id interface{}, isError bool, text string) {
-	result := ToolCallResult{
-		Content: []ContentItem{{Type: "text", Text: text}},
-		IsError: isError,
+	// Parse the text as JSON to extract the actual result
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		// If not valid JSON, wrap it in an error object
+		result = map[string]interface{}{"error": text}
+		isError = true
 	}
-	s.sendResult(id, result)
+
+	// Wrap in PermissionResult format for Claude CLI validation
+	if isError {
+		// For errors, use deny behavior with message
+		errorMsg := text
+		if errField, ok := result["error"].(string); ok {
+			errorMsg = errField
+		}
+		s.sendPermissionResult(id, false, nil, errorMsg)
+	} else {
+		// For success, use allow behavior with the result as updatedInput
+		s.sendPermissionResult(id, true, result, "")
+	}
 }
 
 func (s *Server) isToolAllowed(tool string) bool {

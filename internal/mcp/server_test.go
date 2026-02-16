@@ -1436,3 +1436,61 @@ func TestServer_handlePushBranch(t *testing.T) {
 		}
 	})
 }
+
+// TestServer_sendToolResult_WrapsInPermissionFormat verifies that sendToolResult
+// wraps tool results in PermissionResult format for Claude CLI compatibility.
+func TestServer_sendToolResult_WrapsInPermissionFormat(t *testing.T) {
+	t.Run("wraps success result in permission allow format", func(t *testing.T) {
+		var buf strings.Builder
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		s.sendToolResult("1", false, `{"child_id":"123","branch":"feature"}`)
+
+		output := buf.String()
+		// Should contain behavior: allow and updatedInput with the result (escaped in JSON)
+		if !strings.Contains(output, `\"behavior\":\"allow\"`) {
+			t.Errorf("expected behavior:allow in output, got: %s", output)
+		}
+		if !strings.Contains(output, `\"updatedInput\"`) {
+			t.Errorf("expected updatedInput in output, got: %s", output)
+		}
+		if !strings.Contains(output, `\"child_id\":\"123\"`) {
+			t.Errorf("expected child_id in updatedInput, got: %s", output)
+		}
+	})
+
+	t.Run("wraps error result in permission deny format", func(t *testing.T) {
+		var buf strings.Builder
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		s.sendToolResult("1", true, `{"error":"something went wrong"}`)
+
+		output := buf.String()
+		// Should contain behavior: deny and message (escaped in JSON)
+		if !strings.Contains(output, `\"behavior\":\"deny\"`) {
+			t.Errorf("expected behavior:deny in output, got: %s", output)
+		}
+		if !strings.Contains(output, `\"message\"`) {
+			t.Errorf("expected message in output, got: %s", output)
+		}
+		if !strings.Contains(output, "something went wrong") {
+			t.Errorf("expected error message in output, got: %s", output)
+		}
+	})
+
+	t.Run("handles invalid JSON by wrapping as error", func(t *testing.T) {
+		var buf strings.Builder
+		s := NewServer(strings.NewReader(""), &buf, nil, nil, nil, nil, nil, nil, nil, "test")
+
+		s.sendToolResult("1", false, "not valid json")
+
+		output := buf.String()
+		// Should be treated as error with deny behavior (escaped in JSON)
+		if !strings.Contains(output, `\"behavior\":\"deny\"`) {
+			t.Errorf("expected behavior:deny for invalid JSON, got: %s", output)
+		}
+		if !strings.Contains(output, "not valid json") {
+			t.Errorf("expected original text in message, got: %s", output)
+		}
+	})
+}
