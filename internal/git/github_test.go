@@ -356,6 +356,138 @@ func TestFetchPRReviewComments_EmptyReviewBody(t *testing.T) {
 	}
 }
 
+func TestFetchPRReviewComments_ApprovedReviewBodySkipped(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [{
+				"author": {"login": "reviewer"},
+				"body": "The implementation is solid and well-tested!",
+				"state": "APPROVED",
+				"comments": []
+			}],
+			"comments": []
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// APPROVED review body should be skipped (not actionable feedback)
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments (APPROVED review body skipped), got %d", len(comments))
+	}
+}
+
+func TestFetchPRReviewComments_ApprovedReviewInlineCommentsKept(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [{
+				"author": {"login": "reviewer"},
+				"body": "LGTM with a small nit",
+				"state": "APPROVED",
+				"comments": [{
+					"author": {"login": "reviewer"},
+					"body": "Consider renaming this variable",
+					"path": "main.go",
+					"line": 10,
+					"url": "https://github.com/repo/pull/1#discussion_r1"
+				}]
+			}],
+			"comments": []
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Body should be skipped (APPROVED), but inline comment should be kept
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment (inline from APPROVED review), got %d", len(comments))
+	}
+	if comments[0].Path != "main.go" {
+		t.Errorf("expected path 'main.go', got '%s'", comments[0].Path)
+	}
+	if comments[0].Body != "Consider renaming this variable" {
+		t.Errorf("unexpected body: %s", comments[0].Body)
+	}
+}
+
+func TestFetchPRReviewComments_DismissedReviewBodySkipped(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [{
+				"author": {"login": "reviewer"},
+				"body": "This was dismissed",
+				"state": "DISMISSED",
+				"comments": []
+			}],
+			"comments": []
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// DISMISSED review body should be skipped
+	if len(comments) != 0 {
+		t.Errorf("expected 0 comments (DISMISSED review body skipped), got %d", len(comments))
+	}
+}
+
+func TestFetchPRReviewComments_MixedReviewStates(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
+		Stdout: []byte(`{
+			"reviews": [
+				{
+					"author": {"login": "reviewer1"},
+					"body": "Looks great!",
+					"state": "APPROVED",
+					"comments": []
+				},
+				{
+					"author": {"login": "reviewer2"},
+					"body": "Please fix the error handling",
+					"state": "CHANGES_REQUESTED",
+					"comments": [{
+						"author": {"login": "reviewer2"},
+						"body": "Missing error check here",
+						"path": "handler.go",
+						"line": 55,
+						"url": "https://github.com/repo/pull/1#discussion_r2"
+					}]
+				}
+			],
+			"comments": []
+		}`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	comments, err := svc.FetchPRReviewComments(context.Background(), "/repo", "feature-branch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// APPROVED body skipped, CHANGES_REQUESTED body + inline = 2
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments (CHANGES_REQUESTED body + inline), got %d", len(comments))
+	}
+	if comments[0].Body != "Please fix the error handling" {
+		t.Errorf("expected CHANGES_REQUESTED body, got: %s", comments[0].Body)
+	}
+	if comments[1].Path != "handler.go" {
+		t.Errorf("expected inline comment path 'handler.go', got '%s'", comments[1].Path)
+	}
+}
+
 func TestFetchPRReviewComments_ReviewBodyOnly(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
 	mock.AddExactMatch("gh", []string{"pr", "view", "feature-branch", "--json", "reviews,comments"}, pexec.MockResponse{
@@ -398,7 +530,7 @@ func TestGetBatchPRStatesWithComments_Success(t *testing.T) {
 				"state": "OPEN",
 				"headRefName": "branch-a",
 				"comments": [{"body": "comment1"}, {"body": "comment2"}],
-				"reviews": [{"body": "review1"}]
+				"reviews": [{"body": "review1", "state": "CHANGES_REQUESTED"}]
 			},
 			{
 				"state": "MERGED",
@@ -418,7 +550,7 @@ func TestGetBatchPRStatesWithComments_Success(t *testing.T) {
 		t.Fatalf("expected 2 results, got %d", len(results))
 	}
 
-	// branch-a: OPEN, 2 comments + 1 review = 3
+	// branch-a: OPEN, 2 comments + 1 actionable review (CHANGES_REQUESTED) = 3
 	if results["branch-a"].State != PRStateOpen {
 		t.Errorf("expected branch-a OPEN, got %s", results["branch-a"].State)
 	}
@@ -496,6 +628,64 @@ func TestGetBatchPRStatesWithComments_MissingBranch(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("expected 0 results for missing branch, got %d", len(results))
+	}
+}
+
+func TestGetBatchPRStatesWithComments_ApprovedReviewsExcludedFromCount(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[
+			{
+				"state": "OPEN",
+				"headRefName": "branch-a",
+				"comments": [{"body": "comment1"}],
+				"reviews": [
+					{"body": "LGTM, ship it!", "state": "APPROVED"},
+					{"body": "Please fix the formatting", "state": "CHANGES_REQUESTED"},
+					{"body": "Old review", "state": "DISMISSED"}
+				]
+			}
+		]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"branch-a"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 1 comment + 1 actionable review (CHANGES_REQUESTED) = 2
+	// APPROVED and DISMISSED reviews should be excluded
+	if results["branch-a"].CommentCount != 2 {
+		t.Errorf("expected CommentCount 2 (1 comment + 1 CHANGES_REQUESTED review), got %d", results["branch-a"].CommentCount)
+	}
+}
+
+func TestGetBatchPRStatesWithComments_AllApprovedReviewsExcluded(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "list", "--state", "all", "--json", "state,headRefName,comments,reviews", "--limit", "200"}, pexec.MockResponse{
+		Stdout: []byte(`[
+			{
+				"state": "OPEN",
+				"headRefName": "branch-a",
+				"comments": [],
+				"reviews": [
+					{"body": "Looks great!", "state": "APPROVED"},
+					{"body": "Ship it!", "state": "APPROVED"}
+				]
+			}
+		]`),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	results, err := svc.GetBatchPRStatesWithComments(context.Background(), "/repo", []string{"branch-a"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All reviews are APPROVED, so count should be 0
+	if results["branch-a"].CommentCount != 0 {
+		t.Errorf("expected CommentCount 0 (all reviews APPROVED), got %d", results["branch-a"].CommentCount)
 	}
 }
 

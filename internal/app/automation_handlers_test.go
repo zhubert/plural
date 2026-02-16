@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -657,7 +658,7 @@ func TestHandleAutoMergePollResultMsg(t *testing.T) {
 			description: "should trigger merge",
 		},
 		{
-			name: "no review required and CI passing merges",
+			name: "no review yet waits for review (step 2)",
 			setupConfig: func() *config.Config {
 				cfg := testConfigWithSessions()
 				cfg.Sessions[0].Autonomous = true
@@ -669,9 +670,10 @@ func TestHandleAutoMergePollResultMsg(t *testing.T) {
 				ReviewDecision: git.ReviewNone,
 				CommentCount:   0,
 				CIStatus:       git.CIStatusPassing,
+				Attempt:        1,
 			},
 			wantCmd:     true,
-			description: "should trigger merge when no review required",
+			description: "should wait for review when ReviewNone (no review submitted yet)",
 		},
 		{
 			name: "approved but CI failing stops",
@@ -825,6 +827,166 @@ func TestHandleAutoMergePollResultMsg_CommentsBlockMergeEvenWhenApproved(t *test
 	sess := m.config.GetSession("session-1")
 	if sess.PRCommentsAddressedCount != 3 {
 		t.Errorf("expected PRCommentsAddressedCount=3, got %d", sess.PRCommentsAddressedCount)
+	}
+}
+
+// =============================================================================
+// TestHandleAutoMergePollResultMsg_ReviewNoneTimesOut
+// =============================================================================
+
+func TestHandleAutoMergePollResultMsg_ReviewNoneTimesOut(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	msg := AutoMergePollResultMsg{
+		SessionID:      "session-1",
+		ReviewDecision: git.ReviewNone,
+		CommentCount:   0,
+		CIStatus:       git.CIStatusPassing,
+		Attempt:        maxAutoMergePollAttempts,
+	}
+	_, cmd := m.handleAutoMergePollResultMsg(msg)
+
+	// Should give up with a flash warning, same as ReviewRequired timeout
+	if cmd == nil {
+		t.Error("expected non-nil cmd (flash warning for timeout)")
+	}
+}
+
+// =============================================================================
+// TestPollForAutoMerge_ConcurrencyGuard
+// =============================================================================
+
+func TestPollForAutoMerge_ConcurrencyGuard(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// First call should succeed
+	cmd1 := m.pollForAutoMerge("session-1")
+	if cmd1 == nil {
+		t.Error("expected non-nil cmd for first pollForAutoMerge call")
+	}
+
+	// Verify flag is set
+	state := m.sessionState().GetIfExists("session-1")
+	if state == nil {
+		t.Fatal("expected session state to exist")
+	}
+	if !state.GetAutoMergePolling() {
+		t.Error("expected AutoMergePolling to be true after first call")
+	}
+
+	// Second call should return nil (already polling)
+	cmd2 := m.pollForAutoMerge("session-1")
+	if cmd2 != nil {
+		t.Error("expected nil cmd for duplicate pollForAutoMerge call")
+	}
+
+	// After clearing, should succeed again
+	m.clearAutoMergePolling("session-1")
+	if state.GetAutoMergePolling() {
+		t.Error("expected AutoMergePolling to be false after clearing")
+	}
+
+	cmd3 := m.pollForAutoMerge("session-1")
+	if cmd3 == nil {
+		t.Error("expected non-nil cmd after clearing polling flag")
+	}
+}
+
+func TestHandleAutoMergeResultMsg_ClearsPollingFlag(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Set polling flag
+	state := m.sessionState().GetOrCreate("session-1")
+	state.SetAutoMergePolling(true)
+
+	// Success case
+	msg := AutoMergeResultMsg{SessionID: "session-1", Error: nil}
+	_, _ = m.handleAutoMergeResultMsg(msg)
+
+	if state.GetAutoMergePolling() {
+		t.Error("expected AutoMergePolling to be cleared after successful merge")
+	}
+}
+
+func TestHandleAutoMergeResultMsg_ClearsPollingFlagOnError(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Set polling flag
+	state := m.sessionState().GetOrCreate("session-1")
+	state.SetAutoMergePolling(true)
+
+	// Error case
+	msg := AutoMergeResultMsg{SessionID: "session-1", Error: fmt.Errorf("merge conflict")}
+	_, _ = m.handleAutoMergeResultMsg(msg)
+
+	if state.GetAutoMergePolling() {
+		t.Error("expected AutoMergePolling to be cleared after failed merge")
+	}
+}
+
+func TestHandleAutoMergePollResultMsg_ClearsPollingOnCIFailure(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Set polling flag
+	state := m.sessionState().GetOrCreate("session-1")
+	state.SetAutoMergePolling(true)
+
+	msg := AutoMergePollResultMsg{
+		SessionID:      "session-1",
+		ReviewDecision: git.ReviewApproved,
+		CIStatus:       git.CIStatusFailing,
+	}
+	_, _ = m.handleAutoMergePollResultMsg(msg)
+
+	if state.GetAutoMergePolling() {
+		t.Error("expected AutoMergePolling to be cleared after CI failure")
+	}
+}
+
+func TestHandleAutoMergePollResultMsg_ClearsPollingOnCommentAddressing(t *testing.T) {
+	cfg := testConfigWithSessions()
+	cfg.Sessions[0].Autonomous = true
+	cfg.Sessions[0].PRCreated = true
+	cfg.Sessions[0].PRCommentsAddressedCount = 0
+	m, _ := testModelWithMocks(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Set polling flag
+	state := m.sessionState().GetOrCreate("session-1")
+	state.SetAutoMergePolling(true)
+
+	msg := AutoMergePollResultMsg{
+		SessionID:      "session-1",
+		ReviewDecision: git.ReviewApproved,
+		CommentCount:   3,
+		CIStatus:       git.CIStatusPassing,
+	}
+	_, _ = m.handleAutoMergePollResultMsg(msg)
+
+	// Polling flag should be cleared when redirecting to address comments
+	// (it will be re-set when polling restarts after Claude finishes)
+	if state.GetAutoMergePolling() {
+		t.Error("expected AutoMergePolling to be cleared when addressing comments")
 	}
 }
 

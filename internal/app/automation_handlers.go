@@ -493,8 +493,23 @@ type AutoMergePollResultMsg struct {
 }
 
 // pollForAutoMerge starts polling for auto-merge readiness.
+// Returns nil if polling is already active for this session (prevents concurrent chains).
 func (m *Model) pollForAutoMerge(sessionID string) tea.Cmd {
+	log := logger.WithSession(sessionID)
+	state := m.sessionState().GetOrCreate(sessionID)
+	if state.GetAutoMergePolling() {
+		log.Debug("auto-merge polling already active, skipping duplicate chain")
+		return nil
+	}
+	state.SetAutoMergePolling(true)
 	return m.pollForAutoMergeAttempt(sessionID, 1)
+}
+
+// clearAutoMergePolling clears the auto-merge polling flag for a session.
+func (m *Model) clearAutoMergePolling(sessionID string) {
+	if state := m.sessionState().GetIfExists(sessionID); state != nil {
+		state.SetAutoMergePolling(false)
+	}
 }
 
 // pollForAutoMergeAttempt polls review state and CI status for auto-merge.
@@ -581,6 +596,8 @@ func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Mo
 		// after Claude finishes, so this count won't be checked again until then.
 		m.config.UpdateSessionPRCommentsAddressedCount(msg.SessionID, msg.CommentCount)
 		m.sidebar.SetHasNewComments(msg.SessionID, true)
+		// Clear polling flag — it will be re-set when polling restarts after Claude finishes
+		m.clearAutoMergePolling(msg.SessionID)
 		return m, m.autoFetchAndSendPRComments(msg.SessionID)
 	}
 
@@ -596,8 +613,8 @@ func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Mo
 		}
 		return m, m.pollForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
 
-	case git.ReviewRequired:
-		log.Debug("review required, waiting", "branch", sess.Branch, "attempt", msg.Attempt)
+	case git.ReviewRequired, git.ReviewNone:
+		log.Debug("waiting for review", "branch", sess.Branch, "attempt", msg.Attempt, "decision", msg.ReviewDecision)
 		// Only show message on first attempt to avoid spam
 		if msg.Attempt == 1 {
 			autoMsg := "[AUTO] Waiting for review...\n"
@@ -615,12 +632,13 @@ func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Mo
 			} else {
 				m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
 			}
+			m.clearAutoMergePolling(msg.SessionID)
 			return m, m.ShowFlashWarning(fmt.Sprintf("Auto-merge timed out (waiting for review): %s", sess.Branch))
 		}
 		return m, m.pollForAutoMergeAttempt(msg.SessionID, msg.Attempt+1)
 	}
 
-	// Step 3: Review is approved (or not required). Check CI.
+	// Step 3: Review is approved. Check CI.
 	switch msg.CIStatus {
 	case git.CIStatusPassing:
 		log.Info("review approved and CI passed, merging PR", "branch", sess.Branch)
@@ -640,6 +658,7 @@ func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Mo
 		} else {
 			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
 		}
+		m.clearAutoMergePolling(msg.SessionID)
 		if m.config.GetNotificationsEnabled() {
 			sessionName := ui.SessionDisplayName(sess.Branch, sess.Name)
 			go notification.SessionCompleted(sessionName + " (CI failed)")
@@ -655,6 +674,7 @@ func (m *Model) handleAutoMergePollResultMsg(msg AutoMergePollResultMsg) (tea.Mo
 			} else {
 				m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + failMsg)
 			}
+			m.clearAutoMergePolling(msg.SessionID)
 			return m, m.ShowFlashWarning(fmt.Sprintf("Auto-merge timed out (CI pending): %s", sess.Branch))
 		}
 		log.Debug("CI checks still pending, will poll again", "branch", sess.Branch, "attempt", msg.Attempt)
@@ -710,6 +730,9 @@ func (m *Model) handleAutoMergeResultMsg(msg AutoMergeResultMsg) (tea.Model, tea
 	}
 
 	isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
+
+	// Clear polling flag regardless of outcome
+	m.clearAutoMergePolling(msg.SessionID)
 
 	if msg.Error != nil {
 		log.Error("auto-merge failed", "error", msg.Error)
