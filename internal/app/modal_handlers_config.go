@@ -229,12 +229,16 @@ func (m *Model) handleWorkspaceListModal(key string, msg tea.KeyPressMsg, state 
 		// Switch active workspace
 		selectedID := state.GetSelectedWorkspaceID()
 		m.config.SetActiveWorkspaceID(selectedID)
-		if err := m.config.Save(); err != nil {
-			logger.Get().Error("failed to save workspace selection", "error", err)
+		var cmds []tea.Cmd
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		m.header.SetWorkspaceName(m.getActiveWorkspaceName())
 		m.modal.Hide()
+		if len(cmds) > 0 {
+			return m, tea.Batch(cmds...)
+		}
 		return m, nil
 	case "n":
 		// Create new workspace
@@ -248,8 +252,8 @@ func (m *Model) handleWorkspaceListModal(key string, msg tea.KeyPressMsg, state 
 				// Count affected sessions before deletion
 				affectedSessions := m.config.GetSessionsByWorkspace(wsID)
 				m.config.RemoveWorkspace(wsID)
-				if err := m.config.Save(); err != nil {
-					logger.Get().Error("failed to save after workspace deletion", "error", err)
+				if cmd := m.saveConfigOrFlash(); cmd != nil {
+					return m, cmd
 				}
 				m.sidebar.SetSessions(m.getFilteredSessions())
 				m.header.SetWorkspaceName(m.getActiveWorkspaceName())

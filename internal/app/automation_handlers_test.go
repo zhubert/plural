@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1229,6 +1230,7 @@ func TestHandlePRCreatedFromToolMsg(t *testing.T) {
 	cfg := testConfigWithSessions()
 	cfg.Sessions[0].Autonomous = true
 	cfg.Sessions[0].IsSupervisor = true
+	cfg.SetFilePath(filepath.Join(t.TempDir(), "config.json"))
 	m, _ := testModelWithMocks(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
@@ -1238,7 +1240,7 @@ func TestHandlePRCreatedFromToolMsg(t *testing.T) {
 	}
 	_, cmd := m.handlePRCreatedFromToolMsg(msg)
 
-	// Should return nil cmd (just updates state)
+	// Should return nil cmd (just updates state, config save succeeds)
 	if cmd != nil {
 		t.Error("expected nil cmd")
 	}

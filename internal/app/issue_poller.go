@@ -286,8 +286,8 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 	}
 
 	if created > 0 {
-		if err := m.config.Save(); err != nil {
-			log.Error("failed to save config after creating issue sessions", "error", err)
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-created %d session(s) from issues", created)))

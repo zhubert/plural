@@ -15,12 +15,17 @@ func (m *Model) handleWelcomeModal(key string, msg tea.KeyPressMsg, state *ui.We
 	case keys.Enter, keys.Escape:
 		// Mark welcome as shown and save
 		m.config.MarkWelcomeShown()
-		if err := m.config.Save(); err != nil {
-			logger.Get().Warn("failed to save welcome-shown flag", "error", err)
+		var saveCmd tea.Cmd
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			saveCmd = cmd
 		}
 		m.modal.Hide()
 		// Check if we should also show changelog
-		return m.handleStartupModals()
+		result, startupCmd := m.handleStartupModals()
+		if saveCmd != nil {
+			return result, tea.Batch(saveCmd, startupCmd)
+		}
+		return result, startupCmd
 	}
 	return m, nil
 }
@@ -31,11 +36,12 @@ func (m *Model) handleChangelogModal(key string, msg tea.KeyPressMsg, state *ui.
 	case keys.Enter, keys.Escape:
 		// Update last seen version and save
 		m.config.SetLastSeenVersion(m.version)
-		if err := m.config.Save(); err != nil {
-			logger.Get().Warn("failed to save last-seen version", "error", err)
+		var saveCmd tea.Cmd
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			saveCmd = cmd
 		}
 		m.modal.Hide()
-		return m, nil
+		return m, saveCmd
 	case keys.Up, "k", keys.Down, "j":
 		// Forward scroll keys to modal
 		modal, cmd := m.modal.Update(msg)

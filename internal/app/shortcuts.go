@@ -836,8 +836,9 @@ func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {
 
 	// Record the preview state
 	m.config.StartPreview(sess.ID, currentBranch, sess.RepoPath)
-	if err := m.config.Save(); err != nil {
-		log.Warn("failed to save config after starting preview", "error", err)
+	var saveCmd tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		saveCmd = cmd
 	}
 
 	// Update header to show preview indicator
@@ -847,7 +848,7 @@ func shortcutPreviewInMain(m *Model) (tea.Model, tea.Cmd) {
 	m.modal.Show(ui.NewPreviewActiveState(sess.Name, sess.Branch))
 
 	log.Info("started preview", "branch", sess.Branch, "previousBranch", currentBranch)
-	return m, nil
+	return m, saveCmd
 }
 
 // endPreview ends the current preview and restores the previous branch
@@ -878,15 +879,17 @@ func (m *Model) endPreview() (tea.Model, tea.Cmd) {
 
 	// Clear the preview state
 	m.config.EndPreview()
-	if err := m.config.Save(); err != nil {
-		log.Warn("failed to save config after ending preview", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Update header to hide preview indicator
 	m.header.SetPreviewActive(false)
 
 	log.Info("ended preview", "restoredBranch", previousBranch)
-	return m, m.ShowFlashSuccess(fmt.Sprintf("Preview ended. Restored to %s.", previousBranch))
+	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Preview ended. Restored to %s.", previousBranch)))
+	return m, tea.Batch(cmds...)
 }
 
 // TerminalErrorMsg is sent when opening a terminal fails
