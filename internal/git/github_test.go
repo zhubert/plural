@@ -704,7 +704,7 @@ func TestMergePR_Success(t *testing.T) {
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.MergePR(context.Background(), "/repo", "feature-branch")
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -717,8 +717,21 @@ func TestMergePR_Error(t *testing.T) {
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.MergePR(context.Background(), "/repo", "feature-branch")
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestMergePR_WithoutDeletingBranch(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

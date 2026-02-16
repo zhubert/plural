@@ -264,7 +264,7 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		created++
 
 		// Build initial message — instruct the orchestrator about its role and tools
-		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nYou are an orchestrator session. Break this issue into subtasks and delegate each to a child session using `create_child_session`. Monitor progress with `list_child_sessions`. When children complete, merge their work with `merge_child_to_parent`. Finally, use `push_branch` to push your changes and `create_pr` to create a pull request.",
+		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nYou are an orchestrator session. Break this issue into subtasks and delegate each to a child session using `create_child_session`. You will be notified as each child completes. Use `list_child_sessions` to monitor progress. IMPORTANT: Wait for ALL children to complete before proceeding. Only after you receive confirmation that all children have completed should you merge their work with `merge_child_to_parent`, then use `push_branch` to push your changes and `create_pr` to create a pull request.",
 			issue.ID, issue.Title, issue.Body)
 
 		// Start the session

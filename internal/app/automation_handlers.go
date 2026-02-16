@@ -380,10 +380,10 @@ func (m *Model) notifySupervisor(supervisorID, childID string, testsPassed bool)
 
 	var prompt string
 	if allDone {
-		prompt = fmt.Sprintf("Child session '%s' %s.\n\nAll %d child sessions have completed. You may now review the results, merge children to parent, or create PRs.",
+		prompt = fmt.Sprintf("Child session '%s' %s.\n\nAll %d child sessions have completed. You should now review the results, merge children to parent with `merge_child_to_parent`, and create a PR with `push_branch` and `create_pr`.",
 			sessionName, status, len(allChildren))
 	} else {
-		prompt = fmt.Sprintf("Child session '%s' %s. (%d/%d children completed)",
+		prompt = fmt.Sprintf("Child session '%s' %s. (%d/%d children completed)\n\nWait for all children to complete before merging or creating PRs.",
 			sessionName, status, completedCount, len(allChildren))
 	}
 
@@ -596,7 +596,8 @@ func (m *Model) autoMergePR(sessionID string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		err := gitSvc.MergePR(ctx, repoPath, branch)
+		// Don't delete branch - it will be deleted during session cleanup
+		err := gitSvc.MergePR(ctx, repoPath, branch, false)
 		return AutoMergeResultMsg{SessionID: sessionID, Error: err}
 	}
 }
