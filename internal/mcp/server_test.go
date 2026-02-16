@@ -701,6 +701,98 @@ func TestServer_isToolAllowed(t *testing.T) {
 	}
 }
 
+func TestServer_isOwnMCPTool(t *testing.T) {
+	tests := []struct {
+		name         string
+		isSupervisor bool
+		hasHostTools bool
+		tool         string
+		expected     bool
+	}{
+		{
+			name:         "supervisor tool when supervisor enabled",
+			isSupervisor: true,
+			tool:         "mcp__plural__list_child_sessions",
+			expected:     true,
+		},
+		{
+			name:         "create_child_session when supervisor enabled",
+			isSupervisor: true,
+			tool:         "mcp__plural__create_child_session",
+			expected:     true,
+		},
+		{
+			name:         "merge_child_to_parent when supervisor enabled",
+			isSupervisor: true,
+			tool:         "mcp__plural__merge_child_to_parent",
+			expected:     true,
+		},
+		{
+			name:         "supervisor tool when supervisor disabled",
+			isSupervisor: false,
+			tool:         "mcp__plural__list_child_sessions",
+			expected:     false,
+		},
+		{
+			name:         "host tool when host tools enabled",
+			hasHostTools: true,
+			tool:         "mcp__plural__create_pr",
+			expected:     true,
+		},
+		{
+			name:         "push_branch when host tools enabled",
+			hasHostTools: true,
+			tool:         "mcp__plural__push_branch",
+			expected:     true,
+		},
+		{
+			name:         "get_review_comments when host tools enabled",
+			hasHostTools: true,
+			tool:         "mcp__plural__get_review_comments",
+			expected:     true,
+		},
+		{
+			name:         "host tool when host tools disabled",
+			hasHostTools: false,
+			tool:         "mcp__plural__create_pr",
+			expected:     false,
+		},
+		{
+			name:         "regular tool is not own MCP tool",
+			isSupervisor: true,
+			hasHostTools: true,
+			tool:         "Bash",
+			expected:     false,
+		},
+		{
+			name:         "permission tool is not own MCP tool",
+			isSupervisor: true,
+			tool:         "mcp__plural__permission",
+			expected:     false,
+		},
+		{
+			name:         "unknown mcp tool is not own MCP tool",
+			isSupervisor: true,
+			hasHostTools: true,
+			tool:         "mcp__plural__unknown",
+			expected:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{
+				isSupervisor: tt.isSupervisor,
+				hasHostTools: tt.hasHostTools,
+			}
+			got := s.isOwnMCPTool(tt.tool)
+			if got != tt.expected {
+				t.Errorf("isOwnMCPTool(%q) = %v, want %v", tt.tool, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestServer_addAllowedTool(t *testing.T) {
 	t.Run("adds new tool", func(t *testing.T) {
 		s := &Server{allowedTools: []string{"Edit"}}
