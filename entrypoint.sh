@@ -69,7 +69,7 @@ update_plural_binary() {
             chmod +x /usr/local/bin/plural
             echo "[plural-update] Successfully updated to $LATEST_VERSION"
         else
-            echo "[plural-update] Failed to extract binary, skipping update"
+            echo "[plural-update] Failed to extract binary from downloaded archive, skipping update"
             return 0
         fi
     else
