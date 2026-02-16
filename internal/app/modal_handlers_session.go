@@ -358,6 +358,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 		m.modal.Hide()
 		return m, nil
 	case keys.Enter:
+		var saveCmd tea.Cmd
 		if sess := m.sidebar.SelectedSession(); sess != nil {
 			log := logger.WithSession(sess.ID)
 			deleteWorktree := state.ShouldDeleteWorktree()
@@ -374,8 +375,8 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 
 			m.config.RemoveSession(sess.ID)
 			m.config.ClearOrphanedParentIDs([]string{sess.ID})
-			if err := m.config.Save(); err != nil {
-				logger.WithSession(sess.ID).Error("failed to save config after session deletion", "error", err)
+			if cmd := m.saveConfigOrFlash(); cmd != nil {
+				saveCmd = cmd
 			}
 			config.DeleteSessionMessages(sess.ID)
 			m.sidebar.SetSessions(m.getFilteredSessions())
@@ -409,7 +410,7 @@ func (m *Model) handleConfirmDeleteModal(key string, msg tea.KeyPressMsg, state 
 			}
 		}
 		m.modal.Hide()
-		return m, nil
+		return m, saveCmd
 	case keys.Up, keys.Down, "j", "k":
 		// Forward navigation keys to modal for option selection
 		modal, cmd := m.modal.Update(msg)
@@ -796,8 +797,9 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	}
 
 	// Save config after creating all sessions
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after broadcast session creation", "error", err)
+	var saveCmd tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		saveCmd = cmd
 	}
 
 	// Update sidebar with new sessions
@@ -859,6 +861,10 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	}
 
 	cmds = append(cmds, m.ShowFlashSuccess(msg))
+
+	if saveCmd != nil {
+		cmds = append(cmds, saveCmd)
+	}
 
 	return m, tea.Batch(cmds...)
 }
@@ -1150,8 +1156,9 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 	deleted := m.config.RemoveSessions(sessionIDs)
 	m.config.ClearOrphanedParentIDs(sessionIDs)
 
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after bulk delete", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Exit multi-select mode and update sidebar
@@ -1159,14 +1166,16 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	m.modal.Hide()
 
-	return m, m.ShowFlashSuccess(fmt.Sprintf("Deleted %d session(s)", deleted))
+	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Deleted %d session(s)", deleted)))
+	return m, tea.Batch(cmds...)
 }
 
 // executeBulkMove moves multiple sessions to a workspace
 func (m *Model) executeBulkMove(sessionIDs []string, workspaceID string) (tea.Model, tea.Cmd) {
 	count := m.config.SetSessionsWorkspace(sessionIDs, workspaceID)
-	if err := m.config.Save(); err != nil {
-		logger.Get().Error("failed to save config after bulk move", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Exit multi-select mode and update sidebar
@@ -1183,7 +1192,8 @@ func (m *Model) executeBulkMove(sessionIDs []string, workspaceID string) (tea.Mo
 		}
 	}
 
-	return m, m.ShowFlashSuccess(fmt.Sprintf("Moved %d session(s) to \"%s\"", count, wsName))
+	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Moved %d session(s) to \"%s\"", count, wsName)))
+	return m, tea.Batch(cmds...)
 }
 
 // executeBulkCreatePRs creates PRs for multiple sessions

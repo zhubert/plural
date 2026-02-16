@@ -130,8 +130,9 @@ func (m *Model) handleAutonomousLimitReachedMsg(msg AutonomousLimitReachedMsg) (
 
 	// Disable autonomous mode for this session
 	m.config.SetSessionAutonomous(msg.SessionID, false)
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after disabling autonomous mode", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
@@ -141,7 +142,8 @@ func (m *Model) handleAutonomousLimitReachedMsg(msg AutonomousLimitReachedMsg) (
 		go notification.SessionCompleted(sessionName + " (autonomous limit reached)")
 	}
 
-	return m, m.ShowFlashWarning(fmt.Sprintf("Autonomous session stopped: %s", msg.Reason))
+	cmds = append(cmds, m.ShowFlashWarning(fmt.Sprintf("Autonomous session stopped: %s", msg.Reason)))
+	return m, tea.Batch(cmds...)
 }
 
 // allBroadcastSessionsComplete checks if all sessions in a broadcast group have finished.
@@ -255,14 +257,16 @@ func (m *Model) autoCleanupSession(sessionID, sessionName, reason string) tea.Cm
 	m.config.ClearOrphanedParentIDs([]string{sessionID})
 	config.DeleteSessionMessages(sessionID)
 
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after auto-cleanup", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
 	log.Info("auto-cleaned session", "reason", reason)
-	return m.ShowFlashInfo(fmt.Sprintf("Auto-cleaned: %s (PR %s)", sessionName, reason))
+	cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-cleaned: %s (PR %s)", sessionName, reason)))
+	return tea.Batch(cmds...)
 }
 
 // handleAutoPRCommentsFetchedMsg handles fetched PR review comments by queuing them for Claude.
@@ -438,8 +442,9 @@ func (m *Model) createChildSession(supervisorID, taskDescription string) tea.Cmd
 	m.config.AddSession(*sess)
 	m.config.AddChildSession(supervisorID, sess.ID)
 
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after creating child session", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
@@ -462,7 +467,6 @@ func (m *Model) createChildSession(supervisorID, taskDescription string) tea.Cmd
 	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}
 	responseChan := runner.SendContent(sendCtx, content)
 
-	var cmds []tea.Cmd
 	cmds = append(cmds, m.sessionListeners(sess.ID, runner, responseChan)...)
 	cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Created child session: %s", sess.Branch)))
 	cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
@@ -755,8 +759,9 @@ func (m *Model) handleAutoMergeResultMsg(msg AutoMergeResultMsg) (tea.Model, tea
 
 	// Mark as merged
 	m.config.MarkSessionPRMerged(msg.SessionID)
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after auto-merge", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
@@ -766,7 +771,8 @@ func (m *Model) handleAutoMergeResultMsg(msg AutoMergeResultMsg) (tea.Model, tea
 		go notification.SessionCompleted(sessionName + " (auto-merged)")
 	}
 
-	return m, m.ShowFlashSuccess(fmt.Sprintf("Auto-merged: %s", sess.Branch))
+	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Auto-merged: %s", sess.Branch)))
+	return m, tea.Batch(cmds...)
 }
 
 // handleCreateChildRequestMsg handles a create_child_session MCP tool call from the supervisor.
@@ -814,8 +820,9 @@ func (m *Model) handleCreateChildRequestMsg(msg CreateChildRequestMsg) (tea.Mode
 	m.config.AddSession(*childSess)
 	m.config.AddChildSession(msg.SessionID, childSess.ID)
 
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after creating child session", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
@@ -844,8 +851,6 @@ func (m *Model) handleCreateChildRequestMsg(msg CreateChildRequestMsg) (tea.Mode
 	initialMsg := fmt.Sprintf("You are a child session working on a specific task assigned by a supervisor session.\n\nTask: %s\n\nPlease complete this task. When you are done, make sure all changes are committed.", msg.Request.Task)
 	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}
 	responseChan := childRunner.SendContent(sendCtx, content)
-
-	var cmds []tea.Cmd
 	// Re-register supervisor listeners
 	cmds = append(cmds, m.sessionListeners(msg.SessionID, runner, nil)...)
 	// Register child listeners
@@ -1011,6 +1016,7 @@ func (m *Model) handleMergeChildCompleteMsg(msg MergeChildCompleteMsg) (tea.Mode
 		log.Warn("merge child complete but no stored request ID for response correlation")
 	}
 
+	var cmds []tea.Cmd
 	if msg.Error != nil {
 		log.Error("merge child failed", "childID", msg.ChildID, "error", msg.Error)
 		runner.SendMergeChildResponse(mcp.MergeChildResponse{
@@ -1021,8 +1027,8 @@ func (m *Model) handleMergeChildCompleteMsg(msg MergeChildCompleteMsg) (tea.Mode
 		log.Info("merge child succeeded", "childID", msg.ChildID)
 		// Mark child as merged
 		m.config.MarkSessionMergedToParent(msg.ChildID)
-		if err := m.config.Save(); err != nil {
-			log.Error("failed to save config after merge", "error", err)
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
 
@@ -1033,7 +1039,8 @@ func (m *Model) handleMergeChildCompleteMsg(msg MergeChildCompleteMsg) (tea.Mode
 		})
 	}
 
-	return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
+	cmds = append(cmds, m.sessionListeners(msg.SessionID, runner, nil)...)
+	return m, tea.Batch(cmds...)
 }
 
 // handleCreatePRRequestMsg handles a create_pr MCP tool call from an automated supervisor.
@@ -1120,8 +1127,9 @@ type PRCreatedFromToolMsg struct {
 func (m *Model) handlePRCreatedFromToolMsg(msg PRCreatedFromToolMsg) (tea.Model, tea.Cmd) {
 	log := logger.WithSession(msg.SessionID)
 	m.config.MarkSessionPRCreated(msg.SessionID)
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after PR creation", "error", err)
+	var cmds []tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	log.Info("marked session as PR created via tool", "prURL", msg.PRURL)
@@ -1130,9 +1138,12 @@ func (m *Model) handlePRCreatedFromToolMsg(msg PRCreatedFromToolMsg) (tea.Model,
 	sess := m.config.GetSession(msg.SessionID)
 	if sess != nil && sess.Autonomous && m.config.GetRepoAutoMerge(sess.RepoPath) {
 		log.Info("starting CI polling for auto-merge", "branch", sess.Branch)
-		return m, m.pollForAutoMerge(msg.SessionID)
+		cmds = append(cmds, m.pollForAutoMerge(msg.SessionID))
 	}
 
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 

@@ -98,8 +98,12 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 			if isActiveSession {
 				m.chat.SetContainerInitializing(false, time.Time{})
 			}
-			if err := m.config.Save(); err != nil {
-				logger.WithSession(sess.ID).Error("failed to save config after marking session started", "error", err)
+			if cmd := m.saveConfigOrFlash(); cmd != nil {
+				if completionCmd != nil {
+					completionCmd = tea.Batch(completionCmd, cmd)
+				} else {
+					completionCmd = cmd
+				}
 			}
 		}
 		// Save messages for this session
@@ -114,7 +118,13 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 	}
 
 	// Check if Claude resolved a pending merge conflict for this session
-	m.checkConflictResolution(sessionID)
+	if cmd := m.checkConflictResolution(sessionID); cmd != nil {
+		if completionCmd != nil {
+			completionCmd = tea.Batch(completionCmd, cmd)
+		} else {
+			completionCmd = cmd
+		}
+	}
 
 	// Detect options in the last assistant message for parallel exploration
 	m.detectOptionsInSession(sessionID, runner)
@@ -711,11 +721,15 @@ func (m *Model) handleReviewCommentsFetchedMsg(msg ReviewCommentsFetchedMsg) (te
 
 			// Update last-seen count and clear indicator (viewing = acknowledging)
 			m.config.UpdateSessionPRCommentCount(msg.SessionID, len(msg.Comments))
-			if err := m.config.Save(); err != nil {
-				logger.WithSession(msg.SessionID).Error("failed to save comment count", "error", err)
+			var flashCmd tea.Cmd
+			if cmd := m.saveConfigOrFlash(); cmd != nil {
+				flashCmd = cmd
 			}
 			m.sidebar.SetHasNewComments(msg.SessionID, false)
 			m.sidebar.SetSessions(m.getFilteredSessions())
+			if flashCmd != nil {
+				return m, flashCmd
+			}
 		}
 	}
 	return m, nil
@@ -793,8 +807,8 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 	}
 
 	if changed {
-		if err := m.config.Save(); err != nil {
-			logger.WithComponent("pr-poller").Error("failed to save config after PR state change", "error", err)
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
 	}
 

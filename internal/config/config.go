@@ -209,6 +209,13 @@ func (c *Config) Save() error {
 	return os.WriteFile(c.filePath, data, 0644)
 }
 
+// SetFilePath sets the config file path (for testing).
+func (c *Config) SetFilePath(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.filePath = path
+}
+
 // AddRepo adds a repository path if it doesn't already exist
 func (c *Config) AddRepo(path string) bool {
 	c.mu.Lock()

@@ -436,8 +436,8 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 	}
 
 	// Save config
-	if err := m.config.Save(); err != nil {
-		logger.Get().Error("failed to save config after creating parallel sessions", "error", err)
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		cmds = append(cmds, cmd)
 	}
 
 	// Update sidebar

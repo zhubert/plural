@@ -247,10 +247,11 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 	m.chat.AppendStreaming("Merge conflicts resolved and committed successfully!\n")
 
 	// Mark the session as merged
+	var flashCmd tea.Cmd
 	if m.pendingConflict.SessionID != "" {
 		m.config.MarkSessionMerged(m.pendingConflict.SessionID)
-		if err := m.config.Save(); err != nil {
-			logger.Get().Error("failed to save config after conflict resolution", "error", err)
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			flashCmd = cmd
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		logger.WithSession(m.pendingConflict.SessionID).Info("marked session as merged after conflict resolution")
@@ -259,7 +260,7 @@ func (m *Model) commitConflictResolution(commitMsg string) (tea.Model, tea.Cmd) 
 	// Clear pending conflict state
 	m.pendingConflict = nil
 
-	return m, nil
+	return m, flashCmd
 }
 
 // handleMergeConflictModal handles key events for the Merge Conflict modal.
@@ -485,10 +486,11 @@ func (m *Model) sendReviewCommentsToSession(sessionID string, comments []ui.Revi
 // checkConflictResolution checks if Claude resolved a pending merge conflict.
 // If there was a pending conflict for this session and the merge is no longer in progress,
 // mark the session as merged and clear the pending conflict state.
-func (m *Model) checkConflictResolution(sessionID string) {
+// Returns a tea.Cmd (non-nil only if a flash error needs to be shown).
+func (m *Model) checkConflictResolution(sessionID string) tea.Cmd {
 	// Check if there's a pending conflict for this session
 	if m.pendingConflict == nil || m.pendingConflict.SessionID != sessionID {
-		return
+		return nil
 	}
 
 	log := logger.WithSession(sessionID)
@@ -498,23 +500,25 @@ func (m *Model) checkConflictResolution(sessionID string) {
 	mergeInProgress, err := m.gitService.IsMergeInProgress(ctx, m.pendingConflict.RepoPath)
 	if err != nil {
 		log.Warn("failed to check merge status", "error", err)
-		return
+		return nil
 	}
 
 	if mergeInProgress {
 		// Still in merge state - Claude hasn't finished resolving
 		log.Debug("merge still in progress, waiting for resolution")
-		return
+		return nil
 	}
 
 	// Merge is no longer in progress - Claude resolved it
 	log.Info("Claude resolved merge conflict, marking session as merged")
 	m.config.MarkSessionMerged(sessionID)
-	if err := m.config.Save(); err != nil {
-		log.Error("failed to save config after marking session merged", "error", err)
+	var flashCmd tea.Cmd
+	if cmd := m.saveConfigOrFlash(); cmd != nil {
+		flashCmd = cmd
 	}
 	m.sidebar.SetSessions(m.getFilteredSessions())
 
 	// Clear pending conflict state
 	m.pendingConflict = nil
+	return flashCmd
 }

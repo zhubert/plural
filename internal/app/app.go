@@ -1635,8 +1635,8 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 		if !msg.IsManual {
 			// Only update lastSeen on startup flow failures
 			m.config.SetLastSeenVersion(m.version)
-			if err := m.config.Save(); err != nil {
-				logger.Get().Warn("failed to save last-seen version after changelog fetch error", "error", err)
+			if cmd := m.saveConfigOrFlash(); cmd != nil {
+				return m, cmd
 			}
 		}
 		return m, nil
@@ -1669,8 +1669,8 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 		if !msg.IsManual {
 			// Update lastSeen only on startup flow
 			m.config.SetLastSeenVersion(m.version)
-			if err := m.config.Save(); err != nil {
-				logger.Get().Warn("failed to save last-seen version after showing changelog", "error", err)
+			if cmd := m.saveConfigOrFlash(); cmd != nil {
+				return m, cmd
 			}
 		}
 		return m, nil
@@ -1679,8 +1679,8 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 	if !msg.IsManual {
 		// No new changes on startup, just update last seen version
 		m.config.SetLastSeenVersion(m.version)
-		if err := m.config.Save(); err != nil {
-			logger.Get().Warn("failed to save last-seen version", "error", err)
+		if cmd := m.saveConfigOrFlash(); cmd != nil {
+			return m, cmd
 		}
 	}
 	return m, nil
