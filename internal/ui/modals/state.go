@@ -59,13 +59,13 @@ type OptionItem struct {
 }
 
 // IssueItem represents an issue/task for display in the modal.
-// Works with both GitHub issues and Asana tasks.
+// Works with GitHub issues, Asana tasks, and Linear issues.
 type IssueItem struct {
-	ID       string // Issue/task ID ("123" for GitHub, "1234567890123" for Asana)
+	ID       string // Issue/task ID ("123" for GitHub, "1234567890123" for Asana, "ENG-123" for Linear)
 	Title    string
 	Body     string
 	URL      string
-	Source   string // "github" or "asana"
+	Source   string // "github", "asana", or "linear"
 	Selected bool
 }
 
