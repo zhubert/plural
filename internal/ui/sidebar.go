@@ -585,10 +585,9 @@ func (s *Sidebar) sortNodesByPriority(nodes []sessionNode) {
 func (s *Sidebar) EnterMultiSelect() {
 	s.multiSelectMode = true
 	s.selectedSessions = make(map[string]bool)
-	// Pre-select the currently highlighted session
-	sessions := s.visibleSessions()
-	if s.selectedIdx >= 0 && s.selectedIdx < len(sessions) {
-		s.selectedSessions[sessions[s.selectedIdx].ID] = true
+	// Pre-select the currently highlighted session (if it's a session, not a repo header or new session item)
+	if sess := s.SelectedSession(); sess != nil {
+		s.selectedSessions[sess.ID] = true
 	}
 }
 
@@ -614,15 +613,15 @@ func (s *Sidebar) GetSelectedSessionIDs() []string {
 
 // ToggleSelected toggles the selection of the currently highlighted session
 func (s *Sidebar) ToggleSelected() {
-	sessions := s.visibleSessions()
-	if s.selectedIdx < 0 || s.selectedIdx >= len(sessions) {
+	// Only toggle if a session is currently selected (not a repo header or new session item)
+	sess := s.SelectedSession()
+	if sess == nil {
 		return
 	}
-	id := sessions[s.selectedIdx].ID
-	if s.selectedSessions[id] {
-		delete(s.selectedSessions, id)
+	if s.selectedSessions[sess.ID] {
+		delete(s.selectedSessions, sess.ID)
 	} else {
-		s.selectedSessions[id] = true
+		s.selectedSessions[sess.ID] = true
 	}
 }
 

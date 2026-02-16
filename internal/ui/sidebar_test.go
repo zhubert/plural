@@ -1065,6 +1065,168 @@ func TestSidebar_MultiSelect_ExitClearsMode(t *testing.T) {
 	}
 }
 
+// TestSidebar_MultiSelect_CorrectSessionSelected tests the fix for #242
+// This test verifies that the "s" key multi-select feature correctly selects
+// the focused item, not the item below it (off-by-one bug).
+func TestSidebar_MultiSelect_CorrectSessionSelected(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "session2"},
+		{ID: "s3", RepoPath: "/repo", Branch: "b3", Name: "session3"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// After SetSessions, selectedIdx should be 1 (first session in items list)
+	// items = [repo, s1, s2, s3, newSession], selectedIdx = 1
+	selectedSession := sidebar.SelectedSession()
+	if selectedSession == nil || selectedSession.ID != "s1" {
+		t.Fatalf("expected s1 to be selected initially, got %v", selectedSession)
+	}
+
+	// Enter multi-select mode - should pre-select s1 (the currently focused session)
+	sidebar.EnterMultiSelect()
+	ids := sidebar.GetSelectedSessionIDs()
+	if len(ids) != 1 || ids[0] != "s1" {
+		t.Errorf("expected s1 to be pre-selected, got %v", ids)
+	}
+
+	// Toggle s1 off
+	sidebar.ToggleSelected()
+	if sidebar.SelectedCount() != 0 {
+		t.Errorf("expected 0 selected after toggling s1 off, got %d", sidebar.SelectedCount())
+	}
+
+	// Move down to s2 and toggle it on
+	sidebar.selectedIdx++ // Move to s2
+	selectedSession = sidebar.SelectedSession()
+	if selectedSession == nil || selectedSession.ID != "s2" {
+		t.Fatalf("expected s2 to be selected after moving down, got %v", selectedSession)
+	}
+
+	sidebar.ToggleSelected()
+	ids = sidebar.GetSelectedSessionIDs()
+	if len(ids) != 1 || ids[0] != "s2" {
+		t.Errorf("expected s2 to be selected, got %v", ids)
+	}
+
+	// Move down to s3 and toggle it on
+	sidebar.selectedIdx++ // Move to s3
+	selectedSession = sidebar.SelectedSession()
+	if selectedSession == nil || selectedSession.ID != "s3" {
+		t.Fatalf("expected s3 to be selected after moving down again, got %v", selectedSession)
+	}
+
+	sidebar.ToggleSelected()
+	ids = sidebar.GetSelectedSessionIDs()
+	if len(ids) != 2 {
+		t.Errorf("expected 2 sessions selected (s2 and s3), got %d", len(ids))
+	}
+
+	// Verify both s2 and s3 are selected
+	idMap := make(map[string]bool)
+	for _, id := range ids {
+		idMap[id] = true
+	}
+	if !idMap["s2"] || !idMap["s3"] {
+		t.Errorf("expected s2 and s3 to be selected, got %v", ids)
+	}
+}
+
+// TestSidebar_MultiSelect_NonSessionItemsNotSelectable tests that repo headers
+// and "+ New Session" items cannot be selected in multi-select mode.
+func TestSidebar_MultiSelect_NonSessionItemsNotSelectable(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
+	}
+	sidebar.SetSessions(sessions)
+
+	// Move to repo header (index 0)
+	sidebar.selectedIdx = 0
+	if sidebar.SelectedSession() != nil {
+		t.Error("repo header should not return a session")
+	}
+
+	// Enter multi-select and try to toggle - should not select anything
+	sidebar.EnterMultiSelect()
+	if sidebar.SelectedCount() != 0 {
+		t.Errorf("repo header should not be pre-selectable, got %d selections", sidebar.SelectedCount())
+	}
+
+	sidebar.ToggleSelected()
+	if sidebar.SelectedCount() != 0 {
+		t.Errorf("repo header should not be toggleable, got %d selections", sidebar.SelectedCount())
+	}
+
+	// Move to "+ New Session" item (should be at index 2: [repo, s1, newSession])
+	sidebar.selectedIdx = 2
+	if sidebar.SelectedSession() != nil {
+		t.Error("new session item should not return a session")
+	}
+
+	sidebar.ToggleSelected()
+	if sidebar.SelectedCount() != 0 {
+		t.Errorf("new session item should not be toggleable, got %d selections", sidebar.SelectedCount())
+	}
+
+	// Move back to session and verify it can be selected
+	sidebar.selectedIdx = 1
+	selectedSession := sidebar.SelectedSession()
+	if selectedSession == nil || selectedSession.ID != "s1" {
+		t.Errorf("expected s1 to be selected, got %v", selectedSession)
+	}
+
+	sidebar.ToggleSelected()
+	if sidebar.SelectedCount() != 1 {
+		t.Errorf("session should be toggleable, got %d selections", sidebar.SelectedCount())
+	}
+}
+
+// TestSidebar_MultiSelect_FirstLastSession tests selecting first and last sessions
+// to ensure no boundary errors.
+func TestSidebar_MultiSelect_FirstLastSession(t *testing.T) {
+	sidebar := NewSidebar()
+	sessions := []config.Session{
+		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "first"},
+		{ID: "s2", RepoPath: "/repo", Branch: "b2", Name: "middle"},
+		{ID: "s3", RepoPath: "/repo", Branch: "b3", Name: "last"},
+	}
+	sidebar.SetSessions(sessions)
+	sidebar.EnterMultiSelect()
+
+	// Should start at s1 (first session)
+	if sidebar.SelectedCount() != 1 {
+		t.Fatalf("expected 1 pre-selected session, got %d", sidebar.SelectedCount())
+	}
+	ids := sidebar.GetSelectedSessionIDs()
+	if len(ids) != 1 || ids[0] != "s1" {
+		t.Errorf("expected s1 to be pre-selected, got %v", ids)
+	}
+
+	// Move to last session (s3)
+	sidebar.selectedIdx = 3 // [repo, s1, s2, s3, newSession] - index 3 is s3
+	selectedSession := sidebar.SelectedSession()
+	if selectedSession == nil || selectedSession.ID != "s3" {
+		t.Fatalf("expected s3 to be selected, got %v", selectedSession)
+	}
+
+	sidebar.ToggleSelected()
+	ids = sidebar.GetSelectedSessionIDs()
+	if len(ids) != 2 {
+		t.Errorf("expected 2 sessions selected, got %d", len(ids))
+	}
+
+	// Verify s1 and s3 are selected
+	idMap := make(map[string]bool)
+	for _, id := range ids {
+		idMap[id] = true
+	}
+	if !idMap["s1"] || !idMap["s3"] {
+		t.Errorf("expected s1 and s3 to be selected, got %v", ids)
+	}
+}
+
 // =============================================================================
 // Search mode tests
 // =============================================================================
