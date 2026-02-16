@@ -900,11 +900,12 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 		args = append(args, "-v", config.MCPConfigPath+":"+containerMCPConfigPath+":ro")
 	}
 
-	// Mount main repository read-only for git worktree support.
+	// Mount main repository for git worktree support.
 	// Git worktrees have a .git file pointing to /path/to/repo/.git/worktrees/<id>.
 	// We mount the repo at its original absolute path so these references work transparently.
+	// Note: Must be read-write because git needs to update .git/worktrees/<id>/ when committing.
 	if config.RepoPath != "" {
-		args = append(args, "-v", config.RepoPath+":"+config.RepoPath+":ro")
+		args = append(args, "-v", config.RepoPath+":"+config.RepoPath)
 	}
 
 	args = append(args, image)
