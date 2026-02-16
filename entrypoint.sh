@@ -42,13 +42,15 @@ update_plural_binary() {
     echo "[plural-update] New version available, updating from $CURRENT_VERSION to $LATEST_VERSION..."
 
     # Determine architecture (map Docker arch to GoReleaser arch)
+    # Only x86_64 and aarch64/arm64 are supported by releases
     ARCH=$(uname -m)
     if [ "$ARCH" = "x86_64" ]; then
         GOARCH="x86_64"
-    elif [ "$ARCH" = "aarch64" ]; then
+    elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
         GOARCH="arm64"
     else
-        GOARCH="$ARCH"
+        echo "[plural-update] Unsupported architecture: $ARCH, skipping update"
+        return 0
     fi
 
     # Find download URL for this architecture
