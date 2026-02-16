@@ -50,11 +50,11 @@ type SelectResult struct {
 
 // RunnerFactory creates a runner for a session.
 // This allows tests to inject mock runners.
-type RunnerFactory func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface
+type RunnerFactory func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface
 
 // defaultRunnerFactory creates real Claude runners.
-func defaultRunnerFactory(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
-	return claude.New(sessionID, workingDir, sessionStarted, initialMessages)
+func defaultRunnerFactory(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	return claude.New(sessionID, workingDir, repoPath, sessionStarted, initialMessages)
 }
 
 // SessionManager handles session lifecycle operations including runner management,
@@ -297,7 +297,7 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 
 	log.Debug("creating new runner")
 
-	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.Started, initialMsgs)
+	runner := sm.runnerFactory(sess.ID, sess.WorkTree, sess.RepoPath, sess.Started, initialMsgs)
 	sm.runners[sess.ID] = runner
 	sm.mu.Unlock()
 

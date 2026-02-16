@@ -52,7 +52,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			runner := New(tt.sessionID, tt.workingDir, tt.sessionStarted, tt.initialMessages)
+			runner := New(tt.sessionID, tt.workingDir, "", tt.sessionStarted, tt.initialMessages)
 
 			if runner == nil {
 				t.Fatal("New returned nil runner")
@@ -101,7 +101,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestRunner_SetAllowedTools(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	initialCount := len(runner.allowedTools)
 
@@ -120,7 +120,7 @@ func TestRunner_SetAllowedTools(t *testing.T) {
 }
 
 func TestRunner_AddAllowedTool(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	initialCount := len(runner.allowedTools)
 
@@ -138,7 +138,7 @@ func TestRunner_AddAllowedTool(t *testing.T) {
 }
 
 func TestRunner_SetMCPServers(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	servers := []MCPServer{
 		{Name: "github", Command: "npx", Args: []string{"@modelcontextprotocol/server-github"}},
@@ -153,7 +153,7 @@ func TestRunner_SetMCPServers(t *testing.T) {
 }
 
 func TestRunner_SetForkFromSession(t *testing.T) {
-	runner := New("child-session", "/tmp", false, nil)
+	runner := New("child-session", "/tmp", "", false, nil)
 
 	// Initially no fork parent
 	runner.mu.RLock()
@@ -173,7 +173,7 @@ func TestRunner_SetForkFromSession(t *testing.T) {
 }
 
 func TestRunner_IsStreaming(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Initially not streaming
 	if runner.IsStreaming() {
@@ -191,7 +191,7 @@ func TestRunner_IsStreaming(t *testing.T) {
 }
 
 func TestRunner_GetResponseChan(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Initially nil
 	if runner.GetResponseChan() != nil {
@@ -210,7 +210,7 @@ func TestRunner_GetResponseChan(t *testing.T) {
 }
 
 func TestRunner_AddAssistantMessage(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	runner.AddAssistantMessage("Hello, I am Claude!")
 
@@ -233,7 +233,7 @@ func TestRunner_GetMessages(t *testing.T) {
 		{Role: "user", Content: "Hi"},
 		{Role: "assistant", Content: "Hello!"},
 	}
-	runner := New("session-1", "/tmp", true, initialMsgs)
+	runner := New("session-1", "/tmp", "", true, initialMsgs)
 
 	msgs := runner.GetMessages()
 
@@ -250,7 +250,7 @@ func TestRunner_GetMessages(t *testing.T) {
 }
 
 func TestRunner_Stop_Idempotent(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Stop should be callable multiple times without panicking
 	runner.Stop()
@@ -1246,7 +1246,7 @@ func TestToolInputConfigs(t *testing.T) {
 }
 
 func TestRunner_ChannelOperations(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Test that channel accessors work
 	permReqChan := runner.PermissionRequestChan()
@@ -1262,20 +1262,20 @@ func TestRunner_ChannelOperations(t *testing.T) {
 
 func TestRunner_SessionStarted(t *testing.T) {
 	// Test session not started
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 	if runner.SessionStarted() {
 		t.Error("Session should not be started initially")
 	}
 
 	// Test session started
-	runner = New("session-2", "/tmp", true, nil)
+	runner = New("session-2", "/tmp", "", true, nil)
 	if !runner.SessionStarted() {
 		t.Error("Session should be started")
 	}
 }
 
 func TestRunner_SessionStartedOnInitMessage(t *testing.T) {
-	runner := New("session-init", "/tmp", false, nil)
+	runner := New("session-init", "/tmp", "", false, nil)
 	if runner.SessionStarted() {
 		t.Error("Session should not be started initially")
 	}
@@ -1290,7 +1290,7 @@ func TestRunner_SessionStartedOnInitMessage(t *testing.T) {
 }
 
 func TestRunner_SessionStartedOnInitMessage_WithProcessManager(t *testing.T) {
-	runner := New("session-init-pm", "/tmp", false, nil)
+	runner := New("session-init-pm", "/tmp", "", false, nil)
 
 	// Set up a real ProcessManager so MarkSessionStarted is called
 	pm := NewProcessManager(ProcessConfig{
@@ -1318,7 +1318,7 @@ func TestRunner_SessionStartedOnInitMessage_ContainerNoDeadlock(t *testing.T) {
 	// Regression test: MarkSessionStarted calls OnContainerReady which calls
 	// handleContainerReady which acquires r.mu.RLock(). If handleProcessLine
 	// holds r.mu.Lock() when calling MarkSessionStarted, this deadlocks.
-	runner := New("session-container-deadlock", "/tmp", false, nil)
+	runner := New("session-container-deadlock", "/tmp", "", false, nil)
 
 	// Set up containerized mode with OnContainerReady callback
 	runner.SetContainerized(true, "test-image")
@@ -1364,7 +1364,7 @@ func TestRunner_SessionStartedOnInitMessage_ContainerNoDeadlock(t *testing.T) {
 
 func TestRunner_SessionStartedOnInitMessage_AlreadyStarted(t *testing.T) {
 	// If already started, the init check should be a no-op (no panic, no double-set)
-	runner := New("session-already", "/tmp", true, nil)
+	runner := New("session-already", "/tmp", "", true, nil)
 
 	initMsg := `{"type":"system","subtype":"init","session_id":"session-already"}`
 	runner.handleProcessLine(initMsg)
@@ -1472,8 +1472,8 @@ func TestExtractToolInputDescription_EmptyObject(t *testing.T) {
 }
 
 func TestRunner_DefaultAllowedToolsCopied(t *testing.T) {
-	runner1 := New("session-1", "/tmp", false, nil)
-	runner2 := New("session-2", "/tmp", false, nil)
+	runner1 := New("session-1", "/tmp", "", false, nil)
+	runner2 := New("session-2", "/tmp", "", false, nil)
 
 	// Add tool to runner1
 	runner1.AddAllowedTool("CustomTool")
@@ -1496,7 +1496,7 @@ func TestRunner_MessagesCopied(t *testing.T) {
 		{Role: "user", Content: "Hello"},
 		{Role: "assistant", Content: "Hi"},
 	}
-	runner := New("session-1", "/tmp", true, initialMsgs)
+	runner := New("session-1", "/tmp", "", true, initialMsgs)
 
 	// Note: New() assigns the slice directly, so modifying initialMsgs
 	// would affect the runner. This is by design for efficiency.
@@ -1662,7 +1662,7 @@ func TestResponseChunk_Fields(t *testing.T) {
 }
 
 func TestRunner_Interrupt_NotRunning(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Interrupt should not error when no process is running
 	err := runner.Interrupt()
@@ -1672,7 +1672,7 @@ func TestRunner_Interrupt_NotRunning(t *testing.T) {
 }
 
 func TestRunner_Interrupt_Idempotent(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Multiple Interrupt calls should be safe
 	runner.Interrupt()
@@ -1728,7 +1728,7 @@ func TestProcessManager_RestartTracking(t *testing.T) {
 }
 
 func TestHandleFatalError(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Create a channel and set it as current response channel
 	ch := make(chan ResponseChunk, 10)
@@ -1771,7 +1771,7 @@ func TestHandleFatalError(t *testing.T) {
 }
 
 func TestHandleFatalError_AlreadyClosed(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Mark as already closed
 	runner.mu.Lock()
@@ -1795,14 +1795,14 @@ func TestHandleFatalError_AlreadyClosed(t *testing.T) {
 }
 
 func TestHandleFatalError_NilChannel(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Should not panic with nil channel
 	runner.handleFatalError(fmt.Errorf("test error"))
 }
 
 func TestHandleProcessExit_AlreadyMarkedClosed(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
@@ -1825,7 +1825,7 @@ func TestHandleProcessExit_AlreadyMarkedClosed(t *testing.T) {
 }
 
 func TestHandleProcessExit_NormalSend(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
@@ -1858,7 +1858,7 @@ func TestHandleProcessExit_NormalSend(t *testing.T) {
 }
 
 func TestHandleProcessExit_Stopped(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	runner.mu.Lock()
 	runner.stopped = true
@@ -1874,7 +1874,7 @@ func TestHandleProcessExit_Stopped(t *testing.T) {
 // the response channel remains open so restart messages and the eventual
 // handleFatalError can communicate with the Bubble Tea listener.
 func TestHandleProcessExit_ChannelStaysOpenForRestart(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
@@ -1928,7 +1928,7 @@ func TestHandleProcessExit_ChannelStaysOpenForRestart(t *testing.T) {
 }
 
 func TestHandleRestartAttempt_ClosedChannel(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
@@ -1944,7 +1944,7 @@ func TestHandleRestartAttempt_ClosedChannel(t *testing.T) {
 }
 
 func TestHandleRestartAttempt_NormalSend(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
@@ -2114,7 +2114,7 @@ func TestStreamInputMessage(t *testing.T) {
 }
 
 func TestRunner_SendPermissionResponse(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Should not panic even before stop
 	runner.SendPermissionResponse(mcp.PermissionResponse{Allowed: true})
@@ -2125,7 +2125,7 @@ func TestRunner_SendPermissionResponse(t *testing.T) {
 }
 
 func TestRunner_SendQuestionResponse(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Should not panic even before stop
 	runner.SendQuestionResponse(mcp.QuestionResponse{Answers: map[string]string{"q": "test"}})
@@ -2136,7 +2136,7 @@ func TestRunner_SendQuestionResponse(t *testing.T) {
 }
 
 func TestRunner_PermissionRequestChan_AfterStop(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Before stop, should return channel
 	ch := runner.PermissionRequestChan()
@@ -2154,7 +2154,7 @@ func TestRunner_PermissionRequestChan_AfterStop(t *testing.T) {
 }
 
 func TestRunner_QuestionRequestChan_AfterStop(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Before stop, should return channel
 	ch := runner.QuestionRequestChan()
@@ -2172,7 +2172,7 @@ func TestRunner_QuestionRequestChan_AfterStop(t *testing.T) {
 }
 
 func TestSendChunkWithTimeout_Success(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 	ch := make(chan ResponseChunk, 10)
 
 	chunk := ResponseChunk{Type: ChunkTypeText, Content: "test"}
@@ -2317,7 +2317,7 @@ func TestImageSource(t *testing.T) {
 }
 
 func TestRunner_StopCleansUpServer(t *testing.T) {
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Stop should not panic even without server running
 	runner.Stop()
@@ -2736,7 +2736,7 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 	// The displayed total should be the sum of all completed API calls' final counts
 	// plus the current API call's running count.
 
-	runner := New("test-session", "/tmp/test", false, nil)
+	runner := New("test-session", "/tmp/test", "", false, nil)
 	defer runner.Stop()
 
 	// Simulate receiving messages from multiple API calls
@@ -2827,7 +2827,7 @@ func TestTokenAccumulationAcrossAPICalls(t *testing.T) {
 }
 
 func TestSubagentDetection_EnterAndExit(t *testing.T) {
-	runner := New("test-subagent", "/tmp/test-subagent", false, nil)
+	runner := New("test-subagent", "/tmp/test-subagent", "", false, nil)
 	defer runner.Stop()
 
 	// Create response channel
@@ -2878,7 +2878,7 @@ func TestSubagentDetection_EnterAndExit(t *testing.T) {
 }
 
 func TestSubagentDetection_NoChunkWhenNotChanging(t *testing.T) {
-	runner := New("test-subagent-noop", "/tmp/test-subagent-noop", false, nil)
+	runner := New("test-subagent-noop", "/tmp/test-subagent-noop", "", false, nil)
 	defer runner.Stop()
 
 	// Create response channel
@@ -2910,7 +2910,7 @@ func TestSubagentDetection_NoChunkWhenNotChanging(t *testing.T) {
 }
 
 func TestSubagentDetection_UserMessagesTracked(t *testing.T) {
-	runner := New("test-subagent-user", "/tmp/test-subagent-user", false, nil)
+	runner := New("test-subagent-user", "/tmp/test-subagent-user", "", false, nil)
 	defer runner.Stop()
 
 	// Create response channel
@@ -2974,7 +2974,7 @@ func TestStreamingState_SubagentModelReset(t *testing.T) {
 func TestEnsureProcessRunning_ReplacesFailedPM(t *testing.T) {
 	// Test that ensureProcessRunning always creates a fresh ProcessManager
 	// when Start() fails, regardless of SessionStarted state.
-	runner := New("test-session", "/nonexistent/path", true, nil)
+	runner := New("test-session", "/nonexistent/path", "", true, nil)
 	runner.mcpConfigPath = "/tmp/fake-mcp.json"
 
 	// Create a PM that will fail to Start (no claude binary)
@@ -3025,7 +3025,7 @@ func TestEnsureProcessRunning_ReplacesFailedPM(t *testing.T) {
 func TestEnsureProcessRunning_ReplacesStoppedPM(t *testing.T) {
 	// Test that ensureProcessRunning recovers when the existing PM was stopped.
 	// This is the "check-the-docs" scenario: PM was stopped, user sends new message.
-	runner := New("test-session", "/nonexistent/path", false, nil)
+	runner := New("test-session", "/nonexistent/path", "", false, nil)
 	runner.mcpConfigPath = "/tmp/fake-mcp.json"
 
 	// Create a PM and stop it (simulating a previous session that was stopped)
@@ -3062,7 +3062,7 @@ func TestEnsureProcessRunning_FreshPMAfterInterrupt(t *testing.T) {
 	// Test that ensureProcessRunning always creates a fresh ProcessManager
 	// when the old one is not running (e.g., after an interrupt).
 	// This prevents race conditions from old goroutines still winding down.
-	runner := New("test-session", "/nonexistent/path", false, nil)
+	runner := New("test-session", "/nonexistent/path", "", false, nil)
 	runner.mcpConfigPath = "/tmp/fake-mcp.json"
 
 	// Create an initial ProcessManager that is not running
@@ -3091,7 +3091,7 @@ func TestEnsureProcessRunning_FreshPMAfterInterrupt(t *testing.T) {
 }
 
 func TestRunner_SetContainerized(t *testing.T) {
-	runner := New("test-session", "/tmp", false, nil)
+	runner := New("test-session", "/tmp", "", false, nil)
 	defer runner.Stop()
 
 	// Initially not containerized
@@ -3124,7 +3124,7 @@ func TestRunner_SetContainerized(t *testing.T) {
 }
 
 func TestRunner_SetContainerized_PassedToProcessConfig(t *testing.T) {
-	runner := New("test-session", "/tmp", false, nil)
+	runner := New("test-session", "/tmp", "", false, nil)
 	defer runner.Stop()
 
 	runner.SetContainerized(true, "test-image")
@@ -3157,7 +3157,7 @@ func TestMockRunner_SetContainerized(t *testing.T) {
 // while holding the lock, preventing race conditions when multiple
 // goroutines access token fields.
 func TestTokenTracking_NoRaceCondition(t *testing.T) {
-	runner := New("test-session", "/tmp", false, nil)
+	runner := New("test-session", "/tmp", "", false, nil)
 	defer runner.Stop()
 
 	// Setup a response channel
@@ -3198,7 +3198,7 @@ func TestTokenTracking_NoRaceCondition(t *testing.T) {
 func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
 	// This test verifies that concurrent calls to handleProcessLine and Stop
 	// do not race on r.streamLogFile. Run with -race to detect the issue.
-	runner := New("race-test", "/tmp", false, nil)
+	runner := New("race-test", "/tmp", "", false, nil)
 
 	// Set a stream log file (use a temp file so writes succeed)
 	tmpFile, err := os.CreateTemp("", "stream-log-race-test-*.log")
@@ -3290,7 +3290,7 @@ func TestEnsureProcessRunning_ErrorUsesCloseResponseChannel(t *testing.T) {
 	// the cleanup must use closeResponseChannel() (via sync.Once) instead of
 	// directly setting Channel=nil and Closed=true. Otherwise the sync.Once
 	// is left in an inconsistent state and a later Close() call could panic.
-	runner := New("session-1", "/tmp", false, nil)
+	runner := New("session-1", "/tmp", "", false, nil)
 
 	// Setup response channel state as SendContent would
 	ch := make(chan ResponseChunk, 100)
@@ -3330,7 +3330,7 @@ func TestSendContent_ProcessStartFailure_ChannelCleanup(t *testing.T) {
 	// where the claude binary doesn't exist, causing ensureProcessRunning to fail.
 	// Verify the returned channel delivers the error and is properly closed with
 	// consistent sync.Once state.
-	runner := New("session-e2e", t.TempDir(), false, nil)
+	runner := New("session-e2e", t.TempDir(), "", false, nil)
 	defer runner.Stop()
 
 	// Clear PATH so "claude" binary can't be found, forcing ensureProcessRunning to fail
@@ -3384,7 +3384,7 @@ func TestSendContent_ProcessStartFailure_ChannelCleanup(t *testing.T) {
 }
 
 func TestRunner_SetSupervisor(t *testing.T) {
-	runner := New("test-supervisor", "/tmp/test", false, nil)
+	runner := New("test-supervisor", "/tmp/test", "", false, nil)
 	defer runner.Stop()
 
 	// Initially no supervisor channels
@@ -3433,7 +3433,7 @@ func TestRunner_SetSupervisor(t *testing.T) {
 }
 
 func TestRunner_SupervisorChannels_Stopped(t *testing.T) {
-	runner := New("test-supervisor-stop", "/tmp/test", false, nil)
+	runner := New("test-supervisor-stop", "/tmp/test", "", false, nil)
 	runner.SetSupervisor(true)
 	runner.Stop()
 

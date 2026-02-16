@@ -1982,7 +1982,7 @@ func TestSessionSelect_OptionsDetectedOnInitialSelection(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Create a custom factory that provides messages with options
-	customFactory := func(sessionID, workingDir string, started bool, msgs []claude.Message) claude.RunnerInterface {
+	customFactory := func(sessionID, workingDir, repoPath string, started bool, msgs []claude.Message) claude.RunnerInterface {
 		// Create mock with an assistant message containing options
 		initialMsgs := []claude.Message{
 			{Role: "user", Content: "What are my options?"},

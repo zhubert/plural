@@ -73,7 +73,7 @@ func newRunnerFactory() *runnerFactory {
 	}
 }
 
-func (f *runnerFactory) Create(sessionID, workingDir string, started bool, msgs []claude.Message) claude.RunnerInterface {
+func (f *runnerFactory) Create(sessionID, workingDir, repoPath string, started bool, msgs []claude.Message) claude.RunnerInterface {
 	mock := claude.NewMockRunner(sessionID, started, msgs)
 	f.runners[sessionID] = mock
 	return mock

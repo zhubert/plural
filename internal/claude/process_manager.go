@@ -67,6 +67,7 @@ type ProcessManagerInterface interface {
 type ProcessConfig struct {
 	SessionID         string
 	WorkingDir        string
+	RepoPath          string // Main repository path (for containerized worktree support)
 	SessionStarted    bool
 	AllowedTools      []string
 	MCPConfigPath     string
@@ -897,6 +898,13 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 	// (Unix sockets don't work across the Docker container boundary).
 	if config.MCPConfigPath != "" {
 		args = append(args, "-v", config.MCPConfigPath+":"+containerMCPConfigPath+":ro")
+	}
+
+	// Mount main repository read-only for git worktree support.
+	// Git worktrees have a .git file pointing to /path/to/repo/.git/worktrees/<id>.
+	// We mount the repo at its original absolute path so these references work transparently.
+	if config.RepoPath != "" {
+		args = append(args, "-v", config.RepoPath+":"+config.RepoPath+":ro")
 	}
 
 	args = append(args, image)

@@ -11,7 +11,7 @@
 //
 // Runner is the main type that manages a Claude Code CLI session:
 //
-//	runner := claude.New(sessionID, workingDir, sessionStarted, initialMessages)
+//	runner := claude.New(sessionID, workingDir, repoPath, sessionStarted, initialMessages)
 //	responseChan := runner.Send(ctx, "Hello, Claude!")
 //	for chunk := range responseChan {
 //	    if chunk.Error != nil {

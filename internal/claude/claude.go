@@ -195,6 +195,7 @@ If you have multiple groups of options (e.g., high priority and low priority ite
 type Runner struct {
 	sessionID      string
 	workingDir     string
+	repoPath       string // Main repository path (for containerized worktree support)
 	messages       []Message
 	sessionStarted bool // tracks if session has been created
 	mu             sync.RWMutex
@@ -250,9 +251,9 @@ type Runner struct {
 }
 
 // New creates a new Claude runner for a session
-func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Message) *Runner {
+func New(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []Message) *Runner {
 	log := logger.WithSession(sessionID)
-	log.Debug("runner created", "workDir", workingDir, "started", sessionStarted, "messageCount", len(initialMessages))
+	log.Debug("runner created", "workDir", workingDir, "repoPath", repoPath, "started", sessionStarted, "messageCount", len(initialMessages))
 
 	msgs := initialMessages
 	if msgs == nil {
@@ -276,6 +277,7 @@ func New(sessionID, workingDir string, sessionStarted bool, initialMessages []Me
 	r := &Runner{
 		sessionID:      sessionID,
 		workingDir:     workingDir,
+		repoPath:       repoPath,
 		messages:       msgs,
 		sessionStarted: sessionStarted,
 		allowedTools:   allowedTools,
@@ -792,6 +794,7 @@ func (r *Runner) ensureProcessRunning() error {
 	config := ProcessConfig{
 		SessionID:         r.sessionID,
 		WorkingDir:        r.workingDir,
+		RepoPath:          r.repoPath,
 		SessionStarted:    r.sessionStarted,
 		AllowedTools:      make([]string, len(r.allowedTools)),
 		MCPConfigPath:     r.mcpConfigPath,

@@ -158,7 +158,7 @@ func newTestRunnerFactory() *testRunnerFactory {
 }
 
 // Create implements the RunnerFactory signature for creating mock runners.
-func (f *testRunnerFactory) Create(sessionID, workingDir string, started bool, msgs []claude.Message) claude.RunnerInterface {
+func (f *testRunnerFactory) Create(sessionID, workingDir, repoPath string, started bool, msgs []claude.Message) claude.RunnerInterface {
 	mock := claude.NewMockRunner(sessionID, started, msgs)
 	f.runners[sessionID] = mock
 	return mock

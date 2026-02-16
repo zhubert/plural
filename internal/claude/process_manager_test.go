@@ -1916,3 +1916,63 @@ func TestFriendlyContainerError(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildContainerRunArgs_WithRepoPath(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-session",
+		WorkingDir:     "/tmp/worktree",
+		RepoPath:       "/tmp/repo",
+		Containerized:  true,
+		ContainerImage: "test-image",
+		MCPConfigPath:  "/tmp/mcp.json",
+	}
+
+	result, err := buildContainerRunArgs(config, []string{"--arg"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
+
+	// Check that repo mount exists at the original absolute path
+	found := false
+	expectedMount := "/tmp/repo:/tmp/repo:ro"
+	for i, arg := range result.Args {
+		if arg == "-v" && i+1 < len(result.Args) {
+			if result.Args[i+1] == expectedMount {
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
+		t.Errorf("Expected repo mount %q not found in docker args: %v", expectedMount, result.Args)
+	}
+}
+
+func TestBuildContainerRunArgs_WithoutRepoPath(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "test-session",
+		WorkingDir:     "/tmp/worktree",
+		RepoPath:       "", // No repo path
+		Containerized:  true,
+		ContainerImage: "test-image",
+	}
+
+	result, err := buildContainerRunArgs(config, []string{"--arg"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
+
+	// Check that no repo mount exists when RepoPath is empty
+	for i, arg := range result.Args {
+		if arg == "-v" && i+1 < len(result.Args) {
+			mount := result.Args[i+1]
+			// Should not contain any mount ending with :ro that isn't the MCP config or workspace
+			if strings.HasSuffix(mount, ":ro") && 
+			   !strings.Contains(mount, "/.claude:") && 
+			   !strings.Contains(mount, "/tmp/mcp.json:") {
+				t.Errorf("Unexpected repo mount found when RepoPath is empty: %q", mount)
+			}
+		}
+	}
+}

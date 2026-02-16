@@ -58,7 +58,7 @@ func TestForkSessionInheritsContext(t *testing.T) {
 
 	// Track runners created by the factory
 	var createdRunners []*claude.MockRunner
-	mockFactory := func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	mockFactory := func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 		mockRunner := claude.NewMockRunner(sessionID, sessionStarted, initialMessages)
 		createdRunners = append(createdRunners, mockRunner)
 		return mockRunner

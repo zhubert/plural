@@ -88,7 +88,7 @@ func TestSessionManager_GetRunner(t *testing.T) {
 	}
 
 	// Set a runner
-	testRunner := claude.New("session-1", "/test", false, nil)
+	testRunner := claude.New("session-1", "/test", "", false, nil)
 	sm.runners["session-1"] = testRunner
 
 	runner = sm.GetRunner("session-1")
@@ -111,8 +111,8 @@ func TestSessionManager_GetRunners(t *testing.T) {
 	}
 
 	// Add runners
-	sm.runners["session-1"] = claude.New("session-1", "/test", false, nil)
-	sm.runners["session-2"] = claude.New("session-2", "/test", false, nil)
+	sm.runners["session-1"] = claude.New("session-1", "/test", "", false, nil)
+	sm.runners["session-2"] = claude.New("session-2", "/test", "", false, nil)
 
 	runners = sm.GetRunners()
 	if len(runners) != 2 {
@@ -130,7 +130,7 @@ func TestSessionManager_HasActiveStreaming(t *testing.T) {
 	}
 
 	// Add non-streaming runner
-	runner := claude.New("session-1", "/test", false, nil)
+	runner := claude.New("session-1", "/test", "", false, nil)
 	sm.runners["session-1"] = runner
 
 	if sm.HasActiveStreaming() {
@@ -221,7 +221,7 @@ func TestSessionManager_Select_ReusesRunner(t *testing.T) {
 	sm := NewSessionManager(cfg, git.NewGitService())
 
 	// Pre-create a runner
-	existingRunner := claude.New("session-1", "/test", false, nil)
+	existingRunner := claude.New("session-1", "/test", "", false, nil)
 	sm.runners["session-1"] = existingRunner
 
 	sess := sm.GetSession("session-1")
@@ -320,7 +320,7 @@ func TestSessionManager_DeleteSession(t *testing.T) {
 	sm := NewSessionManager(cfg, git.NewGitService())
 
 	// Create runner and state
-	runner := claude.New("session-1", "/test", false, nil)
+	runner := claude.New("session-1", "/test", "", false, nil)
 	sm.runners["session-1"] = runner
 	sm.stateManager.GetOrCreate("session-1").InputText = "test input"
 
@@ -359,7 +359,7 @@ func TestSessionManager_SetRunner(t *testing.T) {
 	cfg := createTestConfig()
 	sm := NewSessionManager(cfg, git.NewGitService())
 
-	runner := claude.New("session-1", "/test", false, nil)
+	runner := claude.New("session-1", "/test", "", false, nil)
 	sm.SetRunner("session-1", runner)
 
 	if sm.GetRunner("session-1") != runner {
@@ -372,7 +372,7 @@ func TestSessionManager_AddAllowedTool(t *testing.T) {
 	sm := NewSessionManager(cfg, git.NewGitService())
 
 	// Create runner first
-	runner := claude.New("session-1", "/test", false, nil)
+	runner := claude.New("session-1", "/test", "", false, nil)
 	sm.runners["session-1"] = runner
 
 	// Add tool
@@ -473,7 +473,7 @@ func TestSessionManager_Select_ForkedSession(t *testing.T) {
 	}
 	sm := NewSessionManager(cfg, git.NewGitService())
 
-	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 	})
 
@@ -523,7 +523,7 @@ func TestSessionManager_Select_ForkedSession_AlreadyStarted(t *testing.T) {
 	}
 	sm := NewSessionManager(cfg, git.NewGitService())
 
-	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 	})
 
@@ -559,7 +559,7 @@ func TestSessionManager_Select_NonForkedSession(t *testing.T) {
 	}
 	sm := NewSessionManager(cfg, git.NewGitService())
 
-	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 	})
 
@@ -604,7 +604,7 @@ func TestSessionManager_Select_ForkedSession_ParentNotStarted(t *testing.T) {
 	}
 	sm := NewSessionManager(cfg, git.NewGitService())
 
-	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 	})
 
@@ -641,7 +641,7 @@ func TestSessionManager_Select_ForkedSession_ParentNotFound(t *testing.T) {
 	}
 	sm := NewSessionManager(cfg, git.NewGitService())
 
-	sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+	sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 		return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 	})
 
@@ -758,7 +758,7 @@ func TestCopyClaudeSessionForFork_NoSessionFileCopyFallback(t *testing.T) {
 		}
 		sm := NewSessionManager(cfg, git.NewGitService())
 
-		sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 			return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 		})
 
@@ -812,7 +812,7 @@ func TestCopyClaudeSessionForFork_NoSessionFileCopyFallback(t *testing.T) {
 
 		sm := NewSessionManager(cfg, git.NewGitService())
 
-		sm.SetRunnerFactory(func(sessionID, workingDir string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
+		sm.SetRunnerFactory(func(sessionID, workingDir, repoPath string, sessionStarted bool, initialMessages []claude.Message) claude.RunnerInterface {
 			return newTrackingMockRunner(sessionID, sessionStarted, initialMessages)
 		})
 
