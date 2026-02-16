@@ -376,6 +376,14 @@ func (s *Server) handlePermissionToolCall(req *JSONRPCRequest, params ToolCallPa
 		return
 	}
 
+	// Auto-approve our own MCP supervisor/host tools — they already have their own
+	// access checks (isSupervisor/hasHostTools guards) so the permission prompt is redundant.
+	if s.isOwnMCPTool(tool) {
+		s.log.Debug("auto-approving own MCP tool", "tool", tool)
+		s.sendPermissionResult(req.ID, true, arguments, "")
+		return
+	}
+
 	// Check if tool is pre-allowed
 	if s.isToolAllowed(tool) {
 		s.log.Debug("tool is pre-allowed", "tool", tool)
@@ -831,6 +839,43 @@ func (s *Server) isToolAllowed(tool string) bool {
 		// Handle pattern matching (e.g., "Bash(git:*)")
 		if strings.HasPrefix(allowed, tool+"(") {
 			return true
+		}
+	}
+	return false
+}
+
+// supervisorMCPTools are the Claude CLI tool names for supervisor MCP tools.
+// Claude CLI prefixes MCP tools with "mcp__<server>__", so tools on the "plural"
+// server become "mcp__plural__<tool>".
+var supervisorMCPTools = []string{
+	"mcp__plural__create_child_session",
+	"mcp__plural__list_child_sessions",
+	"mcp__plural__merge_child_to_parent",
+}
+
+// hostMCPTools are the Claude CLI tool names for host operation MCP tools.
+var hostMCPTools = []string{
+	"mcp__plural__create_pr",
+	"mcp__plural__push_branch",
+	"mcp__plural__get_review_comments",
+}
+
+// isOwnMCPTool returns true if the tool name is one of our own MCP tools that
+// should be auto-approved. Supervisor tools are approved when isSupervisor is true,
+// and host tools are approved when hasHostTools is true.
+func (s *Server) isOwnMCPTool(tool string) bool {
+	if s.isSupervisor {
+		for _, t := range supervisorMCPTools {
+			if t == tool {
+				return true
+			}
+		}
+	}
+	if s.hasHostTools {
+		for _, t := range hostMCPTools {
+			if t == tool {
+				return true
+			}
 		}
 	}
 	return false
