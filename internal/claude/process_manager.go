@@ -74,6 +74,7 @@ type ProcessConfig struct {
 	ForkFromSessionID string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
 	Containerized     bool   // When true, wraps Claude CLI in a container
 	ContainerImage    string // Container image name (e.g., "ghcr.io/zhubert/plural-claude")
+	Supervisor        bool   // When true, appends supervisor instructions to system prompt
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -237,6 +238,12 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		}
 	}
 
+	// Build system prompt: base options prompt + supervisor instructions if applicable
+	systemPrompt := OptionsSystemPrompt
+	if config.Supervisor {
+		systemPrompt = OptionsSystemPrompt + "\n\n" + SupervisorSystemPrompt
+	}
+
 	if config.Containerized {
 		// Container IS the sandbox. When MCP config is available, use --permission-prompt-tool
 		// with a wildcard MCP server (--auto-approve) that auto-approves all regular permissions
@@ -252,7 +259,7 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			// Fallback if MCP server didn't start — use dangerously-skip-permissions
 			args = append(args, "--dangerously-skip-permissions")
 		}
-		args = append(args, "--append-system-prompt", OptionsSystemPrompt)
+		args = append(args, "--append-system-prompt", systemPrompt)
 
 		// Pre-authorize all tools — the container is the sandbox
 		for _, tool := range ContainerAllowedTools {
@@ -263,7 +270,7 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		args = append(args,
 			"--mcp-config", config.MCPConfigPath,
 			"--permission-prompt-tool", "mcp__plural__permission",
-			"--append-system-prompt", OptionsSystemPrompt,
+			"--append-system-prompt", systemPrompt,
 		)
 
 		// Add pre-allowed tools

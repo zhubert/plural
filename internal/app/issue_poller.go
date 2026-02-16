@@ -263,8 +263,9 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		m.config.AddSession(*sess)
 		created++
 
-		// Build initial message — instruct the orchestrator about its role and tools
-		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s\n\n---\nYou are an orchestrator session managing this issue.\n\nDELEGATION STRATEGY:\n- For SIMPLE tasks (single file, straightforward implementation): Create ONE child to do the entire task from start to finish, including tests and any needed iterations\n- For COMPLEX tasks with truly independent work streams: Create multiple children to work in parallel (e.g., updating frontend + backend simultaneously, multiple unrelated files)\n- Default to fewer children - each child has overhead. One well-scoped child is better than three children doing sequential work\n- Give each child a COMPLETE task description so they can work autonomously without needing multiple rounds\n\nWORKFLOW:\n1. Analyze the issue complexity and parallelization potential\n2. Create child session(s) with `create_child_session` - include full context and acceptance criteria in task description\n3. Monitor progress with `list_child_sessions`. You'll be notified as each completes\n4. CRITICAL: Wait for ALL children to complete before proceeding\n5. Once all complete, review their work and merge with `merge_child_to_parent`\n6. Push changes with `push_branch` and create PR with `create_pr`",
+		// Build initial message — just the issue content.
+		// Orchestrator instructions are in the system prompt (SupervisorSystemPrompt).
+		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s",
 			issue.ID, issue.Title, issue.Body)
 
 		// Start the session

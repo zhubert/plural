@@ -1968,11 +1968,97 @@ func TestBuildContainerRunArgs_WithoutRepoPath(t *testing.T) {
 		if arg == "-v" && i+1 < len(result.Args) {
 			mount := result.Args[i+1]
 			// Should not contain any mount ending with :ro that isn't the MCP config or workspace
-			if strings.HasSuffix(mount, ":ro") && 
-			   !strings.Contains(mount, "/.claude:") && 
+			if strings.HasSuffix(mount, ":ro") &&
+			   !strings.Contains(mount, "/.claude:") &&
 			   !strings.Contains(mount, "/tmp/mcp.json:") {
 				t.Errorf("Unexpected repo mount found when RepoPath is empty: %q", mount)
 			}
 		}
+	}
+}
+
+func TestBuildCommandArgs_Supervisor_AppendsSystemPrompt(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "supervisor-session",
+		WorkingDir:     "/tmp",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read"},
+		Supervisor:     true,
+	}
+
+	args := BuildCommandArgs(config)
+
+	// Find the --append-system-prompt value
+	systemPrompt := getArgValue(args, "--append-system-prompt")
+	if systemPrompt == "" {
+		t.Fatal("expected --append-system-prompt to be set")
+	}
+
+	// Should contain both the options prompt and the supervisor prompt
+	if !strings.Contains(systemPrompt, "numbered or lettered choices") {
+		t.Error("system prompt should contain OptionsSystemPrompt content")
+	}
+	if !strings.Contains(systemPrompt, "orchestrator session") {
+		t.Error("system prompt should contain SupervisorSystemPrompt content")
+	}
+	if !strings.Contains(systemPrompt, "STOP and wait") {
+		t.Error("system prompt should tell supervisor to stop and wait for notifications")
+	}
+	if !strings.Contains(systemPrompt, "Do NOT poll") {
+		t.Error("system prompt should tell supervisor not to poll")
+	}
+}
+
+func TestBuildCommandArgs_NonSupervisor_NoSupervisorPrompt(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "normal-session",
+		WorkingDir:     "/tmp",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		AllowedTools:   []string{"Read"},
+		Supervisor:     false,
+	}
+
+	args := BuildCommandArgs(config)
+
+	systemPrompt := getArgValue(args, "--append-system-prompt")
+	if systemPrompt == "" {
+		t.Fatal("expected --append-system-prompt to be set")
+	}
+
+	// Should contain the options prompt but NOT the supervisor prompt
+	if !strings.Contains(systemPrompt, "numbered or lettered choices") {
+		t.Error("system prompt should contain OptionsSystemPrompt content")
+	}
+	if strings.Contains(systemPrompt, "orchestrator session") {
+		t.Error("non-supervisor session should NOT contain SupervisorSystemPrompt content")
+	}
+}
+
+func TestBuildCommandArgs_Containerized_Supervisor(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:      "container-supervisor",
+		WorkingDir:     "/tmp/worktree",
+		SessionStarted: false,
+		MCPConfigPath:  "/tmp/mcp.json",
+		Containerized:  true,
+		ContainerImage: "my-image",
+		Supervisor:     true,
+	}
+
+	args := BuildCommandArgs(config)
+
+	systemPrompt := getArgValue(args, "--append-system-prompt")
+	if systemPrompt == "" {
+		t.Fatal("expected --append-system-prompt to be set")
+	}
+
+	// Containerized supervisor should also get the supervisor prompt
+	if !strings.Contains(systemPrompt, "orchestrator session") {
+		t.Error("containerized supervisor should contain SupervisorSystemPrompt content")
+	}
+	if !strings.Contains(systemPrompt, "DELEGATION STRATEGY") {
+		t.Error("system prompt should contain delegation strategy")
 	}
 }
