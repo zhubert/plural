@@ -917,6 +917,28 @@ func detectTerminalApp() string {
 	}
 }
 
+// linuxTerminal represents a terminal emulator with its launch arguments.
+type linuxTerminal struct {
+	name string
+	args []string
+}
+
+// prependDetectedTerminal checks TERM_PROGRAM and prepends a matching terminal
+// entry to the list if found. detectedArgs maps lowercase TERM_PROGRAM values
+// to linuxTerminal entries with their specific launch arguments.
+func prependDetectedTerminal(terminals []linuxTerminal, detectedArgs map[string]linuxTerminal) []linuxTerminal {
+	termProgram := os.Getenv("TERM_PROGRAM")
+	if termProgram == "" {
+		return terminals
+	}
+	if detected, ok := detectedArgs[strings.ToLower(termProgram)]; ok {
+		log := logger.WithComponent("Shortcut")
+		log.Debug("prepending detected terminal from TERM_PROGRAM", "terminal", detected.name)
+		return append([]linuxTerminal{detected}, terminals...)
+	}
+	return terminals
+}
+
 // openTerminalForSession returns a command that opens a terminal for the given session.
 // If the session is containerized, it opens an interactive shell inside the container.
 // Otherwise, it opens a terminal window at the worktree path.
@@ -1003,52 +1025,19 @@ end tell`, termApp, escapedContainer)
 		case "linux":
 			// Linux: try common terminal emulators with docker exec command
 			containerCmd := fmt.Sprintf("docker exec -it %s /bin/sh", containerName)
-			terminals := []struct {
-				name string
-				args []string
-			}{
+			terminals := []linuxTerminal{
 				{"gnome-terminal", []string{"--", "sh", "-c", containerCmd}},
 				{"konsole", []string{"-e", containerCmd}},
 				{"xfce4-terminal", []string{"-e", containerCmd}},
 				{"xterm", []string{"-e", containerCmd}},
 			}
 
-			// If TERM_PROGRAM is set, try to use that terminal first
-			if termProgram := os.Getenv("TERM_PROGRAM"); termProgram != "" {
-				var detected struct {
-					name string
-					args []string
-				}
-				switch strings.ToLower(termProgram) {
-				case "ghostty":
-					detected = struct {
-						name string
-						args []string
-					}{"ghostty", []string{"-e", "sh", "-c", containerCmd}}
-				case "kitty":
-					detected = struct {
-						name string
-						args []string
-					}{"kitty", []string{"--single-instance", "sh", "-c", containerCmd}}
-				case "wezterm":
-					detected = struct {
-						name string
-						args []string
-					}{"wezterm", []string{"cli", "spawn", "--new-window", "--", "sh", "-c", containerCmd}}
-				case "alacritty":
-					detected = struct {
-						name string
-						args []string
-					}{"alacritty", []string{"-e", "sh", "-c", containerCmd}}
-				}
-				if detected.name != "" {
-					log.Debug("prepending detected terminal from TERM_PROGRAM", "terminal", detected.name)
-					terminals = append([]struct {
-						name string
-						args []string
-					}{detected}, terminals...)
-				}
-			}
+			terminals = prependDetectedTerminal(terminals, map[string]linuxTerminal{
+				"ghostty":   {"ghostty", []string{"-e", "sh", "-c", containerCmd}},
+				"kitty":     {"kitty", []string{"--single-instance", "sh", "-c", containerCmd}},
+				"wezterm":   {"wezterm", []string{"cli", "spawn", "--new-window", "--", "sh", "-c", containerCmd}},
+				"alacritty": {"alacritty", []string{"-e", "sh", "-c", containerCmd}},
+			})
 
 			var cmd *exec.Cmd
 			for _, term := range terminals {
@@ -1125,52 +1114,19 @@ end tell`, termApp, escapedPath)
 
 		case "linux":
 			// Linux: try common terminal emulators in order of preference
-			terminals := []struct {
-				name string
-				args []string
-			}{
+			terminals := []linuxTerminal{
 				{"gnome-terminal", []string{"--working-directory=" + path}},
 				{"konsole", []string{"--workdir", path}},
 				{"xfce4-terminal", []string{"--working-directory=" + path}},
 				{"xterm", []string{"-e", fmt.Sprintf("cd %q && $SHELL", path)}},
 			}
 
-			// If TERM_PROGRAM is set, try to use that terminal first
-			if termProgram := os.Getenv("TERM_PROGRAM"); termProgram != "" {
-				var detected struct {
-					name string
-					args []string
-				}
-				switch strings.ToLower(termProgram) {
-				case "ghostty":
-					detected = struct {
-						name string
-						args []string
-					}{"ghostty", []string{"-e", fmt.Sprintf("cd %q && exec $SHELL", path)}}
-				case "kitty":
-					detected = struct {
-						name string
-						args []string
-					}{"kitty", []string{"--single-instance", "--directory", path}}
-				case "wezterm":
-					detected = struct {
-						name string
-						args []string
-					}{"wezterm", []string{"cli", "spawn", "--new-window", "--cwd", path}}
-				case "alacritty":
-					detected = struct {
-						name string
-						args []string
-					}{"alacritty", []string{"--working-directory", path}}
-				}
-				if detected.name != "" {
-					log.Debug("prepending detected terminal from TERM_PROGRAM", "terminal", detected.name)
-					terminals = append([]struct {
-						name string
-						args []string
-					}{detected}, terminals...)
-				}
-			}
+			terminals = prependDetectedTerminal(terminals, map[string]linuxTerminal{
+				"ghostty":   {"ghostty", []string{"-e", fmt.Sprintf("cd %q && exec $SHELL", path)}},
+				"kitty":     {"kitty", []string{"--single-instance", "--directory", path}},
+				"wezterm":   {"wezterm", []string{"cli", "spawn", "--new-window", "--cwd", path}},
+				"alacritty": {"alacritty", []string{"--working-directory", path}},
+			})
 
 			var cmd *exec.Cmd
 			for _, term := range terminals {

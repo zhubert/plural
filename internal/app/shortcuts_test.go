@@ -1,7 +1,6 @@
 package app
 
 import (
-	"os"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -1180,9 +1179,7 @@ func TestDetectTerminalApp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			original := os.Getenv("TERM_PROGRAM")
-			os.Setenv("TERM_PROGRAM", tt.envValue)
-			defer os.Setenv("TERM_PROGRAM", original)
+			t.Setenv("TERM_PROGRAM", tt.envValue)
 
 			result := detectTerminalApp()
 			if result != tt.expected {
