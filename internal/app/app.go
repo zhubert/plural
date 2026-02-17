@@ -278,6 +278,9 @@ func New(cfg *config.Config, version string) *Model {
 		windowFocused:  true, // Assume window is focused on startup
 	}
 
+	// Configure footer to use shortcut registry for dynamic bindings
+	m.footer.SetBindingsGenerator(m.getApplicableFooterBindings)
+
 	// Load repos and sessions into sidebar (filtered by active workspace)
 	m.sidebar.SetRepos(cfg.GetRepos())
 	m.sidebar.SetSessions(m.getFilteredSessions())

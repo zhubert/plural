@@ -381,6 +381,60 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
+// getApplicableFooterBindings generates footer key bindings from shortcuts that are
+// applicable in the current application state. Returns a minimal set of the most
+// relevant shortcuts for display in the limited footer space.
+func (m *Model) getApplicableFooterBindings() []ui.KeyBinding {
+	var bindings []ui.KeyBinding
+
+	// Priority order for footer display (most important first)
+	priorityKeys := []string{
+		keys.Tab,      // Navigation
+		"n",           // New session
+		"a",           // Add repo
+		"v",           // View changes
+		"m",           // Merge/PR
+		"f",           // Fork
+		"d",           // Delete
+		"i",           // Import issues
+		keys.CtrlE,    // Open terminal
+		keys.CtrlB,    // Broadcast
+		",",           // Repo settings
+		keys.AltComma, // Global settings
+		"q",           // Quit
+		"?",           // Help
+	}
+
+	// Build a map of applicable shortcuts
+	applicableMap := make(map[string]Shortcut)
+	for _, s := range ShortcutRegistry {
+		if m.isShortcutApplicable(s) {
+			applicableMap[s.Key] = s
+		}
+	}
+
+	// Add help shortcut if applicable (defined separately to avoid init cycle)
+	if m.isShortcutApplicable(helpShortcut) {
+		applicableMap[helpShortcut.Key] = helpShortcut
+	}
+
+	// Build footer bindings in priority order
+	for _, key := range priorityKeys {
+		if shortcut, ok := applicableMap[key]; ok {
+			displayKey := shortcut.DisplayKey
+			if displayKey == "" {
+				displayKey = shortcut.Key
+			}
+			bindings = append(bindings, ui.KeyBinding{
+				Key:  displayKey,
+				Desc: shortcut.Description,
+			})
+		}
+	}
+
+	return bindings
+}
+
 // getApplicableHelpSections generates help modal sections from shortcuts that are
 // applicable in the current application state. This filters out shortcuts whose
 // guards (RequiresSidebar, RequiresSession, Condition) would fail.

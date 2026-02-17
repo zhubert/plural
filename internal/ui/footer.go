@@ -53,7 +53,6 @@ type KeyBinding struct {
 // Footer represents the bottom footer bar with keybindings
 type Footer struct {
 	width              int
-	bindings           []KeyBinding
 	hasSession         bool          // Whether a session is selected
 	sidebarFocused     bool          // Whether sidebar has focus
 	pendingPermission  bool          // Whether chat has a pending permission prompt
@@ -65,23 +64,14 @@ type Footer struct {
 	hasDetectedOptions bool          // Whether chat has detected options for parallel exploration
 	kittyKeyboard      bool          // Terminal supports Kitty keyboard protocol
 	flashMessage       *FlashMessage // Current flash message, if any
+
+	// Dynamic bindings generator (injected from app)
+	getApplicableBindings func() []KeyBinding
 }
 
 // NewFooter creates a new footer
 func NewFooter() *Footer {
-	return &Footer{
-		bindings: []KeyBinding{
-			{Key: "tab", Desc: "switch pane"},
-			{Key: "n", Desc: "new session"},
-			{Key: "a", Desc: "add repo"},
-			{Key: "v", Desc: "view changes"},
-			{Key: "m", Desc: "merge/pr"},
-			{Key: "f", Desc: "fork"},
-			{Key: "d", Desc: "delete"},
-			{Key: "q", Desc: "quit"},
-			{Key: "?", Desc: "help"},
-		},
-	}
+	return &Footer{}
 }
 
 // SetContext updates the footer's context for conditional bindings
@@ -103,9 +93,17 @@ func (f *Footer) SetWidth(width int) {
 	f.width = width
 }
 
-// SetBindings allows custom keybindings
-func (f *Footer) SetBindings(bindings []KeyBinding) {
-	f.bindings = bindings
+// SetBindingsGenerator injects the function to generate applicable bindings dynamically
+func (f *Footer) SetBindingsGenerator(fn func() []KeyBinding) {
+	f.getApplicableBindings = fn
+}
+
+// GetApplicableBindings returns the current bindings (for testing)
+func (f *Footer) GetApplicableBindings() []KeyBinding {
+	if f.getApplicableBindings == nil {
+		return nil
+	}
+	return f.getApplicableBindings()
 }
 
 // SetFlash sets a flash message to display in the footer
@@ -326,33 +324,16 @@ func (f *Footer) View() string {
 			parts = append(parts, key+desc)
 		}
 	} else {
-		for _, b := range f.bindings {
-			// Skip "?" here - it will be added at the end when sidebar is focused
-			if b.Key == "?" {
-				continue
-			}
-			// Skip tab when no session (can't switch to chat without one)
-			if b.Key == "tab" && !f.hasSession {
-				continue
-			}
-			// Skip sidebar-only bindings when chat is focused
-			if (b.Key == "n" || b.Key == "a" || b.Key == "v" || b.Key == "m" || b.Key == "f" || b.Key == "d" || b.Key == "q") && !f.sidebarFocused {
-				continue
-			}
-			// Skip session-specific bindings when no session selected
-			if (b.Key == "v" || b.Key == "m" || b.Key == "f" || b.Key == "d") && !f.hasSession {
-				continue
-			}
+		// Get applicable bindings from the dynamic generator (uses shortcut registry)
+		var bindings []KeyBinding
+		if f.getApplicableBindings != nil {
+			bindings = f.getApplicableBindings()
+		}
 
+		for _, b := range bindings {
 			key := FooterKeyStyle.Render(b.Key)
 			desc := FooterDescStyle.Render(": " + b.Desc)
 			parts = append(parts, key+desc)
-		}
-		// Add "?" at the end only when sidebar is focused (can't trigger from chat textarea)
-		if f.sidebarFocused {
-			helpKey := FooterKeyStyle.Render("?")
-			helpDesc := FooterDescStyle.Render(": help")
-			parts = append(parts, helpKey+helpDesc)
 		}
 	}
 

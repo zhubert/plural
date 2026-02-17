@@ -13,10 +13,6 @@ func TestNewFooter(t *testing.T) {
 		t.Fatal("NewFooter() returned nil")
 	}
 
-	if len(footer.bindings) == 0 {
-		t.Error("Expected default bindings to be set")
-	}
-
 	if footer.flashMessage != nil {
 		t.Error("Expected no flash message initially")
 	}
@@ -158,6 +154,14 @@ func TestFooter_View_WithFlash(t *testing.T) {
 	footer := NewFooter()
 	footer.SetWidth(80)
 
+	// Set a mock bindings generator
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{
+			{Key: "n", Desc: "new session"},
+			{Key: "q", Desc: "quit"},
+		}
+	})
+
 	// Without flash, should show keybindings
 	viewWithoutFlash := footer.View()
 	if strings.Contains(viewWithoutFlash, "Test error") {
@@ -216,6 +220,14 @@ func TestFooter_MultiSelectMode(t *testing.T) {
 	footer := NewFooter()
 	footer.SetWidth(120)
 
+	// Set a mock bindings generator
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{
+			{Key: "n", Desc: "new session"},
+			{Key: "q", Desc: "quit"},
+		}
+	})
+
 	// Default view should not show multi-select bindings
 	footer.SetContext(true, true, false, false, false, false, false, false, false, false)
 	defaultView := footer.View()
@@ -250,6 +262,13 @@ func TestFooter_MultiSelectMode_FlashTakesPriority(t *testing.T) {
 	footer := NewFooter()
 	footer.SetWidth(120)
 
+	// Set a mock bindings generator
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{
+			{Key: "n", Desc: "new session"},
+		}
+	})
+
 	// Flash message should take priority over multi-select bindings
 	footer.SetContext(true, true, false, false, false, false, false, true, false, false)
 	footer.SetFlash("Error occurred", FlashError)
@@ -266,6 +285,11 @@ func TestFooter_MultiSelectMode_FlashTakesPriority(t *testing.T) {
 func TestFooter_NewlineShortcutDisplay(t *testing.T) {
 	footer := NewFooter()
 	footer.SetWidth(120)
+
+	// Set a mock bindings generator
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{}
+	})
 
 	// Without kitty keyboard, should show opt+enter
 	footer.SetContext(true, false, false, false, false, false, false, false, false, false)
