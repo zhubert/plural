@@ -23,7 +23,8 @@ go test ./...            # Test
 ./plural help            # Show help
 ./plural clean           # Clear sessions, logs, orphaned worktrees, and containers
 ./plural clean -y        # Clear without confirmation prompt
-./plural --debug         # Enable debug logging
+./plural --debug         # Enable debug logging (on by default)
+./plural -q              # Quiet mode (info level only)
 ./plural --version       # Show version
 ```
 

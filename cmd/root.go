@@ -13,6 +13,7 @@ import (
 
 var (
 	debugMode             bool
+	quietMode             bool
 	version, commit, date string
 )
 
@@ -34,11 +35,14 @@ on the same codebase.`,
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "Enable debug logging (verbose output to logs directory)")
+	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", true, "Enable debug logging (on by default)")
+	rootCmd.PersistentFlags().BoolVarP(&quietMode, "quiet", "q", false, "Reduce logging to info level only")
 }
 
 func initConfig() {
-	if debugMode {
+	if quietMode {
+		logger.SetDebug(false)
+	} else if debugMode {
 		logger.SetDebug(true)
 	}
 }
