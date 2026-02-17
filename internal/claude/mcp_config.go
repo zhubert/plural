@@ -10,11 +10,6 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
-// ContainerGatewayIP is the hostname of the host as seen from inside a Docker
-// container. Docker Desktop and Colima (v0.5.0+) provide this automatically;
-// on Linux Docker Engine, the --add-host flag maps it to the host gateway.
-const ContainerGatewayIP = "host.docker.internal"
-
 // MCPServer represents an external MCP server configuration
 type MCPServer struct {
 	Name    string
@@ -25,9 +20,9 @@ type MCPServer struct {
 // ensureServerRunning starts the socket server and creates MCP config if not already running.
 // This makes the MCP server persistent across multiple Send() calls within a session.
 //
-// For containerized sessions, the server listens on TCP instead of a Unix socket because
-// Unix sockets can't reliably cross the Docker container boundary. The MCP subprocess
-// inside the container connects back to the host via TCP using host.docker.internal.
+// For containerized sessions, the TCP direction is reversed: the MCP subprocess inside the
+// container listens on a port, Docker publishes it, and the host dials in. This avoids
+// macOS firewall issues that block inbound connections to the host.
 func (r *Runner) ensureServerRunning() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -62,9 +57,10 @@ func (r *Runner) ensureServerRunning() error {
 	}
 
 	if r.containerized {
-		// Container sessions use TCP because Unix sockets don't work across
-		// the Docker container boundary.
-		socketServer, err = mcp.NewTCPSocketServer(r.sessionID,
+		// Container sessions use a dialing server: the MCP subprocess inside the
+		// container listens on a port, and the host dials in. This reverses the TCP
+		// direction so that macOS firewall rules don't block the connection.
+		socketServer = mcp.NewDialingSocketServer(r.sessionID,
 			r.mcp.Permission.Req, r.mcp.Permission.Resp,
 			r.mcp.Question.Req, r.mcp.Question.Resp,
 			r.mcp.PlanApproval.Req, r.mcp.PlanApproval.Resp, socketOpts...)
@@ -81,15 +77,18 @@ func (r *Runner) ensureServerRunning() error {
 	r.socketServer = socketServer
 	r.log.Debug("socket server created", "elapsed", time.Since(startTime))
 
-	// Start socket server in background (Start() calls wg.Add before launching goroutine)
-	r.socketServer.Start()
+	// Start socket server in background for non-container sessions.
+	// Container sessions use a dialing server with no accept loop — the host
+	// dials into the container and passes the connection via HandleConn().
+	if !r.containerized {
+		r.socketServer.Start()
+	}
 
 	// Create MCP config file — different config for containerized vs host sessions.
-	// Container config uses TCP address; host config uses Unix socket path.
+	// Container config uses --listen with a fixed port; host config uses Unix socket path.
 	var mcpConfigPath string
 	if r.containerized {
-		tcpAddr := fmt.Sprintf("%s:%d", ContainerGatewayIP, r.socketServer.TCPPort())
-		mcpConfigPath, err = r.createContainerMCPConfigLocked(tcpAddr)
+		mcpConfigPath, err = r.createContainerMCPConfigLocked(mcp.ContainerMCPPort)
 	} else {
 		mcpConfigPath, err = r.createMCPConfigLocked(r.socketServer.SocketPath())
 	}
@@ -103,9 +102,9 @@ func (r *Runner) ensureServerRunning() error {
 
 	r.serverRunning = true
 	if r.containerized {
-		r.log.Info("persistent MCP server started (TCP)",
+		r.log.Info("persistent MCP server started (dialing, reverse TCP)",
 			"elapsed", time.Since(startTime),
-			"tcpAddr", r.socketServer.TCPAddr(),
+			"containerPort", mcp.ContainerMCPPort,
 			"config", r.mcpConfigPath)
 	} else {
 		r.log.Info("persistent MCP server started",
@@ -166,11 +165,13 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 
 // createContainerMCPConfigLocked creates the MCP config for containerized sessions.
 // The config points to the plural binary inside the container at /usr/local/bin/plural
-// with --auto-approve and --tcp, which auto-approves all regular permissions while
-// routing AskUserQuestion and ExitPlanMode through the TUI via TCP.
+// with --auto-approve and --listen, which auto-approves all regular permissions while
+// routing AskUserQuestion and ExitPlanMode through the TUI via reverse TCP.
+// The MCP subprocess listens on containerPort and the host dials in.
 // Must be called with mu held.
-func (r *Runner) createContainerMCPConfigLocked(tcpAddr string) (string, error) {
-	args := []string{"mcp-server", "--tcp", tcpAddr, "--auto-approve", "--session-id", r.sessionID}
+func (r *Runner) createContainerMCPConfigLocked(containerPort int) (string, error) {
+	listenAddr := fmt.Sprintf("0.0.0.0:%d", containerPort)
+	args := []string{"mcp-server", "--listen", listenAddr, "--auto-approve", "--session-id", r.sessionID}
 	if r.supervisor {
 		args = append(args, "--supervisor")
 	}

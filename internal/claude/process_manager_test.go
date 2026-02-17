@@ -1182,19 +1182,9 @@ func TestBuildContainerRunArgs(t *testing.T) {
 		t.Error("Should have --rm flag for auto-cleanup")
 	}
 
-	// Verify --add-host for host.docker.internal (Linux only; on macOS/Windows,
-	// Docker Desktop and Colima provide native resolution)
-	if runtime.GOOS == "linux" {
-		if !containsArg(args, "--add-host") {
-			t.Error("Should have --add-host flag for host.docker.internal on Linux")
-		}
-		if got := getArgValue(args, "--add-host"); got != "host.docker.internal:host-gateway" {
-			t.Errorf("--add-host = %q, want 'host.docker.internal:host-gateway'", got)
-		}
-	} else {
-		if containsArg(args, "--add-host") {
-			t.Error("Should not have --add-host flag on macOS/Windows (native resolution)")
-		}
+	// No --add-host needed (reverse TCP direction, no host.docker.internal required)
+	if containsArg(args, "--add-host") {
+		t.Error("Should not have --add-host flag (reverse TCP direction)")
 	}
 
 	// Verify container name
@@ -1683,6 +1673,49 @@ func TestBuildContainerRunArgs_NoMountsWithoutPaths(t *testing.T) {
 		if strings.Contains(arg, "plural-mcp-test-no-mount.json") {
 			t.Error("Should not mount MCP config when MCPConfigPath is empty")
 		}
+	}
+}
+
+func TestBuildContainerRunArgs_PublishesContainerMCPPort(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:        "test-mcp-port",
+		WorkingDir:       "/path/to/worktree",
+		ContainerImage:   "plural-claude",
+		ContainerMCPPort: 21120,
+	}
+
+	result, err := buildContainerRunArgs(config, []string{"--print"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
+	args := result.Args
+
+	// Verify -p 0:21120 is present
+	if !containsArg(args, "-p") {
+		t.Error("Should have -p flag for port publishing")
+	}
+	if got := getArgValue(args, "-p"); got != "0:21120" {
+		t.Errorf("-p value = %q, want '0:21120'", got)
+	}
+}
+
+func TestBuildContainerRunArgs_NoPortWithoutContainerMCPPort(t *testing.T) {
+	config := ProcessConfig{
+		SessionID:        "test-no-port",
+		WorkingDir:       "/path/to/worktree",
+		ContainerImage:   "plural-claude",
+		ContainerMCPPort: 0, // No port
+	}
+
+	result, err := buildContainerRunArgs(config, []string{"--print"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
+	args := result.Args
+
+	// Should NOT have -p flag
+	if containsArg(args, "-p") {
+		t.Error("Should not have -p flag when ContainerMCPPort is 0")
 	}
 }
 

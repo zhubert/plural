@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"bufio"
 	"encoding/json"
+	"net"
 	"testing"
 	"time"
 )
@@ -784,6 +786,209 @@ func TestSocketMessage_HostToolMessageTypes(t *testing.T) {
 	}
 	if MessageTypePushBranch != "pushBranch" {
 		t.Errorf("MessageTypePushBranch = %q, want 'pushBranch'", MessageTypePushBranch)
+	}
+}
+
+func TestContainerMCPPort(t *testing.T) {
+	if ContainerMCPPort != 21120 {
+		t.Errorf("ContainerMCPPort = %d, want 21120", ContainerMCPPort)
+	}
+}
+
+func TestNewDialingSocketServer(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server := NewDialingSocketServer("test-dialing", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+
+	// Server should be immediately ready (no accept loop)
+	select {
+	case <-server.readyCh:
+		// expected
+	default:
+		t.Error("readyCh should be closed immediately for dialing servers")
+	}
+
+	// SocketPath and TCPAddr should be empty
+	if path := server.SocketPath(); path != "" {
+		t.Errorf("SocketPath() = %q, want empty for dialing server", path)
+	}
+	if addr := server.TCPAddr(); addr != "" {
+		t.Errorf("TCPAddr() = %q, want empty for dialing server", addr)
+	}
+	if port := server.TCPPort(); port != 0 {
+		t.Errorf("TCPPort() = %d, want 0 for dialing server", port)
+	}
+
+	// Close should succeed (nil listener)
+	if err := server.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+}
+
+func TestDialingSocketServer_HandleConn(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server := NewDialingSocketServer("test-handleconn", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	defer server.Close()
+
+	// Use net.Pipe for an in-memory bidirectional connection
+	clientConn, serverConn := net.Pipe()
+
+	// Handle the server-side connection in a goroutine (blocks until closed)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.HandleConn(serverConn)
+	}()
+
+	// Simulate a client sending a permission request
+	go func() {
+		select {
+		case req := <-permReqCh:
+			permRespCh <- PermissionResponse{
+				ID:      req.ID,
+				Allowed: true,
+				Message: "Approved via HandleConn",
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for permission request")
+		}
+	}()
+
+	// Create a temporary SocketClient wrapping the client side of the pipe
+	client := &SocketClient{
+		conn:   clientConn,
+		reader: bufio.NewReader(clientConn),
+	}
+
+	resp, err := client.SendPermissionRequest(PermissionRequest{
+		ID:   "handleconn-perm-1",
+		Tool: "Read",
+	})
+	if err != nil {
+		t.Fatalf("SendPermissionRequest failed: %v", err)
+	}
+
+	if resp.ID != "handleconn-perm-1" {
+		t.Errorf("Response ID = %q, want 'handleconn-perm-1'", resp.ID)
+	}
+	if !resp.Allowed {
+		t.Error("Expected Allowed to be true")
+	}
+	if resp.Message != "Approved via HandleConn" {
+		t.Errorf("Message = %q, want 'Approved via HandleConn'", resp.Message)
+	}
+
+	// Close the client connection to unblock HandleConn
+	clientConn.Close()
+
+	select {
+	case <-done:
+		// HandleConn returned
+	case <-time.After(5 * time.Second):
+		t.Error("HandleConn did not return after connection closed")
+	}
+}
+
+func TestDialingSocketServer_CloseClosesActiveConn(t *testing.T) {
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server := NewDialingSocketServer("test-close-activeconn", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+
+	_, serverConn := net.Pipe()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.HandleConn(serverConn)
+	}()
+
+	// Give HandleConn a moment to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Closing the server should close the active connection and unblock HandleConn
+	server.Close()
+
+	select {
+	case <-done:
+		// HandleConn returned after Close()
+	case <-time.After(5 * time.Second):
+		t.Error("HandleConn did not return after server.Close()")
+	}
+}
+
+func TestNewListeningSocketClient(t *testing.T) {
+	// Start a listener, then have a goroutine connect to it
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // Close so NewListeningSocketClient can bind
+
+	clientDone := make(chan struct{})
+	var client *SocketClient
+	var clientErr error
+	go func() {
+		defer close(clientDone)
+		client, clientErr = NewListeningSocketClient(addr)
+	}()
+
+	// Give the listening client a moment to start listening
+	time.Sleep(100 * time.Millisecond)
+
+	// Connect from the host side
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Wait for client to accept
+	select {
+	case <-clientDone:
+		if clientErr != nil {
+			t.Fatalf("NewListeningSocketClient error: %v", clientErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("NewListeningSocketClient did not return")
+	}
+
+	if client == nil {
+		t.Fatal("Client is nil")
+	}
+	defer client.Close()
+
+	// Verify communication works: send a message from "host" to "container client"
+	// We'll just verify the connection is established by writing/reading
+	testMsg := `{"type":"permission","permResp":{"id":"test","allowed":true}}` + "\n"
+	_, err = conn.Write([]byte(testMsg))
+	if err != nil {
+		t.Fatalf("Write to client failed: %v", err)
+	}
+
+	// Read the message on the client side
+	line, err := client.reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("Client read failed: %v", err)
+	}
+	if line != testMsg {
+		t.Errorf("Client received = %q, want %q", line, testMsg)
 	}
 }
 

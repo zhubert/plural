@@ -15,6 +15,7 @@ import (
 
 var socketPath string
 var tcpAddr string
+var listenAddr string
 var autoApprove bool
 var mcpSessionID string
 var mcpSupervisor bool
@@ -30,6 +31,7 @@ var mcpServerCmd = &cobra.Command{
 func init() {
 	mcpServerCmd.Flags().StringVar(&socketPath, "socket", "", "Unix socket path for TUI communication")
 	mcpServerCmd.Flags().StringVar(&tcpAddr, "tcp", "", "TCP address for TUI communication (host:port)")
+	mcpServerCmd.Flags().StringVar(&listenAddr, "listen", "", "Listen on TCP address and wait for host to connect (host:port)")
 	mcpServerCmd.Flags().BoolVar(&autoApprove, "auto-approve", false, "Auto-approve all tool permissions (used in container mode)")
 	mcpServerCmd.Flags().StringVar(&mcpSessionID, "session-id", "", "Session ID for logging")
 	mcpServerCmd.Flags().BoolVar(&mcpSupervisor, "supervisor", false, "Enable supervisor tools (create/list/merge child sessions)")
@@ -52,13 +54,25 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}
 	defer logger.Close()
 
-	// Connect to TUI — via TCP (container mode) or Unix socket (host mode).
+	// Connect to TUI — via listen (container reverse-TCP mode), TCP (legacy), or Unix socket (host mode).
+	//
+	// In --listen mode (container sessions), the MCP subprocess listens on a port inside the
+	// container and waits for the host to dial in. This reverses the TCP direction so that
+	// macOS firewall rules (which block inbound connections to the host) are bypassed.
+	//
+	// In --tcp mode (legacy), the subprocess connects outward to the host.
 	// TCP connections retry because the container's network stack may not be ready
 	// immediately on boot. Without retries, the MCP subprocess exits, causing
 	// Claude CLI to exit, and the user's first prompt is lost.
 	var client *mcp.SocketClient
 	var err error
-	if tcpAddr != "" {
+	if listenAddr != "" {
+		// Reverse TCP: listen and wait for the host to connect
+		client, err = mcp.NewListeningSocketClient(listenAddr)
+		if err != nil {
+			return fmt.Errorf("error listening for TUI connection on %s: %w", listenAddr, err)
+		}
+	} else if tcpAddr != "" {
 		const maxRetries = 10
 		const retryInterval = 500 * time.Millisecond
 		for i := range maxRetries {
@@ -80,7 +94,7 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("error connecting to TUI socket: %w", err)
 		}
 	} else {
-		return fmt.Errorf("either --socket or --tcp must be specified")
+		return fmt.Errorf("either --socket, --tcp, or --listen must be specified")
 	}
 	defer client.Close()
 

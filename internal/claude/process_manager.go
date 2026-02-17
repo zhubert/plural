@@ -74,6 +74,7 @@ type ProcessConfig struct {
 	ForkFromSessionID      string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
 	Containerized          bool   // When true, wraps Claude CLI in a container
 	ContainerImage         string // Container image name (e.g., "ghcr.io/zhubert/plural-claude")
+	ContainerMCPPort       int    // Port the MCP subprocess listens on inside the container (published via -p 0:port)
 	Supervisor             bool   // When true, appends supervisor instructions to system prompt
 	DisableStreamingChunks bool   // When true, omits --include-partial-messages for less verbose output (useful for agent mode)
 }
@@ -1005,14 +1006,11 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 		"-w", "/workspace",
 	}
 
-	// On Linux, explicitly map host.docker.internal to the host gateway IP.
-	// On macOS/Windows, Docker Desktop and Colima both provide native
-	// host.docker.internal resolution. Passing --add-host here would override
-	// Colima's correct mapping (which points to the macOS host) with the Docker
-	// bridge gateway (which points to the Lima VM), breaking container→host
-	// communication.
-	if runtime.GOOS == "linux" {
-		args = append(args, "--add-host", "host.docker.internal:host-gateway")
+	// Publish the container MCP port so the host can dial in.
+	// -p 0:<port> maps an ephemeral host port to the fixed container port.
+	// The host discovers the mapped port via `docker port`.
+	if config.ContainerMCPPort > 0 {
+		args = append(args, "-p", fmt.Sprintf("0:%d", config.ContainerMCPPort))
 	}
 
 	// Pass auth credentials via --env-file.
@@ -1032,8 +1030,8 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 	}
 
 	// Mount MCP config for AskUserQuestion/ExitPlanMode support.
-	// The MCP subprocess inside the container connects to the host via TCP
-	// (Unix sockets don't work across the Docker container boundary).
+	// The MCP subprocess inside the container listens on a port and the host
+	// dials in (reverse TCP direction to avoid macOS firewall issues).
 	if config.MCPConfigPath != "" {
 		args = append(args, "-v", config.MCPConfigPath+":"+containerMCPConfigPath+":ro")
 	}

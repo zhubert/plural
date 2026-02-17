@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -845,6 +847,12 @@ func (r *Runner) ensureProcessRunning() error {
 	// After an interrupt or crash, the old ProcessManager's goroutines (readOutput,
 	// drainStderr, monitorExit) may still be winding down. Reusing it would cause
 	// race conditions between old and new goroutines competing for pipes and locks.
+	// Set ContainerMCPPort for container sessions so docker publishes the port
+	var containerMCPPort int
+	if r.containerized && r.socketServer != nil {
+		containerMCPPort = mcp.ContainerMCPPort
+	}
+
 	config := ProcessConfig{
 		SessionID:              r.sessionID,
 		WorkingDir:             r.workingDir,
@@ -855,6 +863,7 @@ func (r *Runner) ensureProcessRunning() error {
 		ForkFromSessionID:      r.forkFromSessionID,
 		Containerized:          r.containerized,
 		ContainerImage:         r.containerImage,
+		ContainerMCPPort:       containerMCPPort,
 		Supervisor:             r.supervisor,
 		DisableStreamingChunks: r.disableStreamingChunks,
 	}
@@ -870,9 +879,21 @@ func (r *Runner) ensureProcessRunning() error {
 		config.SessionStarted = false
 		config.ForkFromSessionID = ""
 		r.processManager = NewProcessManager(config, r.createProcessCallbacks(), r.log)
-		return r.processManager.Start()
+		err = r.processManager.Start()
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
 	}
-	return err
+
+	// For container sessions, launch a goroutine that discovers the published
+	// MCP port and dials into the container to establish the IPC connection.
+	if r.containerized && r.socketServer != nil {
+		go r.connectToContainerMCP()
+	}
+
+	return nil
 }
 
 // createProcessCallbacks creates the callbacks for ProcessManager events.
@@ -1401,6 +1422,102 @@ func (r *Runner) handleContainerReady() {
 
 	if callback != nil {
 		callback()
+	}
+}
+
+// connectToContainerMCP discovers the host-mapped port for the container's MCP
+// listener and dials into it, passing the connection to the socket server.
+// This runs as a goroutine after the container process starts.
+func (r *Runner) connectToContainerMCP() {
+	r.mu.RLock()
+	sessionID := r.sessionID
+	port := mcp.ContainerMCPPort
+	r.mu.RUnlock()
+
+	containerName := "plural-" + sessionID
+	portSpec := fmt.Sprintf("%d/tcp", port)
+
+	const maxAttempts = 30
+	const retryInterval = 1 * time.Second
+	const dialTimeout = 5 * time.Second
+
+	// Step 1: Discover the host-mapped port via `docker port`
+	var hostPort string
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Check if runner has been stopped
+		r.mu.RLock()
+		stopped := r.stopped
+		r.mu.RUnlock()
+		if stopped {
+			r.log.Debug("connectToContainerMCP: runner stopped, aborting")
+			return
+		}
+
+		out, err := exec.Command("docker", "port", containerName, portSpec).Output()
+		if err == nil {
+			// Output looks like "0.0.0.0:49153\n" or ":::49153\n"
+			line := strings.TrimSpace(string(out))
+			// Take the first line (may have both IPv4 and IPv6)
+			if idx := strings.Index(line, "\n"); idx >= 0 {
+				line = line[:idx]
+			}
+			// Extract the port after the last colon
+			if idx := strings.LastIndex(line, ":"); idx >= 0 {
+				hostPort = line[idx+1:]
+			}
+			if hostPort != "" {
+				r.log.Info("discovered container MCP port", "hostPort", hostPort, "attempt", attempt)
+				break
+			}
+		}
+
+		if attempt < maxAttempts {
+			r.log.Debug("docker port not ready, retrying", "attempt", attempt, "error", err)
+			time.Sleep(retryInterval)
+		}
+	}
+
+	if hostPort == "" {
+		r.log.Error("failed to discover container MCP port after retries", "maxAttempts", maxAttempts)
+		return
+	}
+
+	// Step 2: Dial the container's published port
+	addr := "localhost:" + hostPort
+	var conn net.Conn
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		r.mu.RLock()
+		stopped := r.stopped
+		r.mu.RUnlock()
+		if stopped {
+			r.log.Debug("connectToContainerMCP: runner stopped before dial, aborting")
+			return
+		}
+
+		var err error
+		conn, err = net.DialTimeout("tcp", addr, dialTimeout)
+		if err == nil {
+			r.log.Info("connected to container MCP", "addr", addr, "attempt", attempt)
+			break
+		}
+
+		if attempt < maxAttempts {
+			r.log.Debug("dial to container MCP failed, retrying", "addr", addr, "attempt", attempt, "error", err)
+			time.Sleep(retryInterval)
+		} else {
+			r.log.Error("failed to connect to container MCP after retries", "addr", addr, "maxAttempts", maxAttempts, "error", err)
+			return
+		}
+	}
+
+	// Step 3: Hand the connection to the socket server (blocks until closed)
+	r.mu.RLock()
+	ss := r.socketServer
+	r.mu.RUnlock()
+	if ss != nil {
+		ss.HandleConn(conn)
+	} else {
+		conn.Close()
 	}
 }
 

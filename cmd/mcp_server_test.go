@@ -80,6 +80,17 @@ func TestChannelCloseUnblocksRange(t *testing.T) {
 	}
 }
 
+func TestMCPServerCmd_ListenFlag(t *testing.T) {
+	// Verify the --listen flag is registered on the mcp-server command
+	flag := mcpServerCmd.Flags().Lookup("listen")
+	if flag == nil {
+		t.Fatal("--listen flag not found on mcp-server command")
+	}
+	if flag.DefValue != "" {
+		t.Errorf("--listen default = %q, want empty", flag.DefValue)
+	}
+}
+
 func TestBufferedResponseChannelUnblocksGoroutine(t *testing.T) {
 	// Regression test: when the server exits while a forwarding goroutine is
 	// mid-send on a response channel, the buffered channel (size 1) ensures

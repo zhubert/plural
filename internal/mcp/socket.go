@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -30,6 +31,12 @@ const (
 	// These operations involve git pushes and GitHub API calls which can take longer
 	// than interactive prompts. Must be >= the 2-minute context timeout in TUI handlers.
 	HostToolResponseTimeout = 5 * time.Minute
+
+	// ContainerMCPPort is the fixed port the MCP subprocess listens on inside the
+	// container. Docker publishes this port to an ephemeral host port via -p 0:21120.
+	// The host then dials into the container, reversing the TCP direction so that
+	// macOS firewall rules (which block inbound connections to the host) are avoided.
+	ContainerMCPPort = 21120
 )
 
 // MessageType identifies the type of socket message
@@ -98,6 +105,8 @@ type SocketServer struct {
 	wg                    sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
 	readyCh               chan struct{}   // Closed when the server is ready to accept connections
 	log                   *slog.Logger   // Logger with session context
+	activeConn            net.Conn       // Active connection (for dialing servers that receive a conn via HandleConn)
+	activeConnMu          sync.Mutex     // Guards activeConn
 }
 
 // NewSocketServer creates a new socket server for the given session
@@ -211,6 +220,49 @@ func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh
 		opt(s)
 	}
 	return s, nil
+}
+
+// NewDialingSocketServer creates a SocketServer without a listener. Instead of
+// accepting connections, the host dials into the container and passes the
+// connection via HandleConn(). Used for container sessions where the MCP
+// subprocess inside the container listens on a port and the host connects to it.
+// readyCh is closed immediately since there's no accept loop to wait for.
+func NewDialingSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse, opts ...SocketServerOption) *SocketServer {
+	log := logger.WithSession(sessionID).With("component", "mcp-socket")
+	log.Info("created dialing socket server (no listener)")
+
+	readyCh := make(chan struct{})
+	close(readyCh) // Ready immediately — no accept loop
+
+	s := &SocketServer{
+		requestCh:  reqCh,
+		responseCh: respCh,
+		questionCh: questCh,
+		answerCh:   ansCh,
+		planReqCh:  planReqCh,
+		planRespCh: planRespCh,
+		readyCh:    readyCh,
+		log:        log,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// HandleConn accepts an externally-established connection and processes messages
+// on it. The connection is stored so Close() can clean it up. This method blocks
+// until the connection is closed or the server is shut down.
+func (s *SocketServer) HandleConn(conn net.Conn) {
+	s.activeConnMu.Lock()
+	s.activeConn = conn
+	s.activeConnMu.Unlock()
+
+	s.handleConnection(conn)
+
+	s.activeConnMu.Lock()
+	s.activeConn = nil
+	s.activeConnMu.Unlock()
 }
 
 // SocketPath returns the path to the socket
@@ -602,8 +654,18 @@ func (s *SocketServer) Close() error {
 	s.closed = true
 	s.closedMu.Unlock()
 
-	// Close listener (this will unblock Accept())
-	err := s.listener.Close()
+	// Close listener (this will unblock Accept()). Dialing servers have no listener.
+	var err error
+	if s.listener != nil {
+		err = s.listener.Close()
+	}
+
+	// Close active connection if present (dialing servers receive a conn via HandleConn)
+	s.activeConnMu.Lock()
+	if s.activeConn != nil {
+		s.activeConn.Close()
+	}
+	s.activeConnMu.Unlock()
 
 	// Wait for the Run() goroutine to finish so we don't remove the socket
 	// file while it's still being used
@@ -646,6 +708,28 @@ func NewTCPSocketClient(addr string) (*SocketClient, error) {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
+	}
+
+	return &SocketClient{
+		conn:   conn,
+		reader: bufio.NewReader(conn),
+	}, nil
+}
+
+// NewListeningSocketClient creates a SocketClient by listening on a TCP address
+// and accepting a single connection. Used inside containers where the MCP
+// subprocess listens on a port and waits for the host to dial in.
+// The listener is closed after accepting the first connection.
+func NewListeningSocketClient(listenAddr string) (*SocketClient, error) {
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", listenAddr, err)
+	}
+
+	conn, err := ln.Accept()
+	ln.Close() // Only need one connection
+	if err != nil {
+		return nil, fmt.Errorf("accept on %s: %w", listenAddr, err)
 	}
 
 	return &SocketClient{

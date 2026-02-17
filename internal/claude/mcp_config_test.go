@@ -12,9 +12,9 @@ func TestCreateContainerMCPConfigLocked(t *testing.T) {
 		log:       pmTestLogger(),
 	}
 
-	// Use a TCP address (what ensureServerRunning passes for container sessions)
-	tcpAddr := "host.docker.internal:12345"
-	configPath, err := r.createContainerMCPConfigLocked(tcpAddr)
+	// Use a container port (what ensureServerRunning passes for container sessions)
+	containerPort := 21120
+	configPath, err := r.createContainerMCPConfigLocked(containerPort)
 	if err != nil {
 		t.Fatalf("createContainerMCPConfigLocked() error = %v", err)
 	}
@@ -51,7 +51,7 @@ func TestCreateContainerMCPConfigLocked(t *testing.T) {
 		t.Errorf("command = %q, want '/usr/local/bin/plural'", command)
 	}
 
-	// Verify args include --auto-approve and --tcp (not --socket)
+	// Verify args include --auto-approve and --listen (not --socket or --tcp)
 	argsRaw, ok := plural["args"].([]interface{})
 	if !ok {
 		t.Fatal("expected 'args' field to be array")
@@ -65,14 +65,17 @@ func TestCreateContainerMCPConfigLocked(t *testing.T) {
 	if !containsArg(args, "--auto-approve") {
 		t.Error("container MCP config should include --auto-approve flag")
 	}
-	if !containsArg(args, "--tcp") {
-		t.Error("container MCP config should include --tcp flag")
+	if !containsArg(args, "--listen") {
+		t.Error("container MCP config should include --listen flag")
+	}
+	if containsArg(args, "--tcp") {
+		t.Error("container MCP config should NOT include --tcp flag (--listen is used instead)")
 	}
 	if containsArg(args, "--socket") {
-		t.Error("container MCP config should NOT include --socket flag (TCP is used instead)")
+		t.Error("container MCP config should NOT include --socket flag")
 	}
-	if got := getArgValue(args, "--tcp"); got != tcpAddr {
-		t.Errorf("--tcp value = %q, want %q", got, tcpAddr)
+	if got := getArgValue(args, "--listen"); got != "0.0.0.0:21120" {
+		t.Errorf("--listen value = %q, want %q", got, "0.0.0.0:21120")
 	}
 	if !containsArg(args, "mcp-server") {
 		t.Error("container MCP config should include 'mcp-server' subcommand")
@@ -153,8 +156,7 @@ func TestCreateContainerMCPConfig_NoExternalServers(t *testing.T) {
 		},
 	}
 
-	tcpAddr := "host.docker.internal:54321"
-	configPath, err := r.createContainerMCPConfigLocked(tcpAddr)
+	configPath, err := r.createContainerMCPConfigLocked(21120)
 	if err != nil {
 		t.Fatalf("createContainerMCPConfigLocked() error = %v", err)
 	}
