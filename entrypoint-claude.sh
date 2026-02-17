@@ -10,7 +10,7 @@ DEST_DIR=/home/claude/.claude
 mkdir -p "$DEST_DIR"
 
 # Copy essential config files
-for f in settings.json CLAUDE.md; do
+for f in settings.json CLAUDE.md .credentials.json; do
     [ -f "$HOST_DIR/$f" ] && cp "$HOST_DIR/$f" "$DEST_DIR/$f" 2>/dev/null
 done
 

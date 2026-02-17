@@ -122,7 +122,7 @@ To add a new shortcut:
 
 Sessions can run Claude CLI inside Docker containers with `--dangerously-skip-permissions`. The container IS the sandbox. Interactive prompts (AskUserQuestion, ExitPlanMode) still route through TUI via MCP server over TCP (Unix sockets can't cross container boundary).
 
-Auth: `ANTHROPIC_API_KEY`, macOS keychain `anthropic_api_key`, or `CLAUDE_CODE_OAUTH_TOKEN`. Short-lived OAuth tokens NOT supported (rotate too fast).
+Auth: `ANTHROPIC_API_KEY`, macOS keychain `anthropic_api_key`, `CLAUDE_CODE_OAUTH_TOKEN`, or `~/.claude/.credentials.json` (from `claude login`). The credentials file is copied into the container by the entrypoint and Claude CLI handles token refresh natively.
 
 Key files: `process_manager.go` (builds `docker run` args), `mcp_config.go` (container MCP config), `cmd/mcp_server.go` (`--auto-approve` flag).
 

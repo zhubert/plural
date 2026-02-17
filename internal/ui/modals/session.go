@@ -16,7 +16,7 @@ import (
 const NewSessionMaxVisibleRepos = 10
 
 // ContainerAuthHelp is the user-facing message explaining how to set up auth for container mode.
-const ContainerAuthHelp = "Set ANTHROPIC_API_KEY env var, run 'claude setup-token', or add 'anthropic_api_key' to macOS keychain"
+const ContainerAuthHelp = "Set ANTHROPIC_API_KEY env var, run 'claude login', or add 'anthropic_api_key' to macOS keychain"
 
 // =============================================================================
 // NewSessionState - State for the New Session modal

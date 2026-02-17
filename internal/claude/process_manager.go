@@ -306,7 +306,7 @@ func (pm *ProcessManager) Start() error {
 
 	// Container mode requires credentials (short-lived OAuth tokens rotate and would become invalid)
 	if pm.config.Containerized && !ContainerAuthAvailable() {
-		return fmt.Errorf("container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or add 'anthropic_api_key' to macOS keychain")
+		return fmt.Errorf("container mode requires authentication: set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, run 'claude login', or add 'anthropic_api_key' to macOS keychain")
 	}
 
 	// Build command arguments
@@ -914,6 +914,11 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 	auth := writeContainerAuthFile(config.SessionID)
 	if auth.Path != "" {
 		args = append(args, "--env-file", auth.Path)
+	} else if credentialsFileExists() {
+		// No env var or keychain credentials, but .credentials.json exists on the host.
+		// The entrypoint copies it into the container's ~/.claude/, so Claude CLI
+		// will find it and handle token refresh natively. No --env-file needed.
+		auth.Source = "~/.claude/.credentials.json (OAuth via claude login)"
 	}
 
 	// Mount MCP config for AskUserQuestion/ExitPlanMode support.
@@ -963,7 +968,8 @@ func containerAuthFilePath(sessionID string) string {
 // container mode. Returns true if any of the following are set:
 //   - ANTHROPIC_API_KEY environment variable
 //   - CLAUDE_CODE_OAUTH_TOKEN environment variable (long-lived token from "claude setup-token")
-//   - "anthropic_api_key" macOS keychain entry
+//   - "anthropic_api_key" or "Claude Code" macOS keychain entry
+//   - ~/.claude/.credentials.json file (from "claude login" interactive OAuth)
 func ContainerAuthAvailable() bool {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
 		return true
@@ -971,10 +977,35 @@ func ContainerAuthAvailable() bool {
 	if os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" {
 		return true
 	}
-	if readKeychainPassword("anthropic_api_key") != "" {
+	if readKeychainAPIKey() != "" {
+		return true
+	}
+	if credentialsFileExists() {
 		return true
 	}
 	return false
+}
+
+// readKeychainAPIKey reads an API key from the macOS keychain, checking
+// both the legacy "anthropic_api_key" service and the "Claude Code" service
+// (used by `claude login` on macOS).
+func readKeychainAPIKey() string {
+	if key := readKeychainPassword("anthropic_api_key"); key != "" {
+		return key
+	}
+	return readKeychainPassword("Claude Code")
+}
+
+// credentialsFileExists checks whether ~/.claude/.credentials.json exists.
+// This file is created by "claude login" (interactive OAuth) and contains
+// refresh tokens that Claude CLI can use to obtain access tokens.
+func credentialsFileExists() bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(home, ".claude", ".credentials.json"))
+	return err == nil
 }
 
 // containerAuthResult holds the result of writing a container auth file.
@@ -1012,9 +1043,9 @@ func writeContainerAuthFile(sessionID string) containerAuthResult {
 		// Claude CLI recognizes CLAUDE_CODE_OAUTH_TOKEN directly as an environment variable
 		content = "CLAUDE_CODE_OAUTH_TOKEN=" + oauthToken
 		source = "CLAUDE_CODE_OAUTH_TOKEN env var"
-	} else if apiKey := readKeychainPassword("anthropic_api_key"); apiKey != "" {
+	} else if apiKey := readKeychainAPIKey(); apiKey != "" {
 		content = "ANTHROPIC_API_KEY=" + apiKey
-		source = "macOS keychain (anthropic_api_key)"
+		source = "macOS keychain"
 	}
 
 	if content == "" {

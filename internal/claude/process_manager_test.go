@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -2143,4 +2144,99 @@ func TestBuildCommandArgs_DisableStreamingChunks(t *testing.T) {
 			t.Error("args should contain --resume for resumed session")
 		}
 	})
+}
+
+func TestCredentialsFileExists_WithFile(t *testing.T) {
+	// Create a temp directory to act as home
+	tmpHome := t.TempDir()
+	claudeDir := filepath.Join(tmpHome, ".claude")
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
+		t.Fatalf("failed to create .claude dir: %v", err)
+	}
+	credFile := filepath.Join(claudeDir, ".credentials.json")
+	if err := os.WriteFile(credFile, []byte(`{"refreshToken":"test"}`), 0600); err != nil {
+		t.Fatalf("failed to create credentials file: %v", err)
+	}
+
+	// Override HOME so credentialsFileExists() finds our temp file
+	t.Setenv("HOME", tmpHome)
+
+	if !credentialsFileExists() {
+		t.Error("credentialsFileExists should return true when .credentials.json exists")
+	}
+}
+
+func TestCredentialsFileExists_Missing(t *testing.T) {
+	// Point HOME at a temp dir with no .claude directory
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	if credentialsFileExists() {
+		t.Error("credentialsFileExists should return false when .credentials.json does not exist")
+	}
+}
+
+func TestContainerAuthAvailable_WithCredentialsFile(t *testing.T) {
+	// Clear env-based credentials
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	// Create a temp home with .credentials.json
+	tmpHome := t.TempDir()
+	claudeDir := filepath.Join(tmpHome, ".claude")
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
+		t.Fatalf("failed to create .claude dir: %v", err)
+	}
+	credFile := filepath.Join(claudeDir, ".credentials.json")
+	if err := os.WriteFile(credFile, []byte(`{"refreshToken":"test"}`), 0600); err != nil {
+		t.Fatalf("failed to create credentials file: %v", err)
+	}
+	t.Setenv("HOME", tmpHome)
+
+	// On macOS, keychain may still return true before we reach the credentials check,
+	// but the important thing is that ContainerAuthAvailable returns true.
+	if !ContainerAuthAvailable() {
+		t.Error("ContainerAuthAvailable should return true when .credentials.json exists")
+	}
+}
+
+func TestBuildContainerRunArgs_CredentialsJsonAuthSource(t *testing.T) {
+	// Clear env-based credentials so writeContainerAuthFile returns empty
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+	// Create a temp home with .credentials.json
+	tmpHome := t.TempDir()
+	claudeDir := filepath.Join(tmpHome, ".claude")
+	if err := os.MkdirAll(claudeDir, 0700); err != nil {
+		t.Fatalf("failed to create .claude dir: %v", err)
+	}
+	credFile := filepath.Join(claudeDir, ".credentials.json")
+	if err := os.WriteFile(credFile, []byte(`{"refreshToken":"test"}`), 0600); err != nil {
+		t.Fatalf("failed to create credentials file: %v", err)
+	}
+	t.Setenv("HOME", tmpHome)
+
+	config := ProcessConfig{
+		SessionID:      "test-cred-json",
+		WorkingDir:     "/tmp",
+		ContainerImage: "plural-claude",
+	}
+
+	result, err := buildContainerRunArgs(config, []string{"--print"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
+
+	// If keychain returned a result on macOS, auth source will be from keychain.
+	// But if no keychain (CI / Linux), auth source should be credentials.json.
+	if runtime.GOOS != "darwin" {
+		if !strings.Contains(result.AuthSource, ".credentials.json") {
+			t.Errorf("AuthSource = %q, want it to contain '.credentials.json'", result.AuthSource)
+		}
+		// Should NOT have --env-file since credentials.json is handled by entrypoint copy
+		if containsArg(result.Args, "--env-file") {
+			t.Error("Should not use --env-file when auth is via .credentials.json (entrypoint handles copy)")
+		}
+	}
 }

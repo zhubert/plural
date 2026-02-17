@@ -697,8 +697,8 @@ func TestContainerAuthHelp_Content(t *testing.T) {
 	if !strings.Contains(ContainerAuthHelp, "ANTHROPIC_API_KEY") {
 		t.Error("ContainerAuthHelp should mention ANTHROPIC_API_KEY")
 	}
-	if !strings.Contains(ContainerAuthHelp, "setup-token") {
-		t.Error("ContainerAuthHelp should mention setup-token")
+	if !strings.Contains(ContainerAuthHelp, "claude login") {
+		t.Error("ContainerAuthHelp should mention claude login")
 	}
 	if !strings.Contains(ContainerAuthHelp, "keychain") {
 		t.Error("ContainerAuthHelp should mention keychain")
