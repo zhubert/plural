@@ -502,12 +502,18 @@ func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, pa
 		}
 	}
 
+	// MultiSelect needs height >= 2 to render options (huh library limitation)
+	multiSelectHeight := len(options)
+	if multiSelectHeight < 2 {
+		multiSelectHeight = 2
+	}
+
 	s.form = huh.NewForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("Options").
 				Options(options...).
-				Height(len(options)).
+				Height(multiSelectHeight).
 				Value(&s.enabledOptions),
 			huh.NewInput().
 				Title("Branch name").
