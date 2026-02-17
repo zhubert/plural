@@ -701,7 +701,6 @@ func (m *Model) showSessionSettings(sess *config.Session) (tea.Model, tea.Cmd) {
 		name,
 		sess.Branch,
 		sess.BaseBranch,
-		sess.Autonomous,
 		sess.Containerized,
 	)
 	m.modal.Show(state)

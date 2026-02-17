@@ -602,15 +602,15 @@ func TestRepoSettingsState_FocusIndices_AsanaOnly(t *testing.T) {
 func TestNewSessionState_ContainerCheckbox_WhenSupported(t *testing.T) {
 	s := NewNewSessionState([]string{"/repo"}, true, false)
 
-	if s.numFields() != 5 {
-		t.Errorf("Expected 5 fields with containers supported, got %d", s.numFields())
+	if s.numFields() != 4 {
+		t.Errorf("Expected 4 fields with containers supported, got %d", s.numFields())
 	}
 
-	// Tab to container checkbox (focus 4)
-	s.Focus = 4
+	// Tab to container checkbox (focus 3)
+	s.Focus = 3
 	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	if !s.UseContainers {
-		t.Error("Space at focus 4 should toggle container checkbox when supported")
+		t.Error("Space at focus 3 should toggle container checkbox when supported")
 	}
 
 	// Toggle back

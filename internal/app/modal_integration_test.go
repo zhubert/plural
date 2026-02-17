@@ -270,11 +270,6 @@ func TestNewSessionModal_TabSwitchesFocus(t *testing.T) {
 		if state.Focus != 3 {
 			t.Errorf("Expected focus on containers (3) after third tab, got %d", state.Focus)
 		}
-		m = sendKey(m, "tab") // Focus 4: autonomous
-		state = m.modal.State.(*ui.NewSessionState)
-		if state.Focus != 4 {
-			t.Errorf("Expected focus on autonomous (4) after fourth tab, got %d", state.Focus)
-		}
 	}
 	m = sendKey(m, "tab") // Wrap to 0
 	state = m.modal.State.(*ui.NewSessionState)
@@ -1942,7 +1937,7 @@ func TestSessionSettingsModal_CancelWithEscape(t *testing.T) {
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false, false)
+	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false)
 	m.modal.Show(state)
 
 	if !m.modal.IsVisible() {
@@ -1952,40 +1947,5 @@ func TestSessionSettingsModal_CancelWithEscape(t *testing.T) {
 	m = sendKey(m, "esc")
 	if m.modal.IsVisible() {
 		t.Error("expected modal to be hidden after escape")
-	}
-}
-
-func TestSessionSettingsModal_ToggleAutonomous(t *testing.T) {
-	cfg := testConfigWithSessions()
-	m := testModelWithSize(cfg, 120, 40)
-	m.sidebar.SetSessions(cfg.Sessions)
-
-	// Test with autonomous initially false
-	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false, false)
-	m.modal.Show(state)
-	s := m.modal.State.(*ui.SessionSettingsState)
-	if s.Autonomous {
-		t.Error("expected autonomous to be false initially")
-	}
-
-	// Verify the rendered form includes the Options MultiSelect
-	rendered := s.Render()
-	if !strings.Contains(rendered, "Options") {
-		t.Error("rendered session settings should contain 'Options' MultiSelect")
-	}
-	if !strings.Contains(rendered, "Name") {
-		t.Error("rendered session settings should contain 'Name' input field")
-	}
-
-	// Test with autonomous initially true — verify form binding propagates
-	state2 := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", true, false)
-	m.modal.Show(state2)
-	s2 := m.modal.State.(*ui.SessionSettingsState)
-	if !s2.Autonomous {
-		t.Error("expected autonomous to be true when initialized as true")
-	}
-	// Verify GetNewName accessor works with the form binding
-	if s2.GetNewName() != "my-session" {
-		t.Errorf("expected GetNewName() to return 'my-session', got %q", s2.GetNewName())
 	}
 }

@@ -26,13 +26,12 @@ type ImportIssuesState struct {
 	Source        string // "github" or "asana"
 	ProjectID     string // Asana project GID (only used for Asana)
 
-	// Container and autonomous mode options
+	// Container mode options
 	UseContainers          bool // Whether to run sessions in containers
 	ContainersSupported    bool // Whether Docker is available
 	ContainerAuthAvailable bool // Whether API key credentials are available
-	Autonomous             bool // Whether to run in autonomous mode (auto-enables containers)
 
-	// Focus: 0 = issue list, 1 = autonomous checkbox (if containers supported), 2 = container checkbox (if containers supported)
+	// Focus: 0 = issue list, 1 = container checkbox (if containers supported)
 	Focus int
 
 	// Size tracking
@@ -70,9 +69,6 @@ func (s *ImportIssuesState) Help() string {
 	}
 	if s.LoadError != "" {
 		return "Esc: close"
-	}
-	if s.ContainersSupported && (s.Focus == 1 || s.Focus == 2) {
-		return "up/down navigate  Space: toggle  Tab: next field  Enter: import  Esc: cancel"
 	}
 	return "up/down navigate  Space: toggle  Tab: next field  Enter: import  Esc: cancel"
 }
@@ -235,66 +231,35 @@ func (s *ImportIssuesState) Render() string {
 	var parts []string
 	parts = append(parts, title, repoLabel, repoName, description, issueList, countSection)
 
-	// Autonomous mode checkbox (only when containers supported)
+	// Container mode checkbox (only when containers supported)
 	if s.ContainersSupported {
-		autoLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Autonomous mode:")
-
-		autoCheckbox := "[ ]"
-		if s.Autonomous {
-			autoCheckbox = "[x]"
-		}
-		autoCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 1 {
-			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
-		}
-		autoDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Orchestrator: delegates to children, can create PRs")
-		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
-
-		parts = append(parts, autoLabel, autoView)
-
-		// Container mode checkbox (only when not autonomous - autonomous forces containers)
 		containerLabel := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			MarginTop(1).
 			Render("Container mode:")
 
 		containerCheckbox := "[ ]"
-		if s.UseContainers || s.Autonomous {
+		if s.UseContainers {
 			containerCheckbox = "[x]"
 		}
 		containerCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 2 && !s.Autonomous {
+		if s.Focus == 1 {
 			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
 			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
 		}
 
-		var containerDesc string
-		if s.Autonomous {
-			containerDesc = "(required for autonomous mode)"
-		} else {
-			containerDesc = "Sandbox: isolated environment with Docker"
-		}
 		containerDescStyle := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
 			Width(50).
-			Render(containerDesc)
+			Render("Sandbox: isolated environment with Docker")
 		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDescStyle)
 
 		parts = append(parts, containerLabel, containerView)
 
 		// Show auth warning if containers enabled but no auth
-		if (s.UseContainers || s.Autonomous) && !s.ContainerAuthAvailable {
+		if s.UseContainers && !s.ContainerAuthAvailable {
 			authWarning := lipgloss.NewStyle().
 				Foreground(ColorWarning).
 				Bold(true).
@@ -316,59 +281,29 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		switch keyMsg.String() {
 		case keys.Tab:
 			if s.ContainersSupported {
-				// Cycle through: 0 (issue list) -> 1 (autonomous) -> 2 (containers) -> 0
-				s.Focus = (s.Focus + 1) % 3
+				// Cycle through: 0 (issue list) -> 1 (containers) -> 0
+				s.Focus = (s.Focus + 1) % 2
 			}
 		case keys.Up, "k":
-			if s.ContainersSupported {
-				// Navigate between focus areas when containers are supported
-				if s.Focus == 1 {
-					// From autonomous checkbox, move up to issue list
-					s.Focus = 0
-				} else if s.Focus == 2 {
-					// From container checkbox, move up to autonomous checkbox
-					s.Focus = 1
-				} else if s.Focus == 0 && s.SelectedIndex > 0 {
-					// Navigate issue list
-					s.SelectedIndex--
-					// Scroll up if needed
-					if s.SelectedIndex < s.ScrollOffset {
-						s.ScrollOffset = s.SelectedIndex
-					}
-				}
-			} else {
-				// Without container support, only navigate issue list
-				if s.Focus == 0 && s.SelectedIndex > 0 {
-					s.SelectedIndex--
-					if s.SelectedIndex < s.ScrollOffset {
-						s.ScrollOffset = s.SelectedIndex
-					}
+			if s.ContainersSupported && s.Focus == 1 {
+				// From container checkbox, move up to issue list
+				s.Focus = 0
+			} else if s.Focus == 0 && s.SelectedIndex > 0 {
+				// Navigate issue list
+				s.SelectedIndex--
+				if s.SelectedIndex < s.ScrollOffset {
+					s.ScrollOffset = s.SelectedIndex
 				}
 			}
 		case keys.Down, "j":
-			if s.ContainersSupported {
-				// Navigate between focus areas when containers are supported
-				if s.Focus == 1 {
-					// From autonomous checkbox, move down to container checkbox
-					s.Focus = 2
-				} else if s.Focus == 2 {
-					// From container checkbox, wrap to issue list
-					s.Focus = 0
-				} else if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
-					// Navigate issue list
-					s.SelectedIndex++
-					// Scroll down if needed
-					if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
-						s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
-					}
-				}
-			} else {
-				// Without container support, only navigate issue list
-				if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
-					s.SelectedIndex++
-					if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
-						s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
-					}
+			if s.ContainersSupported && s.Focus == 1 {
+				// From container checkbox, wrap to issue list
+				s.Focus = 0
+			} else if s.Focus == 0 && s.SelectedIndex < len(s.Issues)-1 {
+				// Navigate issue list
+				s.SelectedIndex++
+				if s.SelectedIndex >= s.ScrollOffset+s.maxVisible {
+					s.ScrollOffset = s.SelectedIndex - s.maxVisible + 1
 				}
 			}
 		case keys.Space:
@@ -379,14 +314,7 @@ func (s *ImportIssuesState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 					s.Issues[s.SelectedIndex].Selected = !s.Issues[s.SelectedIndex].Selected
 				}
 			} else if s.Focus == 1 && s.ContainersSupported {
-				// Toggle autonomous mode
-				s.Autonomous = !s.Autonomous
-				// Autonomous mode requires containers
-				if s.Autonomous {
-					s.UseContainers = true
-				}
-			} else if s.Focus == 2 && s.ContainersSupported && !s.Autonomous {
-				// Toggle container mode (only if not autonomous)
+				// Toggle container mode
 				s.UseContainers = !s.UseContainers
 			}
 		}
@@ -407,12 +335,7 @@ func (s *ImportIssuesState) GetSelectedIssues() []IssueItem {
 
 // GetUseContainers returns whether container mode is selected
 func (s *ImportIssuesState) GetUseContainers() bool {
-	return s.UseContainers || s.Autonomous
-}
-
-// GetAutonomous returns whether autonomous mode is selected
-func (s *ImportIssuesState) GetAutonomous() bool {
-	return s.Autonomous
+	return s.UseContainers
 }
 
 // SetIssues sets the issues list and clears loading state

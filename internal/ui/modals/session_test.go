@@ -209,111 +209,6 @@ func TestNewSessionState_NavigateUpDoesNotGoBelowZero(t *testing.T) {
 	}
 }
 
-func TestNewSessionState_AutonomousDisablesBranchAndContainer(t *testing.T) {
-	initTestStyles()
-
-	state := NewNewSessionState(makeRepos(3), true, true)
-
-	// Tab to autonomous (index 2) and enable it
-	state.Focus = 2
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Space})
-
-	if !state.Autonomous {
-		t.Fatal("expected autonomous to be enabled")
-	}
-	if !state.UseContainers {
-		t.Fatal("expected containers to be auto-enabled by autonomous")
-	}
-
-	// Branch input should have been cleared
-	if state.BranchInput.Value() != "" {
-		t.Errorf("expected branch input to be cleared, got %q", state.BranchInput.Value())
-	}
-
-	// Render should show disabled message for branch
-	rendered := state.Render()
-	if !strings.Contains(rendered, "disabled in autonomous mode") {
-		t.Error("expected 'disabled in autonomous mode' text for branch input")
-	}
-
-	// Container description should mention autonomous
-	if !strings.Contains(rendered, "autonomous") {
-		t.Errorf("expected container description to mention autonomous, rendered:\n%s", rendered)
-	}
-}
-
-func TestNewSessionState_AutonomousSkipsFocusOnTab(t *testing.T) {
-	state := NewNewSessionState(makeRepos(3), true, true)
-
-	// Enable autonomous mode
-	state.Autonomous = true
-	state.UseContainers = true
-
-	// Start at focus 1 (base selection), tab forward
-	state.Focus = 1
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-
-	// Should land on 2 (autonomous), skipping 3 (branch) and 4 (containers)
-	if state.Focus != 2 {
-		t.Errorf("expected focus to land on 2 (autonomous), got %d", state.Focus)
-	}
-
-	// Tab again should wrap to 0 (skipping 3 and 4)
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-	if state.Focus != 0 {
-		t.Errorf("expected focus to wrap to 0, got %d", state.Focus)
-	}
-}
-
-func TestNewSessionState_AutonomousSkipsFocusOnShiftTab(t *testing.T) {
-	state := NewNewSessionState(makeRepos(3), true, true)
-
-	// Enable autonomous mode
-	state.Autonomous = true
-	state.UseContainers = true
-
-	// Start at focus 2 (autonomous), shift-tab backward
-	state.Focus = 2
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.ShiftTab})
-
-	// Should land on 1 (base selection)
-	if state.Focus != 1 {
-		t.Errorf("expected focus to land on 1 (base selection), got %d", state.Focus)
-	}
-}
-
-func TestNewSessionState_AutonomousContainerToggleIgnored(t *testing.T) {
-	state := NewNewSessionState(makeRepos(3), true, true)
-
-	// Enable autonomous mode
-	state.Autonomous = true
-	state.UseContainers = true
-
-	// Try to toggle containers off while autonomous is on (shouldn't work)
-	state.Focus = 4
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Space})
-
-	if !state.UseContainers {
-		t.Error("expected containers to remain enabled when autonomous is on")
-	}
-}
-
-func TestNewSessionState_AutonomousBranchInputIgnored(t *testing.T) {
-	state := NewNewSessionState(makeRepos(3), true, true)
-
-	// Enable autonomous mode
-	state.Autonomous = true
-	state.UseContainers = true
-
-	// Force focus to branch input and try typing
-	state.Focus = 3
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "a"})
-
-	if state.BranchInput.Value() != "" {
-		t.Errorf("expected branch input to remain empty in autonomous mode, got %q", state.BranchInput.Value())
-	}
-}
-
 func TestNewSessionState_ScrollOnlyAffectsRepoFocus(t *testing.T) {
 	repos := makeRepos(15)
 	state := NewNewSessionState(repos, false, false)
@@ -385,19 +280,15 @@ func TestNewSessionState_LockedRepo_TabSkipsRepoFocus_WithContainers(t *testing.
 	state.LockedRepo = "/repo1"
 	state.Focus = 1 // Start on base branch
 
-	// With containers, numFields=5: 0=repo(skip), 1=base, 2=autonomous, 3=branch, 4=containers
-	// Tab: 1 (base) -> 2 (autonomous) -> 3 (branch) -> 4 (container) -> 1 (base)
+	// With containers, numFields=4: 0=repo(skip), 1=base, 2=branch, 3=containers
+	// Tab: 1 (base) -> 2 (branch) -> 3 (container) -> 1 (base)
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
 	if state.Focus != 2 {
-		t.Errorf("Expected focus 2 (autonomous), got %d", state.Focus)
+		t.Errorf("Expected focus 2 (branch), got %d", state.Focus)
 	}
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
 	if state.Focus != 3 {
-		t.Errorf("Expected focus 3 (branch), got %d", state.Focus)
-	}
-	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
-	if state.Focus != 4 {
-		t.Errorf("Expected focus 4 (container), got %d", state.Focus)
+		t.Errorf("Expected focus 3 (container), got %d", state.Focus)
 	}
 	state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Tab})
 	if state.Focus != 1 {
@@ -411,7 +302,7 @@ func TestNewSessionState_DockerHintWhenContainersNotSupported(t *testing.T) {
 	state := NewNewSessionState(makeRepos(3), false, false)
 	rendered := state.Render()
 
-	if !strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+	if !strings.Contains(rendered, "Install Docker to enable container mode") {
 		t.Error("expected Docker hint when containers not supported")
 	}
 }
@@ -422,7 +313,7 @@ func TestNewSessionState_NoDockerHintWhenContainersSupported(t *testing.T) {
 	state := NewNewSessionState(makeRepos(3), true, true)
 	rendered := state.Render()
 
-	if strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+	if strings.Contains(rendered, "Install Docker to enable container mode") {
 		t.Error("should not show Docker hint when containers are supported")
 	}
 }
@@ -433,7 +324,7 @@ func TestForkSessionState_DockerHintWhenContainersNotSupported(t *testing.T) {
 	state := NewForkSessionState("parent", "parent-id", "/repo", false, false, false)
 	rendered := state.Render()
 
-	if !strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+	if !strings.Contains(rendered, "Install Docker to enable container mode") {
 		t.Error("expected Docker hint in fork modal when containers not supported")
 	}
 }
@@ -444,43 +335,31 @@ func TestForkSessionState_NoDockerHintWhenContainersSupported(t *testing.T) {
 	state := NewForkSessionState("parent", "parent-id", "/repo", false, true, true)
 	rendered := state.Render()
 
-	if strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+	if strings.Contains(rendered, "Install Docker to enable container mode") {
 		t.Error("should not show Docker hint in fork modal when containers are supported")
 	}
 }
 
 func TestSessionSettingsState_Title(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false)
 	if state.Title() != "Session Settings" {
 		t.Errorf("expected 'Session Settings', got %q", state.Title())
 	}
 }
 
-func TestSessionSettingsState_AutonomousDefault(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
-	if state.Autonomous {
-		t.Error("expected autonomous to be false by default")
-	}
-
-	state2 := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true, false)
-	if !state2.Autonomous {
-		t.Error("expected autonomous to be true when initialized as true")
-	}
-}
-
 func TestSessionSettingsState_GetNewName(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false)
 	if state.GetNewName() != "my-session" {
 		t.Errorf("expected 'my-session', got %q", state.GetNewName())
 	}
 }
 
 func TestSessionSettingsState_Render(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true, true)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true)
 	rendered := state.Render()
 
 	// Check info section and form structure
-	checks := []string{"Session Settings", "feature-branch", "main", "yes", "Options"}
+	checks := []string{"Session Settings", "feature-branch", "main", "yes", "Name"}
 	for _, check := range checks {
 		if !strings.Contains(rendered, check) {
 			t.Errorf("expected render to contain %q\nFull render:\n%s", check, rendered)
@@ -489,7 +368,7 @@ func TestSessionSettingsState_Render(t *testing.T) {
 }
 
 func TestSessionSettingsState_Help(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, false)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false)
 
 	help := state.Help()
 	if !strings.Contains(help, "Enter: save") {

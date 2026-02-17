@@ -265,7 +265,7 @@ func TestBroadcastState_DockerHintWhenContainersNotSupported(t *testing.T) {
 	state := NewBroadcastState([]string{"/repo1"}, false, false)
 	rendered := state.Render()
 
-	if !strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+	if !strings.Contains(rendered, "Install Docker to enable container mode") {
 		t.Error("expected Docker hint when containers not supported")
 	}
 }
@@ -276,7 +276,7 @@ func TestBroadcastState_NoDockerHintWhenContainersSupported(t *testing.T) {
 	state := NewBroadcastState([]string{"/repo1"}, true, true)
 	rendered := state.Render()
 
-	if strings.Contains(rendered, "Install Docker to enable container and autonomous modes") {
+	if strings.Contains(rendered, "Install Docker to enable container mode") {
 		t.Error("should not show Docker hint when containers are supported")
 	}
 }

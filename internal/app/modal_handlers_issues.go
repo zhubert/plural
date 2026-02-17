@@ -161,7 +161,7 @@ func (m *Model) handleImportIssuesModal(key string, msg tea.KeyPressMsg, state *
 			return m, nil
 		}
 		m.modal.Hide()
-		return m.createSessionsFromIssues(state.RepoPath, selected, state.GetUseContainers(), state.GetAutonomous())
+		return m.createSessionsFromIssues(state.RepoPath, selected, state.GetUseContainers())
 	case keys.Up, "k", keys.Down, "j", keys.Space, keys.Tab:
 		// Forward navigation and space (toggle) keys to modal
 		modal, cmd := m.modal.Update(msg)
@@ -179,7 +179,7 @@ type issueSessionInfo struct {
 
 // createSessionsFromIssues creates new sessions for each selected issue/task.
 // Works with both GitHub issues and Asana tasks.
-func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.IssueItem, useContainers, autonomous bool) (tea.Model, tea.Cmd) {
+func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.IssueItem, useContainers bool) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 
 	var createdSessions []issueSessionInfo
@@ -235,9 +235,8 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 			URL:    issue.URL,
 		}
 
-		// Set containerized and autonomous flags
+		// Set containerized flag
 		sess.Containerized = useContainers
-		sess.Autonomous = autonomous
 
 		// Create initial message with issue context
 		var initialMsg string

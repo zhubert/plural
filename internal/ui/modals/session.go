@@ -33,8 +33,7 @@ type NewSessionState struct {
 	UseContainers          bool // Whether to run this session in a container
 	ContainersSupported    bool // Whether Docker is available for container mode
 	ContainerAuthAvailable bool // Whether API key credentials are available for container mode
-	Autonomous             bool // Whether to run in autonomous mode (auto-enables containers)
-	Focus                  int  // 0=repo list, 1=base selection, 2=autonomous (if supported), 3=branch input, 4=containers (if supported)
+	Focus                  int  // 0=repo list, 1=base selection, 2=branch input, 3=containers (if supported)
 }
 
 func (*NewSessionState) modalState() {}
@@ -55,7 +54,7 @@ func (s *NewSessionState) Help() string {
 			return "up/down: select  Tab: next field  a: add repo  d: delete repo  Enter: create"
 		}
 	}
-	if s.ContainersSupported && (s.Focus == 2 || s.Focus == 4) {
+	if s.ContainersSupported && s.Focus == 3 {
 		return "Space: toggle  Tab: next field  Enter: create"
 	}
 	return "up/down: select  Tab: next field  Enter: create"
@@ -95,52 +94,19 @@ func (s *NewSessionState) Render() string {
 
 	parts = append(parts, baseLabel, baseList)
 
-	// Autonomous mode checkbox (focus 2, only when containers supported)
-	if s.ContainersSupported {
-		autoLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Autonomous mode:")
-
-		autoCheckbox := "[ ]"
-		if s.Autonomous {
-			autoCheckbox = "[x]"
-		}
-		autoCheckboxStyle := lipgloss.NewStyle()
-		if s.Focus == 2 {
-			autoCheckboxStyle = autoCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			autoCheckboxStyle = autoCheckboxStyle.PaddingLeft(2)
-		}
-		autoDesc := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Width(50).
-			Render("Orchestrator: delegates to children, can create PRs")
-		autoView := autoCheckboxStyle.Render(autoCheckbox + " " + autoDesc)
-
-		parts = append(parts, autoLabel, autoView)
-	}
-
-	// Branch name input section (focus 3 with containers, focus 2 without)
+	// Branch name input section (focus 2 with or without containers)
 	branchLabel := lipgloss.NewStyle().
 		Foreground(ColorTextMuted).
 		MarginTop(1).
 		Render("Branch name:")
 
-	var branchView string
-	if s.Autonomous {
-		branchView = lipgloss.NewStyle().PaddingLeft(2).Italic(true).Foreground(ColorTextMuted).
-			Render("(disabled in autonomous mode)")
+	branchInputStyle := lipgloss.NewStyle()
+	if s.Focus == s.branchFocusIdx() {
+		branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 	} else {
-		branchInputStyle := lipgloss.NewStyle()
-		if s.Focus == s.branchFocusIdx() {
-			branchInputStyle = branchInputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			branchInputStyle = branchInputStyle.PaddingLeft(2)
-		}
-		branchView = branchInputStyle.Render(s.BranchInput.View())
+		branchInputStyle = branchInputStyle.PaddingLeft(2)
 	}
+	branchView := branchInputStyle.Render(s.BranchInput.View())
 
 	parts = append(parts, branchLabel, branchView)
 
@@ -155,29 +121,18 @@ func (s *NewSessionState) Render() string {
 		if s.UseContainers {
 			containerCheckbox = "[x]"
 		}
-		var containerView string
-		if s.Autonomous {
-			containerDesc := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Italic(true).
-				Width(50).
-				Render("Run in a sandboxed container (enabled by autonomous mode)")
-			containerView = lipgloss.NewStyle().PaddingLeft(2).Foreground(ColorTextMuted).
-				Render(containerCheckbox + " " + containerDesc)
+		containerCheckboxStyle := lipgloss.NewStyle()
+		if s.Focus == 3 {
+			containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
 		} else {
-			containerCheckboxStyle := lipgloss.NewStyle()
-			if s.Focus == 4 {
-				containerCheckboxStyle = containerCheckboxStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-			} else {
-				containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
-			}
-			containerDesc := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Italic(true).
-				Width(50).
-				Render("Run in a sandboxed container (no permission prompts)")
-			containerView = containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
+			containerCheckboxStyle = containerCheckboxStyle.PaddingLeft(2)
 		}
+		containerDesc := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			Width(50).
+			Render("Run in a sandboxed container (no permission prompts)")
+		containerView := containerCheckboxStyle.Render(containerCheckbox + " " + containerDesc)
 
 		containerWarning := lipgloss.NewStyle().
 			Foreground(ColorWarning).
@@ -203,7 +158,7 @@ func (s *NewSessionState) Render() string {
 			Italic(true).
 			MarginTop(1).
 			PaddingLeft(2).
-			Render("Install Docker to enable container and autonomous modes")
+			Render("Install Docker to enable container mode")
 		parts = append(parts, dockerHint)
 	}
 
@@ -255,31 +210,24 @@ func (s *NewSessionState) renderRepoList() string {
 }
 
 // numFields returns the number of focusable fields.
-// With containers:    0=repo, 1=base, 2=autonomous, 3=branch, 4=containers
+// With containers:    0=repo, 1=base, 2=branch, 3=containers
 // Without containers: 0=repo, 1=base, 2=branch
-// When LockedRepo is set, focus 0 is skipped. When autonomous, focus 3+4 are skipped.
+// When LockedRepo is set, focus 0 is skipped.
 func (s *NewSessionState) numFields() int {
 	if s.ContainersSupported {
-		return 5
+		return 4
 	}
 	return 3
 }
 
 // branchFocusIdx returns the focus index for the branch input field.
 func (s *NewSessionState) branchFocusIdx() int {
-	if s.ContainersSupported {
-		return 3
-	}
 	return 2
 }
 
 // isSkippedFocus returns true if this focus index should be skipped.
 func (s *NewSessionState) isSkippedFocus(idx int) bool {
 	if s.LockedRepo != "" && idx == 0 {
-		return true
-	}
-	// When autonomous, skip branch and container (they're auto-set)
-	if s.Autonomous && s.ContainersSupported && (idx == 3 || idx == 4) {
 		return true
 	}
 	return false
@@ -338,28 +286,15 @@ func (s *NewSessionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 			s.updateInputFocus(oldFocus)
 			return s, nil
 		case keys.Space:
-			if s.Focus == 2 && s.ContainersSupported {
-				s.Autonomous = !s.Autonomous
-				// Autonomous requires containers
-				if s.Autonomous {
-					s.UseContainers = true
-					// Clear branch input since it's not used in autonomous mode
-					s.BranchInput.SetValue("")
-					s.BranchInput.Blur()
-				}
-			} else if s.Focus == 4 && s.ContainersSupported && !s.Autonomous {
+			if s.Focus == 3 && s.ContainersSupported {
 				s.UseContainers = !s.UseContainers
-				// If disabling containers, also disable autonomous
-				if !s.UseContainers {
-					s.Autonomous = false
-				}
 			}
 			return s, nil
 		}
 	}
 
-	// Handle branch input updates when focused (disabled in autonomous mode)
-	if s.Focus == s.branchFocusIdx() && !s.Autonomous {
+	// Handle branch input updates when focused
+	if s.Focus == s.branchFocusIdx() {
 		var cmd tea.Cmd
 		s.BranchInput, cmd = s.BranchInput.Update(msg)
 		return s, cmd
@@ -402,11 +337,6 @@ func (s *NewSessionState) GetBaseIndex() int {
 // GetUseContainers returns whether container mode is selected
 func (s *NewSessionState) GetUseContainers() bool {
 	return s.UseContainers
-}
-
-// GetAutonomous returns whether autonomous mode is selected
-func (s *NewSessionState) GetAutonomous() bool {
-	return s.Autonomous
 }
 
 // NewNewSessionState creates a new NewSessionState with proper initialization.
@@ -498,7 +428,7 @@ func (s *ForkSessionState) Render() string {
 			Italic(true).
 			MarginTop(1).
 			PaddingLeft(2).
-			Render("Install Docker to enable container and autonomous modes")
+			Render("Install Docker to enable container mode")
 		parts = append(parts, dockerHint)
 	}
 
@@ -693,14 +623,10 @@ type SessionSettingsState struct {
 	Containerized bool
 
 	// Bound form values
-	name           string
-	Autonomous     bool
-	enabledOptions []string // MultiSelect binding
+	name string
 
 	form *huh.Form
 }
-
-const optionAutonomous = "autonomous"
 
 func (*SessionSettingsState) modalState() {}
 
@@ -755,13 +681,7 @@ func (s *SessionSettingsState) Render() string {
 func (s *SessionSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 	var cmd tea.Cmd
 	s.form, cmd = huhFormUpdate(s.form, msg)
-	s.syncFromMultiSelect()
 	return s, cmd
-}
-
-// syncFromMultiSelect updates boolean fields from the MultiSelect binding.
-func (s *SessionSettingsState) syncFromMultiSelect() {
-	s.Autonomous = slices.Contains(s.enabledOptions, optionAutonomous)
 }
 
 // GetNewName returns the new name entered by the user.
@@ -770,23 +690,15 @@ func (s *SessionSettingsState) GetNewName() string {
 }
 
 // NewSessionSettingsState creates a new SessionSettingsState.
-func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, autonomous, containerized bool) *SessionSettingsState {
+func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, containerized bool) *SessionSettingsState {
 	s := &SessionSettingsState{
 		SessionID:     sessionID,
 		SessionName:   currentName,
 		Branch:        branch,
 		BaseBranch:    baseBranch,
 		name:          currentName,
-		Autonomous:    autonomous,
 		Containerized: containerized,
 	}
-
-	if autonomous {
-		s.enabledOptions = append(s.enabledOptions, optionAutonomous)
-	}
-
-	autonomousOpt := huh.NewOption("Autonomous — run without user prompts", optionAutonomous).
-		Selected(autonomous)
 
 	s.form = huh.NewForm(
 		huh.NewGroup(
@@ -795,11 +707,6 @@ func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, 
 				Placeholder("enter session name").
 				CharLimit(SessionNameCharLimit).
 				Value(&s.name),
-			huh.NewMultiSelect[string]().
-				Title("Options").
-				Options(autonomousOpt).
-				Height(1).
-				Value(&s.enabledOptions),
 		),
 	).WithTheme(ModalTheme()).
 		WithShowHelp(false).

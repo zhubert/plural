@@ -8,7 +8,7 @@ import (
 )
 
 // =============================================================================
-// Autonomous and Container Mode Tests
+// Container Mode Tests
 // =============================================================================
 
 func TestImportIssuesState_ContainerSupport(t *testing.T) {
@@ -31,47 +31,10 @@ func TestImportIssuesState_ContainerSupport(t *testing.T) {
 	}
 }
 
-func TestImportIssuesState_AutonomousMode_DefaultsFalse(t *testing.T) {
+func TestImportIssuesState_ContainerMode_DefaultsFalse(t *testing.T) {
 	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
-	if state.Autonomous {
-		t.Error("expected Autonomous to default to false")
-	}
 	if state.UseContainers {
 		t.Error("expected UseContainers to default to false")
-	}
-}
-
-func TestImportIssuesState_AutonomousMode_Toggle(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
-	state.SetIssues([]IssueItem{
-		{ID: "1", Title: "Issue 1", Source: "github"},
-	})
-
-	// Move focus to autonomous checkbox
-	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
-	state.Update(tabMsg)
-	if state.Focus != 1 {
-		t.Errorf("expected focus 1 (autonomous), got %d", state.Focus)
-	}
-
-	// Toggle autonomous mode on
-	spaceMsg := tea.KeyPressMsg{Code: 0, Text: keys.Space}
-	state.Update(spaceMsg)
-	if !state.Autonomous {
-		t.Error("expected Autonomous to be true after toggle")
-	}
-	if !state.UseContainers {
-		t.Error("expected UseContainers to be enabled when Autonomous is enabled")
-	}
-
-	// Toggle autonomous mode off
-	state.Update(spaceMsg)
-	if state.Autonomous {
-		t.Error("expected Autonomous to be false after second toggle")
-	}
-	// UseContainers should remain true (not auto-disabled when autonomous is disabled)
-	if !state.UseContainers {
-		t.Error("expected UseContainers to remain true after disabling autonomous")
 	}
 }
 
@@ -81,12 +44,11 @@ func TestImportIssuesState_ContainerMode_Toggle(t *testing.T) {
 		{ID: "1", Title: "Issue 1", Source: "github"},
 	})
 
-	// Move focus to container checkbox (focus 2)
+	// Move focus to container checkbox (focus 1)
 	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
-	state.Update(tabMsg) // Focus 1 (autonomous)
-	state.Update(tabMsg) // Focus 2 (containers)
-	if state.Focus != 2 {
-		t.Errorf("expected focus 2 (containers), got %d", state.Focus)
+	state.Update(tabMsg)
+	if state.Focus != 1 {
+		t.Errorf("expected focus 1 (containers), got %d", state.Focus)
 	}
 
 	// Toggle container mode on
@@ -95,28 +57,11 @@ func TestImportIssuesState_ContainerMode_Toggle(t *testing.T) {
 	if !state.UseContainers {
 		t.Error("expected UseContainers to be true after toggle")
 	}
-	if state.Autonomous {
-		t.Error("expected Autonomous to remain false")
-	}
-}
 
-func TestImportIssuesState_ContainerMode_DisabledWhenAutonomous(t *testing.T) {
-	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
-	state.SetIssues([]IssueItem{
-		{ID: "1", Title: "Issue 1", Source: "github"},
-	})
-
-	// Enable autonomous mode first
-	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
-	state.Update(tabMsg) // Focus 1 (autonomous)
-	spaceMsg := tea.KeyPressMsg{Code: 0, Text: keys.Space}
-	state.Update(spaceMsg) // Toggle autonomous on
-
-	// Now try to toggle containers (should not work when autonomous)
-	state.Update(tabMsg) // Focus 2 (containers)
-	state.Update(spaceMsg) // Try to toggle containers off
-	if !state.UseContainers {
-		t.Error("expected UseContainers to remain true when Autonomous is enabled")
+	// Toggle container mode off
+	state.Update(spaceMsg)
+	if state.UseContainers {
+		t.Error("expected UseContainers to be false after second toggle")
 	}
 }
 
@@ -131,17 +76,11 @@ func TestImportIssuesState_FocusCycle(t *testing.T) {
 		t.Errorf("expected initial focus 0, got %d", state.Focus)
 	}
 
-	// Tab to autonomous (focus 1)
+	// Tab to containers (focus 1)
 	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
 	state.Update(tabMsg)
 	if state.Focus != 1 {
 		t.Errorf("expected focus 1, got %d", state.Focus)
-	}
-
-	// Tab to containers (focus 2)
-	state.Update(tabMsg)
-	if state.Focus != 2 {
-		t.Errorf("expected focus 2, got %d", state.Focus)
 	}
 
 	// Tab back to issue list (focus 0)
@@ -165,62 +104,27 @@ func TestImportIssuesState_NavigationOnlyWhenFocusedOnList(t *testing.T) {
 		t.Errorf("expected selected index 1, got %d", state.SelectedIndex)
 	}
 
-	// Move focus to autonomous checkbox
+	// Move focus to container checkbox
 	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
-	state.Update(tabMsg) // Focus 1 (autonomous)
+	state.Update(tabMsg) // Focus 1 (containers)
 
-	// Down arrow when focused on checkboxes changes focus, not selectedIndex
+	// Down arrow when focused on checkbox wraps to issue list
 	state.Update(downMsg)
-	if state.Focus != 2 {
-		t.Errorf("expected focus to move to 2 (containers), got %d", state.Focus)
-	}
-	if state.SelectedIndex != 1 {
-		t.Errorf("expected selected index to remain 1 when not focused on list, got %d", state.SelectedIndex)
-	}
-
-	// Move focus back to list using up arrows
-	upMsg := tea.KeyPressMsg{Code: 0, Text: keys.Up}
-	state.Update(upMsg) // Focus 2 -> 1
-	state.Update(upMsg) // Focus 1 -> 0
-
 	if state.Focus != 0 {
-		t.Errorf("expected focus 0 (list), got %d", state.Focus)
-	}
-
-	// Now navigation should work on issue list
-	state.Update(upMsg)
-	if state.SelectedIndex != 0 {
-		t.Errorf("expected selected index 0 after navigating up, got %d", state.SelectedIndex)
+		t.Errorf("expected focus to wrap to 0 (issue list), got %d", state.Focus)
 	}
 }
 
 func TestImportIssuesState_GetMethods(t *testing.T) {
 	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
-	// Initially both false
+	// Initially false
 	if state.GetUseContainers() {
 		t.Error("expected GetUseContainers to return false initially")
 	}
-	if state.GetAutonomous() {
-		t.Error("expected GetAutonomous to return false initially")
-	}
 
-	// Enable autonomous
-	state.Autonomous = true
-	if !state.GetAutonomous() {
-		t.Error("expected GetAutonomous to return true")
-	}
-	// GetUseContainers should return true when autonomous is true
-	if !state.GetUseContainers() {
-		t.Error("expected GetUseContainers to return true when autonomous is true")
-	}
-
-	// Disable autonomous, enable containers manually
-	state.Autonomous = false
+	// Enable containers
 	state.UseContainers = true
-	if state.GetAutonomous() {
-		t.Error("expected GetAutonomous to return false")
-	}
 	if !state.GetUseContainers() {
 		t.Error("expected GetUseContainers to return true when UseContainers is true")
 	}
@@ -233,35 +137,23 @@ func TestImportIssuesState_ArrowNavigationBetweenCheckboxes(t *testing.T) {
 		{ID: "2", Title: "Issue 2", Source: "github"},
 	})
 
-	// Tab to autonomous checkbox (focus 1)
+	// Tab to container checkbox (focus 1)
 	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
 	state.Update(tabMsg)
 	if state.Focus != 1 {
 		t.Fatalf("expected focus 1, got %d", state.Focus)
 	}
 
-	// Down arrow should move to containers checkbox (focus 2)
-	downMsg := tea.KeyPressMsg{Code: 0, Text: keys.Down}
-	state.Update(downMsg)
-	if state.Focus != 2 {
-		t.Errorf("expected down arrow to move from autonomous to containers (focus 2), got %d", state.Focus)
-	}
-
-	// Up arrow should move back to autonomous checkbox (focus 1)
+	// Up arrow should move to issue list (focus 0)
 	upMsg := tea.KeyPressMsg{Code: 0, Text: keys.Up}
 	state.Update(upMsg)
-	if state.Focus != 1 {
-		t.Errorf("expected up arrow to move from containers to autonomous (focus 1), got %d", state.Focus)
-	}
-
-	// Up arrow again should move to issue list (focus 0)
-	state.Update(upMsg)
 	if state.Focus != 0 {
-		t.Errorf("expected up arrow to move from autonomous to issue list (focus 0), got %d", state.Focus)
+		t.Errorf("expected up arrow to move from containers to issue list (focus 0), got %d", state.Focus)
 	}
 
 	// Down arrow from containers should wrap to issue list (focus 0)
-	state.Focus = 2
+	state.Focus = 1
+	downMsg := tea.KeyPressMsg{Code: 0, Text: keys.Down}
 	state.Update(downMsg)
 	if state.Focus != 0 {
 		t.Errorf("expected down arrow from containers to wrap to issue list (focus 0), got %d", state.Focus)
@@ -275,7 +167,7 @@ func TestImportIssuesState_WithoutContainerSupport(t *testing.T) {
 		{ID: "1", Title: "Issue 1", Source: "github"},
 	})
 
-	// Tab should not cycle through autonomous/container checkboxes
+	// Tab should not cycle through container checkboxes
 	tabMsg := tea.KeyPressMsg{Code: 0, Text: keys.Tab}
 	state.Update(tabMsg)
 	// Focus should still be 0 since there are no other focus targets
@@ -288,8 +180,5 @@ func TestImportIssuesState_WithoutContainerSupport(t *testing.T) {
 	state.Update(spaceMsg)
 	if !state.Issues[0].Selected {
 		t.Error("expected issue to be selected after space")
-	}
-	if state.Autonomous {
-		t.Error("autonomous should not be toggled when containers not supported")
 	}
 }
