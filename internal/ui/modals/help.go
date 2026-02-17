@@ -109,10 +109,10 @@ func (s *HelpState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 func (s *HelpState) SetSize(width, height int) {
 	// Reserve space for title (1 line + margin) and help text (1 line + margin)
 	const titleAndHelpOverhead = 4
-	listHeight := height - titleAndHelpOverhead
-	if listHeight < 1 {
-		listHeight = 1
-	}
+	// Cap the list height to avoid making the modal too tall
+	// The modal should be centered with space around it
+	availableHeight := height - titleAndHelpOverhead
+	listHeight := max(1, min(availableHeight, HelpModalMaxVisible))
 	s.list.SetSize(width, listHeight)
 }
 
