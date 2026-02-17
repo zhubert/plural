@@ -46,6 +46,37 @@ func TestConfig_AddRepo(t *testing.T) {
 	}
 }
 
+func TestConfig_AddRepo_ResolvesRelativePath(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+	}
+
+	// Adding a relative path should store it as absolute
+	if !cfg.AddRepo("myrepo") {
+		t.Error("AddRepo should return true for new repo")
+	}
+
+	if len(cfg.Repos) != 1 {
+		t.Fatalf("Expected 1 repo, got %d", len(cfg.Repos))
+	}
+
+	if !filepath.IsAbs(cfg.Repos[0]) {
+		t.Errorf("Expected absolute path, got %q", cfg.Repos[0])
+	}
+
+	// Adding the same relative path again should be a duplicate
+	if cfg.AddRepo("myrepo") {
+		t.Error("AddRepo should return false for duplicate relative repo")
+	}
+
+	// Adding the resolved absolute path should also be a duplicate
+	absPath, _ := filepath.Abs("myrepo")
+	if cfg.AddRepo(absPath) {
+		t.Error("AddRepo should return false for duplicate absolute repo")
+	}
+}
+
 func TestConfig_RemoveRepo(t *testing.T) {
 	cfg := &Config{
 		Repos:    []string{"/path/to/repo1", "/path/to/repo2", "/path/to/repo3"},

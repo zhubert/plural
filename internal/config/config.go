@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/zhubert/plural/internal/paths"
@@ -205,19 +206,25 @@ func (c *Config) SetFilePath(path string) {
 	c.filePath = path
 }
 
-// AddRepo adds a repository path if it doesn't already exist
+// AddRepo adds a repository path if it doesn't already exist.
+// The path is resolved to an absolute path before storing.
 func (c *Config) AddRepo(path string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+
 	// Check if already exists
 	for _, r := range c.Repos {
-		if r == path {
+		if r == absPath {
 			return false
 		}
 	}
 
-	c.Repos = append(c.Repos, path)
+	c.Repos = append(c.Repos, absPath)
 	return true
 }
 
