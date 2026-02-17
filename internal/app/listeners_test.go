@@ -2,9 +2,7 @@ package app
 
 import (
 	"testing"
-	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/mcp"
@@ -126,7 +124,7 @@ func TestSessionListeners_CustomResponseChan(t *testing.T) {
 	m := testModel(cfg)
 
 	runner := claude.NewMockRunner("session-1", true, nil)
-	customChan := make(chan claude.ResponseChunk, 1)
+	customChan := make(chan claude.ResponseChunk, 2)
 
 	cmds := m.sessionListeners("session-1", runner, customChan)
 
@@ -135,20 +133,33 @@ func TestSessionListeners_CustomResponseChan(t *testing.T) {
 		t.Fatal("expected at least one command")
 	}
 
-	// Send a chunk to custom channel and verify listener receives it
-	testChunk := claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "test"}
-	customChan <- testChunk
+	// Test continuous listening by sending two chunks
+	testChunk1 := claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "test1"}
+	testChunk2 := claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "test2"}
+	customChan <- testChunk1
+	customChan <- testChunk2
 
-	msg := cmds[0]()
-	respMsg, ok := msg.(ClaudeResponseMsg)
+	// First call should receive first chunk
+	msg1 := cmds[0]()
+	respMsg1, ok := msg1.(ClaudeResponseMsg)
 	if !ok {
-		t.Fatalf("expected ClaudeResponseMsg, got %T", msg)
+		t.Fatalf("expected ClaudeResponseMsg, got %T", msg1)
 	}
-	if respMsg.SessionID != "session-1" {
-		t.Errorf("expected session-1, got %s", respMsg.SessionID)
+	if respMsg1.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", respMsg1.SessionID)
 	}
-	if respMsg.Chunk.Content != "test" {
-		t.Errorf("expected test content, got %s", respMsg.Chunk.Content)
+	if respMsg1.Chunk.Content != "test1" {
+		t.Errorf("expected test1 content, got %s", respMsg1.Chunk.Content)
+	}
+
+	// Second call should receive second chunk, verifying continuous listening
+	msg2 := cmds[0]()
+	respMsg2, ok := msg2.(ClaudeResponseMsg)
+	if !ok {
+		t.Fatalf("expected ClaudeResponseMsg, got %T", msg2)
+	}
+	if respMsg2.Chunk.Content != "test2" {
+		t.Errorf("expected test2 content, got %s", respMsg2.Chunk.Content)
 	}
 }
 
@@ -217,7 +228,9 @@ func TestListenForSessionResponse_ClosedChannel(t *testing.T) {
 		t.Fatalf("expected ClaudeResponseMsg, got %T", msg)
 	}
 
-	// Closed channel should return Done: true
+	// NOTE: Response listeners return Done=true for closed channels to signal stream completion.
+	// MCP listeners (permission, question, plan approval) return nil for closed channels since
+	// they don't need to signal "done" - they just stop listening when the runner is stopped.
 	if !respMsg.Chunk.Done {
 		t.Error("expected Done=true for closed channel")
 	}
@@ -265,39 +278,28 @@ func TestListenForSessionPermission_ReceiveRequest(t *testing.T) {
 		t.Fatal("expected non-nil command")
 	}
 
-	// Simulate permission request in goroutine
 	testReq := mcp.PermissionRequest{
 		ID:          "perm-1",
 		Tool:        "Bash",
 		Description: "ls -la",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	// Give listener time to start
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulatePermissionRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		permMsg, ok := msg.(PermissionRequestMsg)
-		if !ok {
-			t.Fatalf("expected PermissionRequestMsg, got %T", msg)
-		}
-		if permMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", permMsg.SessionID)
-		}
-		if permMsg.Request.Tool != "Bash" {
-			t.Errorf("expected Bash, got %s", permMsg.Request.Tool)
-		}
-		if permMsg.Request.Description != "ls -la" {
-			t.Errorf("expected 'ls -la', got %s", permMsg.Request.Description)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for permission request")
+	permMsg, ok := msg.(PermissionRequestMsg)
+	if !ok {
+		t.Fatalf("expected PermissionRequestMsg, got %T", msg)
+	}
+	if permMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", permMsg.SessionID)
+	}
+	if permMsg.Request.Tool != "Bash" {
+		t.Errorf("expected Bash, got %s", permMsg.Request.Tool)
+	}
+	if permMsg.Request.Description != "ls -la" {
+		t.Errorf("expected 'ls -la', got %s", permMsg.Request.Description)
 	}
 }
 
@@ -373,31 +375,22 @@ func TestListenForSessionQuestion_ReceiveRequest(t *testing.T) {
 		},
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulateQuestionRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		qMsg, ok := msg.(QuestionRequestMsg)
-		if !ok {
-			t.Fatalf("expected QuestionRequestMsg, got %T", msg)
-		}
-		if qMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", qMsg.SessionID)
-		}
-		if len(qMsg.Request.Questions) != 1 {
-			t.Fatalf("expected 1 question, got %d", len(qMsg.Request.Questions))
-		}
-		if qMsg.Request.Questions[0].Question != "Which approach?" {
-			t.Errorf("unexpected question: %s", qMsg.Request.Questions[0].Question)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for question request")
+	qMsg, ok := msg.(QuestionRequestMsg)
+	if !ok {
+		t.Fatalf("expected QuestionRequestMsg, got %T", msg)
+	}
+	if qMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", qMsg.SessionID)
+	}
+	if len(qMsg.Request.Questions) != 1 {
+		t.Fatalf("expected 1 question, got %d", len(qMsg.Request.Questions))
+	}
+	if qMsg.Request.Questions[0].Question != "Which approach?" {
+		t.Errorf("unexpected question: %s", qMsg.Request.Questions[0].Question)
 	}
 }
 
@@ -466,31 +459,22 @@ func TestListenForSessionPlanApproval_ReceiveRequest(t *testing.T) {
 		},
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulatePlanApprovalRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		planMsg, ok := msg.(PlanApprovalRequestMsg)
-		if !ok {
-			t.Fatalf("expected PlanApprovalRequestMsg, got %T", msg)
-		}
-		if planMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", planMsg.SessionID)
-		}
-		if planMsg.Request.Plan != testReq.Plan {
-			t.Errorf("unexpected plan content")
-		}
-		if len(planMsg.Request.AllowedPrompts) != 1 {
-			t.Errorf("expected 1 allowed prompt, got %d", len(planMsg.Request.AllowedPrompts))
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for plan approval request")
+	planMsg, ok := msg.(PlanApprovalRequestMsg)
+	if !ok {
+		t.Fatalf("expected PlanApprovalRequestMsg, got %T", msg)
+	}
+	if planMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", planMsg.SessionID)
+	}
+	if planMsg.Request.Plan != testReq.Plan {
+		t.Errorf("unexpected plan content")
+	}
+	if len(planMsg.Request.AllowedPrompts) != 1 {
+		t.Errorf("expected 1 allowed prompt, got %d", len(planMsg.Request.AllowedPrompts))
 	}
 }
 
@@ -547,28 +531,19 @@ func TestListenForCreateChildRequest_ReceiveRequest(t *testing.T) {
 		Task: "Implement feature X",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulateCreateChildRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		createMsg, ok := msg.(CreateChildRequestMsg)
-		if !ok {
-			t.Fatalf("expected CreateChildRequestMsg, got %T", msg)
-		}
-		if createMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", createMsg.SessionID)
-		}
-		if createMsg.Request.Task != "Implement feature X" {
-			t.Errorf("unexpected task: %s", createMsg.Request.Task)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for create child request")
+	createMsg, ok := msg.(CreateChildRequestMsg)
+	if !ok {
+		t.Fatalf("expected CreateChildRequestMsg, got %T", msg)
+	}
+	if createMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", createMsg.SessionID)
+	}
+	if createMsg.Request.Task != "Implement feature X" {
+		t.Errorf("unexpected task: %s", createMsg.Request.Task)
 	}
 }
 
@@ -624,28 +599,19 @@ func TestListenForListChildrenRequest_ReceiveRequest(t *testing.T) {
 		ID: "list-1",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulateListChildrenRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		listMsg, ok := msg.(ListChildrenRequestMsg)
-		if !ok {
-			t.Fatalf("expected ListChildrenRequestMsg, got %T", msg)
-		}
-		if listMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", listMsg.SessionID)
-		}
-		if listMsg.Request.ID != "list-1" {
-			t.Errorf("unexpected ID: %s", listMsg.Request.ID)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for list children request")
+	listMsg, ok := msg.(ListChildrenRequestMsg)
+	if !ok {
+		t.Fatalf("expected ListChildrenRequestMsg, got %T", msg)
+	}
+	if listMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", listMsg.SessionID)
+	}
+	if listMsg.Request.ID != "list-1" {
+		t.Errorf("unexpected ID: %s", listMsg.Request.ID)
 	}
 }
 
@@ -702,28 +668,19 @@ func TestListenForMergeChildRequest_ReceiveRequest(t *testing.T) {
 		ChildSessionID: "child-123",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulateMergeChildRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		mergeMsg, ok := msg.(MergeChildRequestMsg)
-		if !ok {
-			t.Fatalf("expected MergeChildRequestMsg, got %T", msg)
-		}
-		if mergeMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", mergeMsg.SessionID)
-		}
-		if mergeMsg.Request.ChildSessionID != "child-123" {
-			t.Errorf("unexpected child session ID: %s", mergeMsg.Request.ChildSessionID)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for merge child request")
+	mergeMsg, ok := msg.(MergeChildRequestMsg)
+	if !ok {
+		t.Fatalf("expected MergeChildRequestMsg, got %T", msg)
+	}
+	if mergeMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", mergeMsg.SessionID)
+	}
+	if mergeMsg.Request.ChildSessionID != "child-123" {
+		t.Errorf("unexpected child session ID: %s", mergeMsg.Request.ChildSessionID)
 	}
 }
 
@@ -780,28 +737,19 @@ func TestListenForCreatePRRequest_ReceiveRequest(t *testing.T) {
 		Title: "Add new feature",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulateCreatePRRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		prMsg, ok := msg.(CreatePRRequestMsg)
-		if !ok {
-			t.Fatalf("expected CreatePRRequestMsg, got %T", msg)
-		}
-		if prMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", prMsg.SessionID)
-		}
-		if prMsg.Request.Title != "Add new feature" {
-			t.Errorf("unexpected title: %s", prMsg.Request.Title)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for create PR request")
+	prMsg, ok := msg.(CreatePRRequestMsg)
+	if !ok {
+		t.Fatalf("expected CreatePRRequestMsg, got %T", msg)
+	}
+	if prMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", prMsg.SessionID)
+	}
+	if prMsg.Request.Title != "Add new feature" {
+		t.Errorf("unexpected title: %s", prMsg.Request.Title)
 	}
 }
 
@@ -858,28 +806,19 @@ func TestListenForPushBranchRequest_ReceiveRequest(t *testing.T) {
 		CommitMessage: "feat: add new feature",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulatePushBranchRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		pushMsg, ok := msg.(PushBranchRequestMsg)
-		if !ok {
-			t.Fatalf("expected PushBranchRequestMsg, got %T", msg)
-		}
-		if pushMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", pushMsg.SessionID)
-		}
-		if pushMsg.Request.CommitMessage != "feat: add new feature" {
-			t.Errorf("unexpected commit message: %s", pushMsg.Request.CommitMessage)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for push branch request")
+	pushMsg, ok := msg.(PushBranchRequestMsg)
+	if !ok {
+		t.Fatalf("expected PushBranchRequestMsg, got %T", msg)
+	}
+	if pushMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", pushMsg.SessionID)
+	}
+	if pushMsg.Request.CommitMessage != "feat: add new feature" {
+		t.Errorf("unexpected commit message: %s", pushMsg.Request.CommitMessage)
 	}
 }
 
@@ -935,28 +874,19 @@ func TestListenForGetReviewCommentsRequest_ReceiveRequest(t *testing.T) {
 		ID: "review-1",
 	}
 
-	done := make(chan tea.Msg, 1)
-	go func() {
-		done <- cmd()
-	}()
-
-	time.Sleep(10 * time.Millisecond)
+	// Send to buffered channel first, then read with cmd()
 	runner.SimulateGetReviewCommentsRequest(testReq)
+	msg := cmd()
 
-	select {
-	case msg := <-done:
-		reviewMsg, ok := msg.(GetReviewCommentsRequestMsg)
-		if !ok {
-			t.Fatalf("expected GetReviewCommentsRequestMsg, got %T", msg)
-		}
-		if reviewMsg.SessionID != "session-1" {
-			t.Errorf("expected session-1, got %s", reviewMsg.SessionID)
-		}
-		if reviewMsg.Request.ID != "review-1" {
-			t.Errorf("unexpected ID: %s", reviewMsg.Request.ID)
-		}
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for get review comments request")
+	reviewMsg, ok := msg.(GetReviewCommentsRequestMsg)
+	if !ok {
+		t.Fatalf("expected GetReviewCommentsRequestMsg, got %T", msg)
+	}
+	if reviewMsg.SessionID != "session-1" {
+		t.Errorf("expected session-1, got %s", reviewMsg.SessionID)
+	}
+	if reviewMsg.Request.ID != "review-1" {
+		t.Errorf("unexpected ID: %s", reviewMsg.Request.ID)
 	}
 }
 
