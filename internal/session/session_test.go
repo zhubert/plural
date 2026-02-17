@@ -11,6 +11,7 @@ import (
 
 	"github.com/zhubert/plural/internal/config"
 	pexec "github.com/zhubert/plural/internal/exec"
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // Test helper variables
@@ -64,10 +65,34 @@ func createTestRepo(t *testing.T) string {
 	return tmpDir
 }
 
+// setupTestPaths configures paths to use a temp directory for worktrees.
+// Must be called before any session creation in tests.
+func setupTestPaths(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
+	paths.Reset()
+	t.Cleanup(paths.Reset)
+	// Create ~/.plural so Config.Save() works in migration tests
+	if err := os.MkdirAll(filepath.Join(tmpDir, ".plural"), 0755); err != nil {
+		t.Fatalf("Failed to create .plural dir: %v", err)
+	}
+	return tmpDir
+}
+
 // cleanupWorktrees removes worktrees created during testing
-func cleanupWorktrees(repoPath string) {
-	worktreeDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
-	os.RemoveAll(worktreeDir)
+func cleanupWorktrees(t *testing.T, repoPath string) {
+	t.Helper()
+	// Clean centralized worktrees directory
+	if worktreesDir, err := paths.WorktreesDir(); err == nil {
+		os.RemoveAll(worktreesDir)
+	}
+	// Clean legacy .plural-worktrees directory
+	legacyDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
+	os.RemoveAll(legacyDir)
 
 	// Also prune the worktree references from git
 	cmd := exec.Command("git", "worktree", "prune")
@@ -76,9 +101,10 @@ func cleanupWorktrees(repoPath string) {
 }
 
 func TestCreate(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
@@ -124,9 +150,10 @@ func TestCreate(t *testing.T) {
 }
 
 func TestCreate_MultipleSessions(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create multiple sessions
 	session1, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -156,6 +183,7 @@ func TestCreate_MultipleSessions(t *testing.T) {
 }
 
 func TestCreate_InvalidRepo(t *testing.T) {
+	setupTestPaths(t)
 	tmpDir, err := os.MkdirTemp("", "plural-session-invalid-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -293,9 +321,10 @@ func TestGetCurrentDirGitRoot(t *testing.T) {
 }
 
 func TestSessionName_Format(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
@@ -325,9 +354,10 @@ func TestSessionName_Format(t *testing.T) {
 }
 
 func TestBranchName_Format(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
@@ -348,17 +378,21 @@ func TestBranchName_Format(t *testing.T) {
 }
 
 func TestWorktreePath_Location(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 
-	// Worktree should be in .plural-worktrees directory
-	expectedDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
+	// Worktree should be in centralized worktrees directory
+	expectedDir, err := paths.WorktreesDir()
+	if err != nil {
+		t.Fatalf("WorktreesDir failed: %v", err)
+	}
 	if !strings.HasPrefix(session.WorkTree, expectedDir) {
 		t.Errorf("WorkTree %q should be in %q", session.WorkTree, expectedDir)
 	}
@@ -371,9 +405,10 @@ func TestWorktreePath_Location(t *testing.T) {
 }
 
 func TestCreate_CustomBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	customBranch := "feature/my-cool-feature"
 	session, err := svc.Create(ctx, repoPath, customBranch, "", BasePointHead)
@@ -436,9 +471,10 @@ func TestBranchExists(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session first
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -493,9 +529,10 @@ func TestDelete_NonexistentWorktree(t *testing.T) {
 }
 
 func TestDelete_AlreadyDeletedBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -519,9 +556,10 @@ func TestDelete_AlreadyDeletedBranch(t *testing.T) {
 }
 
 func TestFindOrphanedWorktrees(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -566,6 +604,7 @@ func TestFindOrphanedWorktrees(t *testing.T) {
 }
 
 func TestFindOrphanedWorktrees_NoWorktrees(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
 
@@ -586,9 +625,10 @@ func TestFindOrphanedWorktrees_NoWorktrees(t *testing.T) {
 }
 
 func TestPruneOrphanedWorktrees(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -624,9 +664,10 @@ func TestPruneOrphanedWorktrees(t *testing.T) {
 }
 
 func TestPruneOrphanedWorktrees_PrefixedBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session with a branch prefix (e.g., "zhubert/")
 	session, err := svc.Create(ctx, repoPath, "", "zhubert/", BasePointHead)
@@ -681,9 +722,10 @@ func TestPruneOrphanedWorktrees_PrefixedBranch(t *testing.T) {
 }
 
 func TestPruneOrphanedWorktrees_RenamedBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session with default branch name
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -741,9 +783,10 @@ func TestPruneOrphanedWorktrees_RenamedBranch(t *testing.T) {
 }
 
 func TestDetectWorktreeBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -804,6 +847,7 @@ func TestDetectWorktreeBranch_InvalidPath(t *testing.T) {
 // by reading the .git file instead of assuming all worktrees in a directory belong
 // to the first repo encountered.
 func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
+	setupTestPaths(t)
 	// Create a shared parent directory
 	parentDir, err := os.MkdirTemp("", "plural-shared-parent-*")
 	if err != nil {
@@ -869,8 +913,8 @@ func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
 		t.Fatalf("Failed to commit in repo2: %v", err)
 	}
 
-	defer cleanupWorktrees(repo1Path)
-	defer cleanupWorktrees(repo2Path)
+	defer cleanupWorktrees(t, repo1Path)
+	defer cleanupWorktrees(t, repo2Path)
 
 	// Create sessions for both repos
 	session1, err := svc.Create(ctx, repo1Path, "", "", BasePointHead)
@@ -883,11 +927,16 @@ func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
 		t.Fatalf("Failed to create session for repo2: %v", err)
 	}
 
-	// Verify both share the same .plural-worktrees directory
-	worktreesDir1 := filepath.Join(filepath.Dir(repo1Path), ".plural-worktrees")
-	worktreesDir2 := filepath.Join(filepath.Dir(repo2Path), ".plural-worktrees")
-	if worktreesDir1 != worktreesDir2 {
-		t.Fatalf("Expected repos to share worktrees dir, got %q and %q", worktreesDir1, worktreesDir2)
+	// Verify both worktrees are in the centralized directory
+	worktreesDir, err := paths.WorktreesDir()
+	if err != nil {
+		t.Fatalf("WorktreesDir failed: %v", err)
+	}
+	if !strings.HasPrefix(session1.WorkTree, worktreesDir) {
+		t.Fatalf("session1 worktree %q not in centralized dir %q", session1.WorkTree, worktreesDir)
+	}
+	if !strings.HasPrefix(session2.WorkTree, worktreesDir) {
+		t.Fatalf("session2 worktree %q not in centralized dir %q", session2.WorkTree, worktreesDir)
 	}
 
 	// Config with both repos, but session1 missing (making it orphaned)
@@ -966,9 +1015,10 @@ func TestFindOrphanedWorktrees_SharedParentDirectory(t *testing.T) {
 // TestGetWorktreeRepoPath tests the helper function that determines
 // which repo a worktree belongs to by reading its .git file
 func TestGetWorktreeRepoPath(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a session
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -1029,10 +1079,11 @@ func TestGetWorktreeRepoPath_MissingGitFile(t *testing.T) {
 
 // TestGetWorktreeRepoPath_RelativePath tests handling of relative gitdir paths
 func TestGetWorktreeRepoPath_RelativePath(t *testing.T) {
+	setupTestPaths(t)
 	// Create a real repo and worktree to get the structure right
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
 	if err != nil {
@@ -1044,11 +1095,11 @@ func TestGetWorktreeRepoPath_RelativePath(t *testing.T) {
 	gitFile := filepath.Join(session.WorkTree, ".git")
 
 	// Calculate relative path from worktree to repo's .git/worktrees/<id>
-	// From: <parent>/.plural-worktrees/<id>
-	// To:   <parent>/<reponame>/.git/worktrees/<id>
-	repoName := filepath.Base(repoPath)
-	sessionID := session.ID
-	relativeGitDir := filepath.Join("..", "..", repoName, ".git", "worktrees", sessionID)
+	absGitDir := filepath.Join(repoPath, ".git", "worktrees", session.ID)
+	relativeGitDir, err := filepath.Rel(session.WorkTree, absGitDir)
+	if err != nil {
+		t.Fatalf("Failed to compute relative path: %v", err)
+	}
 
 	gitContent := fmt.Sprintf("gitdir: %s\n", relativeGitDir)
 	if err := os.WriteFile(gitFile, []byte(gitContent), 0644); err != nil {
@@ -1088,9 +1139,10 @@ func TestOrphanedWorktree_Fields(t *testing.T) {
 }
 
 func TestCreate_CustomBranchDisplayName(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	customBranch := "feature/my-feature"
 	session, err := svc.Create(ctx, repoPath, customBranch, "", BasePointHead)
@@ -1105,9 +1157,10 @@ func TestCreate_CustomBranchDisplayName(t *testing.T) {
 }
 
 func TestCreate_BranchPrefix(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	branchPrefix := "zhubert/"
 	session, err := svc.Create(ctx, repoPath, "", branchPrefix, BasePointHead)
@@ -1133,9 +1186,10 @@ func TestCreate_BranchPrefix(t *testing.T) {
 }
 
 func TestCreate_BranchPrefixWithCustomBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	branchPrefix := "zhubert/"
 	customBranch := "issue-42"
@@ -1297,10 +1351,11 @@ func TestFetchOrigin_WithRemote(t *testing.T) {
 }
 
 func TestCreate_UsesOriginMain(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Add a new commit to the "remote" (simulating someone else pushing)
 	// First clone the remote to make a change
@@ -1382,9 +1437,10 @@ func TestCreate_UsesOriginMain(t *testing.T) {
 }
 
 func TestCreateFromBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a first session (simulating a parent session)
 	parentSession, err := svc.Create(ctx, repoPath, "parent-branch", "", BasePointHead)
@@ -1450,9 +1506,10 @@ func TestCreateFromBranch(t *testing.T) {
 }
 
 func TestCreateFromBranch_WithBranchPrefix(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a first session
 	parentSession, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
@@ -1474,10 +1531,11 @@ func TestCreateFromBranch_WithBranchPrefix(t *testing.T) {
 }
 
 func TestCreate_FromCurrentBranch(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Create a local branch with changes that are NOT pushed to remote
 	cmd := exec.Command("git", "checkout", "-b", "local-feature")
@@ -1538,10 +1596,11 @@ func TestCreate_FromCurrentBranch(t *testing.T) {
 }
 
 func TestCreate_FromOriginVsCurrentBranch(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Create a local branch with changes that are NOT pushed to remote
 	cmd := exec.Command("git", "checkout", "-b", "local-feature")
@@ -1591,10 +1650,11 @@ func TestCreate_FromOriginVsCurrentBranch(t *testing.T) {
 }
 
 func TestCreate_BaseBranch_FromOrigin(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Create a session from origin
 	session, err := svc.Create(ctx, localPath, "", "", BasePointOrigin)
@@ -1609,10 +1669,11 @@ func TestCreate_BaseBranch_FromOrigin(t *testing.T) {
 }
 
 func TestCreate_BaseBranch_FromCurrentBranch(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Create a local branch
 	cmd := exec.Command("git", "checkout", "-b", "feature-branch")
@@ -1634,10 +1695,11 @@ func TestCreate_BaseBranch_FromCurrentBranch(t *testing.T) {
 }
 
 func TestCreate_BaseBranch_FromLocalDefault(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Switch to a feature branch so HEAD != main
 	cmd := exec.Command("git", "checkout", "-b", "feature-branch")
@@ -1679,10 +1741,11 @@ func TestCreate_BaseBranch_FromLocalDefault(t *testing.T) {
 }
 
 func TestCreate_FromLocalDefault_VsOriginAndCurrent(t *testing.T) {
+	setupTestPaths(t)
 	localPath, remotePath := createTestRepoWithRemote(t)
 	defer os.RemoveAll(localPath)
 	defer os.RemoveAll(remotePath)
-	defer cleanupWorktrees(localPath)
+	defer cleanupWorktrees(t, localPath)
 
 	// Add a commit to local main that is NOT pushed to remote
 	localMainFile := filepath.Join(localPath, "local-main-only.txt")
@@ -1720,9 +1783,10 @@ func TestCreate_FromLocalDefault_VsOriginAndCurrent(t *testing.T) {
 }
 
 func TestCreateFromBranch_BaseBranch(t *testing.T) {
+	setupTestPaths(t)
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	// Create a source branch
 	cmd := exec.Command("git", "checkout", "-b", "source-branch")
@@ -1744,14 +1808,17 @@ func TestCreateFromBranch_BaseBranch(t *testing.T) {
 }
 
 func TestPruneOrphanedWorktrees_LogsGitErrors(t *testing.T) {
+	setupTestPaths(t)
 	// Create a real repo + orphan worktree directory so FindOrphanedWorktrees finds it
 	repoPath := createTestRepo(t)
 	defer os.RemoveAll(repoPath)
-	defer cleanupWorktrees(repoPath)
+	defer cleanupWorktrees(t, repoPath)
 
 	orphanID := "fake-orphan-session-id"
-	repoParent := filepath.Dir(repoPath)
-	worktreesDir := filepath.Join(repoParent, ".plural-worktrees")
+	worktreesDir, err := paths.WorktreesDir()
+	if err != nil {
+		t.Fatalf("WorktreesDir failed: %v", err)
+	}
 	orphanPath := filepath.Join(worktreesDir, orphanID)
 
 	if err := os.MkdirAll(orphanPath, 0755); err != nil {
@@ -1826,5 +1893,194 @@ func TestPruneOrphanedWorktrees_LogsGitErrors(t *testing.T) {
 	}
 	if !hasBranchDelete {
 		t.Error("Expected git branch -D to be called")
+	}
+}
+
+func TestMigrateWorktrees(t *testing.T) {
+	setupTestPaths(t)
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a worktree in the old .plural-worktrees location manually
+	sessionID := "test-migrate-session-id"
+	oldWorktreesDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
+	oldWorktreePath := filepath.Join(oldWorktreesDir, sessionID)
+
+	// Create the worktree using git (so it's a real worktree)
+	if err := os.MkdirAll(oldWorktreesDir, 0755); err != nil {
+		t.Fatalf("Failed to create old worktrees dir: %v", err)
+	}
+
+	cmd := exec.Command("git", "worktree", "add", "-b", "plural-"+sessionID, oldWorktreePath, "HEAD")
+	cmd.Dir = repoPath
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to create worktree: %s: %v", string(out), err)
+	}
+	defer func() {
+		os.RemoveAll(oldWorktreesDir)
+		cmd := exec.Command("git", "worktree", "prune")
+		cmd.Dir = repoPath
+		cmd.Run()
+	}()
+
+	// Set up config with the session pointing to old path
+	cfg := &config.Config{
+		Repos: []string{repoPath},
+		Sessions: []config.Session{{
+			ID:       sessionID,
+			RepoPath: repoPath,
+			WorkTree: oldWorktreePath,
+			Branch:   "plural-" + sessionID,
+		}},
+	}
+	configDir, _ := paths.ConfigDir()
+	cfg.SetFilePath(filepath.Join(configDir, "config.json"))
+
+	// Run migration
+	err := svc.MigrateWorktrees(ctx, cfg)
+	if err != nil {
+		t.Fatalf("MigrateWorktrees failed: %v", err)
+	}
+
+	// Verify session was updated to new path
+	sessions := cfg.GetSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(sessions))
+	}
+
+	newWorktreesDir, err := paths.WorktreesDir()
+	if err != nil {
+		t.Fatalf("WorktreesDir failed: %v", err)
+	}
+	expectedNewPath := filepath.Join(newWorktreesDir, sessionID)
+	if sessions[0].WorkTree != expectedNewPath {
+		t.Errorf("Session WorkTree = %q, want %q", sessions[0].WorkTree, expectedNewPath)
+	}
+
+	// Verify the worktree exists at the new location
+	if _, err := os.Stat(expectedNewPath); os.IsNotExist(err) {
+		t.Error("Worktree should exist at new centralized location")
+	}
+
+	// Verify the old location is gone
+	if _, err := os.Stat(oldWorktreePath); !os.IsNotExist(err) {
+		t.Error("Worktree should not exist at old location")
+	}
+
+	// Verify the worktree still works as a git directory
+	cmd = exec.Command("git", "rev-parse", "--git-dir")
+	cmd.Dir = expectedNewPath
+	if err := cmd.Run(); err != nil {
+		t.Error("Migrated worktree should still be a valid git directory")
+	}
+}
+
+func TestMigrateWorktrees_AlreadyMigrated(t *testing.T) {
+	setupTestPaths(t)
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+	defer cleanupWorktrees(t, repoPath)
+
+	// Create a session in the new centralized location
+	session, err := svc.Create(ctx, repoPath, "", "", BasePointHead)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{*session},
+	}
+
+	originalWorkTree := session.WorkTree
+
+	// Run migration — should be a no-op
+	err = svc.MigrateWorktrees(ctx, cfg)
+	if err != nil {
+		t.Fatalf("MigrateWorktrees failed: %v", err)
+	}
+
+	// Verify session path unchanged
+	sessions := cfg.GetSessions()
+	if sessions[0].WorkTree != originalWorkTree {
+		t.Errorf("WorkTree should be unchanged: got %q, want %q", sessions[0].WorkTree, originalWorkTree)
+	}
+}
+
+func TestMigrateWorktrees_MissingWorktree(t *testing.T) {
+	setupTestPaths(t)
+
+	// Session with old-style path that doesn't exist on disk
+	cfg := &config.Config{
+		Repos: []string{"/some/repo"},
+		Sessions: []config.Session{{
+			ID:       "missing-session-id",
+			RepoPath: "/some/repo",
+			WorkTree: "/some/.plural-worktrees/missing-session-id",
+			Branch:   "plural-missing-session-id",
+		}},
+	}
+	configDir, _ := paths.ConfigDir()
+	cfg.SetFilePath(filepath.Join(configDir, "config.json"))
+
+	// Run migration — should update config path even though worktree is missing
+	err := svc.MigrateWorktrees(ctx, cfg)
+	if err != nil {
+		t.Fatalf("MigrateWorktrees failed: %v", err)
+	}
+
+	// Verify session was updated to new path
+	sessions := cfg.GetSessions()
+	newWorktreesDir, _ := paths.WorktreesDir()
+	expectedPath := filepath.Join(newWorktreesDir, "missing-session-id")
+	if sessions[0].WorkTree != expectedPath {
+		t.Errorf("Session WorkTree = %q, want %q", sessions[0].WorkTree, expectedPath)
+	}
+}
+
+func TestFindOrphanedWorktrees_LegacyLocation(t *testing.T) {
+	setupTestPaths(t)
+	repoPath := createTestRepo(t)
+	defer os.RemoveAll(repoPath)
+
+	// Create a worktree in the old .plural-worktrees location manually
+	sessionID := "legacy-orphan-id"
+	oldWorktreesDir := filepath.Join(filepath.Dir(repoPath), ".plural-worktrees")
+	oldWorktreePath := filepath.Join(oldWorktreesDir, sessionID)
+
+	if err := os.MkdirAll(oldWorktreesDir, 0755); err != nil {
+		t.Fatalf("Failed to create old worktrees dir: %v", err)
+	}
+
+	cmd := exec.Command("git", "worktree", "add", "-b", "plural-"+sessionID, oldWorktreePath, "HEAD")
+	cmd.Dir = repoPath
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("Failed to create worktree: %s: %v", string(out), err)
+	}
+	defer func() {
+		os.RemoveAll(oldWorktreesDir)
+		cmd := exec.Command("git", "worktree", "prune")
+		cmd.Dir = repoPath
+		cmd.Run()
+	}()
+
+	// Config with the repo but no sessions (making the legacy worktree an orphan)
+	cfg := &config.Config{
+		Repos:    []string{repoPath},
+		Sessions: []config.Session{},
+	}
+
+	// FindOrphanedWorktrees should find it in the legacy location
+	orphans, err := FindOrphanedWorktrees(cfg)
+	if err != nil {
+		t.Fatalf("FindOrphanedWorktrees failed: %v", err)
+	}
+
+	if len(orphans) != 1 {
+		t.Fatalf("Expected 1 orphan in legacy location, got %d", len(orphans))
+	}
+
+	if orphans[0].ID != sessionID {
+		t.Errorf("Orphan ID = %q, want %q", orphans[0].ID, sessionID)
 	}
 }

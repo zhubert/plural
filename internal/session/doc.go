@@ -11,7 +11,8 @@
 // 1. Create: When a new session is created:
 //   - A UUID is generated for the session ID
 //   - A new git branch is created: plural-<UUID>
-//   - A worktree is created at .plural-worktrees/<UUID> (sibling to the repo)
+//   - A worktree is created under the centralized data directory
+//     (~/.plural/worktrees/<UUID> or XDG_DATA_HOME/plural/worktrees/<UUID>)
 //   - The session is registered in the config
 //
 // 2. Resume: When resuming an existing session:
@@ -25,14 +26,17 @@
 //
 // # Worktree Structure
 //
-// Given a repository at /path/to/repo, session worktrees are created at:
+// Session worktrees are stored in a centralized location:
 //
-//	/path/to/.plural-worktrees/<session-uuid>/
+//	~/.plural/worktrees/<session-uuid>/
 //
-// This location (sibling to the repo) is chosen to:
-//   - Keep worktrees close to but separate from the main repo
-//   - Avoid cluttering the repository itself
-//   - Allow easy cleanup of all worktrees
+// Or when using XDG Base Directory Specification:
+//
+//	$XDG_DATA_HOME/plural/worktrees/<session-uuid>/
+//
+// This centralized location avoids scattering .plural-worktrees directories
+// across the filesystem. Legacy worktrees from the old sibling-directory layout
+// are automatically migrated on startup.
 //
 // # Git Operations
 //
@@ -47,9 +51,9 @@
 //
 // ValidateRepo: Checks if a path is a valid git repository.
 //
-// GetWorktreeDir: Returns the worktrees directory path for a repo.
-//
 // GetGitRoot: Returns the git root directory for a path.
 //
 // GetCurrentDirGitRoot: Returns the git root of the current working directory.
+//
+// MigrateWorktrees: Migrates legacy worktrees to the centralized directory.
 package session

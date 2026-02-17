@@ -146,6 +146,15 @@ func LogsDir() (string, error) {
 	return filepath.Join(dir, "logs"), nil
 }
 
+// WorktreesDir returns the directory for centralized git worktrees.
+func WorktreesDir() (string, error) {
+	dir, err := DataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "worktrees"), nil
+}
+
 // IsLegacyLayout returns true if using the ~/.plural/ flat layout.
 func IsLegacyLayout() bool {
 	r, err := resolve()

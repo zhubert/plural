@@ -255,6 +255,11 @@ func New(cfg *config.Config, version string) *Model {
 	gitSvc := git.NewGitService()
 	sessionSvc := session.NewSessionService()
 
+	// Migrate worktrees from legacy .plural-worktrees to centralized directory
+	if err := sessionSvc.MigrateWorktrees(context.Background(), cfg); err != nil {
+		logger.Get().Warn("worktree migration failed", "error", err)
+	}
+
 	// Initialize issue providers
 	githubProvider := issues.NewGitHubProvider(gitSvc)
 	asanaProvider := issues.NewAsanaProvider(cfg)

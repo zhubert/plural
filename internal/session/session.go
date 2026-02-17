@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // BasePoint specifies where to branch from when creating a new session
@@ -170,9 +171,12 @@ func (s *SessionService) Create(ctx context.Context, repoPath string, customBran
 		branch = branchPrefix + fmt.Sprintf("plural-%s", id)
 	}
 
-	// Worktree path: sibling to repo in .plural-worktrees directory
-	repoParent := filepath.Dir(repoPath)
-	worktreePath := filepath.Join(repoParent, ".plural-worktrees", id)
+	// Worktree path: centralized under data directory
+	worktreesDir, err := paths.WorktreesDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get worktrees directory: %w", err)
+	}
+	worktreePath := filepath.Join(worktreesDir, id)
 
 	// Determine the starting point for the new branch
 	var startPoint string
@@ -296,9 +300,12 @@ func (s *SessionService) CreateFromBranch(ctx context.Context, repoPath string, 
 		branch = branchPrefix + fmt.Sprintf("plural-%s", id)
 	}
 
-	// Worktree path: sibling to repo in .plural-worktrees directory
-	repoParent := filepath.Dir(repoPath)
-	worktreePath := filepath.Join(repoParent, ".plural-worktrees", id)
+	// Worktree path: centralized under data directory
+	worktreesDir, err := paths.WorktreesDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get worktrees directory: %w", err)
+	}
+	worktreePath := filepath.Join(worktreesDir, id)
 
 	// Create the worktree with a new branch based on the source branch
 	log.Info("creating git worktree",
@@ -457,13 +464,19 @@ func FindOrphanedWorktrees(cfg *config.Config) ([]OrphanedWorktree, error) {
 		}
 	}
 
-	// Build list of unique .plural-worktrees directories to check
-	// Note: Multiple repos can share the same parent directory and thus
-	// the same .plural-worktrees directory. We deduplicate the directories
-	// but let getWorktreeRepoPath() determine which repo each worktree belongs to.
+	// Build list of directories to check for orphaned worktrees.
+	// Always check the centralized worktrees directory.
+	// Also check legacy .plural-worktrees sibling directories for transition period.
 	checkedDirs := make(map[string]bool)
 	var dirsToCheck []string
 
+	// Centralized worktrees directory
+	if centralDir, err := paths.WorktreesDir(); err == nil {
+		checkedDirs[centralDir] = true
+		dirsToCheck = append(dirsToCheck, centralDir)
+	}
+
+	// Legacy .plural-worktrees sibling directories (transition period)
 	for _, repoPath := range repoPaths {
 		repoParent := filepath.Dir(repoPath)
 		worktreesDir := filepath.Join(repoParent, ".plural-worktrees")
@@ -685,4 +698,109 @@ func (s *SessionService) PruneOrphanedWorktrees(ctx context.Context, cfg *config
 
 	wg.Wait()
 	return pruned, nil
+}
+
+// MigrateWorktrees moves worktrees from old .plural-worktrees sibling directories
+// to the centralized worktrees directory (~/.plural/worktrees/ or XDG equivalent).
+// This is safe to call on every startup — it only acts when old-style worktrees exist.
+func (s *SessionService) MigrateWorktrees(ctx context.Context, cfg *config.Config) error {
+	log := logger.WithComponent("session")
+
+	newWorktreesDir, err := paths.WorktreesDir()
+	if err != nil {
+		return fmt.Errorf("failed to get worktrees directory: %w", err)
+	}
+
+	sessions := cfg.GetSessions()
+	migrated := 0
+
+	for _, sess := range sessions {
+		// Skip sessions that don't use the old .plural-worktrees pattern
+		if !strings.Contains(sess.WorkTree, ".plural-worktrees") {
+			continue
+		}
+
+		newPath := filepath.Join(newWorktreesDir, sess.ID)
+
+		// If already at the new path, nothing to do
+		if sess.WorkTree == newPath {
+			continue
+		}
+
+		// Check if old worktree still exists on disk
+		if _, err := os.Stat(sess.WorkTree); os.IsNotExist(err) {
+			// Old worktree doesn't exist — just update the config path
+			log.Info("old worktree missing, updating config path only",
+				"sessionID", sess.ID,
+				"oldPath", sess.WorkTree,
+				"newPath", newPath)
+			cfg.UpdateSessionWorkTree(sess.ID, newPath)
+			migrated++
+			continue
+		}
+
+		// Ensure the new worktrees directory exists
+		if err := os.MkdirAll(newWorktreesDir, 0755); err != nil {
+			log.Error("failed to create worktrees directory", "path", newWorktreesDir, "error", err)
+			continue
+		}
+
+		// Try git worktree move first (handles git internal pointers automatically)
+		_, _, err := s.executor.Run(ctx, sess.RepoPath, "git", "worktree", "move", sess.WorkTree, newPath)
+		if err != nil {
+			// Fallback: manual move + update gitdir file
+			log.Warn("git worktree move failed, falling back to manual move",
+				"sessionID", sess.ID, "error", err)
+
+			if err := os.Rename(sess.WorkTree, newPath); err != nil {
+				log.Error("failed to move worktree",
+					"sessionID", sess.ID,
+					"from", sess.WorkTree,
+					"to", newPath,
+					"error", err)
+				continue
+			}
+
+			// Update the gitdir file in the repo's .git/worktrees/<id>/gitdir
+			gitdirFile := filepath.Join(sess.RepoPath, ".git", "worktrees", sess.ID, "gitdir")
+			if err := os.WriteFile(gitdirFile, []byte(newPath+"\n"), 0644); err != nil {
+				log.Warn("failed to update gitdir pointer", "file", gitdirFile, "error", err)
+				// Not fatal — the worktree was already moved
+			}
+		}
+
+		log.Info("migrated worktree",
+			"sessionID", sess.ID,
+			"from", sess.WorkTree,
+			"to", newPath)
+
+		cfg.UpdateSessionWorkTree(sess.ID, newPath)
+		migrated++
+	}
+
+	if migrated > 0 {
+		if err := cfg.Save(); err != nil {
+			return fmt.Errorf("failed to save config after migration: %w", err)
+		}
+		log.Info("worktree migration complete", "migrated", migrated)
+
+		// Best-effort cleanup of empty old .plural-worktrees directories
+		cleanedDirs := make(map[string]bool)
+		for _, sess := range sessions {
+			if !strings.Contains(sess.WorkTree, ".plural-worktrees") {
+				continue
+			}
+			oldDir := filepath.Dir(sess.WorkTree)
+			if cleanedDirs[oldDir] {
+				continue
+			}
+			cleanedDirs[oldDir] = true
+			// os.Remove only succeeds if directory is empty
+			if err := os.Remove(oldDir); err == nil {
+				log.Info("removed empty legacy worktrees directory", "path", oldDir)
+			}
+		}
+	}
+
+	return nil
 }

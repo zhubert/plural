@@ -316,6 +316,21 @@ func (c *Config) GetChildSessions(supervisorID string) []Session {
 	return children
 }
 
+// UpdateSessionWorkTree updates the worktree path for a session.
+// Used during migration from legacy .plural-worktrees to centralized directory.
+func (c *Config) UpdateSessionWorkTree(sessionID string, workTree string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for i := range c.Sessions {
+		if c.Sessions[i].ID == sessionID {
+			c.Sessions[i].WorkTree = workTree
+			return true
+		}
+	}
+	return false
+}
+
 // UpdateSessionPRCommentCount updates the last-seen PR comment count for a session.
 func (c *Config) UpdateSessionPRCommentCount(sessionID string, count int) bool {
 	c.mu.Lock()
