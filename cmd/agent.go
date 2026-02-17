@@ -82,18 +82,16 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("error loading config: %w", err)
 	}
 
+	// Enable debug logging for agent mode (always on for headless autonomous operation)
+	logger.SetDebug(true)
+
 	// Ensure logger is closed on exit
 	defer logger.Close()
 
-	// Create structured logger for agent output
+	// Create structured logger for agent output (always debug level)
 	agentLogger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: slog.LevelDebug,
 	}))
-	if debugMode {
-		agentLogger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
-	}
 
 	// Create services
 	gitSvc := git.NewGitService()
