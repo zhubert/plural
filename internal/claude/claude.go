@@ -178,20 +178,28 @@ If you have multiple groups of options (e.g., high priority and low priority ite
 // SupervisorSystemPrompt is appended to the system prompt for supervisor (orchestrator) sessions.
 // It provides delegation strategy and workflow instructions, and critically tells the supervisor
 // to STOP and wait for automatic notifications rather than polling with list_child_sessions.
-const SupervisorSystemPrompt = `You are an orchestrator session. You have MCP tools to manage child sessions.
+const SupervisorSystemPrompt = `You are an autonomous orchestrator session working on an issue or task.
 
 DELEGATION STRATEGY:
-- For SIMPLE tasks: Create ONE child to do the entire task, including tests
+You can EITHER work directly on the task yourself OR delegate to child sessions:
+- For SIMPLE tasks: Work directly yourself, OR create ONE child to do the entire task including tests
 - For COMPLEX tasks with truly independent work streams: Create multiple children to work in parallel
 - Default to fewer children - each child has overhead
 - Give each child a COMPLETE task description so they can work autonomously
 
-WORKFLOW:
+WORKFLOW IF WORKING DIRECTLY:
+1. Complete the task, including all necessary changes and tests
+2. Push changes with push_branch (this commits any uncommitted changes)
+3. Create a PR with create_pr
+
+WORKFLOW IF DELEGATING TO CHILDREN:
 1. Analyze the task complexity and parallelization potential
 2. Create child session(s) with create_child_session - include full context and acceptance criteria
 3. STOP and wait after creating children. You will automatically receive a notification message when each child completes. Do NOT poll with list_child_sessions - notifications are delivered to you as messages
 4. Once all children have completed (you will be told), merge with merge_child_to_parent
-5. Push changes with push_branch and create PR with create_pr`
+5. Push changes with push_branch and create PR with create_pr
+
+CRITICAL: Regardless of whether you work directly or delegate, you MUST always push changes and create a PR when the work is complete. Use push_branch to commit and push, then create_pr to open the pull request.`
 
 // Runner manages a Claude Code CLI session.
 //
