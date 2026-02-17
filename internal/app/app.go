@@ -286,8 +286,7 @@ func New(cfg *config.Config, version string) *Model {
 	// Configure footer to use shortcut registry for dynamic bindings
 	m.footer.SetBindingsGenerator(m.getApplicableFooterBindings)
 
-	// Load repos and sessions into sidebar
-	m.sidebar.SetRepos(cfg.GetRepos())
+	// Load sessions into sidebar (filtered by active workspace)
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	m.sidebar.SetFocused(true)
 
@@ -638,16 +637,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case keys.Enter:
 			switch m.focus {
 			case FocusSidebar:
-				// "+ New Session" action
-				if repoPath := m.sidebar.SelectedNewSessionRepo(); repoPath != "" {
-					state := ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable())
-					state.LockedRepo = repoPath
-					state.Focus = 1 // Skip repo selector, start on base branch
-					m.modal.Show(state)
-					return m, nil
-				}
-				// If a session is selected (already auto-selected via navigation),
-				// switch focus to chat
+				// Select session
 				if sess := m.sidebar.SelectedSession(); sess != nil {
 					if m.activeSession == nil || m.activeSession.ID != sess.ID {
 						m.selectSession(sess)

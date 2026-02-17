@@ -153,7 +153,7 @@ func TestSidebar_SelectedSession(t *testing.T) {
 	}
 	sidebar.SetSessions(sessions)
 
-	// Default selection advances past repo header to first session
+	// Default selection is first session
 	sess = sidebar.SelectedSession()
 	if sess == nil {
 		t.Fatal("SelectedSession should return a session")
@@ -173,15 +173,15 @@ func TestSidebar_SelectSession(t *testing.T) {
 	}
 	sidebar.SetSessions(sessions)
 
-	// Select by ID (items: repo=0, s1=1, s2=2, s3=3)
+	// Select by ID (s1=0, s2=1, s3=2)
 	sidebar.SelectSession("session-2")
-	if sidebar.selectedIdx != 2 {
-		t.Errorf("Expected selectedIdx 2, got %d", sidebar.selectedIdx)
+	if sidebar.selectedIdx != 1 {
+		t.Errorf("Expected selectedIdx 1, got %d", sidebar.selectedIdx)
 	}
 
 	// Select non-existent session (should not change)
 	sidebar.SelectSession("nonexistent")
-	if sidebar.selectedIdx != 2 {
+	if sidebar.selectedIdx != 1 {
 		t.Errorf("Selection should not change, got %d", sidebar.selectedIdx)
 	}
 }
@@ -1133,56 +1133,6 @@ func TestSidebar_MultiSelect_CorrectSessionSelected(t *testing.T) {
 	}
 }
 
-// TestSidebar_MultiSelect_NonSessionItemsNotSelectable tests that repo headers
-// and "+ New Session" items cannot be selected in multi-select mode.
-func TestSidebar_MultiSelect_NonSessionItemsNotSelectable(t *testing.T) {
-	sidebar := NewSidebar()
-	sessions := []config.Session{
-		{ID: "s1", RepoPath: "/repo", Branch: "b1", Name: "session1"},
-	}
-	sidebar.SetSessions(sessions)
-
-	// Move to repo header (index 0)
-	sidebar.selectedIdx = 0
-	if sidebar.SelectedSession() != nil {
-		t.Error("repo header should not return a session")
-	}
-
-	// Enter multi-select and try to toggle - should not select anything
-	sidebar.EnterMultiSelect()
-	if sidebar.SelectedCount() != 0 {
-		t.Errorf("repo header should not be pre-selectable, got %d selections", sidebar.SelectedCount())
-	}
-
-	sidebar.ToggleSelected()
-	if sidebar.SelectedCount() != 0 {
-		t.Errorf("repo header should not be toggleable, got %d selections", sidebar.SelectedCount())
-	}
-
-	// Move to "+ New Session" item (should be at index 2: [repo, s1, newSession])
-	sidebar.selectedIdx = 2
-	if sidebar.SelectedSession() != nil {
-		t.Error("new session item should not return a session")
-	}
-
-	sidebar.ToggleSelected()
-	if sidebar.SelectedCount() != 0 {
-		t.Errorf("new session item should not be toggleable, got %d selections", sidebar.SelectedCount())
-	}
-
-	// Move back to session and verify it can be selected
-	sidebar.selectedIdx = 1
-	selectedSession := sidebar.SelectedSession()
-	if selectedSession == nil || selectedSession.ID != "s1" {
-		t.Errorf("expected s1 to be selected, got %v", selectedSession)
-	}
-
-	sidebar.ToggleSelected()
-	if sidebar.SelectedCount() != 1 {
-		t.Errorf("session should be toggleable, got %d selections", sidebar.SelectedCount())
-	}
-}
-
 // TestSidebar_MultiSelect_FirstLastSession tests selecting first and last sessions
 // to ensure no boundary errors.
 func TestSidebar_MultiSelect_FirstLastSession(t *testing.T) {
@@ -1205,7 +1155,7 @@ func TestSidebar_MultiSelect_FirstLastSession(t *testing.T) {
 	}
 
 	// Move to last session (s3)
-	sidebar.selectedIdx = 3 // [repo, s1, s2, s3, newSession] - index 3 is s3
+	sidebar.selectedIdx = 2 // [s1, s2, s3] - index 2 is s3
 	selectedSession := sidebar.SelectedSession()
 	if selectedSession == nil || selectedSession.ID != "s3" {
 		t.Fatalf("expected s3 to be selected, got %v", selectedSession)
@@ -1476,9 +1426,9 @@ func TestSidebar_SelectSession_NormalMode(t *testing.T) {
 	// Select session-2
 	sidebar.SelectSession("session-2")
 
-	// Should use index from items list (repo=0, s1=1, s2=2, s3=3)
-	if sidebar.selectedIdx != 2 {
-		t.Errorf("Expected selectedIdx 2, got %d", sidebar.selectedIdx)
+	// Should use index from sessions list (s1=0, s2=1, s3=2)
+	if sidebar.selectedIdx != 1 {
+		t.Errorf("Expected selectedIdx 1, got %d", sidebar.selectedIdx)
 	}
 
 	// Verify SelectedSession returns the correct session
@@ -1488,96 +1438,5 @@ func TestSidebar_SelectSession_NormalMode(t *testing.T) {
 	}
 	if selected.ID != "session-2" {
 		t.Errorf("Expected selected session-2, got %s", selected.ID)
-	}
-}
-
-func TestSidebar_SetRepos_ShowsReposWithoutSessions(t *testing.T) {
-	sidebar := NewSidebar()
-	sidebar.SetRepos([]string{"/repo1", "/repo2"})
-	sidebar.SetSessions(nil)
-
-	// Should have items: repo1, +new, repo2, +new
-	if len(sidebar.items) != 4 {
-		t.Fatalf("Expected 4 items (2 repos + 2 new session), got %d", len(sidebar.items))
-	}
-	if sidebar.items[0].Kind != itemKindRepo || sidebar.items[0].RepoPath != "/repo1" {
-		t.Errorf("Expected repo1, got %+v", sidebar.items[0])
-	}
-	if sidebar.items[1].Kind != itemKindNewSession || sidebar.items[1].RepoPath != "/repo1" {
-		t.Errorf("Expected new session for repo1, got %+v", sidebar.items[1])
-	}
-	if sidebar.items[2].Kind != itemKindRepo || sidebar.items[2].RepoPath != "/repo2" {
-		t.Errorf("Expected repo2, got %+v", sidebar.items[2])
-	}
-	if sidebar.items[3].Kind != itemKindNewSession || sidebar.items[3].RepoPath != "/repo2" {
-		t.Errorf("Expected new session for repo2, got %+v", sidebar.items[3])
-	}
-}
-
-func TestSidebar_SetRepos_WithSessions(t *testing.T) {
-	sidebar := NewSidebar()
-	sidebar.SetRepos([]string{"/repo1", "/repo2"})
-	sessions := []config.Session{
-		{ID: "s1", RepoPath: "/repo1", Branch: "b1"},
-	}
-	sidebar.SetSessions(sessions)
-
-	// Should have: repo1, s1, +new(repo1), repo2, +new(repo2)
-	if len(sidebar.items) != 5 {
-		t.Fatalf("Expected 5 items, got %d", len(sidebar.items))
-	}
-	if sidebar.items[0].Kind != itemKindRepo {
-		t.Errorf("Expected repo header at 0")
-	}
-	if sidebar.items[1].Kind != itemKindSession {
-		t.Errorf("Expected session at 1")
-	}
-	if sidebar.items[2].Kind != itemKindNewSession {
-		t.Errorf("Expected new session at 2")
-	}
-	if sidebar.items[3].Kind != itemKindRepo || sidebar.items[3].RepoPath != "/repo2" {
-		t.Errorf("Expected repo2 at 3")
-	}
-	if sidebar.items[4].Kind != itemKindNewSession || sidebar.items[4].RepoPath != "/repo2" {
-		t.Errorf("Expected new session for repo2 at 4")
-	}
-}
-
-func TestSidebar_SelectedNewSessionRepo(t *testing.T) {
-	sidebar := NewSidebar()
-	sidebar.SetRepos([]string{"/repo1"})
-	sidebar.SetSessions(nil)
-
-	// items: repo1=0, +new=1
-	// Default selection on repo header
-	if sidebar.SelectedNewSessionRepo() != "" {
-		t.Error("Should not be new session selected initially")
-	}
-
-	// Move to +new
-	sidebar.selectedIdx = 1
-	if got := sidebar.SelectedNewSessionRepo(); got != "/repo1" {
-		t.Errorf("Expected /repo1 for new session, got %q", got)
-	}
-	if !sidebar.IsNewSessionSelected() {
-		t.Error("IsNewSessionSelected should be true")
-	}
-}
-
-func TestSidebar_View_ReposWithoutSessions(t *testing.T) {
-	sidebar := NewSidebar()
-	sidebar.SetSize(40, 20)
-	sidebar.SetRepos([]string{"/repo1"})
-	sidebar.SetSessions(nil)
-
-	view := sidebar.View()
-	if !strings.Contains(view, "repo1") {
-		t.Error("View should contain repo name")
-	}
-	if !strings.Contains(view, "New Session") {
-		t.Error("View should contain '+ New Session'")
-	}
-	if strings.Contains(view, "No sessions") {
-		t.Error("View should not show 'No sessions' when repos are registered")
 	}
 }

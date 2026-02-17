@@ -16,22 +16,6 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
-// sidebarItemKind distinguishes between repo headers and sessions in the sidebar.
-type sidebarItemKind int
-
-const (
-	itemKindRepo       sidebarItemKind = iota // A repo header (selectable)
-	itemKindSession                           // A session within a repo
-	itemKindNewSession                        // A "+ New Session" action under a repo
-)
-
-// sidebarItem represents a selectable item in the sidebar (either a repo or a session).
-type sidebarItem struct {
-	Kind     sidebarItemKind
-	Session  config.Session // Only valid when Kind == itemKindSession
-	RepoPath string         // Set for both kinds
-}
-
 // sessionNode represents a session with its children (forks)
 type sessionNode struct {
 	Session  config.Session
@@ -49,10 +33,9 @@ type repoGroup struct {
 
 // Sidebar represents the left panel with session list
 type Sidebar struct {
-	groups             []repoGroup
-	sessions           []config.Session // flat list for index tracking
-	items              []sidebarItem    // flat list of all selectable items (repos + sessions)
-	filteredSessions   []config.Session // sessions matching current search filter
+	groups           []repoGroup
+	sessions         []config.Session // flat list for index tracking
+	filteredSessions []config.Session // sessions matching current search filter
 	selectedIdx        int
 	width              int
 	height             int
@@ -73,9 +56,6 @@ type Sidebar struct {
 	// Cache for incremental updates
 	lastHash     uint64 // Hash of last session list for change detection
 	lastAttnHash uint64 // Hash of attention state for re-ordering detection
-
-	// Registered repos (may have no sessions)
-	registeredRepos []string
 
 	// Search mode
 	searchMode  bool
@@ -205,13 +185,6 @@ func (s *Sidebar) hashAttention() uint64 {
 	return h.Sum64()
 }
 
-// SetRepos sets the list of registered repos so they appear in the sidebar
-// even when they have no sessions.
-func (s *Sidebar) SetRepos(repos []string) {
-	s.registeredRepos = repos
-	s.lastHash = 0 // Invalidate cache so next SetSessions rebuilds items
-}
-
 // SetSessions updates the session list, grouping by repo
 func (s *Sidebar) SetSessions(sessions []config.Session) {
 	// Fast path: check if sessions or attention state have changed
@@ -227,18 +200,6 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 	// Group sessions by repo path
 	groupMap := make(map[string]*repoGroup)
 	var groupOrder []string
-
-	// Add registered repos first so they always appear (even without sessions)
-	for _, repo := range s.registeredRepos {
-		if _, exists := groupMap[repo]; !exists {
-			groupMap[repo] = &repoGroup{
-				RepoPath: repo,
-				RepoName: filepath.Base(repo),
-				Sessions: []config.Session{},
-			}
-			groupOrder = append(groupOrder, repo)
-		}
-	}
 
 	for _, sess := range sessions {
 		if _, exists := groupMap[sess.RepoPath]; !exists {
@@ -267,36 +228,12 @@ func (s *Sidebar) SetSessions(sessions []config.Session) {
 		flattenSessionTree(group.RootNodes, &s.sessions)
 	}
 
-	// Build flat items list: repo header + sessions + new session action for each group
-	s.items = make([]sidebarItem, 0, len(s.sessions)+len(s.groups)*2)
-	for _, group := range s.groups {
-		s.items = append(s.items, sidebarItem{
-			Kind:     itemKindRepo,
-			RepoPath: group.RepoPath,
-		})
-		for _, node := range group.RootNodes {
-			flattenSessionTreeToItems(node, group.RepoPath, &s.items)
-		}
-		s.items = append(s.items, sidebarItem{
-			Kind:     itemKindNewSession,
-			RepoPath: group.RepoPath,
-		})
-	}
-
 	// Adjust selection if needed
-	if s.selectedIdx >= len(s.items) {
-		s.selectedIdx = len(s.items) - 1
+	if s.selectedIdx >= len(s.sessions) {
+		s.selectedIdx = len(s.sessions) - 1
 	}
 	if s.selectedIdx < 0 {
 		s.selectedIdx = 0
-	}
-
-	// If the current selection is a repo header and there are sessions,
-	// advance to the first session to preserve expected default behavior.
-	if s.selectedIdx == 0 && len(s.items) > 0 && s.items[0].Kind == itemKindRepo {
-		if len(s.items) > 1 && s.items[1].Kind == itemKindSession {
-			s.selectedIdx = 1
-		}
 	}
 }
 
@@ -352,96 +289,27 @@ func flattenSessionTree(nodes []sessionNode, result *[]config.Session) {
 	}
 }
 
-// flattenSessionTreeToItems flattens a session tree into sidebarItem entries.
-func flattenSessionTreeToItems(node sessionNode, repoPath string, items *[]sidebarItem) {
-	*items = append(*items, sidebarItem{
-		Kind:     itemKindSession,
-		Session:  node.Session,
-		RepoPath: repoPath,
-	})
-	for _, child := range node.Children {
-		flattenSessionTreeToItems(child, repoPath, items)
-	}
-}
-
-// SelectedSession returns the currently selected session, or nil if a repo is selected.
+// SelectedSession returns the currently selected session
 func (s *Sidebar) SelectedSession() *config.Session {
-	// In search mode, use filtered sessions (flat, no repo items)
-	if s.searchMode && s.filteredSessions != nil {
-		if s.selectedIdx >= 0 && s.selectedIdx < len(s.filteredSessions) {
-			return &s.filteredSessions[s.selectedIdx]
-		}
+	displaySessions := s.getDisplaySessions()
+	if len(displaySessions) == 0 || s.selectedIdx >= len(displaySessions) {
 		return nil
 	}
-	if s.selectedIdx < 0 || s.selectedIdx >= len(s.items) {
-		return nil
-	}
-	item := &s.items[s.selectedIdx]
-	if item.Kind != itemKindSession {
-		return nil
-	}
-	return &item.Session
-}
-
-// SelectedRepo returns the repo path of the currently selected repo header,
-// or empty string if a session (or nothing) is selected.
-func (s *Sidebar) SelectedRepo() string {
-	if s.searchMode {
-		return ""
-	}
-	if s.selectedIdx < 0 || s.selectedIdx >= len(s.items) {
-		return ""
-	}
-	item := &s.items[s.selectedIdx]
-	if item.Kind != itemKindRepo {
-		return ""
-	}
-	return item.RepoPath
-}
-
-// IsRepoSelected returns true when a repo header is currently selected.
-func (s *Sidebar) IsRepoSelected() bool {
-	return s.SelectedRepo() != ""
-}
-
-// SelectedNewSessionRepo returns the repo path if the "+ New Session" action is selected,
-// or empty string otherwise.
-func (s *Sidebar) SelectedNewSessionRepo() string {
-	if s.searchMode {
-		return ""
-	}
-	if s.selectedIdx < 0 || s.selectedIdx >= len(s.items) {
-		return ""
-	}
-	item := &s.items[s.selectedIdx]
-	if item.Kind != itemKindNewSession {
-		return ""
-	}
-	return item.RepoPath
-}
-
-// IsNewSessionSelected returns true when a "+ New Session" action is selected.
-func (s *Sidebar) IsNewSessionSelected() bool {
-	return s.SelectedNewSessionRepo() != ""
+	return &displaySessions[s.selectedIdx]
 }
 
 // SelectSession selects a session by ID
 func (s *Sidebar) SelectSession(id string) {
-	if s.searchMode && s.filteredSessions != nil {
-		for i, sess := range s.filteredSessions {
-			if sess.ID == id {
-				s.selectedIdx = i
-				return
-			}
-		}
-		return
-	}
-	for i, item := range s.items {
-		if item.Kind == itemKindSession && item.Session.ID == id {
+	displaySessions := s.getDisplaySessions()
+
+	// Search in the appropriate list (filtered or full)
+	for i, sess := range displaySessions {
+		if sess.ID == id {
 			s.selectedIdx = i
 			return
 		}
 	}
+	// Session not found - don't change selection
 }
 
 // SetStreaming sets the streaming state for a session
@@ -585,7 +453,7 @@ func (s *Sidebar) sortNodesByPriority(nodes []sessionNode) {
 func (s *Sidebar) EnterMultiSelect() {
 	s.multiSelectMode = true
 	s.selectedSessions = make(map[string]bool)
-	// Pre-select the currently highlighted session (if it's a session, not a repo header or new session item)
+	// Pre-select the currently highlighted session
 	if sess := s.SelectedSession(); sess != nil {
 		s.selectedSessions[sess.ID] = true
 	}
@@ -613,7 +481,7 @@ func (s *Sidebar) GetSelectedSessionIDs() []string {
 
 // ToggleSelected toggles the selection of the currently highlighted session
 func (s *Sidebar) ToggleSelected() {
-	// Only toggle if a session is currently selected (not a repo header or new session item)
+	// Only toggle if a session is currently selected
 	sess := s.SelectedSession()
 	if sess == nil {
 		return
@@ -673,8 +541,8 @@ func (s *Sidebar) ExitSearchMode() {
 	s.searchInput.SetValue("")
 	s.filteredSessions = nil
 	// Reset selection to stay within bounds
-	if s.selectedIdx >= len(s.items) {
-		s.selectedIdx = len(s.items) - 1
+	if s.selectedIdx >= len(s.sessions) {
+		s.selectedIdx = len(s.sessions) - 1
 	}
 	if s.selectedIdx < 0 {
 		s.selectedIdx = 0
@@ -798,7 +666,7 @@ func (s *Sidebar) Update(msg tea.Msg) (*Sidebar, tea.Cmd) {
 				s.ensureVisible()
 			}
 		case keys.Down, "j":
-			if s.selectedIdx < len(s.items)-1 {
+			if s.selectedIdx < len(s.sessions)-1 {
 				s.selectedIdx++
 				s.ensureVisible()
 			}
@@ -847,7 +715,7 @@ func (s *Sidebar) View() string {
 
 	displaySessions := s.getDisplaySessions()
 
-	if len(displaySessions) == 0 && len(s.items) == 0 {
+	if len(displaySessions) == 0 {
 		var emptyMsg string
 		if s.searchMode && s.searchInput.Value() != "" {
 			emptyMsg = lipgloss.NewStyle().
@@ -915,9 +783,9 @@ func (s *Sidebar) View() string {
 		// Build the grouped list (normal mode) with tree structure
 		// Use actual lines (not items) to handle text wrapping correctly
 		var allLines []string
-		selectedStartLine := 0 // Line where selected item starts
+		selectedStartLine := 0 // Line where selected session starts
 
-		itemIdx := 0
+		sessionIdx := 0
 		innerWidth := ctx.InnerWidth(s.width)
 
 		for i, group := range s.groups {
@@ -926,28 +794,16 @@ func (s *Sidebar) View() string {
 				allLines = append(allLines, "")
 			}
 
-			// Repo header (selectable)
-			isRepoSelected := itemIdx == s.selectedIdx
-			repoName := group.RepoName
-			if isRepoSelected {
-				repoStyle := SidebarSelectedStyle.Width(innerWidth).Bold(true)
-				selectedStartLine = len(allLines)
-				rendered := repoStyle.Render("> " + repoName)
-				for _, line := range strings.Split(rendered, "\n") {
-					allLines = append(allLines, line)
-				}
-			} else {
-				repoStyle := lipgloss.NewStyle().
-					Foreground(ColorTextMuted).
-					Bold(true)
-				allLines = append(allLines, repoStyle.Render(repoName))
-			}
-			itemIdx++
+			// Repo header
+			repoStyle := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Bold(true)
+			allLines = append(allLines, repoStyle.Render(group.RepoName))
 
 			// Render sessions in tree order with indentation
 			var renderNode func(node sessionNode, depth int, isLastChild bool)
 			renderNode = func(node sessionNode, depth int, isLastChild bool) {
-				isSelected := itemIdx == s.selectedIdx
+				isSelected := sessionIdx == s.selectedIdx
 				hasChildren := len(node.Children) > 0
 				displayName := s.renderSessionNode(node.Session, depth, isSelected, hasChildren, isLastChild)
 
@@ -962,7 +818,7 @@ func (s *Sidebar) View() string {
 				for _, line := range strings.Split(rendered, "\n") {
 					allLines = append(allLines, line)
 				}
-				itemIdx++
+				sessionIdx++
 
 				// Render children with increased depth
 				for i, child := range node.Children {
@@ -975,24 +831,6 @@ func (s *Sidebar) View() string {
 				isLast := i == len(group.RootNodes)-1
 				renderNode(node, 0, isLast)
 			}
-
-			// "+ New Session" action item
-			isNewSelected := itemIdx == s.selectedIdx
-			newLabel := "+ New Session"
-			if isNewSelected {
-				newStyle := SidebarSelectedStyle.Width(innerWidth)
-				selectedStartLine = len(allLines)
-				rendered := newStyle.Render("> " + newLabel)
-				for _, line := range strings.Split(rendered, "\n") {
-					allLines = append(allLines, line)
-				}
-			} else {
-				newStyle := lipgloss.NewStyle().
-					Foreground(ColorTextMuted).
-					Italic(true)
-				allLines = append(allLines, newStyle.Render("  "+newLabel))
-			}
-			itemIdx++
 		}
 
 		// Adjust scroll to keep selected session visible

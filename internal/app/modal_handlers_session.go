@@ -114,7 +114,6 @@ func (m *Model) handleAddRepoModal(key string, msg tea.KeyPressMsg, state *ui.Ad
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		m.sidebar.SetRepos(m.config.GetRepos())
 		m.sidebar.SetSessions(m.getFilteredSessions())
 		if state.ReturnToNewSession {
 			m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
@@ -195,7 +194,6 @@ func (m *Model) handleAddReposFromGlob(ctx context.Context, pattern string, retu
 			m.modal.SetError("Failed to save: " + err.Error())
 			return m, nil
 		}
-		m.sidebar.SetRepos(m.config.GetRepos())
 		m.sidebar.SetSessions(m.getFilteredSessions())
 	}
 
@@ -618,7 +616,6 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 			return m, nil
 		}
 		logger.Get().Info("repository deleted successfully", "path", repoPath)
-		m.sidebar.SetRepos(m.config.GetRepos())
 		m.sidebar.SetSessions(m.getFilteredSessions())
 
 		if state.FromSidebar {

@@ -93,14 +93,6 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutDeleteSession,
 	},
 	{
-		Key:             "d",
-		Description:     "Delete selected repo",
-		Category:        CategoryConfiguration,
-		RequiresSidebar: true,
-		Handler:         shortcutDeleteRepo,
-		Condition:       func(m *Model) bool { return m.sidebar.IsRepoSelected() },
-	},
-	{
 		Key:             "f",
 		Description:     "Fork selected session",
 		Category:        CategorySessions,
@@ -509,14 +501,6 @@ func shortcutDeleteSession(m *Model) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func shortcutDeleteRepo(m *Model) (tea.Model, tea.Cmd) {
-	repoPath := m.sidebar.SelectedRepo()
-	state := ui.NewConfirmDeleteRepoState(repoPath)
-	state.FromSidebar = true
-	m.modal.Show(state)
-	return m, nil
-}
-
 func shortcutForkSession(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
@@ -705,13 +689,6 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutRepoSettings(m *Model) (tea.Model, tea.Cmd) {
-	// If a repo is selected in the sidebar, show its settings
-	if m.sidebar.IsRepoSelected() {
-		repoPath := m.sidebar.SelectedRepo()
-		return m.showRepoSettings(repoPath)
-	}
-
-	// If a session is selected in the sidebar, show session-specific settings
 	if sess := m.sidebar.SelectedSession(); sess != nil {
 		return m.showSessionSettings(sess)
 	}
