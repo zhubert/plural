@@ -660,3 +660,114 @@ func TestSessionManagerStateManager(t *testing.T) {
 		t.Fatal("expected to create session state")
 	}
 }
+
+// TestWorkerKeepsRunningDuringAutoMerge verifies that the worker loop
+// continues running when auto-merge is active to process pending messages
+// (e.g., review comments from the auto-merge state machine).
+func TestWorkerKeepsRunningDuringAutoMerge(t *testing.T) {
+	cfg := testConfig()
+	sess := testSession("test-automerge")
+	sess.Autonomous = true
+	sess.IsSupervisor = true
+	sess.PRCreated = true // PR already created
+	sess.PRMerged = false
+	sess.PRClosed = false
+
+	cfg.AddSession(*sess)
+	cfg.RepoAutoMerge = map[string]bool{
+		sess.RepoPath: true, // Auto-merge enabled
+	}
+
+	a := testAgent(cfg)
+
+	// Create a mock runner that completes immediately
+	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Task completed"},
+		claude.ResponseChunk{Done: true},
+	)
+
+	worker := NewSessionWorker(a, sess, mockRunner, "Test task")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	worker.Start(ctx)
+
+	// Wait for worker to process initial response
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify worker hasn't exited yet (should be waiting for auto-merge)
+	if worker.Done() {
+		t.Fatal("Worker should still be running while auto-merge is active")
+	}
+
+	// Simulate auto-merge completing by marking PR as merged
+	cfg.MarkSessionPRMerged(sess.ID)
+
+	// Wait for worker to exit
+	worker.Wait()
+
+	if !worker.Done() {
+		t.Fatal("Worker should have exited after PR was merged")
+	}
+}
+
+// TestWorkerProcessesPendingMessagesDuringAutoMerge verifies that pending
+// messages (e.g., review comments) are sent to Claude while auto-merge is running.
+func TestWorkerProcessesPendingMessagesDuringAutoMerge(t *testing.T) {
+	cfg := testConfig()
+	sess := testSession("test-automerge-comments")
+	sess.Autonomous = true
+	sess.IsSupervisor = true
+	sess.PRCreated = true
+	sess.PRMerged = false
+	sess.PRClosed = false
+
+	cfg.AddSession(*sess)
+	cfg.RepoAutoMerge = map[string]bool{
+		sess.RepoPath: true,
+	}
+
+	a := testAgent(cfg)
+
+	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
+
+	// Queue initial response
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Initial task done"},
+		claude.ResponseChunk{Done: true},
+	)
+
+	worker := NewSessionWorker(a, sess, mockRunner, "Test task")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	worker.Start(ctx)
+
+	// Wait for initial task to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Queue review comment response BEFORE setting pending message
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Fixed review comments"},
+		claude.ResponseChunk{Done: true},
+	)
+
+	// Simulate auto-merge detecting review comments
+	state := a.sessionMgr.StateManager().GetOrCreate(sess.ID)
+	state.SetPendingMsg("Review comments:\n1. Fix timing\n2. Add docs")
+
+	// Wait for pending message to be sent
+	time.Sleep(200 * time.Millisecond)
+
+	// Complete auto-merge
+	cfg.MarkSessionPRMerged(sess.ID)
+
+	// Wait for worker to complete
+	worker.Wait()
+
+	// Verify worker processed at least 2 turns (initial + review comments)
+	if worker.turns < 2 {
+		t.Errorf("Expected at least 2 turns (initial + review comments), got %d", worker.turns)
+	}
+}

@@ -82,6 +82,8 @@ func (w *SessionWorker) run() {
 	content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: w.initialMsg}}
 	responseChan := w.runner.SendContent(w.ctx, content)
 
+	autoMergeActive := false // Track if auto-merge goroutine is running
+
 	for {
 		if err := w.processOneResponse(responseChan); err != nil {
 			log.Info("worker stopping", "reason", err.Error())
@@ -94,7 +96,7 @@ func (w *SessionWorker) run() {
 			return
 		}
 
-		// Check for pending messages (e.g., child completion notifications)
+		// Check for pending messages (e.g., child completion notifications, auto-merge review comments)
 		pendingMsg := w.agent.sessionMgr.StateManager().GetPendingMessage(w.sessionID)
 		if pendingMsg != "" {
 			log.Debug("sending pending message")
@@ -115,9 +117,43 @@ func (w *SessionWorker) run() {
 			}
 		}
 
-		// Session completed with no pending work
+		// Check if we're waiting for auto-merge to complete
+		if autoMergeActive {
+			sess := w.agent.config.GetSession(w.sessionID)
+			if sess == nil {
+				log.Warn("session disappeared during auto-merge")
+				return
+			}
+
+			// Check if auto-merge finished (merged, closed, or failed)
+			if sess.PRMerged {
+				log.Info("auto-merge completed - PR merged successfully")
+				return
+			}
+			if sess.PRClosed {
+				log.Info("auto-merge stopped - PR was closed")
+				return
+			}
+
+			// Still waiting for auto-merge, continue polling for pending messages
+			log.Debug("waiting for auto-merge to complete, checking for review comment updates...")
+			select {
+			case <-w.ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+				continue
+			}
+		}
+
+		// Session completed - check if we need to start auto-merge
 		log.Info("session completed")
-		w.handleCompletion()
+		autoMergeActive = w.handleCompletion()
+		if autoMergeActive {
+			log.Info("auto-merge started, worker will continue running to handle review comments")
+			continue
+		}
+
+		// No auto-merge needed, worker can exit
 		return
 	}
 }
@@ -299,12 +335,15 @@ func (w *SessionWorker) handleDone() {
 }
 
 // handleCompletion handles full session completion (all turns done, no pending work).
-func (w *SessionWorker) handleCompletion() {
+// Returns true if auto-merge was started and the worker should keep running.
+func (w *SessionWorker) handleCompletion() bool {
 	log := w.agent.logger.With("sessionID", w.sessionID, "branch", w.session.Branch)
 	sess := w.agent.config.GetSession(w.sessionID)
 	if sess == nil {
-		return
+		return false
 	}
+
+	autoMergeStarted := false
 
 	// For non-supervisor standalone sessions, auto-create PR
 	if !sess.IsSupervisor && sess.SupervisorID == "" && !sess.PRCreated {
@@ -315,13 +354,14 @@ func (w *SessionWorker) handleCompletion() {
 		prURL, err := w.agent.autoCreatePR(ctx, w.sessionID)
 		if err != nil {
 			log.Error("failed to create PR", "error", err)
-			return
+			return false
 		}
 		log.Info("PR created", "url", prURL)
 
 		// Start auto-merge if enabled
 		if w.agent.config.GetRepoAutoMerge(sess.RepoPath) {
-			w.runAutoMerge()
+			go w.runAutoMerge()
+			autoMergeStarted = true
 		}
 	}
 
@@ -329,13 +369,16 @@ func (w *SessionWorker) handleCompletion() {
 	// Check if auto-merge is needed.
 	if sess.PRCreated && !sess.PRMerged && !sess.PRClosed &&
 		w.agent.config.GetRepoAutoMerge(sess.RepoPath) {
-		w.runAutoMerge()
+		go w.runAutoMerge()
+		autoMergeStarted = true
 	}
 
 	// Notify supervisor if this is a child session
 	if sess.SupervisorID != "" {
 		w.notifySupervisor(sess.SupervisorID, true)
 	}
+
+	return autoMergeStarted
 }
 
 // checkLimits returns true if the session has hit its turn or duration limit.
