@@ -1013,6 +1013,13 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 		args = append(args, "-p", fmt.Sprintf("0:%d", config.ContainerMCPPort))
 	}
 
+	// Pass PLURAL_SKIP_UPDATE through to the container if set on the host.
+	// This allows developers to skip the entrypoint auto-update when testing
+	// with a locally-built container image.
+	if os.Getenv("PLURAL_SKIP_UPDATE") != "" {
+		args = append(args, "-e", "PLURAL_SKIP_UPDATE=1")
+	}
+
 	// Pass auth credentials via --env-file.
 	// On macOS, Claude Code stores auth in the system keychain which isn't
 	// accessible inside a Linux container. We write the key to a temp file
