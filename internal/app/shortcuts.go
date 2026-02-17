@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
@@ -145,19 +144,6 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutMultiSelect,
 		Condition:       func(m *Model) bool { return len(m.config.GetSessions()) > 0 },
 	},
-	{
-		Key:             "A",
-		Description:     "Toggle autonomous mode",
-		Category:        CategorySessions,
-		RequiresSidebar: true,
-		RequiresSession: true,
-		Handler:         shortcutToggleAutonomous,
-		Condition: func(m *Model) bool {
-			sess := m.sidebar.SelectedSession()
-			return sess != nil && sess.Containerized
-		},
-	},
-
 	// Git Operations
 	{
 		Key:             keys.CtrlE,
@@ -1157,48 +1143,6 @@ end tell`, termApp, escapedPath)
 			return TerminalErrorMsg{Error: errMsg}
 		}
 	}
-}
-
-func shortcutToggleAutonomous(m *Model) (tea.Model, tea.Cmd) {
-	sess := m.sidebar.SelectedSession()
-	if sess == nil {
-		return m, nil
-	}
-
-	if !sess.Containerized {
-		return m, m.ShowFlashError("Autonomous mode requires container mode")
-	}
-
-	newState := !sess.Autonomous
-	m.config.SetSessionAutonomous(sess.ID, newState)
-	if err := m.config.Save(); err != nil {
-		logger.WithSession(sess.ID).Error("failed to save autonomous state", "error", err)
-		return m, m.ShowFlashError("Failed to save")
-	}
-
-	// Update sidebar display
-	m.sidebar.SetSessions(m.getFilteredSessions())
-
-	// Reset autonomous state tracking if turning off
-	if !newState {
-		if state := m.sessionState().GetIfExists(sess.ID); state != nil {
-			state.ResetAutonomousState()
-		}
-	} else {
-		// Initialize autonomous start time
-		state := m.sessionState().GetOrCreate(sess.ID)
-		state.SetAutonomousStartTime(time.Now())
-	}
-
-	// Update active session reference if this is the active one
-	if m.activeSession != nil && m.activeSession.ID == sess.ID {
-		m.activeSession.Autonomous = newState
-	}
-
-	if newState {
-		return m, m.ShowFlashSuccess("Autonomous mode enabled")
-	}
-	return m, m.ShowFlashInfo("Autonomous mode disabled")
 }
 
 func shortcutMultiSelect(m *Model) (tea.Model, tea.Cmd) {

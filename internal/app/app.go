@@ -186,25 +186,6 @@ type ContainerPrereqCheckMsg struct {
 	Result process.ContainerPrerequisites
 }
 
-// SessionCompletedMsg is emitted when an autonomous session finishes a response
-// with no pending interactions. This is the primitive all automation hooks into.
-type SessionCompletedMsg struct {
-	SessionID string
-}
-
-// SessionPipelineCompleteMsg is emitted when a session's full pipeline completes
-// (after tests pass or max retries exhausted).
-type SessionPipelineCompleteMsg struct {
-	SessionID   string
-	TestsPassed bool
-}
-
-// AutonomousLimitReachedMsg is sent when an autonomous session hits its turn or duration limit.
-type AutonomousLimitReachedMsg struct {
-	SessionID string
-	Reason    string // "turn_limit" or "duration_limit"
-}
-
 // CreateChildRequestMsg is sent when the supervisor's MCP tool create_child_session is called
 type CreateChildRequestMsg struct {
 	SessionID string
@@ -419,8 +400,6 @@ func (m *Model) Init() tea.Cmd {
 		},
 		// Start background PR merge detection polling
 		PRPollTick(),
-		// Start background issue polling (immediate check + recurring tick)
-		func() tea.Msg { return IssuePollTickMsg(time.Now()) },
 		// Check for container image updates in the background
 		m.checkContainerImageUpdate(),
 	)
@@ -769,53 +748,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ContainerPrereqCheckMsg:
 		return m.handleContainerPrereqCheckMsg(msg)
 
-	case SessionCompletedMsg:
-		return m.handleSessionCompletedMsg(msg)
-
-	case SessionPipelineCompleteMsg:
-		return m.handleSessionPipelineCompleteMsg(msg)
-
-	case AutonomousLimitReachedMsg:
-		return m.handleAutonomousLimitReachedMsg(msg)
-
-	case AutoPRCommentsFetchedMsg:
-		return m.handleAutoPRCommentsFetchedMsg(msg)
-
-	case AutoMergePollResultMsg:
-		return m.handleAutoMergePollResultMsg(msg)
-
-	case AutoMergeResultMsg:
-		return m.handleAutoMergeResultMsg(msg)
-
-	case CreateChildRequestMsg:
-		return m.handleCreateChildRequestMsg(msg)
-
-	case ListChildrenRequestMsg:
-		return m.handleListChildrenRequestMsg(msg)
-
-	case MergeChildRequestMsg:
-		return m.handleMergeChildRequestMsg(msg)
-
-	case MergeChildCompleteMsg:
-		return m.handleMergeChildCompleteMsg(msg)
-
-	case CreatePRRequestMsg:
-		return m.handleCreatePRRequestMsg(msg)
-
-	case PushBranchRequestMsg:
-		return m.handlePushBranchRequestMsg(msg)
-
-	case GetReviewCommentsRequestMsg:
-		return m.handleGetReviewCommentsRequestMsg(msg)
-
 	case ContainerImageUpdateMsg:
 		if msg.NeedsUpdate {
 			return m, m.ShowFlashWarning(fmt.Sprintf("Container image update available — run: docker pull %s", msg.Image))
 		}
 		return m, nil
-
-	case PRCreatedFromToolMsg:
-		return m.handlePRCreatedFromToolMsg(msg)
 
 	case PRPollTickMsg:
 		// Re-schedule next tick and check PR statuses for eligible sessions
@@ -827,16 +764,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PRBatchStatusCheckMsg:
 		return m.handlePRBatchStatusCheckMsg(msg)
-
-	case IssuePollTickMsg:
-		checkCmd := checkForNewIssues(m.config, m.gitService, m.config.GetSessions())
-		if checkCmd != nil {
-			return m, tea.Batch(IssuePollTick(), checkCmd)
-		}
-		return m, IssuePollTick()
-
-	case NewIssuesDetectedMsg:
-		return m.handleNewIssuesDetectedMsg(msg)
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
