@@ -84,17 +84,11 @@ func TestNew(t *testing.T) {
 			if runner.mcp == nil {
 				t.Error("mcp is nil")
 			}
-			if runner.mcp.PermissionReq == nil {
-				t.Error("mcp.PermissionReq is nil")
+			if !runner.mcp.Permission.IsInitialized() {
+				t.Error("mcp.Permission is not initialized")
 			}
-			if runner.mcp.PermissionResp == nil {
-				t.Error("mcp.PermissionResp is nil")
-			}
-			if runner.mcp.QuestionReq == nil {
-				t.Error("mcp.QuestionReq is nil")
-			}
-			if runner.mcp.QuestionResp == nil {
-				t.Error("mcp.QuestionResp is nil")
+			if !runner.mcp.Question.IsInitialized() {
+				t.Error("mcp.Question is not initialized")
 			}
 		})
 	}
@@ -3408,7 +3402,7 @@ func TestRunner_SetSupervisor(t *testing.T) {
 
 	// Test send/receive on supervisor channels
 	go func() {
-		runner.mcp.CreateChildReq <- mcp.CreateChildRequest{ID: "test", Task: "do something"}
+		runner.mcp.CreateChild.Req <- mcp.CreateChildRequest{ID: "test", Task: "do something"}
 	}()
 
 	select {
@@ -3423,7 +3417,7 @@ func TestRunner_SetSupervisor(t *testing.T) {
 	// Test response sending
 	runner.SendCreateChildResponse(mcp.CreateChildResponse{ID: "test", Success: true, ChildID: "child-1"})
 	select {
-	case resp := <-runner.mcp.CreateChildResp:
+	case resp := <-runner.mcp.CreateChild.Resp:
 		if resp.ChildID != "child-1" {
 			t.Errorf("expected child-1, got %q", resp.ChildID)
 		}
@@ -3485,21 +3479,21 @@ func TestMCPChannels_SupervisorClose(t *testing.T) {
 	ch := NewMCPChannels()
 	ch.InitSupervisorChannels()
 
-	if ch.CreateChildReq == nil {
-		t.Error("expected non-nil CreateChildReq after InitSupervisorChannels")
+	if ch.CreateChild == nil {
+		t.Error("expected non-nil CreateChild after InitSupervisorChannels")
 	}
 
 	// Close should not panic and should nil out channels
 	ch.Close()
 
-	if ch.CreateChildReq != nil {
-		t.Error("expected nil CreateChildReq after Close")
+	if ch.CreateChild.IsInitialized() {
+		t.Error("expected CreateChild not initialized after Close")
 	}
-	if ch.ListChildrenReq != nil {
-		t.Error("expected nil ListChildrenReq after Close")
+	if ch.ListChildren.IsInitialized() {
+		t.Error("expected ListChildren not initialized after Close")
 	}
-	if ch.MergeChildReq != nil {
-		t.Error("expected nil MergeChildReq after Close")
+	if ch.MergeChild.IsInitialized() {
+		t.Error("expected MergeChild not initialized after Close")
 	}
 
 	// Double close should not panic

@@ -385,7 +385,7 @@ func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	if r.stopped || r.mcp == nil {
 		return nil
 	}
-	return r.mcp.PermissionReq
+	return r.mcp.Permission.Req
 }
 
 // SendPermissionResponse sends a response to a permission request.
@@ -394,8 +394,8 @@ func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.PermissionResponse
-	if r.mcp != nil {
-		ch = r.mcp.PermissionResp
+	if r.mcp != nil && r.mcp.Permission != nil {
+		ch = r.mcp.Permission.Resp
 	}
 	r.mu.RUnlock()
 
@@ -419,7 +419,7 @@ func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
 	if r.stopped || r.mcp == nil {
 		return nil
 	}
-	return r.mcp.QuestionReq
+	return r.mcp.Question.Req
 }
 
 // SendQuestionResponse sends a response to a question request.
@@ -428,8 +428,8 @@ func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.QuestionResponse
-	if r.mcp != nil {
-		ch = r.mcp.QuestionResp
+	if r.mcp != nil && r.mcp.Question != nil {
+		ch = r.mcp.Question.Resp
 	}
 	r.mu.RUnlock()
 
@@ -452,7 +452,7 @@ func (r *Runner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
 	if r.stopped || r.mcp == nil {
 		return nil
 	}
-	return r.mcp.PlanReq
+	return r.mcp.PlanApproval.Req
 }
 
 // SendPlanApprovalResponse sends a response to a plan approval request.
@@ -461,8 +461,8 @@ func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.PlanApprovalResponse
-	if r.mcp != nil {
-		ch = r.mcp.PlanResp
+	if r.mcp != nil && r.mcp.PlanApproval != nil {
+		ch = r.mcp.PlanApproval.Resp
 	}
 	r.mu.RUnlock()
 
@@ -484,7 +484,7 @@ func (r *Runner) SetSupervisor(supervisor bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.supervisor = supervisor
-	if supervisor && r.mcp != nil && r.mcp.CreateChildReq == nil {
+	if supervisor && r.mcp != nil && r.mcp.CreateChild == nil {
 		r.mcp.InitSupervisorChannels()
 	}
 }
@@ -493,10 +493,10 @@ func (r *Runner) SetSupervisor(supervisor bool) {
 func (r *Runner) CreateChildRequestChan() <-chan mcp.CreateChildRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped || r.mcp == nil {
+	if r.stopped || r.mcp == nil || r.mcp.CreateChild == nil {
 		return nil
 	}
-	return r.mcp.CreateChildReq
+	return r.mcp.CreateChild.Req
 }
 
 // SendCreateChildResponse sends a response to a create child request.
@@ -504,8 +504,8 @@ func (r *Runner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.CreateChildResponse
-	if r.mcp != nil {
-		ch = r.mcp.CreateChildResp
+	if r.mcp != nil && r.mcp.CreateChild != nil {
+		ch = r.mcp.CreateChild.Resp
 	}
 	r.mu.RUnlock()
 	if stopped || ch == nil {
@@ -520,10 +520,10 @@ func (r *Runner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
 func (r *Runner) ListChildrenRequestChan() <-chan mcp.ListChildrenRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped || r.mcp == nil {
+	if r.stopped || r.mcp == nil || r.mcp.ListChildren == nil {
 		return nil
 	}
-	return r.mcp.ListChildrenReq
+	return r.mcp.ListChildren.Req
 }
 
 // SendListChildrenResponse sends a response to a list children request.
@@ -531,8 +531,8 @@ func (r *Runner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.ListChildrenResponse
-	if r.mcp != nil {
-		ch = r.mcp.ListChildrenResp
+	if r.mcp != nil && r.mcp.ListChildren != nil {
+		ch = r.mcp.ListChildren.Resp
 	}
 	r.mu.RUnlock()
 	if stopped || ch == nil {
@@ -547,10 +547,10 @@ func (r *Runner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
 func (r *Runner) MergeChildRequestChan() <-chan mcp.MergeChildRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped || r.mcp == nil {
+	if r.stopped || r.mcp == nil || r.mcp.MergeChild == nil {
 		return nil
 	}
-	return r.mcp.MergeChildReq
+	return r.mcp.MergeChild.Req
 }
 
 // SendMergeChildResponse sends a response to a merge child request.
@@ -558,8 +558,8 @@ func (r *Runner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.MergeChildResponse
-	if r.mcp != nil {
-		ch = r.mcp.MergeChildResp
+	if r.mcp != nil && r.mcp.MergeChild != nil {
+		ch = r.mcp.MergeChild.Resp
 	}
 	r.mu.RUnlock()
 	if stopped || ch == nil {
@@ -577,7 +577,7 @@ func (r *Runner) SetHostTools(hostTools bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.hostTools = hostTools
-	if hostTools && r.mcp != nil && r.mcp.CreatePRReq == nil {
+	if hostTools && r.mcp != nil && r.mcp.CreatePR == nil {
 		r.mcp.InitHostToolChannels()
 	}
 }
@@ -586,10 +586,10 @@ func (r *Runner) SetHostTools(hostTools bool) {
 func (r *Runner) CreatePRRequestChan() <-chan mcp.CreatePRRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped || r.mcp == nil {
+	if r.stopped || r.mcp == nil || r.mcp.CreatePR == nil {
 		return nil
 	}
-	return r.mcp.CreatePRReq
+	return r.mcp.CreatePR.Req
 }
 
 // SendCreatePRResponse sends a response to a create PR request.
@@ -597,8 +597,8 @@ func (r *Runner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.CreatePRResponse
-	if r.mcp != nil {
-		ch = r.mcp.CreatePRResp
+	if r.mcp != nil && r.mcp.CreatePR != nil {
+		ch = r.mcp.CreatePR.Resp
 	}
 	r.mu.RUnlock()
 	if stopped || ch == nil {
@@ -613,10 +613,10 @@ func (r *Runner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
 func (r *Runner) PushBranchRequestChan() <-chan mcp.PushBranchRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped || r.mcp == nil {
+	if r.stopped || r.mcp == nil || r.mcp.PushBranch == nil {
 		return nil
 	}
-	return r.mcp.PushBranchReq
+	return r.mcp.PushBranch.Req
 }
 
 // SendPushBranchResponse sends a response to a push branch request.
@@ -624,8 +624,8 @@ func (r *Runner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.PushBranchResponse
-	if r.mcp != nil {
-		ch = r.mcp.PushBranchResp
+	if r.mcp != nil && r.mcp.PushBranch != nil {
+		ch = r.mcp.PushBranch.Resp
 	}
 	r.mu.RUnlock()
 	if stopped || ch == nil {
@@ -640,10 +640,10 @@ func (r *Runner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 func (r *Runner) GetReviewCommentsRequestChan() <-chan mcp.GetReviewCommentsRequest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if r.stopped || r.mcp == nil {
+	if r.stopped || r.mcp == nil || r.mcp.GetReviewComments == nil {
 		return nil
 	}
-	return r.mcp.GetReviewCommentsReq
+	return r.mcp.GetReviewComments.Req
 }
 
 // SendGetReviewCommentsResponse sends a response to a get review comments request.
@@ -651,8 +651,8 @@ func (r *Runner) SendGetReviewCommentsResponse(resp mcp.GetReviewCommentsRespons
 	r.mu.RLock()
 	stopped := r.stopped
 	var ch chan mcp.GetReviewCommentsResponse
-	if r.mcp != nil {
-		ch = r.mcp.GetReviewCommentsResp
+	if r.mcp != nil && r.mcp.GetReviewComments != nil {
+		ch = r.mcp.GetReviewComments.Resp
 	}
 	r.mu.RUnlock()
 	if stopped || ch == nil {

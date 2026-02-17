@@ -3,7 +3,6 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -346,17 +345,77 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 		case MessageTypePlanApproval:
 			s.handlePlanApprovalMessage(conn, msg.PlanReq)
 		case MessageTypeCreateChild:
-			s.handleCreateChildMessage(conn, msg.CreateChildReq)
+			handleChannelMessage(s.log, conn, msg.CreateChildReq,
+				s.createChildReq, s.createChildResp,
+				PermissionResponseTimeout,
+				CreateChildResponse{Success: false, Error: "Supervisor tools not available"},
+				func(id interface{}) CreateChildResponse {
+					return CreateChildResponse{ID: id, Success: false, Error: "Timeout"}
+				},
+				func(r *CreateChildRequest) interface{} { return r.ID },
+				MessageTypeCreateChild,
+				func(m *SocketMessage, r *CreateChildResponse) { m.CreateChildResp = r },
+				"create child")
 		case MessageTypeListChildren:
-			s.handleListChildrenMessage(conn, msg.ListChildrenReq)
+			handleChannelMessage(s.log, conn, msg.ListChildrenReq,
+				s.listChildrenReq, s.listChildrenResp,
+				PermissionResponseTimeout,
+				ListChildrenResponse{Children: []ChildSessionInfo{}},
+				func(id interface{}) ListChildrenResponse {
+					return ListChildrenResponse{ID: id, Children: []ChildSessionInfo{}}
+				},
+				func(r *ListChildrenRequest) interface{} { return r.ID },
+				MessageTypeListChildren,
+				func(m *SocketMessage, r *ListChildrenResponse) { m.ListChildrenResp = r },
+				"list children")
 		case MessageTypeMergeChild:
-			s.handleMergeChildMessage(conn, msg.MergeChildReq)
+			handleChannelMessage(s.log, conn, msg.MergeChildReq,
+				s.mergeChildReq, s.mergeChildResp,
+				PermissionResponseTimeout,
+				MergeChildResponse{Success: false, Error: "Supervisor tools not available"},
+				func(id interface{}) MergeChildResponse {
+					return MergeChildResponse{ID: id, Success: false, Error: "Timeout"}
+				},
+				func(r *MergeChildRequest) interface{} { return r.ID },
+				MessageTypeMergeChild,
+				func(m *SocketMessage, r *MergeChildResponse) { m.MergeChildResp = r },
+				"merge child")
 		case MessageTypeCreatePR:
-			s.handleCreatePRMessage(conn, msg.CreatePRReq)
+			handleChannelMessage(s.log, conn, msg.CreatePRReq,
+				s.createPRReq, s.createPRResp,
+				HostToolResponseTimeout,
+				CreatePRResponse{Success: false, Error: "Host tools not available"},
+				func(id interface{}) CreatePRResponse {
+					return CreatePRResponse{ID: id, Success: false, Error: "Timeout"}
+				},
+				func(r *CreatePRRequest) interface{} { return r.ID },
+				MessageTypeCreatePR,
+				func(m *SocketMessage, r *CreatePRResponse) { m.CreatePRResp = r },
+				"create PR")
 		case MessageTypePushBranch:
-			s.handlePushBranchMessage(conn, msg.PushBranchReq)
+			handleChannelMessage(s.log, conn, msg.PushBranchReq,
+				s.pushBranchReq, s.pushBranchResp,
+				HostToolResponseTimeout,
+				PushBranchResponse{Success: false, Error: "Host tools not available"},
+				func(id interface{}) PushBranchResponse {
+					return PushBranchResponse{ID: id, Success: false, Error: "Timeout"}
+				},
+				func(r *PushBranchRequest) interface{} { return r.ID },
+				MessageTypePushBranch,
+				func(m *SocketMessage, r *PushBranchResponse) { m.PushBranchResp = r },
+				"push branch")
 		case MessageTypeGetReviewComments:
-			s.handleGetReviewCommentsMessage(conn, msg.GetReviewCommentsReq)
+			handleChannelMessage(s.log, conn, msg.GetReviewCommentsReq,
+				s.getReviewCommentsReq, s.getReviewCommentsResp,
+				HostToolResponseTimeout,
+				GetReviewCommentsResponse{Success: false, Error: "Host tools not available"},
+				func(id interface{}) GetReviewCommentsResponse {
+					return GetReviewCommentsResponse{ID: id, Success: false, Error: "Timeout"}
+				},
+				func(r *GetReviewCommentsRequest) interface{} { return r.ID },
+				MessageTypeGetReviewComments,
+				func(m *SocketMessage, r *GetReviewCommentsResponse) { m.GetReviewCommentsResp = r },
+				"get review comments")
 		default:
 			s.log.Warn("unknown message type", "type", msg.Type)
 		}
@@ -536,246 +595,6 @@ func (s *SocketServer) sendPlanApprovalResponse(conn net.Conn, resp PlanApproval
 	}
 }
 
-func (s *SocketServer) handleCreateChildMessage(conn net.Conn, req *CreateChildRequest) {
-	if req == nil || s.createChildReq == nil {
-		s.log.Warn("create child request ignored (nil request or no channel)")
-		s.sendCreateChildResponse(conn, CreateChildResponse{Success: false, Error: "Supervisor tools not available"})
-		return
-	}
-
-	s.log.Info("received create child request", "task", req.Task)
-
-	select {
-	case s.createChildReq <- *req:
-	case <-time.After(SocketReadTimeout):
-		s.log.Warn("timeout sending create child request to TUI")
-		s.sendCreateChildResponse(conn, CreateChildResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
-		return
-	}
-
-	select {
-	case resp := <-s.createChildResp:
-		s.sendCreateChildResponse(conn, resp)
-		s.log.Info("sent create child response", "success", resp.Success, "childID", resp.ChildID)
-	case <-time.After(PermissionResponseTimeout):
-		s.log.Warn("timeout waiting for create child response")
-		s.sendCreateChildResponse(conn, CreateChildResponse{ID: req.ID, Success: false, Error: "Timeout"})
-	}
-}
-
-func (s *SocketServer) sendCreateChildResponse(conn net.Conn, resp CreateChildResponse) {
-	msg := SocketMessage{Type: MessageTypeCreateChild, CreateChildResp: &resp}
-	respJSON, err := json.Marshal(msg)
-	if err != nil {
-		s.log.Error("failed to marshal create child response", "error", err)
-		return
-	}
-	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		s.log.Error("write error", "error", err)
-	}
-}
-
-func (s *SocketServer) handleListChildrenMessage(conn net.Conn, req *ListChildrenRequest) {
-	if req == nil || s.listChildrenReq == nil {
-		s.log.Warn("list children request ignored (nil request or no channel)")
-		s.sendListChildrenResponse(conn, ListChildrenResponse{Children: []ChildSessionInfo{}})
-		return
-	}
-
-	s.log.Info("received list children request")
-
-	select {
-	case s.listChildrenReq <- *req:
-	case <-time.After(SocketReadTimeout):
-		s.log.Warn("timeout sending list children request to TUI")
-		s.sendListChildrenResponse(conn, ListChildrenResponse{ID: req.ID, Children: []ChildSessionInfo{}})
-		return
-	}
-
-	select {
-	case resp := <-s.listChildrenResp:
-		s.sendListChildrenResponse(conn, resp)
-		s.log.Info("sent list children response", "count", len(resp.Children))
-	case <-time.After(PermissionResponseTimeout):
-		s.log.Warn("timeout waiting for list children response")
-		s.sendListChildrenResponse(conn, ListChildrenResponse{ID: req.ID, Children: []ChildSessionInfo{}})
-	}
-}
-
-func (s *SocketServer) sendListChildrenResponse(conn net.Conn, resp ListChildrenResponse) {
-	msg := SocketMessage{Type: MessageTypeListChildren, ListChildrenResp: &resp}
-	respJSON, err := json.Marshal(msg)
-	if err != nil {
-		s.log.Error("failed to marshal list children response", "error", err)
-		return
-	}
-	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		s.log.Error("write error", "error", err)
-	}
-}
-
-func (s *SocketServer) handleMergeChildMessage(conn net.Conn, req *MergeChildRequest) {
-	if req == nil || s.mergeChildReq == nil {
-		s.log.Warn("merge child request ignored (nil request or no channel)")
-		s.sendMergeChildResponse(conn, MergeChildResponse{Success: false, Error: "Supervisor tools not available"})
-		return
-	}
-
-	s.log.Info("received merge child request", "childSessionID", req.ChildSessionID)
-
-	select {
-	case s.mergeChildReq <- *req:
-	case <-time.After(SocketReadTimeout):
-		s.log.Warn("timeout sending merge child request to TUI")
-		s.sendMergeChildResponse(conn, MergeChildResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
-		return
-	}
-
-	select {
-	case resp := <-s.mergeChildResp:
-		s.sendMergeChildResponse(conn, resp)
-		s.log.Info("sent merge child response", "success", resp.Success)
-	case <-time.After(PermissionResponseTimeout):
-		s.log.Warn("timeout waiting for merge child response")
-		s.sendMergeChildResponse(conn, MergeChildResponse{ID: req.ID, Success: false, Error: "Timeout"})
-	}
-}
-
-func (s *SocketServer) sendMergeChildResponse(conn net.Conn, resp MergeChildResponse) {
-	msg := SocketMessage{Type: MessageTypeMergeChild, MergeChildResp: &resp}
-	respJSON, err := json.Marshal(msg)
-	if err != nil {
-		s.log.Error("failed to marshal merge child response", "error", err)
-		return
-	}
-	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		s.log.Error("write error", "error", err)
-	}
-}
-
-func (s *SocketServer) handleCreatePRMessage(conn net.Conn, req *CreatePRRequest) {
-	if req == nil || s.createPRReq == nil {
-		s.log.Warn("create PR request ignored (nil request or no channel)")
-		s.sendCreatePRResponse(conn, CreatePRResponse{Success: false, Error: "Host tools not available"})
-		return
-	}
-
-	s.log.Info("received create PR request", "title", req.Title)
-
-	select {
-	case s.createPRReq <- *req:
-	case <-time.After(SocketReadTimeout):
-		s.log.Warn("timeout sending create PR request to TUI")
-		s.sendCreatePRResponse(conn, CreatePRResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
-		return
-	}
-
-	select {
-	case resp := <-s.createPRResp:
-		s.sendCreatePRResponse(conn, resp)
-		s.log.Info("sent create PR response", "success", resp.Success, "prURL", resp.PRURL)
-	case <-time.After(HostToolResponseTimeout):
-		s.log.Warn("timeout waiting for create PR response")
-		s.sendCreatePRResponse(conn, CreatePRResponse{ID: req.ID, Success: false, Error: "Timeout"})
-	}
-}
-
-func (s *SocketServer) sendCreatePRResponse(conn net.Conn, resp CreatePRResponse) {
-	msg := SocketMessage{Type: MessageTypeCreatePR, CreatePRResp: &resp}
-	respJSON, err := json.Marshal(msg)
-	if err != nil {
-		s.log.Error("failed to marshal create PR response", "error", err)
-		return
-	}
-	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		s.log.Error("write error", "error", err)
-	}
-}
-
-func (s *SocketServer) handlePushBranchMessage(conn net.Conn, req *PushBranchRequest) {
-	if req == nil || s.pushBranchReq == nil {
-		s.log.Warn("push branch request ignored (nil request or no channel)")
-		s.sendPushBranchResponse(conn, PushBranchResponse{Success: false, Error: "Host tools not available"})
-		return
-	}
-
-	s.log.Info("received push branch request", "commitMessage", req.CommitMessage)
-
-	select {
-	case s.pushBranchReq <- *req:
-	case <-time.After(SocketReadTimeout):
-		s.log.Warn("timeout sending push branch request to TUI")
-		s.sendPushBranchResponse(conn, PushBranchResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
-		return
-	}
-
-	select {
-	case resp := <-s.pushBranchResp:
-		s.sendPushBranchResponse(conn, resp)
-		s.log.Info("sent push branch response", "success", resp.Success)
-	case <-time.After(HostToolResponseTimeout):
-		s.log.Warn("timeout waiting for push branch response")
-		s.sendPushBranchResponse(conn, PushBranchResponse{ID: req.ID, Success: false, Error: "Timeout"})
-	}
-}
-
-func (s *SocketServer) sendPushBranchResponse(conn net.Conn, resp PushBranchResponse) {
-	msg := SocketMessage{Type: MessageTypePushBranch, PushBranchResp: &resp}
-	respJSON, err := json.Marshal(msg)
-	if err != nil {
-		s.log.Error("failed to marshal push branch response", "error", err)
-		return
-	}
-	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		s.log.Error("write error", "error", err)
-	}
-}
-
-func (s *SocketServer) handleGetReviewCommentsMessage(conn net.Conn, req *GetReviewCommentsRequest) {
-	if req == nil || s.getReviewCommentsReq == nil {
-		s.log.Warn("get review comments request ignored (nil request or no channel)")
-		s.sendGetReviewCommentsResponse(conn, GetReviewCommentsResponse{Success: false, Error: "Host tools not available"})
-		return
-	}
-
-	s.log.Info("received get review comments request")
-
-	select {
-	case s.getReviewCommentsReq <- *req:
-	case <-time.After(SocketReadTimeout):
-		s.log.Warn("timeout sending get review comments request to TUI")
-		s.sendGetReviewCommentsResponse(conn, GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Timeout waiting for TUI"})
-		return
-	}
-
-	select {
-	case resp := <-s.getReviewCommentsResp:
-		s.sendGetReviewCommentsResponse(conn, resp)
-		s.log.Info("sent get review comments response", "success", resp.Success, "commentCount", len(resp.Comments))
-	case <-time.After(HostToolResponseTimeout):
-		s.log.Warn("timeout waiting for get review comments response")
-		s.sendGetReviewCommentsResponse(conn, GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Timeout"})
-	}
-}
-
-func (s *SocketServer) sendGetReviewCommentsResponse(conn net.Conn, resp GetReviewCommentsResponse) {
-	msg := SocketMessage{Type: MessageTypeGetReviewComments, GetReviewCommentsResp: &resp}
-	respJSON, err := json.Marshal(msg)
-	if err != nil {
-		s.log.Error("failed to marshal get review comments response", "error", err)
-		return
-	}
-	conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err := conn.Write(append(respJSON, '\n')); err != nil {
-		s.log.Error("write error", "error", err)
-	}
-}
-
 // Close shuts down the socket server and waits for the Run() goroutine to exit.
 func (s *SocketServer) Close() error {
 	s.log.Info("closing socket server")
@@ -839,272 +658,74 @@ func NewTCPSocketClient(addr string) (*SocketClient, error) {
 
 // SendPermissionRequest sends a permission request and waits for response
 func (c *SocketClient) SendPermissionRequest(req PermissionRequest) (PermissionResponse, error) {
-	msg := SocketMessage{
-		Type:    MessageTypePermission,
-		PermReq: &req,
-	}
-
-	// Send request with write timeout
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return PermissionResponse{}, err
-	}
-
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	_, err = c.conn.Write(append(reqJSON, '\n'))
-	if err != nil {
-		return PermissionResponse{}, fmt.Errorf("write permission request: %w", err)
-	}
-
-	// Read response (no timeout - user may take a while to respond)
-	c.conn.SetReadDeadline(time.Time{}) // Clear any deadline
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return PermissionResponse{}, fmt.Errorf("read permission response: %w", err)
-	}
-
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return PermissionResponse{}, err
-	}
-
-	if respMsg.PermResp == nil {
-		return PermissionResponse{}, fmt.Errorf("expected permission response, got nil")
-	}
-
-	return *respMsg.PermResp, nil
+	return sendSocketRequest(c, req, MessageTypePermission,
+		func(m *SocketMessage, r *PermissionRequest) { m.PermReq = r },
+		func(m *SocketMessage) *PermissionResponse { return m.PermResp },
+		0, "permission")
 }
 
 // SendQuestionRequest sends a question request and waits for response
 func (c *SocketClient) SendQuestionRequest(req QuestionRequest) (QuestionResponse, error) {
-	msg := SocketMessage{
-		Type:     MessageTypeQuestion,
-		QuestReq: &req,
-	}
-
-	// Send request with write timeout
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return QuestionResponse{}, err
-	}
-
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	_, err = c.conn.Write(append(reqJSON, '\n'))
-	if err != nil {
-		return QuestionResponse{}, fmt.Errorf("write question request: %w", err)
-	}
-
-	// Read response (no timeout - user may take a while to respond)
-	c.conn.SetReadDeadline(time.Time{}) // Clear any deadline
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return QuestionResponse{}, fmt.Errorf("read question response: %w", err)
-	}
-
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return QuestionResponse{}, err
-	}
-
-	if respMsg.QuestResp == nil {
-		return QuestionResponse{}, fmt.Errorf("expected question response, got nil")
-	}
-
-	return *respMsg.QuestResp, nil
+	return sendSocketRequest(c, req, MessageTypeQuestion,
+		func(m *SocketMessage, r *QuestionRequest) { m.QuestReq = r },
+		func(m *SocketMessage) *QuestionResponse { return m.QuestResp },
+		0, "question")
 }
 
 // SendPlanApprovalRequest sends a plan approval request and waits for response
 func (c *SocketClient) SendPlanApprovalRequest(req PlanApprovalRequest) (PlanApprovalResponse, error) {
-	msg := SocketMessage{
-		Type:    MessageTypePlanApproval,
-		PlanReq: &req,
-	}
-
-	// Send request with write timeout
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return PlanApprovalResponse{}, err
-	}
-
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	_, err = c.conn.Write(append(reqJSON, '\n'))
-	if err != nil {
-		return PlanApprovalResponse{}, fmt.Errorf("write plan approval request: %w", err)
-	}
-
-	// Read response (no timeout - user may take a while to respond)
-	c.conn.SetReadDeadline(time.Time{}) // Clear any deadline
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return PlanApprovalResponse{}, fmt.Errorf("read plan approval response: %w", err)
-	}
-
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return PlanApprovalResponse{}, err
-	}
-
-	if respMsg.PlanResp == nil {
-		return PlanApprovalResponse{}, fmt.Errorf("expected plan approval response, got nil")
-	}
-
-	return *respMsg.PlanResp, nil
+	return sendSocketRequest(c, req, MessageTypePlanApproval,
+		func(m *SocketMessage, r *PlanApprovalRequest) { m.PlanReq = r },
+		func(m *SocketMessage) *PlanApprovalResponse { return m.PlanResp },
+		0, "plan approval")
 }
 
 // SendCreateChildRequest sends a create child request and waits for response
 func (c *SocketClient) SendCreateChildRequest(req CreateChildRequest) (CreateChildResponse, error) {
-	msg := SocketMessage{Type: MessageTypeCreateChild, CreateChildReq: &req}
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return CreateChildResponse{}, err
-	}
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
-		return CreateChildResponse{}, fmt.Errorf("write create child request: %w", err)
-	}
-	c.conn.SetReadDeadline(time.Time{})
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return CreateChildResponse{}, fmt.Errorf("read create child response: %w", err)
-	}
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return CreateChildResponse{}, err
-	}
-	if respMsg.CreateChildResp == nil {
-		return CreateChildResponse{}, fmt.Errorf("expected create child response, got nil")
-	}
-	return *respMsg.CreateChildResp, nil
+	return sendSocketRequest(c, req, MessageTypeCreateChild,
+		func(m *SocketMessage, r *CreateChildRequest) { m.CreateChildReq = r },
+		func(m *SocketMessage) *CreateChildResponse { return m.CreateChildResp },
+		0, "create child")
 }
 
 // SendListChildrenRequest sends a list children request and waits for response
 func (c *SocketClient) SendListChildrenRequest(req ListChildrenRequest) (ListChildrenResponse, error) {
-	msg := SocketMessage{Type: MessageTypeListChildren, ListChildrenReq: &req}
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return ListChildrenResponse{}, err
-	}
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
-		return ListChildrenResponse{}, fmt.Errorf("write list children request: %w", err)
-	}
-	c.conn.SetReadDeadline(time.Time{})
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return ListChildrenResponse{}, fmt.Errorf("read list children response: %w", err)
-	}
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return ListChildrenResponse{}, err
-	}
-	if respMsg.ListChildrenResp == nil {
-		return ListChildrenResponse{}, fmt.Errorf("expected list children response, got nil")
-	}
-	return *respMsg.ListChildrenResp, nil
+	return sendSocketRequest(c, req, MessageTypeListChildren,
+		func(m *SocketMessage, r *ListChildrenRequest) { m.ListChildrenReq = r },
+		func(m *SocketMessage) *ListChildrenResponse { return m.ListChildrenResp },
+		0, "list children")
 }
 
 // SendMergeChildRequest sends a merge child request and waits for response
 func (c *SocketClient) SendMergeChildRequest(req MergeChildRequest) (MergeChildResponse, error) {
-	msg := SocketMessage{Type: MessageTypeMergeChild, MergeChildReq: &req}
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return MergeChildResponse{}, err
-	}
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
-		return MergeChildResponse{}, fmt.Errorf("write merge child request: %w", err)
-	}
-	c.conn.SetReadDeadline(time.Time{})
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return MergeChildResponse{}, fmt.Errorf("read merge child response: %w", err)
-	}
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return MergeChildResponse{}, err
-	}
-	if respMsg.MergeChildResp == nil {
-		return MergeChildResponse{}, fmt.Errorf("expected merge child response, got nil")
-	}
-	return *respMsg.MergeChildResp, nil
+	return sendSocketRequest(c, req, MessageTypeMergeChild,
+		func(m *SocketMessage, r *MergeChildRequest) { m.MergeChildReq = r },
+		func(m *SocketMessage) *MergeChildResponse { return m.MergeChildResp },
+		0, "merge child")
 }
 
 // SendCreatePRRequest sends a create PR request and waits for response
 func (c *SocketClient) SendCreatePRRequest(req CreatePRRequest) (CreatePRResponse, error) {
-	msg := SocketMessage{Type: MessageTypeCreatePR, CreatePRReq: &req}
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return CreatePRResponse{}, err
-	}
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
-		return CreatePRResponse{}, fmt.Errorf("write create PR request: %w", err)
-	}
-	c.conn.SetReadDeadline(time.Now().Add(HostToolResponseTimeout))
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return CreatePRResponse{}, fmt.Errorf("read create PR response: %w", err)
-	}
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return CreatePRResponse{}, err
-	}
-	if respMsg.CreatePRResp == nil {
-		return CreatePRResponse{}, fmt.Errorf("expected create PR response, got nil")
-	}
-	return *respMsg.CreatePRResp, nil
+	return sendSocketRequest(c, req, MessageTypeCreatePR,
+		func(m *SocketMessage, r *CreatePRRequest) { m.CreatePRReq = r },
+		func(m *SocketMessage) *CreatePRResponse { return m.CreatePRResp },
+		HostToolResponseTimeout, "create PR")
 }
 
 // SendPushBranchRequest sends a push branch request and waits for response
 func (c *SocketClient) SendPushBranchRequest(req PushBranchRequest) (PushBranchResponse, error) {
-	msg := SocketMessage{Type: MessageTypePushBranch, PushBranchReq: &req}
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return PushBranchResponse{}, err
-	}
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
-		return PushBranchResponse{}, fmt.Errorf("write push branch request: %w", err)
-	}
-	c.conn.SetReadDeadline(time.Now().Add(HostToolResponseTimeout))
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return PushBranchResponse{}, fmt.Errorf("read push branch response: %w", err)
-	}
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return PushBranchResponse{}, err
-	}
-	if respMsg.PushBranchResp == nil {
-		return PushBranchResponse{}, fmt.Errorf("expected push branch response, got nil")
-	}
-	return *respMsg.PushBranchResp, nil
+	return sendSocketRequest(c, req, MessageTypePushBranch,
+		func(m *SocketMessage, r *PushBranchRequest) { m.PushBranchReq = r },
+		func(m *SocketMessage) *PushBranchResponse { return m.PushBranchResp },
+		HostToolResponseTimeout, "push branch")
 }
 
 // SendGetReviewCommentsRequest sends a get review comments request and waits for response
 func (c *SocketClient) SendGetReviewCommentsRequest(req GetReviewCommentsRequest) (GetReviewCommentsResponse, error) {
-	msg := SocketMessage{Type: MessageTypeGetReviewComments, GetReviewCommentsReq: &req}
-	reqJSON, err := json.Marshal(msg)
-	if err != nil {
-		return GetReviewCommentsResponse{}, err
-	}
-	c.conn.SetWriteDeadline(time.Now().Add(SocketWriteTimeout))
-	if _, err = c.conn.Write(append(reqJSON, '\n')); err != nil {
-		return GetReviewCommentsResponse{}, fmt.Errorf("write get review comments request: %w", err)
-	}
-	c.conn.SetReadDeadline(time.Now().Add(HostToolResponseTimeout))
-	line, err := c.reader.ReadString('\n')
-	if err != nil {
-		return GetReviewCommentsResponse{}, fmt.Errorf("read get review comments response: %w", err)
-	}
-	var respMsg SocketMessage
-	if err := json.Unmarshal([]byte(line), &respMsg); err != nil {
-		return GetReviewCommentsResponse{}, err
-	}
-	if respMsg.GetReviewCommentsResp == nil {
-		return GetReviewCommentsResponse{}, fmt.Errorf("expected get review comments response, got nil")
-	}
-	return *respMsg.GetReviewCommentsResp, nil
+	return sendSocketRequest(c, req, MessageTypeGetReviewComments,
+		func(m *SocketMessage, r *GetReviewCommentsRequest) { m.GetReviewCommentsReq = r },
+		func(m *SocketMessage) *GetReviewCommentsResponse { return m.GetReviewCommentsResp },
+		HostToolResponseTimeout, "get review comments")
 }
 
 // Close closes the client connection
