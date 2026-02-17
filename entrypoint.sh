@@ -11,8 +11,13 @@ update_plural_binary() {
 
     echo "[plural-update] Checking for updates..."
 
-    # Get current version
-    CURRENT_VERSION=$(/usr/local/bin/plural --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    # Get current version (GoReleaser strips the 'v' prefix, so add it back)
+    RAW_VERSION=$(/usr/local/bin/plural --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "")
+    if [ -n "$RAW_VERSION" ]; then
+        CURRENT_VERSION="v${RAW_VERSION}"
+    else
+        CURRENT_VERSION="unknown"
+    fi
     echo "[plural-update] Current version: $CURRENT_VERSION"
 
     # Fetch latest release info with timeout
