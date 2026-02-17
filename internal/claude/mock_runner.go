@@ -124,6 +124,78 @@ func (m *MockRunner) SimulatePlanApprovalRequest(req mcp.PlanApprovalRequest) {
 	m.planApproval.Req <- req
 }
 
+// SimulateCreateChildRequest triggers a create child request that the UI will receive.
+func (m *MockRunner) SimulateCreateChildRequest(req mcp.CreateChildRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	ch := m.createChild
+	m.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	ch.Req <- req
+}
+
+// SimulateListChildrenRequest triggers a list children request that the UI will receive.
+func (m *MockRunner) SimulateListChildrenRequest(req mcp.ListChildrenRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	ch := m.listChildren
+	m.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	ch.Req <- req
+}
+
+// SimulateMergeChildRequest triggers a merge child request that the UI will receive.
+func (m *MockRunner) SimulateMergeChildRequest(req mcp.MergeChildRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	ch := m.mergeChild
+	m.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	ch.Req <- req
+}
+
+// SimulateCreatePRRequest triggers a create PR request that the UI will receive.
+func (m *MockRunner) SimulateCreatePRRequest(req mcp.CreatePRRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	ch := m.createPR
+	m.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	ch.Req <- req
+}
+
+// SimulatePushBranchRequest triggers a push branch request that the UI will receive.
+func (m *MockRunner) SimulatePushBranchRequest(req mcp.PushBranchRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	ch := m.pushBranch
+	m.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	ch.Req <- req
+}
+
+// SimulateGetReviewCommentsRequest triggers a get review comments request that the UI will receive.
+func (m *MockRunner) SimulateGetReviewCommentsRequest(req mcp.GetReviewCommentsRequest) {
+	m.mu.RLock()
+	stopped := m.stopped
+	ch := m.getReviewComments
+	m.mu.RUnlock()
+	if stopped || ch == nil {
+		return
+	}
+	ch.Req <- req
+}
+
 // SessionStarted implements RunnerInterface.
 func (m *MockRunner) SessionStarted() bool {
 	m.mu.RLock()
