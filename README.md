@@ -250,17 +250,19 @@ plural agent --max-concurrent 5     # Override max concurrent sessions
 
 ### Data Storage
 
-By default, configuration and session data are stored in `~/.plural/`.
+Plural stores configuration, session data, and logs in one of two locations depending on your environment:
 
-Plural also supports the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/). If XDG environment variables are set and `~/.plural/` doesn't exist, files are organized as:
+| Purpose | Without XDG (Default) | With XDG Environment Variables |
+|---------|----------------------|-------------------------------|
+| Config | `~/.plural/config.json` | `$XDG_CONFIG_HOME/plural/config.json` |
+| Sessions | `~/.plural/sessions/*.json` | `$XDG_DATA_HOME/plural/sessions/*.json` |
+| Logs | `~/.plural/logs/` | `$XDG_STATE_HOME/plural/logs/` |
 
-| Purpose | XDG Directory | Contents |
-|---------|--------------|----------|
-| Config | `$XDG_CONFIG_HOME/plural/` | `config.json` |
-| Data | `$XDG_DATA_HOME/plural/` | `sessions/*.json` |
-| State | `$XDG_STATE_HOME/plural/` | `logs/` |
+**How it works:**
 
-Existing `~/.plural/` installations continue to work as-is.
+- **Default behavior**: All files go into `~/.plural/`
+- **XDG mode**: If XDG environment variables (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`) are set **and** `~/.plural/` doesn't exist, Plural uses the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
+- **Existing installations**: If `~/.plural/` already exists, it continues to be used regardless of XDG variables
 
 ---
 
