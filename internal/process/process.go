@@ -177,13 +177,14 @@ func getRemoteManifestDigest(ctx context.Context, image string) (string, error) 
 
 	// Multi-platform manifest list: find digest for current platform
 	if len(mr.Manifests) > 0 {
-		// Go's runtime.GOARCH values match Docker architecture names
+		// Containers always run linux regardless of host OS.
+		// Go's runtime.GOARCH values match Docker architecture names.
 		for _, m := range mr.Manifests {
-			if m.Platform.OS == runtime.GOOS && m.Platform.Architecture == runtime.GOARCH {
+			if m.Platform.OS == "linux" && m.Platform.Architecture == runtime.GOARCH {
 				return m.Digest, nil
 			}
 		}
-		return "", fmt.Errorf("no manifest found for %s/%s", runtime.GOOS, runtime.GOARCH)
+		return "", fmt.Errorf("no manifest found for linux/%s", runtime.GOARCH)
 	}
 
 	// Single-platform manifest: use the top-level digest
