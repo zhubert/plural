@@ -55,8 +55,6 @@ type (
 	BroadcastGroupState      = modals.BroadcastGroupState
 	BroadcastGroupAction     = modals.BroadcastGroupAction
 	SessionItem              = modals.SessionItem
-	WorkspaceListState       = modals.WorkspaceListState
-	NewWorkspaceState        = modals.NewWorkspaceState
 	BulkActionState          = modals.BulkActionState
 	BulkAction               = modals.BulkAction
 	ReviewCommentsState      = modals.ReviewCommentsState
@@ -79,10 +77,9 @@ const ContainerAuthHelp = modals.ContainerAuthHelp
 
 // Re-export bulk action constants
 const (
-	BulkActionDelete          = modals.BulkActionDelete
-	BulkActionMoveToWorkspace = modals.BulkActionMoveToWorkspace
-	BulkActionCreatePRs       = modals.BulkActionCreatePRs
-	BulkActionSendPrompt      = modals.BulkActionSendPrompt
+	BulkActionDelete     = modals.BulkActionDelete
+	BulkActionCreatePRs  = modals.BulkActionCreatePRs
+	BulkActionSendPrompt = modals.BulkActionSendPrompt
 )
 
 // Re-export constructor functions
@@ -116,9 +113,6 @@ var (
 	NewPreviewActiveState             = modals.NewPreviewActiveState
 	NewBroadcastState                 = modals.NewBroadcastState
 	NewBroadcastGroupState            = modals.NewBroadcastGroupState
-	NewWorkspaceListState             = modals.NewWorkspaceListState
-	NewNewWorkspaceState              = modals.NewNewWorkspaceState
-	NewRenameWorkspaceState           = modals.NewRenameWorkspaceState
 	NewReviewCommentsState            = modals.NewReviewCommentsState
 	NewContainerBuildState            = modals.NewContainerBuildState
 	NewContainerCLINotInstalledState  = modals.NewContainerCLINotInstalledState

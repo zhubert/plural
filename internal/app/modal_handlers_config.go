@@ -1,11 +1,9 @@
 package app
 
 import (
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
@@ -196,128 +194,6 @@ func (m *Model) handleAddMarketplaceModal(key string, msg tea.KeyPressMsg, state
 		return m, nil
 	}
 	// Forward other keys to the modal for text input handling
-	modal, cmd := m.modal.Update(msg)
-	m.modal = modal
-	return m, cmd
-}
-
-// showWorkspaceListModal opens the workspace list modal with current data.
-func (m *Model) showWorkspaceListModal() {
-	workspaces := m.config.GetWorkspaces()
-	activeWS := m.config.GetActiveWorkspaceID()
-
-	// Count sessions per workspace
-	sessions := m.config.GetSessions()
-	counts := make(map[string]int)
-	for _, s := range sessions {
-		if s.WorkspaceID != "" {
-			counts[s.WorkspaceID]++
-		}
-	}
-
-	m.modal.Show(ui.NewWorkspaceListState(workspaces, counts, activeWS))
-}
-
-// handleWorkspaceListModal handles key events for the Workspace List modal.
-func (m *Model) handleWorkspaceListModal(key string, msg tea.KeyPressMsg, state *ui.WorkspaceListState) (tea.Model, tea.Cmd) {
-	switch key {
-	case keys.Escape:
-		m.modal.Hide()
-		return m, nil
-	case keys.Enter:
-		// Switch active workspace
-		selectedID := state.GetSelectedWorkspaceID()
-		m.config.SetActiveWorkspaceID(selectedID)
-		var cmds []tea.Cmd
-		if cmd := m.saveConfigOrFlash(); cmd != nil {
-			cmds = append(cmds, cmd)
-		}
-		m.sidebar.SetSessions(m.getFilteredSessions())
-		m.header.SetWorkspaceName(m.getActiveWorkspaceName())
-		m.modal.Hide()
-		if len(cmds) > 0 {
-			return m, tea.Batch(cmds...)
-		}
-		return m, nil
-	case "n":
-		// Create new workspace
-		m.modal.Show(ui.NewNewWorkspaceState())
-		return m, nil
-	case "d":
-		// Delete selected workspace (not "All Sessions")
-		if !state.IsAllSessionsSelected() {
-			wsID := state.GetSelectedWorkspaceID()
-			if wsID != "" {
-				// Count affected sessions before deletion
-				affectedSessions := m.config.GetSessionsByWorkspace(wsID)
-				m.config.RemoveWorkspace(wsID)
-				if cmd := m.saveConfigOrFlash(); cmd != nil {
-					return m, cmd
-				}
-				m.sidebar.SetSessions(m.getFilteredSessions())
-				m.header.SetWorkspaceName(m.getActiveWorkspaceName())
-				m.showWorkspaceListModal() // Refresh
-				if len(affectedSessions) > 0 {
-					return m, m.ShowFlashInfo(fmt.Sprintf("%d session(s) moved to All Sessions", len(affectedSessions)))
-				}
-			}
-		}
-		return m, nil
-	case "r":
-		// Rename selected workspace (not "All Sessions")
-		if !state.IsAllSessionsSelected() {
-			wsID := state.GetSelectedWorkspaceID()
-			wsName := state.GetSelectedWorkspaceName()
-			if wsID != "" {
-				m.modal.Show(ui.NewRenameWorkspaceState(wsID, wsName))
-			}
-		}
-		return m, nil
-	}
-	// Forward navigation keys to modal
-	modal, cmd := m.modal.Update(msg)
-	m.modal = modal
-	return m, cmd
-}
-
-// handleNewWorkspaceModal handles key events for the New/Rename Workspace modal.
-func (m *Model) handleNewWorkspaceModal(key string, msg tea.KeyPressMsg, state *ui.NewWorkspaceState) (tea.Model, tea.Cmd) {
-	switch key {
-	case keys.Escape:
-		m.showWorkspaceListModal() // Go back to list
-		return m, nil
-	case "enter":
-		name := strings.TrimSpace(state.GetName())
-		if name == "" {
-			return m, nil
-		}
-
-		if state.IsRename {
-			if !m.config.RenameWorkspace(state.WorkspaceID, name) {
-				m.modal.SetError("Failed to rename workspace")
-				return m, nil
-			}
-		} else {
-			ws := config.Workspace{
-				ID:   uuid.New().String(),
-				Name: name,
-			}
-			if !m.config.AddWorkspace(ws) {
-				m.modal.SetError("A workspace with that name already exists")
-				return m, nil
-			}
-		}
-
-		if err := m.config.Save(); err != nil {
-			logger.Get().Error("failed to save workspace", "error", err)
-			m.modal.SetError("Failed to save: " + err.Error())
-			return m, nil
-		}
-		m.header.SetWorkspaceName(m.getActiveWorkspaceName())
-		m.showWorkspaceListModal() // Return to list
-		return m, nil
-	}
-	// Forward other keys for text input handling
 	modal, cmd := m.modal.Update(msg)
 	m.modal = modal
 	return m, cmd

@@ -34,7 +34,6 @@ type Session struct {
 	IssueNumber      int       `json:"issue_number,omitempty"`       // Deprecated: use IssueRef instead. Kept for backwards compatibility.
 	IssueRef         *IssueRef `json:"issue_ref,omitempty"`          // Generic issue/task reference (GitHub, Asana, etc.)
 	BroadcastGroupID string    `json:"broadcast_group_id,omitempty"` // Links sessions created from the same broadcast
-	WorkspaceID      string    `json:"workspace_id,omitempty"`       // Workspace this session belongs to
 	Containerized    bool      `json:"containerized,omitempty"`      // Whether this session runs inside a container
 	PRCommentCount            int       `json:"pr_comment_count,omitempty"`             // Last-seen PR comment count (comments + reviews)
 	PRCommentsAddressedCount  int       `json:"pr_comments_addressed_count,omitempty"`  // Comment count last addressed by Claude for merge

@@ -253,9 +253,6 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 
 		// No parent ID - these are top-level sessions
 		// Auto-assign to active workspace
-		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
-			sess.WorkspaceID = activeWS
-		}
 		logger.WithSession(sess.ID).Info("created session for issue", "issue", issue.ID, "source", issue.Source, "name", sess.Name)
 
 		m.config.AddSession(*sess)
@@ -418,9 +415,6 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 		// Inherit containerized flag from parent
 		sess.Containerized = parentSession.Containerized
 		// Auto-assign to active workspace
-		if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
-			sess.WorkspaceID = activeWS
-		}
 
 		// Add session to config
 		m.config.AddSession(*sess)

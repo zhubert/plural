@@ -5,16 +5,12 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural/internal/config"
 )
 
 func TestNewBulkActionState(t *testing.T) {
 	ids := []string{"s1", "s2", "s3"}
-	workspaces := []config.Workspace{
-		{ID: "ws1", Name: "Feature Work"},
-	}
 
-	state := NewBulkActionState(ids, workspaces)
+	state := NewBulkActionState(ids)
 
 	if state.SessionCount != 3 {
 		t.Errorf("expected session count 3, got %d", state.SessionCount)
@@ -25,9 +21,6 @@ func TestNewBulkActionState(t *testing.T) {
 	if state.Action != BulkActionDelete {
 		t.Errorf("expected default action to be Delete, got %d", state.Action)
 	}
-	if len(state.Workspaces) != 1 {
-		t.Errorf("expected 1 workspace, got %d", len(state.Workspaces))
-	}
 
 	// Check textarea has line numbers disabled
 	if state.PromptInput.ShowLineNumbers {
@@ -36,17 +29,11 @@ func TestNewBulkActionState(t *testing.T) {
 }
 
 func TestBulkActionState_SwitchAction(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 
 	// Start at Delete
 	if state.Action != BulkActionDelete {
 		t.Fatal("should start at Delete")
-	}
-
-	// Switch right to Move
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
-	if state.Action != BulkActionMoveToWorkspace {
-		t.Errorf("expected MoveToWorkspace, got %d", state.Action)
 	}
 
 	// Switch right to Create PRs
@@ -76,12 +63,6 @@ func TestBulkActionState_SwitchAction(t *testing.T) {
 		t.Errorf("expected CreatePRs, got %d", state.Action)
 	}
 
-	// Switch back left to Move
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "h"})
-	if state.Action != BulkActionMoveToWorkspace {
-		t.Errorf("expected MoveToWorkspace, got %d", state.Action)
-	}
-
 	// Switch back left to Delete
 	state.Update(tea.KeyPressMsg{Code: -1, Text: "h"})
 	if state.Action != BulkActionDelete {
@@ -95,82 +76,12 @@ func TestBulkActionState_SwitchAction(t *testing.T) {
 	}
 }
 
-func TestBulkActionState_WorkspaceNavigation(t *testing.T) {
-	workspaces := []config.Workspace{
-		{ID: "ws1", Name: "A"},
-		{ID: "ws2", Name: "B"},
-		{ID: "ws3", Name: "C"},
-	}
-	state := NewBulkActionState([]string{"s1"}, workspaces)
 
-	// Switch to MoveToWorkspace
-	state.Action = BulkActionMoveToWorkspace
 
-	// Navigate down
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "j"})
-	if state.SelectedWSIdx != 1 {
-		t.Errorf("expected ws index 1, got %d", state.SelectedWSIdx)
-	}
 
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "j"})
-	if state.SelectedWSIdx != 2 {
-		t.Errorf("expected ws index 2, got %d", state.SelectedWSIdx)
-	}
-
-	// Can't go past end
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "j"})
-	if state.SelectedWSIdx != 2 {
-		t.Errorf("should stay at 2, got %d", state.SelectedWSIdx)
-	}
-
-	// Navigate up
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "k"})
-	if state.SelectedWSIdx != 1 {
-		t.Errorf("expected ws index 1, got %d", state.SelectedWSIdx)
-	}
-}
-
-func TestBulkActionState_WorkspaceNavigation_OnlyInMoveAction(t *testing.T) {
-	workspaces := []config.Workspace{
-		{ID: "ws1", Name: "A"},
-	}
-	state := NewBulkActionState([]string{"s1"}, workspaces)
-
-	// In Delete action, up/down should not change workspace index
-	state.Action = BulkActionDelete
-	state.Update(tea.KeyPressMsg{Code: -1, Text: "j"})
-	if state.SelectedWSIdx != 0 {
-		t.Errorf("up/down should not work in Delete mode, ws index is %d", state.SelectedWSIdx)
-	}
-}
-
-func TestBulkActionState_GetSelectedWorkspaceID(t *testing.T) {
-	workspaces := []config.Workspace{
-		{ID: "ws1", Name: "A"},
-		{ID: "ws2", Name: "B"},
-	}
-	state := NewBulkActionState([]string{"s1"}, workspaces)
-
-	if id := state.GetSelectedWorkspaceID(); id != "ws1" {
-		t.Errorf("expected ws1, got %q", id)
-	}
-
-	state.SelectedWSIdx = 1
-	if id := state.GetSelectedWorkspaceID(); id != "ws2" {
-		t.Errorf("expected ws2, got %q", id)
-	}
-}
-
-func TestBulkActionState_GetSelectedWorkspaceID_Empty(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
-
-	if id := state.GetSelectedWorkspaceID(); id != "" {
-		t.Errorf("expected empty ID with no workspaces, got %q", id)
-	}
-}
 
 func TestBulkActionState_Render_Delete(t *testing.T) {
-	state := NewBulkActionState([]string{"s1", "s2"}, nil)
+	state := NewBulkActionState([]string{"s1", "s2"})
 	rendered := state.Render()
 
 	if !strings.Contains(rendered, "Bulk Action (2 sessions)") {
@@ -184,39 +95,10 @@ func TestBulkActionState_Render_Delete(t *testing.T) {
 	}
 }
 
-func TestBulkActionState_Render_MoveToWorkspace(t *testing.T) {
-	workspaces := []config.Workspace{
-		{ID: "ws1", Name: "Feature Work"},
-	}
-	state := NewBulkActionState([]string{"s1"}, workspaces)
-	state.Action = BulkActionMoveToWorkspace
 
-	rendered := state.Render()
-
-	if !strings.Contains(rendered, "Move to Workspace") {
-		t.Error("should contain 'Move to Workspace' action")
-	}
-	if !strings.Contains(rendered, "Feature Work") {
-		t.Error("should show workspace name")
-	}
-	if !strings.Contains(rendered, "Select workspace:") {
-		t.Error("should show workspace selection label")
-	}
-}
-
-func TestBulkActionState_Render_NoWorkspaces(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
-	state.Action = BulkActionMoveToWorkspace
-
-	rendered := state.Render()
-
-	if !strings.Contains(rendered, "No workspaces") {
-		t.Error("should show 'No workspaces' message")
-	}
-}
 
 func TestBulkActionState_Render_CreatePRs(t *testing.T) {
-	state := NewBulkActionState([]string{"s1", "s2", "s3"}, nil)
+	state := NewBulkActionState([]string{"s1", "s2", "s3"})
 	state.Action = BulkActionCreatePRs
 
 	rendered := state.Render()
@@ -233,7 +115,7 @@ func TestBulkActionState_Render_CreatePRs(t *testing.T) {
 }
 
 func TestBulkActionState_SwitchToSendPrompt(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 
 	// Navigate right to SendPrompt (Delete -> Move -> CreatePRs -> SendPrompt)
 	state.Update(tea.KeyPressMsg{Code: -1, Text: "l"})
@@ -252,7 +134,7 @@ func TestBulkActionState_SwitchToSendPrompt(t *testing.T) {
 }
 
 func TestBulkActionState_Render_SendPrompt(t *testing.T) {
-	state := NewBulkActionState([]string{"s1", "s2"}, nil)
+	state := NewBulkActionState([]string{"s1", "s2"})
 	state.Action = BulkActionSendPrompt
 
 	rendered := state.Render()
@@ -269,7 +151,7 @@ func TestBulkActionState_Render_SendPrompt(t *testing.T) {
 }
 
 func TestBulkActionState_GetPrompt(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 	state.Action = BulkActionSendPrompt
 
 	// Simulate typing text into the prompt
@@ -282,7 +164,7 @@ func TestBulkActionState_GetPrompt(t *testing.T) {
 }
 
 func TestBulkActionState_GetPrompt_Empty(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 
 	prompt := state.GetPrompt()
 	if prompt != "" {
@@ -291,7 +173,7 @@ func TestBulkActionState_GetPrompt_Empty(t *testing.T) {
 }
 
 func TestBulkActionState_GetPrompt_Trimmed(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 	state.PromptInput.SetValue("  Test prompt  \n")
 
 	prompt := state.GetPrompt()
@@ -301,7 +183,7 @@ func TestBulkActionState_GetPrompt_Trimmed(t *testing.T) {
 }
 
 func TestBulkActionState_PromptInputInitialized(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 
 	// Check that PromptInput is initialized
 	if state.PromptInput.Placeholder == "" {
@@ -310,7 +192,7 @@ func TestBulkActionState_PromptInputInitialized(t *testing.T) {
 }
 
 func TestBulkActionState_PromptInput_ArrowKeysForEditing(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 	state.Action = BulkActionSendPrompt
 	state.PromptInput.Focus()
 
@@ -331,7 +213,7 @@ func TestBulkActionState_PromptInput_ArrowKeysForEditing(t *testing.T) {
 }
 
 func TestBulkActionState_FocusManagement(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 
 	// Start on Delete - textarea should not be focused
 	if state.PromptInput.Focused() {
@@ -358,7 +240,7 @@ func TestBulkActionState_FocusManagement(t *testing.T) {
 }
 
 func TestBulkActionState_PromptInput_AcceptsTyping(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 	state.Action = BulkActionSendPrompt
 	state.PromptInput.Focus() // Focus textarea since we're directly setting the action
 
@@ -375,7 +257,7 @@ func TestBulkActionState_PromptInput_AcceptsTyping(t *testing.T) {
 }
 
 func TestBulkActionState_PromptInput_NavigationStillWorks(t *testing.T) {
-	state := NewBulkActionState([]string{"s1"}, nil)
+	state := NewBulkActionState([]string{"s1"})
 	state.Action = BulkActionSendPrompt
 	state.PromptInput.Focus() // Focus since we're directly setting the action
 

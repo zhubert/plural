@@ -936,21 +936,6 @@ func TestShortcutMultiSelect_EntersMode(t *testing.T) {
 	}
 }
 
-func TestShortcutWorkspaces_OpensModal(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	if m.modal.IsVisible() {
-		t.Fatal("modal should not be visible initially")
-	}
-
-	shortcutWorkspaces(m)
-
-	if !m.modal.IsVisible() {
-		t.Error("expected modal to be visible after shortcutWorkspaces")
-	}
-}
-
 func TestShortcutBroadcast_OpensModal(t *testing.T) {
 	cfg := testConfig()
 	m := testModelWithSize(cfg, 120, 40)

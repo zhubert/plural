@@ -56,12 +56,6 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case *ui.ReviewCommentsState:
 		return m.handleReviewCommentsModal(key, msg, s)
 
-	// Workspace modals (modal_handlers_config.go)
-	case *ui.WorkspaceListState:
-		return m.handleWorkspaceListModal(key, msg, s)
-	case *ui.NewWorkspaceState:
-		return m.handleNewWorkspaceModal(key, msg, s)
-
 	// Config modals (modal_handlers_config.go)
 	case *ui.MCPServersState:
 		return m.handleMCPServersModal(key, msg, s)

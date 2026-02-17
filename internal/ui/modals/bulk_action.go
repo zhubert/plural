@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/keys"
 )
 
@@ -17,19 +16,16 @@ type BulkAction int
 
 const (
 	BulkActionDelete BulkAction = iota
-	BulkActionMoveToWorkspace
 	BulkActionCreatePRs
 	BulkActionSendPrompt
 )
 
 // BulkActionState is the modal for choosing a bulk action
 type BulkActionState struct {
-	SessionIDs    []string
-	SessionCount  int
-	Action        BulkAction
-	Workspaces    []config.Workspace
-	SelectedWSIdx int
-	PromptInput   textarea.Model
+	SessionIDs   []string
+	SessionCount int
+	Action       BulkAction
+	PromptInput  textarea.Model
 }
 
 func (*BulkActionState) modalState() {}
@@ -49,7 +45,7 @@ func (s *BulkActionState) Render() string {
 	title := ModalTitleStyle.Render(s.Title())
 
 	// Action selector (left/right)
-	actions := []string{"Delete", "Move to Workspace", "Create PRs", "Send Prompt"}
+	actions := []string{"Delete", "Create PRs", "Send Prompt"}
 	var actionLine strings.Builder
 	for i, action := range actions {
 		style := SidebarItemStyle
@@ -63,34 +59,6 @@ func (s *BulkActionState) Render() string {
 	}
 
 	parts := []string{title, "", actionLine.String()}
-
-	// Show workspace list when "Move to Workspace" is selected
-	if s.Action == BulkActionMoveToWorkspace {
-		wsLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Select workspace:")
-
-		if len(s.Workspaces) == 0 {
-			empty := lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Italic(true).
-				Render("  No workspaces. Create one first (W).")
-			parts = append(parts, wsLabel, empty)
-		} else {
-			var wsList strings.Builder
-			for i, ws := range s.Workspaces {
-				style := SidebarItemStyle
-				prefix := "  "
-				if i == s.SelectedWSIdx {
-					style = SidebarSelectedStyle
-					prefix = "> "
-				}
-				wsList.WriteString(style.Render(prefix+ws.Name) + "\n")
-			}
-			parts = append(parts, wsLabel, wsList.String())
-		}
-	}
 
 	// Show prompt input when "Send Prompt" is selected
 	if s.Action == BulkActionSendPrompt {
@@ -114,10 +82,6 @@ func (s *BulkActionState) Render() string {
 	switch s.Action {
 	case BulkActionDelete:
 		confirmMsg = fmt.Sprintf("This will delete %d session(s) and their worktrees.", s.SessionCount)
-	case BulkActionMoveToWorkspace:
-		if len(s.Workspaces) > 0 && s.SelectedWSIdx < len(s.Workspaces) {
-			confirmMsg = fmt.Sprintf("Move %d session(s) to \"%s\".", s.SessionCount, s.Workspaces[s.SelectedWSIdx].Name)
-		}
 	case BulkActionCreatePRs:
 		confirmMsg = fmt.Sprintf("Create PRs for %d session(s). Sessions with existing PRs or that are already merged will be skipped.", s.SessionCount)
 	case BulkActionSendPrompt:
@@ -207,22 +171,6 @@ func (s *BulkActionState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 				return s, nil
 			}
 		}
-
-		// Handle workspace navigation when in Move action
-		if s.Action == BulkActionMoveToWorkspace {
-			switch key {
-			case keys.Up, "k":
-				if s.SelectedWSIdx > 0 {
-					s.SelectedWSIdx--
-				}
-				return s, nil
-			case keys.Down, "j":
-				if s.SelectedWSIdx < len(s.Workspaces)-1 {
-					s.SelectedWSIdx++
-				}
-				return s, nil
-			}
-		}
 	}
 
 	return s, nil
@@ -233,21 +181,13 @@ func (s *BulkActionState) GetAction() BulkAction {
 	return s.Action
 }
 
-// GetSelectedWorkspaceID returns the workspace ID for move action
-func (s *BulkActionState) GetSelectedWorkspaceID() string {
-	if s.SelectedWSIdx >= 0 && s.SelectedWSIdx < len(s.Workspaces) {
-		return s.Workspaces[s.SelectedWSIdx].ID
-	}
-	return ""
-}
-
 // GetPrompt returns the prompt text for send prompt action
 func (s *BulkActionState) GetPrompt() string {
 	return strings.TrimSpace(s.PromptInput.Value())
 }
 
 // NewBulkActionState creates a new BulkActionState
-func NewBulkActionState(sessionIDs []string, workspaces []config.Workspace) *BulkActionState {
+func NewBulkActionState(sessionIDs []string) *BulkActionState {
 	promptInput := textarea.New()
 	promptInput.Placeholder = "Enter your prompt here..."
 	promptInput.CharLimit = 10000
@@ -264,7 +204,6 @@ func NewBulkActionState(sessionIDs []string, workspaces []config.Workspace) *Bul
 		SessionIDs:   sessionIDs,
 		SessionCount: len(sessionIDs),
 		Action:       BulkActionDelete,
-		Workspaces:   workspaces,
 		PromptInput:  promptInput,
 	}
 }
