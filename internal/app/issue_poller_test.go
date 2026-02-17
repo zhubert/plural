@@ -1,12 +1,14 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/zhubert/plural/internal/config"
 	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
+	"github.com/zhubert/plural/internal/session"
 )
 
 func TestIssuePollTick(t *testing.T) {
@@ -156,5 +158,117 @@ func TestCheckForNewIssues_RespectsMaxConcurrent(t *testing.T) {
 	}
 	if detected.Issues[0].ID != "10" {
 		t.Errorf("expected first available issue ID '10', got '%s'", detected.Issues[0].ID)
+	}
+}
+
+// mockSessionServiceExecutor creates a mock executor with git commands mocked
+// for session creation. MockExecutor.Run returns success by default for unmatched
+// commands, so we must explicitly fail rev-parse --verify (used by BranchExists
+// and Create's base point resolution) while succeeding for worktree add.
+func mockSessionServiceExecutor() *pexec.MockExecutor {
+	mockExec := pexec.NewMockExecutor(nil)
+	// git rev-parse --verify must fail so BranchExists returns false
+	// and Create falls back to HEAD as the start point.
+	mockExec.AddPrefixMatch("git", []string{"rev-parse", "--verify"}, pexec.MockResponse{
+		Err: fmt.Errorf("not a valid ref"),
+	})
+	// git worktree add must succeed for session.Create
+	mockExec.AddPrefixMatch("git", []string{"worktree", "add"}, pexec.MockResponse{
+		Stdout: []byte("Preparing worktree\n"),
+	})
+	return mockExec
+}
+
+func TestCreateAutonomousIssueSessions_SelectsWhenSidebarFocused(t *testing.T) {
+	cfg := testConfig()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+
+	// Inject mock session service so Create doesn't need real git
+	mockExec := mockSessionServiceExecutor()
+	mockSessionSvc := session.NewSessionServiceWithExecutor(mockExec)
+	m.SetSessionService(mockSessionSvc)
+
+	// Ensure focus is on sidebar (default for new model, but be explicit)
+	m.focus = FocusSidebar
+	m.sidebar.SetFocused(true)
+	m.chat.SetFocused(false)
+
+	// Trigger autonomous session creation via handleNewIssuesDetectedMsg
+	msg := NewIssuesDetectedMsg{
+		RepoPath: "/test/repo1",
+		Issues: []issues.Issue{
+			{ID: "42", Title: "Test Issue", Body: "Fix the bug", Source: issues.SourceGitHub},
+		},
+	}
+	result, _ := m.handleNewIssuesDetectedMsg(msg)
+	m = result.(*Model)
+
+	// Verify a session was created
+	sessions := m.config.Sessions
+	if len(sessions) == 0 {
+		t.Fatal("expected at least one session to be created")
+	}
+
+	// Verify the sidebar selected the new session
+	selected := m.sidebar.SelectedSession()
+	if selected == nil {
+		t.Fatal("expected sidebar to have a selected session")
+	}
+	if selected.ID != sessions[0].ID {
+		t.Errorf("expected sidebar to select the created session %q, got %q", sessions[0].ID, selected.ID)
+	}
+
+	// Verify the active session was set
+	if m.activeSession == nil {
+		t.Fatal("expected active session to be set")
+	}
+	if m.activeSession.ID != sessions[0].ID {
+		t.Errorf("expected active session %q, got %q", sessions[0].ID, m.activeSession.ID)
+	}
+
+	// Verify focus stayed on sidebar
+	if m.focus != FocusSidebar {
+		t.Errorf("expected focus to remain on FocusSidebar, got %d", m.focus)
+	}
+}
+
+func TestCreateAutonomousIssueSessions_NoSelectWhenChatFocused(t *testing.T) {
+	cfg := testConfig()
+	m, _ := testModelWithMocks(cfg, 120, 40)
+
+	// Inject mock session service so Create doesn't need real git
+	mockExec := mockSessionServiceExecutor()
+	mockSessionSvc := session.NewSessionServiceWithExecutor(mockExec)
+	m.SetSessionService(mockSessionSvc)
+
+	// Set focus to chat panel
+	m.focus = FocusChat
+	m.sidebar.SetFocused(false)
+	m.chat.SetFocused(true)
+
+	// Trigger autonomous session creation via handleNewIssuesDetectedMsg
+	msg := NewIssuesDetectedMsg{
+		RepoPath: "/test/repo1",
+		Issues: []issues.Issue{
+			{ID: "42", Title: "Test Issue", Body: "Fix the bug", Source: issues.SourceGitHub},
+		},
+	}
+	result, _ := m.handleNewIssuesDetectedMsg(msg)
+	m = result.(*Model)
+
+	// Verify a session was created
+	sessions := m.config.Sessions
+	if len(sessions) == 0 {
+		t.Fatal("expected at least one session to be created")
+	}
+
+	// Verify the sidebar did NOT auto-select the session (no active session change)
+	if m.activeSession != nil {
+		t.Errorf("expected no active session when chat is focused, got %q", m.activeSession.ID)
+	}
+
+	// Verify focus stayed on chat
+	if m.focus != FocusChat {
+		t.Errorf("expected focus to remain on FocusChat, got %d", m.focus)
 	}
 }

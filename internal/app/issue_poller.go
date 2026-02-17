@@ -211,6 +211,7 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 
 	var cmds []tea.Cmd
 	created := 0
+	var firstCreatedSession *config.Session
 
 	for _, info := range issueInfos {
 		issue := info.Issue
@@ -262,6 +263,9 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 
 		m.config.AddSession(*sess)
 		created++
+		if firstCreatedSession == nil {
+			firstCreatedSession = sess
+		}
 
 		// Build initial message — just the issue content.
 		// Orchestrator instructions are in the system prompt (SupervisorSystemPrompt).
@@ -290,6 +294,17 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 			cmds = append(cmds, cmd)
 		}
 		m.sidebar.SetSessions(m.getFilteredSessions())
+
+		// Auto-select the new session if user is browsing the sidebar
+		if firstCreatedSession != nil && m.focus == FocusSidebar {
+			m.sidebar.SelectSession(firstCreatedSession.ID)
+			m.selectSession(firstCreatedSession)
+			// Keep focus on sidebar (selectSession moves it to chat)
+			m.focus = FocusSidebar
+			m.sidebar.SetFocused(true)
+			m.chat.SetFocused(false)
+		}
+
 		cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-created %d session(s) from issues", created)))
 		cmds = append(cmds, m.sidebar.SidebarTick(), m.chat.SpinnerTick())
 		// Only transition to streaming state if not already there, to avoid
