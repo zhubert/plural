@@ -1927,13 +1927,13 @@ func TestHandleRestartAttempt_ClosedChannel(t *testing.T) {
 	ch := make(chan ResponseChunk, 10)
 	runner.mu.Lock()
 	runner.responseChan.Setup(ch)
+	// Mark as closed to simulate Stop() having been called
+	runner.responseChan.Close()
 	runner.mu.Unlock()
 
-	// Close the underlying channel without updating Closed flag to simulate
-	// the race where Stop() closes the channel between the flag check and the send.
-	close(ch)
-
-	// Should not panic thanks to safeSendChannel
+	// Should gracefully handle closed channel (no panic, no send)
+	// The send-under-lock pattern checks Closed flag while holding the lock,
+	// so this race condition is eliminated
 	runner.handleRestartAttempt(1)
 }
 

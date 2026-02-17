@@ -414,22 +414,20 @@ func (r *Runner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 // Safe to call even if the runner has been stopped - will silently drop the response.
 func (r *Runner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.PermissionResponse
-	if r.mcp != nil && r.mcp.Permission != nil {
-		ch = r.mcp.Permission.Resp
-	}
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if stopped || ch == nil {
+	if r.stopped || r.mcp == nil || r.mcp.Permission == nil {
 		r.log.Debug("SendPermissionResponse called on stopped runner, ignoring")
 		return
 	}
 
-	// Use safeSendChannel to protect against send-on-closed-channel panic.
-	// Between the RUnlock above and the send below, Stop() could close the channel.
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendPermissionResponse channel full or closed, ignoring")
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.Permission.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendPermissionResponse channel full, ignoring")
 	}
 }
 
@@ -448,21 +446,20 @@ func (r *Runner) QuestionRequestChan() <-chan mcp.QuestionRequest {
 // Safe to call even if the runner has been stopped - will silently drop the response.
 func (r *Runner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.QuestionResponse
-	if r.mcp != nil && r.mcp.Question != nil {
-		ch = r.mcp.Question.Resp
-	}
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if stopped || ch == nil {
+	if r.stopped || r.mcp == nil || r.mcp.Question == nil {
 		r.log.Debug("SendQuestionResponse called on stopped runner, ignoring")
 		return
 	}
 
-	// Use safeSendChannel to protect against send-on-closed-channel panic.
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendQuestionResponse channel full or closed, ignoring")
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.Question.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendQuestionResponse channel full, ignoring")
 	}
 }
 
@@ -481,21 +478,20 @@ func (r *Runner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
 // Safe to call even if the runner has been stopped - will silently drop the response.
 func (r *Runner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.PlanApprovalResponse
-	if r.mcp != nil && r.mcp.PlanApproval != nil {
-		ch = r.mcp.PlanApproval.Resp
-	}
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
 
-	if stopped || ch == nil {
+	if r.stopped || r.mcp == nil || r.mcp.PlanApproval == nil {
 		r.log.Debug("SendPlanApprovalResponse called on stopped runner, ignoring")
 		return
 	}
 
-	// Use safeSendChannel to protect against send-on-closed-channel panic.
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendPlanApprovalResponse channel full or closed, ignoring")
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.PlanApproval.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendPlanApprovalResponse channel full, ignoring")
 	}
 }
 
@@ -524,17 +520,19 @@ func (r *Runner) CreateChildRequestChan() <-chan mcp.CreateChildRequest {
 // SendCreateChildResponse sends a response to a create child request.
 func (r *Runner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.CreateChildResponse
-	if r.mcp != nil && r.mcp.CreateChild != nil {
-		ch = r.mcp.CreateChild.Resp
-	}
-	r.mu.RUnlock()
-	if stopped || ch == nil {
+	defer r.mu.RUnlock()
+
+	if r.stopped || r.mcp == nil || r.mcp.CreateChild == nil {
 		return
 	}
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendCreateChildResponse channel full or closed, ignoring")
+
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.CreateChild.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendCreateChildResponse channel full, ignoring")
 	}
 }
 
@@ -551,17 +549,19 @@ func (r *Runner) ListChildrenRequestChan() <-chan mcp.ListChildrenRequest {
 // SendListChildrenResponse sends a response to a list children request.
 func (r *Runner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.ListChildrenResponse
-	if r.mcp != nil && r.mcp.ListChildren != nil {
-		ch = r.mcp.ListChildren.Resp
-	}
-	r.mu.RUnlock()
-	if stopped || ch == nil {
+	defer r.mu.RUnlock()
+
+	if r.stopped || r.mcp == nil || r.mcp.ListChildren == nil {
 		return
 	}
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendListChildrenResponse channel full or closed, ignoring")
+
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.ListChildren.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendListChildrenResponse channel full, ignoring")
 	}
 }
 
@@ -578,17 +578,19 @@ func (r *Runner) MergeChildRequestChan() <-chan mcp.MergeChildRequest {
 // SendMergeChildResponse sends a response to a merge child request.
 func (r *Runner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.MergeChildResponse
-	if r.mcp != nil && r.mcp.MergeChild != nil {
-		ch = r.mcp.MergeChild.Resp
-	}
-	r.mu.RUnlock()
-	if stopped || ch == nil {
+	defer r.mu.RUnlock()
+
+	if r.stopped || r.mcp == nil || r.mcp.MergeChild == nil {
 		return
 	}
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendMergeChildResponse channel full or closed, ignoring")
+
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.MergeChild.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendMergeChildResponse channel full, ignoring")
 	}
 }
 
@@ -617,17 +619,19 @@ func (r *Runner) CreatePRRequestChan() <-chan mcp.CreatePRRequest {
 // SendCreatePRResponse sends a response to a create PR request.
 func (r *Runner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.CreatePRResponse
-	if r.mcp != nil && r.mcp.CreatePR != nil {
-		ch = r.mcp.CreatePR.Resp
-	}
-	r.mu.RUnlock()
-	if stopped || ch == nil {
+	defer r.mu.RUnlock()
+
+	if r.stopped || r.mcp == nil || r.mcp.CreatePR == nil {
 		return
 	}
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendCreatePRResponse channel full or closed, ignoring")
+
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.CreatePR.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendCreatePRResponse channel full, ignoring")
 	}
 }
 
@@ -644,17 +648,19 @@ func (r *Runner) PushBranchRequestChan() <-chan mcp.PushBranchRequest {
 // SendPushBranchResponse sends a response to a push branch request.
 func (r *Runner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.PushBranchResponse
-	if r.mcp != nil && r.mcp.PushBranch != nil {
-		ch = r.mcp.PushBranch.Resp
-	}
-	r.mu.RUnlock()
-	if stopped || ch == nil {
+	defer r.mu.RUnlock()
+
+	if r.stopped || r.mcp == nil || r.mcp.PushBranch == nil {
 		return
 	}
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendPushBranchResponse channel full or closed, ignoring")
+
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.PushBranch.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendPushBranchResponse channel full, ignoring")
 	}
 }
 
@@ -671,17 +677,19 @@ func (r *Runner) GetReviewCommentsRequestChan() <-chan mcp.GetReviewCommentsRequ
 // SendGetReviewCommentsResponse sends a response to a get review comments request.
 func (r *Runner) SendGetReviewCommentsResponse(resp mcp.GetReviewCommentsResponse) {
 	r.mu.RLock()
-	stopped := r.stopped
-	var ch chan mcp.GetReviewCommentsResponse
-	if r.mcp != nil && r.mcp.GetReviewComments != nil {
-		ch = r.mcp.GetReviewComments.Resp
-	}
-	r.mu.RUnlock()
-	if stopped || ch == nil {
+	defer r.mu.RUnlock()
+
+	if r.stopped || r.mcp == nil || r.mcp.GetReviewComments == nil {
 		return
 	}
-	if !safeSendChannel(ch, resp) {
-		r.log.Debug("SendGetReviewCommentsResponse channel full or closed, ignoring")
+
+	// Send under lock to make check-and-send atomic, eliminating race window with Stop()
+	ch := r.mcp.GetReviewComments.Resp
+	select {
+	case ch <- resp:
+		// Success
+	default:
+		r.log.Debug("SendGetReviewCommentsResponse channel full, ignoring")
 	}
 }
 
@@ -1334,15 +1342,22 @@ func (r *Runner) handleProcessExit(err error, stderrContent string) bool {
 // handleRestartAttempt is called when a restart is being attempted.
 func (r *Runner) handleRestartAttempt(attemptNum int) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	ch := r.responseChan.Channel
 	chClosed := r.responseChan.Closed
-	r.mu.Unlock()
 
 	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{
+		// Non-blocking send under lock
+		select {
+		case ch <- ResponseChunk{
 			Type:    ChunkTypeText,
 			Content: fmt.Sprintf("\n[Process crashed, attempting restart %d/%d...]\n", attemptNum, MaxProcessRestartAttempts),
-		})
+		}:
+			// Success
+		default:
+			// Channel full, ignore
+		}
 	}
 }
 
@@ -1354,15 +1369,22 @@ func (r *Runner) handleRestartFailed(err error) {
 // handleFatalError is called when max restarts exceeded or unrecoverable error.
 func (r *Runner) handleFatalError(err error) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	ch := r.responseChan.Channel
 	chClosed := r.responseChan.Closed
 
 	if ch != nil && !chClosed {
-		safeSendChannel(ch, ResponseChunk{Error: err, Done: true})
+		// Non-blocking send under lock
+		select {
+		case ch <- ResponseChunk{Error: err, Done: true}:
+			// Success
+		default:
+			// Channel full, ignore
+		}
 		r.closeResponseChannel()
 	}
 	r.streaming.Active = false
-	r.mu.Unlock()
 }
 
 // handleContainerReady is called when a containerized session is ready (init message received).
@@ -1610,20 +1632,3 @@ func (r *Runner) Stop() {
 	})
 }
 
-// safeSendChannel attempts a non-blocking send on a channel, recovering from
-// panics caused by sending on a closed channel. This is needed because between
-// checking the stopped flag (under RLock) and actually sending (after RUnlock),
-// Stop() could close the channel. Returns true if the send succeeded.
-func safeSendChannel[T any](ch chan T, value T) (sent bool) {
-	defer func() {
-		if r := recover(); r != nil {
-			sent = false
-		}
-	}()
-	select {
-	case ch <- value:
-		return true
-	default:
-		return false
-	}
-}
