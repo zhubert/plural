@@ -313,6 +313,42 @@ func (s *GitService) FetchGitHubIssuesWithLabel(ctx context.Context, repoPath, l
 	return issues, nil
 }
 
+// AddIssueLabel adds a label to a GitHub issue using the gh CLI.
+func (s *GitService) AddIssueLabel(ctx context.Context, repoPath string, issueNumber int, label string) error {
+	_, _, err := s.executor.Run(ctx, repoPath, "gh", "issue", "edit",
+		fmt.Sprintf("%d", issueNumber),
+		"--add-label", label,
+	)
+	if err != nil {
+		return fmt.Errorf("gh issue edit --add-label failed: %w", err)
+	}
+	return nil
+}
+
+// RemoveIssueLabel removes a label from a GitHub issue using the gh CLI.
+func (s *GitService) RemoveIssueLabel(ctx context.Context, repoPath string, issueNumber int, label string) error {
+	_, _, err := s.executor.Run(ctx, repoPath, "gh", "issue", "edit",
+		fmt.Sprintf("%d", issueNumber),
+		"--remove-label", label,
+	)
+	if err != nil {
+		return fmt.Errorf("gh issue edit --remove-label failed: %w", err)
+	}
+	return nil
+}
+
+// CommentOnIssue leaves a comment on a GitHub issue using the gh CLI.
+func (s *GitService) CommentOnIssue(ctx context.Context, repoPath string, issueNumber int, body string) error {
+	_, _, err := s.executor.Run(ctx, repoPath, "gh", "issue", "comment",
+		fmt.Sprintf("%d", issueNumber),
+		"--body", body,
+	)
+	if err != nil {
+		return fmt.Errorf("gh issue comment failed: %w", err)
+	}
+	return nil
+}
+
 // CIStatus represents the overall CI check status for a PR.
 type CIStatus string
 

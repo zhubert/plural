@@ -114,6 +114,9 @@ func TestCheckForNewIssues_DeduplicatesExistingSessions(t *testing.T) {
 	if detected.RepoPath != "/test/repo1" {
 		t.Errorf("expected repo path '/test/repo1', got '%s'", detected.RepoPath)
 	}
+	if detected.Label != "auto" {
+		t.Errorf("expected label 'auto', got '%s'", detected.Label)
+	}
 }
 
 func TestCheckForNewIssues_RespectsMaxConcurrent(t *testing.T) {
@@ -158,6 +161,66 @@ func TestCheckForNewIssues_RespectsMaxConcurrent(t *testing.T) {
 	}
 	if detected.Issues[0].ID != "10" {
 		t.Errorf("expected first available issue ID '10', got '%s'", detected.Issues[0].ID)
+	}
+}
+
+func TestCheckForNewIssues_LabelThreadedThroughMsg(t *testing.T) {
+	cfg := testConfig()
+	cfg.SetRepoIssuePolling("/test/repo1", true)
+	cfg.SetRepoIssueLabels("/test/repo1", "autonomous ready")
+
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "autonomous ready"}, pexec.MockResponse{
+		Stdout: []byte(`[{"number": 5, "title": "Issue Five", "body": "Body five", "url": "https://github.com/repo/issues/5"}]`),
+	})
+	gitSvc := git.NewGitServiceWithExecutor(mock)
+
+	cmd := checkForNewIssues(cfg, gitSvc, []config.Session{})
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd")
+	}
+
+	msg := cmd()
+	detected, ok := msg.(NewIssuesDetectedMsg)
+	if !ok {
+		t.Fatalf("expected NewIssuesDetectedMsg, got %T", msg)
+	}
+
+	if detected.Label != "autonomous ready" {
+		t.Errorf("expected label 'autonomous ready', got '%s'", detected.Label)
+	}
+	if len(detected.Issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(detected.Issues))
+	}
+	if detected.Issues[0].ID != "5" {
+		t.Errorf("expected issue ID '5', got '%s'", detected.Issues[0].ID)
+	}
+}
+
+func TestCheckForNewIssues_EmptyLabelThreaded(t *testing.T) {
+	cfg := testConfig()
+	cfg.SetRepoIssuePolling("/test/repo1", true)
+	// No label set — empty string
+
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open"}, pexec.MockResponse{
+		Stdout: []byte(`[{"number": 1, "title": "Issue One", "body": "Body", "url": "https://github.com/repo/issues/1"}]`),
+	})
+	gitSvc := git.NewGitServiceWithExecutor(mock)
+
+	cmd := checkForNewIssues(cfg, gitSvc, []config.Session{})
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd")
+	}
+
+	msg := cmd()
+	detected, ok := msg.(NewIssuesDetectedMsg)
+	if !ok {
+		t.Fatalf("expected NewIssuesDetectedMsg, got %T", msg)
+	}
+
+	if detected.Label != "" {
+		t.Errorf("expected empty label, got '%s'", detected.Label)
 	}
 }
 

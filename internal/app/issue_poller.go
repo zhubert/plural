@@ -25,6 +25,7 @@ type IssuePollTickMsg time.Time
 type NewIssuesDetectedMsg struct {
 	RepoPath string
 	Issues   []issues.Issue
+	Label    string // The filter label used to find these issues (for label management)
 	// Additional repos with new issues (processed after the primary repo)
 	AdditionalRepos []repoIssues
 }
@@ -33,6 +34,7 @@ type NewIssuesDetectedMsg struct {
 type repoIssues struct {
 	RepoPath string
 	Issues   []issues.Issue
+	Label    string // The filter label used to find these issues
 }
 
 // IssuePollTick returns a command that sends an IssuePollTickMsg after the poll interval
@@ -141,7 +143,7 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 
 			if len(newIssues) > 0 {
 				log.Info("detected new issues", "repo", repo.Path, "count", len(newIssues))
-				allNewIssues = append(allNewIssues, repoIssues{RepoPath: repo.Path, Issues: newIssues})
+				allNewIssues = append(allNewIssues, repoIssues{RepoPath: repo.Path, Issues: newIssues, Label: repo.Label})
 				totalNew += len(newIssues)
 			}
 		}
@@ -154,6 +156,7 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 		msg := NewIssuesDetectedMsg{
 			RepoPath: allNewIssues[0].RepoPath,
 			Issues:   allNewIssues[0].Issues,
+			Label:    allNewIssues[0].Label,
 		}
 		if len(allNewIssues) > 1 {
 			msg.AdditionalRepos = allNewIssues[1:]
@@ -172,7 +175,7 @@ func (m *Model) handleNewIssuesDetectedMsg(msg NewIssuesDetectedMsg) (tea.Model,
 	for _, issue := range msg.Issues {
 		issueItems = append(issueItems, issueAutoInfo{Issue: issue})
 	}
-	_, cmd := m.createAutonomousIssueSessions(msg.RepoPath, issueItems)
+	_, cmd := m.createAutonomousIssueSessions(msg.RepoPath, msg.Label, issueItems)
 
 	var cmds []tea.Cmd
 	if cmd != nil {
@@ -186,7 +189,7 @@ func (m *Model) handleNewIssuesDetectedMsg(msg NewIssuesDetectedMsg) (tea.Model,
 		for _, issue := range repo.Issues {
 			items = append(items, issueAutoInfo{Issue: issue})
 		}
-		_, extraCmd := m.createAutonomousIssueSessions(repo.RepoPath, items)
+		_, extraCmd := m.createAutonomousIssueSessions(repo.RepoPath, repo.Label, items)
 		if extraCmd != nil {
 			cmds = append(cmds, extraCmd)
 		}
@@ -203,8 +206,13 @@ type issueAutoInfo struct {
 	Issue issues.Issue
 }
 
+// autonomousWIPLabel is the label applied to issues when they are picked up by the autonomous poller.
+const autonomousWIPLabel = "autonomous wip"
+
 // createAutonomousIssueSessions creates autonomous containerized sessions for issues.
-func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issueAutoInfo) (tea.Model, tea.Cmd) {
+// filterLabel is the label that was used to find these issues (e.g., "autonomous ready").
+// When non-empty, the filter label is removed and replaced with "autonomous wip".
+func (m *Model) createAutonomousIssueSessions(repoPath, filterLabel string, issueInfos []issueAutoInfo) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 	ctx := context.Background()
 	log := logger.WithComponent("issue-poller")
@@ -212,6 +220,9 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 	var cmds []tea.Cmd
 	created := 0
 	var firstCreatedSession *config.Session
+
+	// Collect issue numbers for label management after session creation
+	var pickedUpIssueNumbers []int
 
 	for _, info := range issueInfos {
 		issue := info.Issue
@@ -267,6 +278,12 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 			firstCreatedSession = sess
 		}
 
+		// Track picked up issue for label management
+		issueNum, err := strconv.Atoi(issue.ID)
+		if err == nil {
+			pickedUpIssueNumbers = append(pickedUpIssueNumbers, issueNum)
+		}
+
 		// Build initial message — just the issue content.
 		// Orchestrator instructions are in the system prompt (SupervisorSystemPrompt).
 		initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s",
@@ -287,6 +304,34 @@ func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issu
 		content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: initialMsg}}
 		responseChan := runner.SendContent(sendCtx, content)
 		cmds = append(cmds, m.sessionListeners(sess.ID, runner, responseChan)...)
+	}
+
+	// Swap labels and comment on picked-up issues in the background
+	if len(pickedUpIssueNumbers) > 0 && filterLabel != "" {
+		gitSvc := m.gitService
+		issueNums := pickedUpIssueNumbers
+		label := filterLabel
+		cmds = append(cmds, func() tea.Msg {
+			log := logger.WithComponent("issue-poller")
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			for _, num := range issueNums {
+				// Remove the filter label (e.g., "autonomous ready")
+				if err := gitSvc.RemoveIssueLabel(ctx, repoPath, num, label); err != nil {
+					log.Error("failed to remove issue label", "issue", num, "label", label, "error", err)
+				}
+				// Add "autonomous wip" label
+				if err := gitSvc.AddIssueLabel(ctx, repoPath, num, autonomousWIPLabel); err != nil {
+					log.Error("failed to add wip label", "issue", num, "error", err)
+				}
+				// Leave a comment on the issue
+				comment := fmt.Sprintf("This issue has been picked up by [Plural](https://github.com/zhubert/plural) and is being worked on autonomously.")
+				if err := gitSvc.CommentOnIssue(ctx, repoPath, num, comment); err != nil {
+					log.Error("failed to comment on issue", "issue", num, "error", err)
+				}
+			}
+			return nil
+		})
 	}
 
 	if created > 0 {

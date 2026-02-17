@@ -1018,3 +1018,90 @@ func TestCheckPRReviewDecision_CLIError(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+// --- AddIssueLabel tests ---
+
+func TestAddIssueLabel_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--add-label", "autonomous wip"}, pexec.MockResponse{})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.AddIssueLabel(context.Background(), "/repo", 42, "autonomous wip")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddIssueLabel_Error(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--add-label", "foo"}, pexec.MockResponse{
+		Err: fmt.Errorf("gh failed"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.AddIssueLabel(context.Background(), "/repo", 42, "foo")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "gh issue edit --add-label failed") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// --- RemoveIssueLabel tests ---
+
+func TestRemoveIssueLabel_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--remove-label", "autonomous ready"}, pexec.MockResponse{})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.RemoveIssueLabel(context.Background(), "/repo", 42, "autonomous ready")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemoveIssueLabel_Error(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--remove-label", "foo"}, pexec.MockResponse{
+		Err: fmt.Errorf("gh failed"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.RemoveIssueLabel(context.Background(), "/repo", 42, "foo")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "gh issue edit --remove-label failed") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+// --- CommentOnIssue tests ---
+
+func TestCommentOnIssue_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "comment", "42", "--body", "Hello world"}, pexec.MockResponse{})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.CommentOnIssue(context.Background(), "/repo", 42, "Hello world")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCommentOnIssue_Error(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"issue", "comment", "42", "--body", "test"}, pexec.MockResponse{
+		Err: fmt.Errorf("gh failed"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.CommentOnIssue(context.Background(), "/repo", 42, "test")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "gh issue comment failed") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
