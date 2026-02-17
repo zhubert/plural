@@ -425,6 +425,21 @@ func TestConfirmDeleteRepoState_Render(t *testing.T) {
 	}
 }
 
+func TestConfirmDeleteRepoState_FromSidebar(t *testing.T) {
+	state := NewConfirmDeleteRepoState("/test/repo")
+	if state.FromSidebar {
+		t.Error("Expected FromSidebar to default to false")
+	}
+
+	state.FromSidebar = true
+	if !state.FromSidebar {
+		t.Error("Expected FromSidebar to be true after setting")
+	}
+	if state.GetRepoPath() != "/test/repo" {
+		t.Errorf("Expected '/test/repo', got %q", state.GetRepoPath())
+	}
+}
+
 // MergeState tests
 
 func TestNewMergeState(t *testing.T) {

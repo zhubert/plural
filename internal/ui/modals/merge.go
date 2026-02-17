@@ -526,7 +526,8 @@ func NewConfirmDeleteState(sessionName string) *ConfirmDeleteState {
 // =============================================================================
 
 type ConfirmDeleteRepoState struct {
-	RepoPath string
+	RepoPath    string
+	FromSidebar bool // When true, Esc/Enter hide the modal instead of returning to new session modal
 }
 
 func (*ConfirmDeleteRepoState) modalState() {}

@@ -93,6 +93,14 @@ var ShortcutRegistry = []Shortcut{
 		Handler:         shortcutDeleteSession,
 	},
 	{
+		Key:             "d",
+		Description:     "Delete selected repo",
+		Category:        CategoryConfiguration,
+		RequiresSidebar: true,
+		Handler:         shortcutDeleteRepo,
+		Condition:       func(m *Model) bool { return m.sidebar.IsRepoSelected() },
+	},
+	{
 		Key:             "f",
 		Description:     "Fork selected session",
 		Category:        CategorySessions,
@@ -342,26 +350,28 @@ func (m *Model) ExecuteShortcut(key string) (tea.Model, tea.Cmd, bool) {
 		return result, cmd, true
 	}
 
+	selectedSess := m.sidebar.SelectedSession()
+	var selectedID string
+	if selectedSess != nil {
+		selectedID = selectedSess.ID
+	}
+
 	for _, s := range ShortcutRegistry {
 		if s.Key == key {
-			selectedSess := m.sidebar.SelectedSession()
-			var selectedID string
-			if selectedSess != nil {
-				selectedID = selectedSess.ID
-			}
 			log.Debug("found shortcut, checking guards", "key", key, "chatFocused", m.chat.IsFocused(), "selectedSession", selectedID)
-			// Check guards
+			// Check guards — on failure, continue to next entry so multiple
+			// shortcuts with the same key can coexist (first match wins).
 			if s.RequiresSidebar && m.chat.IsFocused() {
 				log.Debug("guard failed - RequiresSidebar but chat is focused")
 				return m, nil, false // Guard failed, let key propagate to textarea
 			}
 			if s.RequiresSession && selectedSess == nil {
-				log.Debug("guard failed - RequiresSession but no session selected")
-				return m, nil, false // Guard failed, let key propagate to textarea
+				log.Debug("guard failed - RequiresSession but no session selected, trying next")
+				continue
 			}
 			if s.Condition != nil && !s.Condition(m) {
-				log.Debug("guard failed - Condition returned false")
-				return m, nil, false // Guard failed, let key propagate to textarea
+				log.Debug("guard failed - Condition returned false, trying next")
+				continue
 			}
 			log.Debug("all guards passed, executing handler", "key", key)
 			result, cmd := s.Handler(m)
@@ -449,6 +459,14 @@ func shortcutDeleteSession(m *Model) (tea.Model, tea.Cmd) {
 	sess := m.sidebar.SelectedSession()
 	displayName := ui.SessionDisplayName(sess.Branch, sess.Name)
 	m.modal.Show(ui.NewConfirmDeleteState(displayName))
+	return m, nil
+}
+
+func shortcutDeleteRepo(m *Model) (tea.Model, tea.Cmd) {
+	repoPath := m.sidebar.SelectedRepo()
+	state := ui.NewConfirmDeleteRepoState(repoPath)
+	state.FromSidebar = true
+	m.modal.Show(state)
 	return m, nil
 }
 

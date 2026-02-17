@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/zhubert/plural/internal/config"
 	pexec "github.com/zhubert/plural/internal/exec"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/keys"
@@ -32,9 +33,14 @@ func TestShortcutRegistry_AllShortcutsHaveHandlers(t *testing.T) {
 }
 
 func TestShortcutRegistry_NoDuplicateKeys(t *testing.T) {
+	// Keys that intentionally have multiple entries with different guards
+	allowedDuplicates := map[string]bool{
+		"d": true, // delete session (RequiresSession) vs delete repo (IsRepoSelected)
+	}
+
 	seen := make(map[string]bool)
 	for _, s := range ShortcutRegistry {
-		if seen[s.Key] {
+		if seen[s.Key] && !allowedDuplicates[s.Key] {
 			t.Errorf("Duplicate shortcut key: %q", s.Key)
 		}
 		seen[s.Key] = true
@@ -126,19 +132,52 @@ func TestExecuteShortcut_RequiresSidebarGuard(t *testing.T) {
 }
 
 func TestExecuteShortcut_RequiresSessionGuard(t *testing.T) {
-	cfg := testConfig() // No sessions
+	cfg := testConfig() // No sessions — but has repos, so sidebar starts on a repo
 	m := testModelWithSize(cfg, 120, 40)
 
-	// 'd' requires a session selected, should NOT be handled so key propagates
+	// 'd' first tries delete-session (RequiresSession fails), then falls through
+	// to delete-repo (IsRepoSelected passes since sidebar starts on a repo).
+	// So it SHOULD be handled.
+	_, _, handled := m.ExecuteShortcut("d")
+	if !handled {
+		t.Error("Expected 'd' to be handled (should fall through to delete-repo)")
+	}
+
+	// Verify it opened the confirm delete repo modal
+	if !m.modal.IsVisible() {
+		t.Error("Expected modal to be visible")
+	}
+	state, ok := m.modal.State.(*ui.ConfirmDeleteRepoState)
+	if !ok {
+		t.Errorf("Expected ConfirmDeleteRepoState, got %T", m.modal.State)
+	}
+	if state != nil && !state.FromSidebar {
+		t.Error("Expected FromSidebar to be true")
+	}
+}
+
+func TestExecuteShortcut_RequiresSessionGuard_NoRepos(t *testing.T) {
+	// Config with no sessions and no repos — both "d" entries should fail
+	cfg := &config.Config{
+		Repos:            []string{},
+		Sessions:         []config.Session{},
+		AllowedTools:     []string{},
+		RepoAllowedTools: make(map[string][]string),
+		MCPServers:       []config.MCPServer{},
+		RepoMCP:          make(map[string][]config.MCPServer),
+		WelcomeShown:     true,
+	}
+	m := testModelWithSize(cfg, 120, 40)
+
 	result, cmd, handled := m.ExecuteShortcut("d")
 	if handled {
-		t.Error("Expected 'd' to NOT be handled when guard fails (key should propagate)")
+		t.Error("Expected 'd' to NOT be handled when no sessions and no repos")
 	}
 	if cmd != nil {
-		t.Error("Expected no command when session guard fails")
+		t.Error("Expected no command when all guards fail")
 	}
 	if result != m {
-		t.Error("Expected model to be unchanged when guard fails")
+		t.Error("Expected model to be unchanged when all guards fail")
 	}
 }
 
@@ -1147,6 +1186,148 @@ func TestSidebarNavigation_AutoSelectsNewSessionOnMove(t *testing.T) {
 	// Focus should still be on sidebar
 	if m.focus != FocusSidebar {
 		t.Error("expected focus to remain on sidebar")
+	}
+}
+
+// =============================================================================
+// Delete Repo Shortcut Tests
+// =============================================================================
+
+func TestShortcutDeleteRepo_OpensModal(t *testing.T) {
+	cfg := testConfig() // Has repos, no sessions — sidebar starts on a repo
+	m := testModelWithSize(cfg, 120, 40)
+
+	if m.modal.IsVisible() {
+		t.Fatal("modal should not be visible initially")
+	}
+
+	shortcutDeleteRepo(m)
+
+	if !m.modal.IsVisible() {
+		t.Error("expected modal to be visible after shortcutDeleteRepo")
+	}
+
+	state, ok := m.modal.State.(*ui.ConfirmDeleteRepoState)
+	if !ok {
+		t.Fatalf("expected ConfirmDeleteRepoState modal, got %T", m.modal.State)
+	}
+	if !state.FromSidebar {
+		t.Error("expected FromSidebar to be true")
+	}
+	if state.GetRepoPath() == "" {
+		t.Error("expected non-empty repo path")
+	}
+}
+
+func TestExecuteShortcut_DeleteRepo_WhenRepoSelected(t *testing.T) {
+	cfg := testConfig() // Has repos but no sessions — sidebar starts on repo
+	m := testModelWithSize(cfg, 120, 40)
+
+	_, _, handled := m.ExecuteShortcut("d")
+	if !handled {
+		t.Error("Expected 'd' to be handled when repo is selected")
+	}
+	if !m.modal.IsVisible() {
+		t.Error("Expected modal to be visible")
+	}
+	_, ok := m.modal.State.(*ui.ConfirmDeleteRepoState)
+	if !ok {
+		t.Errorf("Expected ConfirmDeleteRepoState, got %T", m.modal.State)
+	}
+}
+
+func TestExecuteShortcut_DeleteSession_WhenSessionSelected(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Sidebar should be on a session after SetSessions
+	_, _, handled := m.ExecuteShortcut("d")
+	if !handled {
+		t.Error("Expected 'd' to be handled when session is selected")
+	}
+	if !m.modal.IsVisible() {
+		t.Error("Expected modal to be visible")
+	}
+	// Should be delete session modal, not delete repo
+	_, ok := m.modal.State.(*ui.ConfirmDeleteState)
+	if !ok {
+		t.Errorf("Expected ConfirmDeleteState (session delete), got %T", m.modal.State)
+	}
+}
+
+func TestExecuteShortcut_ContinuesOnGuardFailure(t *testing.T) {
+	// This tests that when the first "d" (delete session) fails its guard,
+	// it continues to the second "d" (delete repo) instead of returning false.
+	cfg := testConfig() // Has repos, no sessions
+	m := testModelWithSize(cfg, 120, 40)
+
+	// First "d" entry requires a session (will fail), second requires repo selected (will pass)
+	_, _, handled := m.ExecuteShortcut("d")
+	if !handled {
+		t.Error("Expected 'd' to fall through to delete-repo when delete-session guard fails")
+	}
+
+	state, ok := m.modal.State.(*ui.ConfirmDeleteRepoState)
+	if !ok {
+		t.Fatalf("Expected ConfirmDeleteRepoState, got %T", m.modal.State)
+	}
+	if !state.FromSidebar {
+		t.Error("Expected FromSidebar to be true")
+	}
+}
+
+func TestDeleteRepoFromSidebar_EscHidesModal(t *testing.T) {
+	cfg := testConfig() // Has repos, no sessions
+	m := testModelWithSize(cfg, 120, 40)
+
+	// Press 'd' to open the confirm delete repo modal
+	m = sendKey(m, "d")
+	if !m.modal.IsVisible() {
+		t.Fatal("Expected modal to be visible after pressing 'd'")
+	}
+	_, ok := m.modal.State.(*ui.ConfirmDeleteRepoState)
+	if !ok {
+		t.Fatalf("Expected ConfirmDeleteRepoState, got %T", m.modal.State)
+	}
+
+	// Press Esc — should hide modal (not go to new session modal)
+	m = sendKey(m, "esc")
+	if m.modal.IsVisible() {
+		t.Error("Expected modal to be hidden after Esc (sidebar-originated)")
+	}
+}
+
+func TestDeleteRepoFromSidebar_EnterDeletesRepo(t *testing.T) {
+	cfg := testConfig() // Has repos ["/test/repo1", "/test/repo2"]
+	m := testModelWithSize(cfg, 120, 40)
+
+	initialRepoCount := len(m.config.GetRepos())
+
+	// Press 'd' to open confirm delete repo modal
+	m = sendKey(m, "d")
+	if !m.modal.IsVisible() {
+		t.Fatal("Expected modal to be visible")
+	}
+
+	state, ok := m.modal.State.(*ui.ConfirmDeleteRepoState)
+	if !ok {
+		t.Fatalf("Expected ConfirmDeleteRepoState, got %T", m.modal.State)
+	}
+	deletedRepo := state.GetRepoPath()
+
+	// Press Enter to confirm deletion
+	m = sendKey(m, "enter")
+
+	// Repo should be removed from config (Save may fail in test env, but removal succeeds)
+	repos := m.config.GetRepos()
+	if len(repos) >= initialRepoCount {
+		t.Error("Expected repo count to decrease after deletion")
+	}
+	for _, r := range repos {
+		if r == deletedRepo {
+			t.Errorf("Expected repo %q to be removed", deletedRepo)
+		}
 	}
 }
 

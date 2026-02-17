@@ -604,6 +604,10 @@ func (m *Model) handleRenameSessionModal(key string, msg tea.KeyPressMsg, state 
 func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, state *ui.ConfirmDeleteRepoState) (tea.Model, tea.Cmd) {
 	switch key {
 	case keys.Escape:
+		if state.FromSidebar {
+			m.modal.Hide()
+			return m, nil
+		}
 		// Go back to the new session modal
 		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
 		return m, nil
@@ -622,6 +626,11 @@ func (m *Model) handleConfirmDeleteRepoModal(key string, msg tea.KeyPressMsg, st
 		logger.Get().Info("repository deleted successfully", "path", repoPath)
 		m.sidebar.SetRepos(m.config.GetRepos())
 		m.sidebar.SetSessions(m.getFilteredSessions())
+
+		if state.FromSidebar {
+			m.modal.Hide()
+			return m, nil
+		}
 
 		// Return to new session modal with updated repo list
 		m.modal.Show(ui.NewNewSessionState(m.config.GetRepos(), process.ContainersSupported(), claude.ContainerAuthAvailable()))
