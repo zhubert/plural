@@ -80,8 +80,45 @@ update_plural_binary() {
     fi
 }
 
-# Run update check (don't fail container startup if it fails)
+# Auto-update Claude CLI (npm) if a newer version is available
+update_claude_cli() {
+    if [ -n "$PLURAL_SKIP_UPDATE" ]; then
+        return 0
+    fi
+
+    echo "[claude-update] Checking for updates..."
+
+    # Get current installed version
+    CURRENT_VERSION=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || echo "unknown")
+    echo "[claude-update] Current version: $CURRENT_VERSION"
+
+    # Get latest version from npm registry (fast metadata-only check)
+    LATEST_VERSION=$(npm view @anthropic-ai/claude-code version 2>/dev/null || echo "unknown")
+
+    if [ "$LATEST_VERSION" = "unknown" ] || [ -z "$LATEST_VERSION" ]; then
+        echo "[claude-update] Could not determine latest version, skipping update"
+        return 0
+    fi
+
+    echo "[claude-update] Latest version: $LATEST_VERSION"
+
+    if [ "$CURRENT_VERSION" = "$LATEST_VERSION" ]; then
+        echo "[claude-update] Already running latest version"
+        return 0
+    fi
+
+    echo "[claude-update] Updating from $CURRENT_VERSION to $LATEST_VERSION..."
+
+    if npm install -g @anthropic-ai/claude-code@latest 2>&1 | tail -1; then
+        echo "[claude-update] Successfully updated to $LATEST_VERSION"
+    else
+        echo "[claude-update] Update failed, continuing with existing version"
+    fi
+}
+
+# Run update checks (don't fail container startup if they fail)
 update_plural_binary || echo "[plural-update] Update check failed but continuing startup"
+update_claude_cli || echo "[claude-update] Update check failed but continuing startup"
 
 # Switch to claude user for the rest of the entrypoint.
 # Everything below runs as claude via su-exec (like gosu but Alpine-native).

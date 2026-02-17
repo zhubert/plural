@@ -888,7 +888,7 @@ func (pm *ProcessManager) handleExit(err error) {
 		if containerLogs != "" {
 			errMsg += fmt.Sprintf("\n\nContainer logs:\n%s", containerLogs)
 		}
-		errMsg += "\n\nThis usually means the container image is outdated. Try pulling the latest image."
+		errMsg += "\n\nCheck the container logs above for update failures. If auto-update failed, try setting PLURAL_SKIP_UPDATE=1 and pulling the latest image manually."
 
 		if pm.callbacks.OnFatalError != nil {
 			pm.callbacks.OnFatalError(fmt.Errorf("%s", errMsg))
@@ -1317,8 +1317,8 @@ func friendlyContainerError(stderr string, containerized bool) string {
 	}
 
 	if strings.Contains(stderr, "MCP tool") && strings.Contains(stderr, "not found") {
-		return "The container image is outdated and missing required features. " +
-			"Please update the container image (rebuild or pull the latest version)."
+		return "The Claude CLI in the container is outdated and missing required features. " +
+			"The auto-update may have failed — check container logs or try pulling the latest image."
 	}
 
 	if strings.Contains(stderr, "container name") && strings.Contains(stderr, "already in use") {

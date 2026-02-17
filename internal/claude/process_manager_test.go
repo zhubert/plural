@@ -1899,7 +1899,7 @@ func TestFriendlyContainerError(t *testing.T) {
 			name:          "MCP tool not found in container",
 			stderr:        `Error: MCP tool mcp__plural__permission (passed via --permission-prompt-tool) not found. Available MCP tools: none`,
 			containerized: true,
-			wantContains:  "container image is outdated",
+			wantContains:  "Claude CLI in the container is outdated",
 		},
 		{
 			name:          "container name conflict",
