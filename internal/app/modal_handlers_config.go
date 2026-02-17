@@ -411,7 +411,6 @@ func (m *Model) handleRepoSettingsModal(key string, msg tea.KeyPressMsg, state *
 		repo := state.RepoPath
 		if state.ContainersSupported {
 			m.config.SetRepoIssuePolling(repo, state.IssuePolling)
-			m.config.SetRepoIssueLabels(repo, state.GetIssueLabel())
 			m.config.SetRepoAutoMerge(repo, state.AutoMerge)
 		}
 		m.config.SetAsanaProject(repo, state.GetAsanaProject())

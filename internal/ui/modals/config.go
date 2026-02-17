@@ -389,7 +389,6 @@ type RepoSettingsState struct {
 	// Per-repo autonomous settings (only shown when ContainersSupported)
 	ContainersSupported bool
 	IssuePolling        bool
-	IssueLabelInput     textinput.Model
 	AutoMerge           bool
 
 	// Asana project selector
@@ -415,7 +414,6 @@ func (s *RepoSettingsState) Title() string { return "Repo Settings: " + s.RepoNa
 func (s *RepoSettingsState) SetSize(width, height int) {
 	s.availableWidth = width
 	contentWidth := s.contentWidth()
-	s.IssueLabelInput.SetWidth(contentWidth)
 	s.AsanaSearchInput.SetWidth(contentWidth - 4)
 }
 
@@ -439,7 +437,7 @@ func (s *RepoSettingsState) Help() string {
 func (s *RepoSettingsState) numFields() int {
 	n := 0
 	if s.ContainersSupported {
-		n += 3 // issue polling, issue label, auto-merge
+		n += 2 // issue polling, auto-merge
 	}
 	if s.AsanaPATSet {
 		n++ // asana
@@ -450,11 +448,10 @@ func (s *RepoSettingsState) numFields() int {
 // Focus indices for repo settings fields
 func (s *RepoSettingsState) issuePollingFocusIndex() int { return 0 }
 func (s *RepoSettingsState) autoMergeFocusIndex() int    { return 1 }
-func (s *RepoSettingsState) issueLabelFocusIndex() int   { return 2 }
 
 func (s *RepoSettingsState) asanaFocusIndex() int {
 	if s.ContainersSupported {
-		return 3 // after issue polling, auto-merge, issue label
+		return 2 // after issue polling, auto-merge
 	}
 	return 0 // first field if no containers
 }
@@ -480,17 +477,14 @@ func (s *RepoSettingsState) Render() string {
 
 		issuePollingView := renderCheckboxField(
 			"Issue polling",
-			"Auto-poll for new issues and create autonomous supervisor sessions",
+			"Auto-poll for issues labeled \"queued\" and create autonomous supervisor sessions",
 			s.IssuePolling, s.issuePollingFocusIndex(), s.Focus)
 		autoMergeView := renderCheckboxField(
 			"Auto-merge after CI",
 			"Auto-merge PR when CI passes",
 			s.AutoMerge, s.autoMergeFocusIndex(), s.Focus)
-		issueLabelView := renderInputField(
-			"Issue filter label", "",
-			s.IssueLabelInput, s.issueLabelFocusIndex(), s.Focus, s.contentWidth())
 
-		parts = append(parts, autoHeader, issuePollingView, autoMergeView, issueLabelView)
+		parts = append(parts, autoHeader, issuePollingView, autoMergeView)
 	}
 
 	// Asana project selector
@@ -689,13 +683,6 @@ func (s *RepoSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 		return s, nil
 	}
 
-	// Text input for issue label
-	if s.ContainersSupported && s.Focus == s.issueLabelFocusIndex() {
-		var cmd tea.Cmd
-		s.IssueLabelInput, cmd = s.IssueLabelInput.Update(msg)
-		return s, cmd
-	}
-
 	return s, nil
 }
 
@@ -724,13 +711,9 @@ func (s *RepoSettingsState) asanaNavigate(delta int) {
 }
 
 func (s *RepoSettingsState) updateInputFocus() {
-	s.IssueLabelInput.Blur()
 	s.AsanaSearchInput.Blur()
 
-	switch {
-	case s.ContainersSupported && s.Focus == s.issueLabelFocusIndex():
-		s.IssueLabelInput.Focus()
-	case s.AsanaPATSet && s.Focus == s.asanaFocusIndex():
+	if s.AsanaPATSet && s.Focus == s.asanaFocusIndex() {
 		s.AsanaSearchInput.Focus()
 	}
 }
@@ -738,11 +721,6 @@ func (s *RepoSettingsState) updateInputFocus() {
 // IsAsanaFocused returns true when the Asana project selector is focused.
 func (s *RepoSettingsState) IsAsanaFocused() bool {
 	return s.AsanaPATSet && s.Focus == s.asanaFocusIndex()
-}
-
-// GetIssueLabel returns the issue label value.
-func (s *RepoSettingsState) GetIssueLabel() string {
-	return s.IssueLabelInput.Value()
 }
 
 // GetAsanaProject returns the Asana project GID.
@@ -767,13 +745,7 @@ func (s *RepoSettingsState) SetAsanaProjectsError(errMsg string) {
 
 // NewRepoSettingsState creates a new RepoSettingsState for the given repo.
 func NewRepoSettingsState(repoPath string, containersSupported bool, asanaPATSet bool,
-	issuePolling bool, issueLabel string, autoMerge bool, asanaGID string) *RepoSettingsState {
-
-	issueLabelInput := textinput.New()
-	issueLabelInput.Placeholder = "e.g., queued (leave empty for all issues)"
-	issueLabelInput.CharLimit = 100
-	issueLabelInput.SetWidth(ModalWidthWide - 10)
-	issueLabelInput.SetValue(issueLabel)
+	issuePolling bool, autoMerge bool, asanaGID string) *RepoSettingsState {
 
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Type to filter projects..."
@@ -787,7 +759,6 @@ func NewRepoSettingsState(repoPath string, containersSupported bool, asanaPATSet
 		RepoName:            filepath.Base(repoPath),
 		ContainersSupported: containersSupported,
 		IssuePolling:        issuePolling,
-		IssueLabelInput:     issueLabelInput,
 		AutoMerge:           autoMerge,
 		AsanaPATSet:         asanaPATSet,
 		AsanaSelectedGID:    asanaGID,
@@ -825,28 +796,6 @@ func renderCheckboxField(label, desc string, checked bool, focusIdx, currentFocu
 		style = style.PaddingLeft(2)
 	}
 	return style.Render(content)
-}
-
-func renderInputField(label, desc string, input textinput.Model, focusIdx, currentFocus, contentWidth int) string {
-	labelText := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(label)
-	var headerLine string
-	if desc != "" {
-		descText := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Render(desc)
-		headerLine = labelText + " — " + descText
-	} else {
-		headerLine = labelText
-	}
-
-	inputStyle := lipgloss.NewStyle()
-	if currentFocus == focusIdx {
-		inputStyle = inputStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		inputStyle = inputStyle.PaddingLeft(2)
-	}
-	return headerLine + "\n" + inputStyle.Render(input.View())
 }
 
 // NewSettingsState creates a new SettingsState with the current settings values.

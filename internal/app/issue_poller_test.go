@@ -57,10 +57,9 @@ func TestCheckForNewIssues_NoPollingRepos(t *testing.T) {
 func TestCheckForNewIssues_DeduplicatesExistingSessions(t *testing.T) {
 	cfg := testConfig()
 	cfg.SetRepoIssuePolling("/test/repo1", true)
-	cfg.SetRepoIssueLabels("/test/repo1", "auto")
 
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "auto"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "queued"}, pexec.MockResponse{
 		Stdout: []byte(`[
 			{"number": 1, "title": "Issue One", "body": "Body one", "url": "https://github.com/repo/issues/1"},
 			{"number": 2, "title": "Issue Two", "body": "Body two", "url": "https://github.com/repo/issues/2"},
@@ -114,19 +113,18 @@ func TestCheckForNewIssues_DeduplicatesExistingSessions(t *testing.T) {
 	if detected.RepoPath != "/test/repo1" {
 		t.Errorf("expected repo path '/test/repo1', got '%s'", detected.RepoPath)
 	}
-	if detected.Label != "auto" {
-		t.Errorf("expected label 'auto', got '%s'", detected.Label)
+	if len(detected.AdditionalRepos) != 0 {
+		t.Errorf("expected no additional repos, got %d", len(detected.AdditionalRepos))
 	}
 }
 
 func TestCheckForNewIssues_RespectsMaxConcurrent(t *testing.T) {
 	cfg := testConfig()
 	cfg.SetRepoIssuePolling("/test/repo1", true)
-	cfg.SetRepoIssueLabels("/test/repo1", "auto")
 	cfg.SetIssueMaxConcurrent(2)
 
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "auto"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "queued"}, pexec.MockResponse{
 		Stdout: []byte(`[
 			{"number": 10, "title": "Issue Ten", "body": "Body ten", "url": "https://github.com/repo/issues/10"},
 			{"number": 11, "title": "Issue Eleven", "body": "Body eleven", "url": "https://github.com/repo/issues/11"},
@@ -164,10 +162,9 @@ func TestCheckForNewIssues_RespectsMaxConcurrent(t *testing.T) {
 	}
 }
 
-func TestCheckForNewIssues_LabelThreadedThroughMsg(t *testing.T) {
+func TestCheckForNewIssues_UsesQueuedLabel(t *testing.T) {
 	cfg := testConfig()
 	cfg.SetRepoIssuePolling("/test/repo1", true)
-	cfg.SetRepoIssueLabels("/test/repo1", "queued")
 
 	mock := pexec.NewMockExecutor(nil)
 	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "queued"}, pexec.MockResponse{
@@ -186,41 +183,11 @@ func TestCheckForNewIssues_LabelThreadedThroughMsg(t *testing.T) {
 		t.Fatalf("expected NewIssuesDetectedMsg, got %T", msg)
 	}
 
-	if detected.Label != "queued" {
-		t.Errorf("expected label 'ready', got '%s'", detected.Label)
-	}
 	if len(detected.Issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(detected.Issues))
 	}
 	if detected.Issues[0].ID != "5" {
 		t.Errorf("expected issue ID '5', got '%s'", detected.Issues[0].ID)
-	}
-}
-
-func TestCheckForNewIssues_EmptyLabelThreaded(t *testing.T) {
-	cfg := testConfig()
-	cfg.SetRepoIssuePolling("/test/repo1", true)
-	// No label set — empty string
-
-	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open"}, pexec.MockResponse{
-		Stdout: []byte(`[{"number": 1, "title": "Issue One", "body": "Body", "url": "https://github.com/repo/issues/1"}]`),
-	})
-	gitSvc := git.NewGitServiceWithExecutor(mock)
-
-	cmd := checkForNewIssues(cfg, gitSvc, []config.Session{})
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd")
-	}
-
-	msg := cmd()
-	detected, ok := msg.(NewIssuesDetectedMsg)
-	if !ok {
-		t.Fatalf("expected NewIssuesDetectedMsg, got %T", msg)
-	}
-
-	if detected.Label != "" {
-		t.Errorf("expected empty label, got '%s'", detected.Label)
 	}
 }
 

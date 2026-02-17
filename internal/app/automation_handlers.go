@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,6 +268,30 @@ func (m *Model) autoCleanupSession(sessionID, sessionName, reason string) tea.Cm
 	log.Info("auto-cleaned session", "reason", reason)
 	cmds = append(cmds, m.ShowFlashInfo(fmt.Sprintf("Auto-cleaned: %s (PR %s)", sessionName, reason)))
 	return tea.Batch(cmds...)
+}
+
+// removeIssueWIPLabel removes the "wip" label from the GitHub issue associated with a session.
+// Returns nil if the session has no issue ref or the issue ID is not a valid number.
+func (m *Model) removeIssueWIPLabel(sess *config.Session) tea.Cmd {
+	if sess.IssueRef == nil {
+		return nil
+	}
+	issueNum, err := strconv.Atoi(sess.IssueRef.ID)
+	if err != nil {
+		return nil
+	}
+
+	repoPath := sess.RepoPath
+	gitSvc := m.gitService
+	return func() tea.Msg {
+		log := logger.WithComponent("issue-poller")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := gitSvc.RemoveIssueLabel(ctx, repoPath, issueNum, autonomousWIPLabel); err != nil {
+			log.Error("failed to remove wip label from issue", "issue", issueNum, "error", err)
+		}
+		return nil
+	}
 }
 
 // handleAutoPRCommentsFetchedMsg handles fetched PR review comments by queuing them for Claude.

@@ -273,7 +273,7 @@ func TestSettingsState_Render_NoPerRepoSection(t *testing.T) {
 
 func newTestRepoSettingsState(containersSupported bool, asanaPATSet bool) *RepoSettingsState {
 	return NewRepoSettingsState("/path/to/myrepo", containersSupported, asanaPATSet,
-		false, "", false, "")
+		false, false, "")
 }
 
 func TestRepoSettingsState_Title(t *testing.T) {
@@ -285,15 +285,15 @@ func TestRepoSettingsState_Title(t *testing.T) {
 
 func TestRepoSettingsState_NumFields_ContainersAndAsana(t *testing.T) {
 	s := newTestRepoSettingsState(true, true)
-	if n := s.numFields(); n != 4 {
-		t.Errorf("Expected 4 fields (polling, label, merge, asana), got %d", n)
+	if n := s.numFields(); n != 3 {
+		t.Errorf("Expected 3 fields (polling, merge, asana), got %d", n)
 	}
 }
 
 func TestRepoSettingsState_NumFields_ContainersOnly(t *testing.T) {
 	s := newTestRepoSettingsState(true, false)
-	if n := s.numFields(); n != 3 {
-		t.Errorf("Expected 3 fields (polling, label, merge), got %d", n)
+	if n := s.numFields(); n != 2 {
+		t.Errorf("Expected 2 fields (polling, merge), got %d", n)
 	}
 }
 
@@ -314,8 +314,8 @@ func TestRepoSettingsState_NumFields_NoFields(t *testing.T) {
 func TestRepoSettingsState_TabCycle_WithContainersAndAsana(t *testing.T) {
 	s := newTestRepoSettingsState(true, true)
 
-	// 4 fields: issuePolling(0) issueLabel(1) autoMerge(2) asana(3)
-	expectedFoci := []int{1, 2, 3, 0}
+	// 3 fields: issuePolling(0) autoMerge(1) asana(2)
+	expectedFoci := []int{1, 2, 0}
 	for i, expected := range expectedFoci {
 		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 		if s.Focus != expected {
@@ -352,9 +352,6 @@ func TestRepoSettingsState_Render_WithContainers(t *testing.T) {
 
 	if !strings.Contains(rendered, "Issue polling") {
 		t.Error("Should show Issue polling field")
-	}
-	if !strings.Contains(rendered, "Issue filter label") {
-		t.Error("Should show Issue filter label field")
 	}
 	if !strings.Contains(rendered, "Auto-merge after CI") {
 		t.Error("Should show Auto-merge field")
@@ -531,7 +528,7 @@ func TestRepoSettingsState_AsanaSelectProject(t *testing.T) {
 
 func TestRepoSettingsState_AsanaSelectNone(t *testing.T) {
 	s := NewRepoSettingsState("/repo/a", false, true,
-		false, "", false, "existing-gid")
+		false, false, "existing-gid")
 
 	options := []AsanaProjectOption{
 		{GID: "", Name: "(none)"},
@@ -603,7 +600,7 @@ func TestRepoSettingsState_Render_AsanaError(t *testing.T) {
 
 func TestRepoSettingsState_Render_AsanaProjectList(t *testing.T) {
 	s := NewRepoSettingsState("/repo/a", false, true,
-		false, "", false, "p1")
+		false, false, "p1")
 
 	options := []AsanaProjectOption{
 		{GID: "", Name: "(none)"},
@@ -635,27 +632,8 @@ func TestRepoSettingsState_Render_AsanaCurrentNone(t *testing.T) {
 	}
 }
 
-func TestRepoSettingsState_GetIssueLabel(t *testing.T) {
-	s := NewRepoSettingsState("/repo", true, false,
-		false, "my-label", false, "")
-
-	if label := s.GetIssueLabel(); label != "my-label" {
-		t.Errorf("Expected issue label 'my-label', got %q", label)
-	}
-}
-
 func TestRepoSettingsState_InputFocus(t *testing.T) {
 	s := newTestRepoSettingsState(true, true)
-
-	// Focus on issue label input
-	s.Focus = s.issueLabelFocusIndex()
-	s.updateInputFocus()
-	if !s.IssueLabelInput.Focused() {
-		t.Error("IssueLabelInput should be focused")
-	}
-	if s.AsanaSearchInput.Focused() {
-		t.Error("AsanaSearchInput should not be focused")
-	}
 
 	// Focus on asana
 	s.Focus = s.asanaFocusIndex()
@@ -663,8 +641,12 @@ func TestRepoSettingsState_InputFocus(t *testing.T) {
 	if !s.AsanaSearchInput.Focused() {
 		t.Error("AsanaSearchInput should be focused")
 	}
-	if s.IssueLabelInput.Focused() {
-		t.Error("IssueLabelInput should not be focused")
+
+	// Focus away from asana
+	s.Focus = s.issuePollingFocusIndex()
+	s.updateInputFocus()
+	if s.AsanaSearchInput.Focused() {
+		t.Error("AsanaSearchInput should not be focused when on issuePolling")
 	}
 }
 
@@ -677,11 +659,8 @@ func TestRepoSettingsState_FocusIndices_ContainersAndAsana(t *testing.T) {
 	if idx := s.autoMergeFocusIndex(); idx != 1 {
 		t.Errorf("Expected autoMerge focus index 1, got %d", idx)
 	}
-	if idx := s.issueLabelFocusIndex(); idx != 2 {
-		t.Errorf("Expected issueLabel focus index 2, got %d", idx)
-	}
-	if idx := s.asanaFocusIndex(); idx != 3 {
-		t.Errorf("Expected asana focus index 3, got %d", idx)
+	if idx := s.asanaFocusIndex(); idx != 2 {
+		t.Errorf("Expected asana focus index 2, got %d", idx)
 	}
 }
 

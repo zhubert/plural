@@ -36,7 +36,6 @@ type Config struct {
 	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
 	RepoAutoMerge      map[string]bool  `json:"repo_auto_merge,omitempty"`      // Per-repo auto-merge after CI passes
 	RepoIssuePolling   map[string]bool  `json:"repo_issue_polling,omitempty"`   // Per-repo issue polling enabled
-	RepoIssueLabels    map[string]string `json:"repo_issue_labels,omitempty"`    // Per-repo issue filter label (e.g., "queued")
 	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
 
 	// Workspace organization
@@ -137,9 +136,6 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoIssuePolling == nil {
 		c.RepoIssuePolling = make(map[string]bool)
-	}
-	if c.RepoIssueLabels == nil {
-		c.RepoIssueLabels = make(map[string]string)
 	}
 }
 
@@ -588,30 +584,6 @@ func (c *Config) SetRepoIssuePolling(repoPath string, enabled bool) {
 		c.RepoIssuePolling[repoPath] = true
 	} else {
 		delete(c.RepoIssuePolling, repoPath)
-	}
-}
-
-// GetRepoIssueLabels returns the issue filter label for a repo
-func (c *Config) GetRepoIssueLabels(repoPath string) string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.RepoIssueLabels == nil {
-		return ""
-	}
-	return c.RepoIssueLabels[repoPath]
-}
-
-// SetRepoIssueLabels sets the issue filter label for a repo
-func (c *Config) SetRepoIssueLabels(repoPath, label string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.RepoIssueLabels == nil {
-		c.RepoIssueLabels = make(map[string]string)
-	}
-	if label == "" {
-		delete(c.RepoIssueLabels, repoPath)
-	} else {
-		c.RepoIssueLabels[repoPath] = label
 	}
 }
 

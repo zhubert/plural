@@ -695,7 +695,6 @@ func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
 		process.ContainersSupported(),
 		asanaPATSet,
 		m.config.GetRepoIssuePolling(repoPath),
-		m.config.GetRepoIssueLabels(repoPath),
 		m.config.GetRepoAutoMerge(repoPath),
 		m.config.GetAsanaProject(repoPath),
 	)

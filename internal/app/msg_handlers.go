@@ -760,6 +760,11 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 			m.config.MarkSessionPRMerged(result.SessionID)
 			changed = true
 
+			// Remove "wip" label from the issue now that work is complete
+			if cmd := m.removeIssueWIPLabel(sess); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+
 			if m.config.GetAutoCleanupMerged() {
 				cleanupCmd := m.autoCleanupSession(result.SessionID, sessionName, "merged")
 				if cleanupCmd != nil {
@@ -773,6 +778,11 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 			log.Info("PR closed on GitHub", "session", sessionName)
 			m.config.MarkSessionPRClosed(result.SessionID)
 			changed = true
+
+			// Remove "wip" label from the issue now that work is complete
+			if cmd := m.removeIssueWIPLabel(sess); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 
 			if m.config.GetAutoCleanupMerged() {
 				cleanupCmd := m.autoCleanupSession(result.SessionID, sessionName, "closed")

@@ -25,7 +25,6 @@ type IssuePollTickMsg time.Time
 type NewIssuesDetectedMsg struct {
 	RepoPath string
 	Issues   []issues.Issue
-	Label    string // The filter label used to find these issues (for label management)
 	// Additional repos with new issues (processed after the primary repo)
 	AdditionalRepos []repoIssues
 }
@@ -34,7 +33,6 @@ type NewIssuesDetectedMsg struct {
 type repoIssues struct {
 	RepoPath string
 	Issues   []issues.Issue
-	Label    string // The filter label used to find these issues
 }
 
 // IssuePollTick returns a command that sends an IssuePollTickMsg after the poll interval
@@ -54,21 +52,13 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 	repos := cfg.GetRepos()
 	log.Debug("repos found", "count", len(repos))
 
-	type repoPolling struct {
-		Path  string
-		Label string
-	}
-	var pollingRepos []repoPolling
+	var pollingRepos []string
 	for _, repoPath := range repos {
 		enabled := cfg.GetRepoIssuePolling(repoPath)
 		log.Debug("checking repo", "path", repoPath, "polling_enabled", enabled)
 		if enabled {
-			label := cfg.GetRepoIssueLabels(repoPath)
-			log.Debug("adding repo to polling list", "path", repoPath, "label", label)
-			pollingRepos = append(pollingRepos, repoPolling{
-				Path:  repoPath,
-				Label: label,
-			})
+			log.Debug("adding repo to polling list", "path", repoPath)
+			pollingRepos = append(pollingRepos, repoPath)
 		}
 	}
 
@@ -107,21 +97,21 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 		var allNewIssues []repoIssues
 		totalNew := 0
 
-		for _, repo := range pollingRepos {
+		for _, repoPath := range pollingRepos {
 			if activeAutoCount+totalNew >= maxConcurrent {
 				log.Debug("max concurrent auto-sessions reached, skipping remaining repos",
 					"active", activeAutoCount+totalNew, "max", maxConcurrent)
 				break
 			}
 
-			ghIssues, err := gitSvc.FetchGitHubIssuesWithLabel(ctx, repo.Path, repo.Label)
+			ghIssues, err := gitSvc.FetchGitHubIssuesWithLabel(ctx, repoPath, autonomousFilterLabel)
 			if err != nil {
-				log.Debug("failed to fetch issues", "repo", repo.Path, "error", err)
+				log.Debug("failed to fetch issues", "repo", repoPath, "error", err)
 				continue
 			}
 
 			// Filter out issues that already have sessions
-			repoExisting := existingIssueIDs[repo.Path]
+			repoExisting := existingIssueIDs[repoPath]
 			var newIssues []issues.Issue
 			for _, ghIssue := range ghIssues {
 				issueID := strconv.Itoa(ghIssue.Number)
@@ -142,8 +132,8 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 			}
 
 			if len(newIssues) > 0 {
-				log.Info("detected new issues", "repo", repo.Path, "count", len(newIssues))
-				allNewIssues = append(allNewIssues, repoIssues{RepoPath: repo.Path, Issues: newIssues, Label: repo.Label})
+				log.Info("detected new issues", "repo", repoPath, "count", len(newIssues))
+				allNewIssues = append(allNewIssues, repoIssues{RepoPath: repoPath, Issues: newIssues})
 				totalNew += len(newIssues)
 			}
 		}
@@ -156,7 +146,6 @@ func checkForNewIssues(cfg *config.Config, gitSvc *git.GitService, existingSessi
 		msg := NewIssuesDetectedMsg{
 			RepoPath: allNewIssues[0].RepoPath,
 			Issues:   allNewIssues[0].Issues,
-			Label:    allNewIssues[0].Label,
 		}
 		if len(allNewIssues) > 1 {
 			msg.AdditionalRepos = allNewIssues[1:]
@@ -175,7 +164,7 @@ func (m *Model) handleNewIssuesDetectedMsg(msg NewIssuesDetectedMsg) (tea.Model,
 	for _, issue := range msg.Issues {
 		issueItems = append(issueItems, issueAutoInfo{Issue: issue})
 	}
-	_, cmd := m.createAutonomousIssueSessions(msg.RepoPath, msg.Label, issueItems)
+	_, cmd := m.createAutonomousIssueSessions(msg.RepoPath, issueItems)
 
 	var cmds []tea.Cmd
 	if cmd != nil {
@@ -189,7 +178,7 @@ func (m *Model) handleNewIssuesDetectedMsg(msg NewIssuesDetectedMsg) (tea.Model,
 		for _, issue := range repo.Issues {
 			items = append(items, issueAutoInfo{Issue: issue})
 		}
-		_, extraCmd := m.createAutonomousIssueSessions(repo.RepoPath, repo.Label, items)
+		_, extraCmd := m.createAutonomousIssueSessions(repo.RepoPath, items)
 		if extraCmd != nil {
 			cmds = append(cmds, extraCmd)
 		}
@@ -206,13 +195,15 @@ type issueAutoInfo struct {
 	Issue issues.Issue
 }
 
+// autonomousFilterLabel is the label used to find issues for autonomous polling.
+const autonomousFilterLabel = "queued"
+
 // autonomousWIPLabel is the label applied to issues when they are picked up by the autonomous poller.
 const autonomousWIPLabel = "wip"
 
 // createAutonomousIssueSessions creates autonomous containerized sessions for issues.
-// filterLabel is the label that was used to find these issues (e.g., "queued").
-// When non-empty, the filter label is removed and replaced with "wip".
-func (m *Model) createAutonomousIssueSessions(repoPath, filterLabel string, issueInfos []issueAutoInfo) (tea.Model, tea.Cmd) {
+// The "queued" filter label is removed and replaced with "wip" on each picked-up issue.
+func (m *Model) createAutonomousIssueSessions(repoPath string, issueInfos []issueAutoInfo) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
 	ctx := context.Background()
 	log := logger.WithComponent("issue-poller")
@@ -307,18 +298,17 @@ func (m *Model) createAutonomousIssueSessions(repoPath, filterLabel string, issu
 	}
 
 	// Swap labels and comment on picked-up issues in the background
-	if len(pickedUpIssueNumbers) > 0 && filterLabel != "" {
+	if len(pickedUpIssueNumbers) > 0 {
 		gitSvc := m.gitService
 		issueNums := pickedUpIssueNumbers
-		label := filterLabel
 		cmds = append(cmds, func() tea.Msg {
 			log := logger.WithComponent("issue-poller")
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			for _, num := range issueNums {
-				// Remove the filter label (e.g., "queued")
-				if err := gitSvc.RemoveIssueLabel(ctx, repoPath, num, label); err != nil {
-					log.Error("failed to remove issue label", "issue", num, "label", label, "error", err)
+				// Remove the "queued" filter label
+				if err := gitSvc.RemoveIssueLabel(ctx, repoPath, num, autonomousFilterLabel); err != nil {
+					log.Error("failed to remove issue label", "issue", num, "label", autonomousFilterLabel, "error", err)
 				}
 				// Add "wip" label
 				if err := gitSvc.AddIssueLabel(ctx, repoPath, num, autonomousWIPLabel); err != nil {
