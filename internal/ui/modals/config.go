@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	huh "charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
@@ -340,23 +339,13 @@ type RepoSettingsState struct {
 	RepoPath string // The repo this settings modal is for
 	RepoName string // Display name (basename of path)
 
-	// Per-repo autonomous settings (only shown when ContainersSupported)
-	ContainersSupported bool
-	IssuePolling        bool
-	AutoMerge           bool
-
 	// Asana project selector
-	AsanaPATSet         bool
-	AsanaSelectedGID    string               // Selected Asana project GID for this repo
-	AsanaProjectOptions []AsanaProjectOption  // All fetched projects
-	AsanaSearchInput    textinput.Model
-	AsanaCursorIndex    int
-	AsanaScrollOffset   int
-	AsanaLoading        bool
-	AsanaLoadError      string
+	AsanaPATSet      bool
+	AsanaSelectedGID string // Selected Asana project GID for this repo (bound to form)
+	AsanaLoading     bool
+	AsanaLoadError   string
 
-	Focus          int
-	availableWidth int
+	form *huh.Form
 }
 
 func (*RepoSettingsState) modalState() {}
@@ -365,49 +354,14 @@ func (s *RepoSettingsState) PreferredWidth() int { return ModalWidthWide }
 
 func (s *RepoSettingsState) Title() string { return "Repo Settings: " + s.RepoName }
 
-func (s *RepoSettingsState) SetSize(width, height int) {
-	s.availableWidth = width
-	contentWidth := s.contentWidth()
-	s.AsanaSearchInput.SetWidth(contentWidth - 4)
-}
-
-func (s *RepoSettingsState) contentWidth() int {
-	if s.availableWidth > 0 {
-		return s.availableWidth - 10
-	}
-	return ModalWidthWide - 10
-}
-
 func (s *RepoSettingsState) Help() string {
-	if s.numFields() == 0 {
+	if !s.AsanaPATSet {
 		return "Esc: close"
 	}
-	if s.Focus == s.asanaFocusIndex() && s.AsanaPATSet {
-		return "Tab: next field  Up/Down: navigate  Enter: select  Esc: cancel"
+	if s.AsanaLoading || s.AsanaLoadError != "" {
+		return "Esc: close"
 	}
-	return "Tab: next field  Space: toggle  Enter: save  Esc: cancel"
-}
-
-func (s *RepoSettingsState) numFields() int {
-	n := 0
-	if s.ContainersSupported {
-		n += 2 // issue polling, auto-merge
-	}
-	if s.AsanaPATSet {
-		n++ // asana
-	}
-	return n
-}
-
-// Focus indices for repo settings fields
-func (s *RepoSettingsState) issuePollingFocusIndex() int { return 0 }
-func (s *RepoSettingsState) autoMergeFocusIndex() int    { return 1 }
-
-func (s *RepoSettingsState) asanaFocusIndex() int {
-	if s.ContainersSupported {
-		return 2 // after issue polling, auto-merge
-	}
-	return 0 // first field if no containers
+	return "Up/Down: navigate  Enter: save  Esc: cancel"
 }
 
 func (s *RepoSettingsState) Render() string {
@@ -415,55 +369,40 @@ func (s *RepoSettingsState) Render() string {
 
 	parts := []string{title}
 
-	if s.numFields() == 0 {
+	if !s.AsanaPATSet {
 		noSettings := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
 			MarginTop(1).
-			Render("No per-repo settings available.\nEnable containers or configure Asana to see options here.")
+			Render("No per-repo settings available.\nConfigure Asana to see options here.")
 		help := ModalHelpStyle.Render(s.Help())
 		parts = append(parts, noSettings, help)
 		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
-	if s.ContainersSupported {
-		autoHeader := renderSectionHeader("Autonomous:")
-
-		issuePollingView := renderCheckboxField(
-			"Issue polling",
-			"Auto-poll for issues labeled \"queued\" and create autonomous supervisor sessions",
-			s.IssuePolling, s.issuePollingFocusIndex(), s.Focus)
-		autoMergeView := renderCheckboxField(
-			"Auto-merge after CI",
-			"Auto-merge PR when CI passes",
-			s.AutoMerge, s.autoMergeFocusIndex(), s.Focus)
-
-		parts = append(parts, autoHeader, issuePollingView, autoMergeView)
-	}
-
-	// Asana project selector
-	if s.AsanaPATSet {
-		asanaLabel := lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			MarginTop(1).
-			Render("Asana project:")
-
-		asanaDesc := lipgloss.NewStyle().
+	if s.AsanaLoading {
+		loading := lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
 			Italic(true).
-			Width(s.contentWidth()).
-			Render("Links this repo to an Asana project for task import")
+			MarginTop(1).
+			Render("Fetching Asana projects...")
+		help := ModalHelpStyle.Render(s.Help())
+		parts = append(parts, loading, help)
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	}
 
-		asanaContent := s.renderAsanaSelector()
+	if s.AsanaLoadError != "" {
+		errMsg := lipgloss.NewStyle().
+			Foreground(ColorWarning).
+			MarginTop(1).
+			Render(s.AsanaLoadError)
+		help := ModalHelpStyle.Render(s.Help())
+		parts = append(parts, errMsg, help)
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	}
 
-		asanaStyle := lipgloss.NewStyle()
-		if s.Focus == s.asanaFocusIndex() {
-			asanaStyle = asanaStyle.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-		} else {
-			asanaStyle = asanaStyle.PaddingLeft(2)
-		}
-		asanaView := asanaStyle.Render(asanaContent)
-		parts = append(parts, asanaLabel+"\n"+asanaDesc+"\n"+asanaView)
+	if s.form != nil {
+		parts = append(parts, s.form.View())
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
@@ -471,210 +410,13 @@ func (s *RepoSettingsState) Render() string {
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func (s *RepoSettingsState) renderAsanaSelector() string {
-	if s.AsanaLoading {
-		return lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Render("Fetching Asana projects...")
-	}
-
-	if s.AsanaLoadError != "" {
-		return lipgloss.NewStyle().
-			Foreground(ColorWarning).
-			Render(s.AsanaLoadError)
-	}
-
-	var parts []string
-
-	// Show current selection
-	currentLabel := "(none)"
-	for _, opt := range s.AsanaProjectOptions {
-		if opt.GID == s.AsanaSelectedGID {
-			currentLabel = opt.Name
-			break
-		}
-	}
-	currentLine := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Render("Current: " + currentLabel)
-	parts = append(parts, currentLine)
-
-	// Search input
-	searchLabel := lipgloss.NewStyle().Foreground(ColorTextMuted).Render("Search: ")
-	parts = append(parts, searchLabel+s.AsanaSearchInput.View())
-
-	// Filtered list
-	filtered := s.getFilteredAsanaProjects()
-	if len(filtered) == 0 {
-		msg := "No projects match your search."
-		if len(s.AsanaProjectOptions) == 0 {
-			msg = "No projects available."
-		}
-		parts = append(parts, lipgloss.NewStyle().
-			Foreground(ColorTextMuted).
-			Italic(true).
-			Render(msg))
-	} else {
-		startIdx := s.AsanaScrollOffset
-		endIdx := startIdx + AsanaProjectMaxVisible
-		if endIdx > len(filtered) {
-			endIdx = len(filtered)
-		}
-
-		var listContent string
-
-		if startIdx > 0 {
-			listContent += lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Render("  ^ more above") + "\n"
-		}
-
-		for i := startIdx; i < endIdx; i++ {
-			opt := filtered[i]
-			style := SidebarItemStyle
-			prefix := "  "
-			if i == s.AsanaCursorIndex {
-				style = SidebarSelectedStyle
-				prefix = "> "
-			}
-			listContent += style.Render(prefix+opt.Name) + "\n"
-		}
-
-		if endIdx < len(filtered) {
-			listContent += lipgloss.NewStyle().
-				Foreground(ColorTextMuted).
-				Render("  v more below")
-		}
-
-		parts = append(parts, listContent)
-	}
-
-	return strings.Join(parts, "\n")
-}
-
-func (s *RepoSettingsState) getFilteredAsanaProjects() []AsanaProjectOption {
-	query := strings.ToLower(s.AsanaSearchInput.Value())
-	if query == "" {
-		return s.AsanaProjectOptions
-	}
-
-	var filtered []AsanaProjectOption
-	for _, opt := range s.AsanaProjectOptions {
-		if strings.Contains(strings.ToLower(opt.Name), query) {
-			filtered = append(filtered, opt)
-		}
-	}
-	return filtered
-}
-
 func (s *RepoSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	numFields := s.numFields()
-	if numFields == 0 {
+	if s.form == nil {
 		return s, nil
 	}
-
-	keyMsg, ok := msg.(tea.KeyPressMsg)
-	if !ok {
-		return s, nil
-	}
-
-	key := keyMsg.String()
-
-	// Asana selector handling
-	if s.AsanaPATSet && s.Focus == s.asanaFocusIndex() {
-		switch key {
-		case keys.Tab:
-			s.Focus = (s.Focus + 1) % numFields
-			s.updateInputFocus()
-			return s, nil
-		case keys.ShiftTab:
-			s.Focus = (s.Focus - 1 + numFields) % numFields
-			s.updateInputFocus()
-			return s, nil
-		case keys.Up:
-			s.asanaNavigate(-1)
-			return s, nil
-		case keys.Down:
-			s.asanaNavigate(1)
-			return s, nil
-		case keys.Enter:
-			filtered := s.getFilteredAsanaProjects()
-			if s.AsanaCursorIndex < len(filtered) {
-				s.AsanaSelectedGID = filtered[s.AsanaCursorIndex].GID
-			}
-			return s, nil
-		default:
-			var cmd tea.Cmd
-			oldQuery := s.AsanaSearchInput.Value()
-			s.AsanaSearchInput, cmd = s.AsanaSearchInput.Update(msg)
-			if s.AsanaSearchInput.Value() != oldQuery {
-				s.AsanaCursorIndex = 0
-				s.AsanaScrollOffset = 0
-			}
-			return s, cmd
-		}
-	}
-
-	switch key {
-	case keys.Tab:
-		s.Focus = (s.Focus + 1) % numFields
-		s.updateInputFocus()
-		return s, nil
-	case keys.ShiftTab:
-		s.Focus = (s.Focus - 1 + numFields) % numFields
-		s.updateInputFocus()
-		return s, nil
-	case keys.Space:
-		if s.ContainersSupported {
-			switch s.Focus {
-			case s.issuePollingFocusIndex():
-				s.IssuePolling = !s.IssuePolling
-			case s.autoMergeFocusIndex():
-				s.AutoMerge = !s.AutoMerge
-			}
-		}
-		return s, nil
-	}
-
-	return s, nil
-}
-
-func (s *RepoSettingsState) asanaNavigate(delta int) {
-	filtered := s.getFilteredAsanaProjects()
-	if len(filtered) == 0 {
-		return
-	}
-
-	newIndex := s.AsanaCursorIndex + delta
-	if newIndex < 0 {
-		newIndex = 0
-	}
-	if newIndex >= len(filtered) {
-		newIndex = len(filtered) - 1
-	}
-
-	s.AsanaCursorIndex = newIndex
-
-	if s.AsanaCursorIndex < s.AsanaScrollOffset {
-		s.AsanaScrollOffset = s.AsanaCursorIndex
-	}
-	if s.AsanaCursorIndex >= s.AsanaScrollOffset+AsanaProjectMaxVisible {
-		s.AsanaScrollOffset = s.AsanaCursorIndex - AsanaProjectMaxVisible + 1
-	}
-}
-
-func (s *RepoSettingsState) updateInputFocus() {
-	s.AsanaSearchInput.Blur()
-
-	if s.AsanaPATSet && s.Focus == s.asanaFocusIndex() {
-		s.AsanaSearchInput.Focus()
-	}
-}
-
-// IsAsanaFocused returns true when the Asana project selector is focused.
-func (s *RepoSettingsState) IsAsanaFocused() bool {
-	return s.AsanaPATSet && s.Focus == s.asanaFocusIndex()
+	var cmd tea.Cmd
+	s.form, cmd = huhFormUpdate(s.form, msg)
+	return s, cmd
 }
 
 // GetAsanaProject returns the Asana project GID.
@@ -682,13 +424,31 @@ func (s *RepoSettingsState) GetAsanaProject() string {
 	return s.AsanaSelectedGID
 }
 
-// SetAsanaProjects populates the project options and clears the loading state.
+// SetAsanaProjects populates the project options and builds the huh form.
 func (s *RepoSettingsState) SetAsanaProjects(options []AsanaProjectOption) {
-	s.AsanaProjectOptions = options
 	s.AsanaLoading = false
 	s.AsanaLoadError = ""
-	s.AsanaCursorIndex = 0
-	s.AsanaScrollOffset = 0
+
+	huhOptions := make([]huh.Option[string], len(options))
+	for i, opt := range options {
+		huhOptions[i] = huh.NewOption(opt.Name, opt.GID)
+	}
+
+	s.form = huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Asana project").
+				Description("Links this repo to an Asana project for task import").
+				Options(huhOptions...).
+				Height(AsanaProjectMaxVisible+1).
+				Filtering(true).
+				Value(&s.AsanaSelectedGID),
+		),
+	).WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalWidthWide - 10)
+
+	initHuhForm(s.form)
 }
 
 // SetAsanaProjectsError sets the error state and clears loading.
@@ -698,28 +458,13 @@ func (s *RepoSettingsState) SetAsanaProjectsError(errMsg string) {
 }
 
 // NewRepoSettingsState creates a new RepoSettingsState for the given repo.
-func NewRepoSettingsState(repoPath string, containersSupported bool, asanaPATSet bool,
-	issuePolling bool, autoMerge bool, asanaGID string) *RepoSettingsState {
-
-	searchInput := textinput.New()
-	searchInput.Placeholder = "Type to filter projects..."
-	searchInput.CharLimit = 100
-	searchInput.SetWidth(ModalWidthWide - 14)
-
-	initialFocus := 0
-
+func NewRepoSettingsState(repoPath string, asanaPATSet bool, asanaGID string) *RepoSettingsState {
 	return &RepoSettingsState{
-		RepoPath:            repoPath,
-		RepoName:            filepath.Base(repoPath),
-		ContainersSupported: containersSupported,
-		IssuePolling:        issuePolling,
-		AutoMerge:           autoMerge,
-		AsanaPATSet:         asanaPATSet,
-		AsanaSelectedGID:    asanaGID,
-		AsanaSearchInput:    searchInput,
-		AsanaLoading:        asanaPATSet,
-		Focus:               initialFocus,
-		availableWidth:      ModalWidthWide,
+		RepoPath:         repoPath,
+		RepoName:         filepath.Base(repoPath),
+		AsanaPATSet:      asanaPATSet,
+		AsanaSelectedGID: asanaGID,
+		AsanaLoading:     asanaPATSet,
 	}
 }
 
@@ -731,25 +476,6 @@ func renderSectionHeader(title string) string {
 		Bold(true).
 		MarginTop(1).
 		Render(title)
-}
-
-func renderCheckboxField(label, desc string, checked bool, focusIdx, currentFocus int) string {
-	checkbox := "[ ]"
-	if checked {
-		checkbox = "[x]"
-	}
-
-	labelText := lipgloss.NewStyle().Bold(true).Foreground(ColorText).Render(label)
-	descText := lipgloss.NewStyle().Foreground(ColorTextMuted).Italic(true).Render(desc)
-	content := checkbox + " " + labelText + " — " + descText
-
-	style := lipgloss.NewStyle()
-	if currentFocus == focusIdx {
-		style = style.BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(ColorPrimary).PaddingLeft(1)
-	} else {
-		style = style.PaddingLeft(2)
-	}
-	return style.Render(content)
 }
 
 // NewSettingsState creates a new SettingsState with the current settings values.

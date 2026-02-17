@@ -160,8 +160,6 @@ func TestSettingsState_Title(t *testing.T) {
 	}
 }
 
-// --- Autonomous global settings tests ---
-
 func TestSettingsState_ContainersSupported(t *testing.T) {
 	s := newTestSettingsState("", false)
 	if s.ContainersSupported {
@@ -174,136 +172,41 @@ func TestSettingsState_ContainersSupported(t *testing.T) {
 	}
 }
 
-// Global settings should NOT contain per-repo fields
-func TestSettingsState_Render_NoPerRepoSection(t *testing.T) {
-	s := newTestSettingsState("", false)
-	rendered := s.Render()
-
-	if strings.Contains(rendered, "Per-repo settings") {
-		t.Error("Global settings should not contain per-repo section")
-	}
-	if strings.Contains(rendered, "Issue polling") {
-		t.Error("Global settings should not contain issue polling")
-	}
-	if strings.Contains(rendered, "Asana project") {
-		t.Error("Global settings should not contain Asana project")
-	}
-}
-
 // =============================================================================
 // RepoSettingsState (per-repo settings) tests
 // =============================================================================
 
-func newTestRepoSettingsState(containersSupported bool, asanaPATSet bool) *RepoSettingsState {
-	return NewRepoSettingsState("/path/to/myrepo", containersSupported, asanaPATSet,
-		false, false, "")
+func newTestRepoSettingsState(asanaPATSet bool) *RepoSettingsState {
+	return NewRepoSettingsState("/path/to/myrepo", asanaPATSet, "")
 }
 
 func TestRepoSettingsState_Title(t *testing.T) {
-	s := newTestRepoSettingsState(true, false)
+	s := newTestRepoSettingsState(false)
 	if s.Title() != "Repo Settings: myrepo" {
 		t.Errorf("Expected title 'Repo Settings: myrepo', got %q", s.Title())
 	}
 }
 
-func TestRepoSettingsState_NumFields_ContainersAndAsana(t *testing.T) {
-	s := newTestRepoSettingsState(true, true)
-	if n := s.numFields(); n != 3 {
-		t.Errorf("Expected 3 fields (polling, merge, asana), got %d", n)
-	}
-}
-
-func TestRepoSettingsState_NumFields_ContainersOnly(t *testing.T) {
-	s := newTestRepoSettingsState(true, false)
-	if n := s.numFields(); n != 2 {
-		t.Errorf("Expected 2 fields (polling, merge), got %d", n)
-	}
-}
-
-func TestRepoSettingsState_NumFields_AsanaOnly(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-	if n := s.numFields(); n != 1 {
-		t.Errorf("Expected 1 field (asana), got %d", n)
-	}
-}
-
-func TestRepoSettingsState_NumFields_NoFields(t *testing.T) {
-	s := newTestRepoSettingsState(false, false)
-	if n := s.numFields(); n != 0 {
-		t.Errorf("Expected 0 fields, got %d", n)
-	}
-}
-
-func TestRepoSettingsState_TabCycle_WithContainersAndAsana(t *testing.T) {
-	s := newTestRepoSettingsState(true, true)
-
-	// 3 fields: issuePolling(0) autoMerge(1) asana(2)
-	expectedFoci := []int{1, 2, 0}
-	for i, expected := range expectedFoci {
-		s.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-		if s.Focus != expected {
-			t.Errorf("After tab %d: expected focus %d, got %d", i+1, expected, s.Focus)
-		}
-	}
-}
-
-func TestRepoSettingsState_CheckboxToggle(t *testing.T) {
-	s := newTestRepoSettingsState(true, false)
-
-	// Toggle issue polling
-	s.Focus = s.issuePollingFocusIndex()
-	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	if !s.IssuePolling {
-		t.Error("Space should toggle IssuePolling to true")
-	}
-	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	if s.IssuePolling {
-		t.Error("Space again should toggle IssuePolling to false")
-	}
-
-	// Toggle auto-merge
-	s.Focus = s.autoMergeFocusIndex()
-	s.Update(tea.KeyPressMsg{Code: tea.KeySpace})
-	if !s.AutoMerge {
-		t.Error("Space should toggle AutoMerge to true")
-	}
-}
-
-func TestRepoSettingsState_Render_WithContainers(t *testing.T) {
-	s := newTestRepoSettingsState(true, false)
+func TestRepoSettingsState_Render_LoadingState(t *testing.T) {
+	s := newTestRepoSettingsState(true)
 	rendered := s.Render()
 
-	if !strings.Contains(rendered, "Issue polling") {
-		t.Error("Should show Issue polling field")
-	}
-	if !strings.Contains(rendered, "Auto-merge after CI") {
-		t.Error("Should show Auto-merge field")
-	}
-}
-
-func TestRepoSettingsState_Render_WithAsana(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "Asana project") {
-		t.Error("Should show Asana project field when PAT set")
-	}
 	if !strings.Contains(rendered, "Fetching Asana projects") {
-		t.Error("Should show loading state initially")
+		t.Error("Should show loading state initially when PAT set")
 	}
 }
 
 func TestRepoSettingsState_Render_NoAsanaWithoutPAT(t *testing.T) {
-	s := newTestRepoSettingsState(true, false)
+	s := newTestRepoSettingsState(false)
 	rendered := s.Render()
 
-	if strings.Contains(rendered, "Asana project") {
-		t.Error("Asana field should not appear when PAT not set")
+	if !strings.Contains(rendered, "No per-repo settings") {
+		t.Error("Should show no-settings message when PAT not set")
 	}
 }
 
 func TestRepoSettingsState_SetAsanaProjects(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
+	s := newTestRepoSettingsState(true)
 
 	if !s.AsanaLoading {
 		t.Error("Expected AsanaLoading to be true initially when PAT set")
@@ -322,13 +225,13 @@ func TestRepoSettingsState_SetAsanaProjects(t *testing.T) {
 	if s.AsanaLoadError != "" {
 		t.Errorf("Expected no error, got %q", s.AsanaLoadError)
 	}
-	if len(s.AsanaProjectOptions) != 3 {
-		t.Errorf("Expected 3 options, got %d", len(s.AsanaProjectOptions))
+	if s.form == nil {
+		t.Error("Expected form to be created after SetAsanaProjects")
 	}
 }
 
 func TestRepoSettingsState_SetAsanaProjectsError(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
+	s := newTestRepoSettingsState(true)
 
 	s.SetAsanaProjectsError("connection failed")
 
@@ -340,178 +243,8 @@ func TestRepoSettingsState_SetAsanaProjectsError(t *testing.T) {
 	}
 }
 
-func TestRepoSettingsState_AsanaSearchFiltering(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-
-	options := []AsanaProjectOption{
-		{GID: "", Name: "(none)"},
-		{GID: "p1", Name: "Project Alpha"},
-		{GID: "p2", Name: "Project Beta"},
-		{GID: "p3", Name: "Other Gamma"},
-	}
-	s.SetAsanaProjects(options)
-
-	// No filter: all shown
-	filtered := s.getFilteredAsanaProjects()
-	if len(filtered) != 4 {
-		t.Errorf("Expected 4 results with no filter, got %d", len(filtered))
-	}
-
-	// Filter by "project"
-	s.AsanaSearchInput.SetValue("project")
-	filtered = s.getFilteredAsanaProjects()
-	if len(filtered) != 2 {
-		t.Errorf("Expected 2 results for 'project' filter, got %d", len(filtered))
-	}
-
-	// Filter by "gamma"
-	s.AsanaSearchInput.SetValue("gamma")
-	filtered = s.getFilteredAsanaProjects()
-	if len(filtered) != 1 {
-		t.Errorf("Expected 1 result for 'gamma' filter, got %d", len(filtered))
-	}
-	if filtered[0].GID != "p3" {
-		t.Errorf("Expected GID 'p3', got %q", filtered[0].GID)
-	}
-
-	// Filter with no matches
-	s.AsanaSearchInput.SetValue("nonexistent")
-	filtered = s.getFilteredAsanaProjects()
-	if len(filtered) != 0 {
-		t.Errorf("Expected 0 results for 'nonexistent' filter, got %d", len(filtered))
-	}
-}
-
-func TestRepoSettingsState_AsanaNavigation(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-
-	options := []AsanaProjectOption{
-		{GID: "", Name: "(none)"},
-		{GID: "p1", Name: "Project 1"},
-		{GID: "p2", Name: "Project 2"},
-	}
-	s.SetAsanaProjects(options)
-
-	// Focus on Asana field
-	s.Focus = s.asanaFocusIndex()
-	s.updateInputFocus()
-
-	// Down
-	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if s.AsanaCursorIndex != 1 {
-		t.Errorf("After Down, expected cursor at 1, got %d", s.AsanaCursorIndex)
-	}
-
-	// Down again
-	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if s.AsanaCursorIndex != 2 {
-		t.Errorf("After Down, expected cursor at 2, got %d", s.AsanaCursorIndex)
-	}
-
-	// Down at end: clamp
-	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	if s.AsanaCursorIndex != 2 {
-		t.Errorf("After Down at end, expected cursor at 2, got %d", s.AsanaCursorIndex)
-	}
-
-	// Up
-	s.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	if s.AsanaCursorIndex != 1 {
-		t.Errorf("After Up, expected cursor at 1, got %d", s.AsanaCursorIndex)
-	}
-}
-
-func TestRepoSettingsState_AsanaSelectProject(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-
-	options := []AsanaProjectOption{
-		{GID: "", Name: "(none)"},
-		{GID: "p1", Name: "Project Alpha"},
-		{GID: "p2", Name: "Project Beta"},
-	}
-	s.SetAsanaProjects(options)
-
-	s.Focus = s.asanaFocusIndex()
-	s.updateInputFocus()
-
-	// Navigate to "Project Alpha" (index 1)
-	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-
-	// Press Enter to select
-	s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-
-	if s.AsanaSelectedGID != "p1" {
-		t.Errorf("Expected selected GID 'p1', got %q", s.AsanaSelectedGID)
-	}
-
-	if s.GetAsanaProject() != "p1" {
-		t.Errorf("GetAsanaProject should return 'p1', got %q", s.GetAsanaProject())
-	}
-}
-
-func TestRepoSettingsState_AsanaSelectNone(t *testing.T) {
-	s := NewRepoSettingsState("/repo/a", false, true,
-		false, false, "existing-gid")
-
-	options := []AsanaProjectOption{
-		{GID: "", Name: "(none)"},
-		{GID: "p1", Name: "Project Alpha"},
-	}
-	s.SetAsanaProjects(options)
-
-	s.Focus = s.asanaFocusIndex()
-	s.updateInputFocus()
-
-	// Cursor is at index 0 ((none)), press Enter
-	s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-
-	if s.AsanaSelectedGID != "" {
-		t.Errorf("Expected empty GID after selecting (none), got %q", s.AsanaSelectedGID)
-	}
-}
-
-func TestRepoSettingsState_IsAsanaFocused(t *testing.T) {
-	s := newTestRepoSettingsState(true, true)
-
-	s.Focus = 0
-	if s.IsAsanaFocused() {
-		t.Error("Should not be Asana-focused when Focus is 0")
-	}
-
-	s.Focus = s.asanaFocusIndex()
-	if !s.IsAsanaFocused() {
-		t.Error("Should be Asana-focused when Focus is asanaFocusIndex")
-	}
-
-	// PAT not set: even at correct focus index, should not be Asana-focused
-	s2 := newTestRepoSettingsState(true, false)
-	s2.Focus = 0
-	if s2.IsAsanaFocused() {
-		t.Error("Should not be Asana-focused when PAT is not set")
-	}
-}
-
-func TestRepoSettingsState_HelpChangesOnAsanaFocus(t *testing.T) {
-	s := newTestRepoSettingsState(true, true)
-
-	s.Focus = s.asanaFocusIndex()
-	help := s.Help()
-	if !strings.Contains(help, "Up/Down: navigate") {
-		t.Errorf("Help at Asana focus should mention Up/Down: navigate, got %q", help)
-	}
-}
-
-func TestRepoSettingsState_Render_AsanaLoading(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-
-	rendered := s.Render()
-	if !strings.Contains(rendered, "Fetching Asana projects") {
-		t.Error("Should show loading message when AsanaLoading is true")
-	}
-}
-
 func TestRepoSettingsState_Render_AsanaError(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
+	s := newTestRepoSettingsState(true)
 
 	s.SetAsanaProjectsError("timeout")
 
@@ -522,8 +255,7 @@ func TestRepoSettingsState_Render_AsanaError(t *testing.T) {
 }
 
 func TestRepoSettingsState_Render_AsanaProjectList(t *testing.T) {
-	s := NewRepoSettingsState("/repo/a", false, true,
-		false, false, "p1")
+	s := NewRepoSettingsState("/repo/a", true, "p1")
 
 	options := []AsanaProjectOption{
 		{GID: "", Name: "(none)"},
@@ -535,63 +267,62 @@ func TestRepoSettingsState_Render_AsanaProjectList(t *testing.T) {
 	if !strings.Contains(rendered, "My Project") {
 		t.Error("Should show project name in rendered output")
 	}
-	if !strings.Contains(rendered, "Current: My Project") {
-		t.Error("Should show current selection label")
+	if !strings.Contains(rendered, "Asana project") {
+		t.Error("Should show Asana project title")
 	}
 }
 
-func TestRepoSettingsState_Render_AsanaCurrentNone(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
+func TestRepoSettingsState_GetAsanaProject(t *testing.T) {
+	s := NewRepoSettingsState("/repo/a", true, "p1")
+	if s.GetAsanaProject() != "p1" {
+		t.Errorf("Expected 'p1', got %q", s.GetAsanaProject())
+	}
+}
+
+func TestRepoSettingsState_SelectUpdatesValue(t *testing.T) {
+	s := newTestRepoSettingsState(true)
 
 	options := []AsanaProjectOption{
 		{GID: "", Name: "(none)"},
-		{GID: "p1", Name: "My Project"},
+		{GID: "p1", Name: "Project Alpha"},
+		{GID: "p2", Name: "Project Beta"},
 	}
 	s.SetAsanaProjects(options)
 
-	rendered := s.Render()
-	if !strings.Contains(rendered, "Current: (none)") {
-		t.Error("Should show 'Current: (none)' when no project selected")
+	// Navigate down to select "Project Alpha" — huh Select updates bound value on navigation
+	s.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	if s.AsanaSelectedGID != "p1" {
+		t.Errorf("Expected selected GID 'p1' after navigating down, got %q", s.AsanaSelectedGID)
 	}
 }
 
-func TestRepoSettingsState_InputFocus(t *testing.T) {
-	s := newTestRepoSettingsState(true, true)
+func TestRepoSettingsState_Help_WithAsana(t *testing.T) {
+	s := newTestRepoSettingsState(true)
 
-	// Focus on asana
-	s.Focus = s.asanaFocusIndex()
-	s.updateInputFocus()
-	if !s.AsanaSearchInput.Focused() {
-		t.Error("AsanaSearchInput should be focused")
+	options := []AsanaProjectOption{
+		{GID: "", Name: "(none)"},
 	}
+	s.SetAsanaProjects(options)
 
-	// Focus away from asana
-	s.Focus = s.issuePollingFocusIndex()
-	s.updateInputFocus()
-	if s.AsanaSearchInput.Focused() {
-		t.Error("AsanaSearchInput should not be focused when on issuePolling")
+	help := s.Help()
+	if !strings.Contains(help, "Up/Down") {
+		t.Errorf("Help should mention Up/Down, got %q", help)
 	}
 }
 
-func TestRepoSettingsState_FocusIndices_ContainersAndAsana(t *testing.T) {
-	s := newTestRepoSettingsState(true, true)
-
-	if idx := s.issuePollingFocusIndex(); idx != 0 {
-		t.Errorf("Expected issuePolling focus index 0, got %d", idx)
-	}
-	if idx := s.autoMergeFocusIndex(); idx != 1 {
-		t.Errorf("Expected autoMerge focus index 1, got %d", idx)
-	}
-	if idx := s.asanaFocusIndex(); idx != 2 {
-		t.Errorf("Expected asana focus index 2, got %d", idx)
+func TestRepoSettingsState_Help_NoAsana(t *testing.T) {
+	s := newTestRepoSettingsState(false)
+	help := s.Help()
+	if !strings.Contains(help, "Esc") {
+		t.Errorf("Help should mention Esc, got %q", help)
 	}
 }
 
-func TestRepoSettingsState_FocusIndices_AsanaOnly(t *testing.T) {
-	s := newTestRepoSettingsState(false, true)
-
-	if idx := s.asanaFocusIndex(); idx != 0 {
-		t.Errorf("Expected asana focus index 0 without containers, got %d", idx)
+func TestRepoSettingsState_PreferredWidth(t *testing.T) {
+	s := newTestRepoSettingsState(false)
+	if w := s.PreferredWidth(); w != ModalWidthWide {
+		t.Errorf("Expected preferred width %d, got %d", ModalWidthWide, w)
 	}
 }
 

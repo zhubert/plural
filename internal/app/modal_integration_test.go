@@ -620,7 +620,7 @@ func TestRepoSettingsModal_AsanaProjectGID(t *testing.T) {
 	repoPath := cfg.Sessions[0].RepoPath
 
 	// Show repo settings modal directly
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, false, false, false, ""))
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, ""))
 	state := m.modal.State.(*ui.RepoSettingsState)
 
 	// Set the Asana project GID via the selector
@@ -644,7 +644,7 @@ func TestRepoSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Show repo settings modal directly (pass pre-set asana GID)
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, false, false, false, "9999999999999"))
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "9999999999999"))
 	state := m.modal.State.(*ui.RepoSettingsState)
 
 	// Verify it was loaded

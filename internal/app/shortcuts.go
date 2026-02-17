@@ -672,10 +672,7 @@ func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
 
 	repoState := ui.NewRepoSettingsState(
 		repoPath,
-		process.ContainersSupported(),
 		asanaPATSet,
-		m.config.GetRepoIssuePolling(repoPath),
-		m.config.GetRepoAutoMerge(repoPath),
 		m.config.GetAsanaProject(repoPath),
 	)
 	m.modal.Show(repoState)

@@ -371,18 +371,8 @@ func (m *Model) handleRepoSettingsModal(key string, msg tea.KeyPressMsg, state *
 		m.modal.Hide()
 		return m, nil
 	case keys.Enter:
-		// When focused on the Asana project selector, Enter selects a project
-		if state.IsAsanaFocused() {
-			modal, cmd := m.modal.Update(msg)
-			m.modal = modal
-			return m, cmd
-		}
 		// Save per-repo settings
 		repo := state.RepoPath
-		if state.ContainersSupported {
-			m.config.SetRepoIssuePolling(repo, state.IssuePolling)
-			m.config.SetRepoAutoMerge(repo, state.AutoMerge)
-		}
 		m.config.SetAsanaProject(repo, state.GetAsanaProject())
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save repo settings", "error", err)
