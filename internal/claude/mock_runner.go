@@ -30,28 +30,19 @@ type MockRunner struct {
 	responseChan  chan ResponseChunk
 
 	// Permission/Question/Plan channels
-	permReqChan   chan mcp.PermissionRequest
-	permRespChan  chan mcp.PermissionResponse
-	questReqChan  chan mcp.QuestionRequest
-	questRespChan chan mcp.QuestionResponse
-	planReqChan   chan mcp.PlanApprovalRequest
-	planRespChan  chan mcp.PlanApprovalResponse
+	permission   *mcp.ChannelPair[mcp.PermissionRequest, mcp.PermissionResponse]
+	question     *mcp.ChannelPair[mcp.QuestionRequest, mcp.QuestionResponse]
+	planApproval *mcp.ChannelPair[mcp.PlanApprovalRequest, mcp.PlanApprovalResponse]
 
 	// Supervisor tool channels
-	createChildReqChan  chan mcp.CreateChildRequest
-	createChildRespChan chan mcp.CreateChildResponse
-	listChildrenReqChan chan mcp.ListChildrenRequest
-	listChildrenRespChan chan mcp.ListChildrenResponse
-	mergeChildReqChan   chan mcp.MergeChildRequest
-	mergeChildRespChan  chan mcp.MergeChildResponse
+	createChild  *mcp.ChannelPair[mcp.CreateChildRequest, mcp.CreateChildResponse]
+	listChildren *mcp.ChannelPair[mcp.ListChildrenRequest, mcp.ListChildrenResponse]
+	mergeChild   *mcp.ChannelPair[mcp.MergeChildRequest, mcp.MergeChildResponse]
 
 	// Host tool channels
-	createPRReqChan           chan mcp.CreatePRRequest
-	createPRRespChan          chan mcp.CreatePRResponse
-	pushBranchReqChan         chan mcp.PushBranchRequest
-	pushBranchRespChan        chan mcp.PushBranchResponse
-	getReviewCommentsReqChan  chan mcp.GetReviewCommentsRequest
-	getReviewCommentsRespChan chan mcp.GetReviewCommentsResponse
+	createPR          *mcp.ChannelPair[mcp.CreatePRRequest, mcp.CreatePRResponse]
+	pushBranch        *mcp.ChannelPair[mcp.PushBranchRequest, mcp.PushBranchResponse]
+	getReviewComments *mcp.ChannelPair[mcp.GetReviewCommentsRequest, mcp.GetReviewCommentsResponse]
 
 	// Callbacks for test assertions
 	OnSend             func(content []ContentBlock)
@@ -79,12 +70,9 @@ func NewMockRunner(sessionID string, sessionStarted bool, initialMessages []Mess
 		sessionStarted: sessionStarted,
 		messages:       msgs,
 		allowedTools:   allowedTools,
-		permReqChan:    make(chan mcp.PermissionRequest, 1),
-		permRespChan:   make(chan mcp.PermissionResponse, 1),
-		questReqChan:   make(chan mcp.QuestionRequest, 1),
-		questRespChan:  make(chan mcp.QuestionResponse, 1),
-		planReqChan:    make(chan mcp.PlanApprovalRequest, 1),
-		planRespChan:   make(chan mcp.PlanApprovalResponse, 1),
+		permission:     mcp.NewChannelPair[mcp.PermissionRequest, mcp.PermissionResponse](1),
+		question:       mcp.NewChannelPair[mcp.QuestionRequest, mcp.QuestionResponse](1),
+		planApproval:   mcp.NewChannelPair[mcp.PlanApprovalRequest, mcp.PlanApprovalResponse](1),
 	}
 }
 
@@ -111,7 +99,7 @@ func (m *MockRunner) SimulatePermissionRequest(req mcp.PermissionRequest) {
 	if stopped {
 		return
 	}
-	m.permReqChan <- req
+	m.permission.Req <- req
 }
 
 // SimulateQuestionRequest triggers a question request that the UI will receive.
@@ -122,7 +110,7 @@ func (m *MockRunner) SimulateQuestionRequest(req mcp.QuestionRequest) {
 	if stopped {
 		return
 	}
-	m.questReqChan <- req
+	m.question.Req <- req
 }
 
 // SimulatePlanApprovalRequest triggers a plan approval request that the UI will receive.
@@ -133,7 +121,7 @@ func (m *MockRunner) SimulatePlanApprovalRequest(req mcp.PlanApprovalRequest) {
 	if stopped {
 		return
 	}
-	m.planReqChan <- req
+	m.planApproval.Req <- req
 }
 
 // SessionStarted implements RunnerInterface.
@@ -303,7 +291,7 @@ func (m *MockRunner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	if m.stopped {
 		return nil
 	}
-	return m.permReqChan
+	return m.permission.Req
 }
 
 // SendPermissionResponse implements RunnerInterface.
@@ -321,7 +309,7 @@ func (m *MockRunner) SendPermissionResponse(resp mcp.PermissionResponse) {
 	}
 
 	select {
-	case m.permRespChan <- resp:
+	case m.permission.Resp <- resp:
 	default:
 	}
 }
@@ -333,7 +321,7 @@ func (m *MockRunner) QuestionRequestChan() <-chan mcp.QuestionRequest {
 	if m.stopped {
 		return nil
 	}
-	return m.questReqChan
+	return m.question.Req
 }
 
 // SendQuestionResponse implements RunnerInterface.
@@ -351,7 +339,7 @@ func (m *MockRunner) SendQuestionResponse(resp mcp.QuestionResponse) {
 	}
 
 	select {
-	case m.questRespChan <- resp:
+	case m.question.Resp <- resp:
 	default:
 	}
 }
@@ -363,7 +351,7 @@ func (m *MockRunner) PlanApprovalRequestChan() <-chan mcp.PlanApprovalRequest {
 	if m.stopped {
 		return nil
 	}
-	return m.planReqChan
+	return m.planApproval.Req
 }
 
 // SendPlanApprovalResponse implements RunnerInterface.
@@ -381,7 +369,7 @@ func (m *MockRunner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 	}
 
 	select {
-	case m.planRespChan <- resp:
+	case m.planApproval.Resp <- resp:
 	default:
 	}
 }
@@ -390,13 +378,10 @@ func (m *MockRunner) SendPlanApprovalResponse(resp mcp.PlanApprovalResponse) {
 func (m *MockRunner) SetSupervisor(supervisor bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if supervisor && m.createChildReqChan == nil {
-		m.createChildReqChan = make(chan mcp.CreateChildRequest, 1)
-		m.createChildRespChan = make(chan mcp.CreateChildResponse, 1)
-		m.listChildrenReqChan = make(chan mcp.ListChildrenRequest, 1)
-		m.listChildrenRespChan = make(chan mcp.ListChildrenResponse, 1)
-		m.mergeChildReqChan = make(chan mcp.MergeChildRequest, 1)
-		m.mergeChildRespChan = make(chan mcp.MergeChildResponse, 1)
+	if supervisor && m.createChild == nil {
+		m.createChild = mcp.NewChannelPair[mcp.CreateChildRequest, mcp.CreateChildResponse](1)
+		m.listChildren = mcp.NewChannelPair[mcp.ListChildrenRequest, mcp.ListChildrenResponse](1)
+		m.mergeChild = mcp.NewChannelPair[mcp.MergeChildRequest, mcp.MergeChildResponse](1)
 	}
 }
 
@@ -404,21 +389,21 @@ func (m *MockRunner) SetSupervisor(supervisor bool) {
 func (m *MockRunner) CreateChildRequestChan() <-chan mcp.CreateChildRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped {
+	if m.stopped || m.createChild == nil {
 		return nil
 	}
-	return m.createChildReqChan
+	return m.createChild.Req
 }
 
 // SendCreateChildResponse implements RunnerInterface.
 func (m *MockRunner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped || m.createChildRespChan == nil {
+	if m.stopped || m.createChild == nil {
 		return
 	}
 	select {
-	case m.createChildRespChan <- resp:
+	case m.createChild.Resp <- resp:
 	default:
 	}
 }
@@ -427,21 +412,21 @@ func (m *MockRunner) SendCreateChildResponse(resp mcp.CreateChildResponse) {
 func (m *MockRunner) ListChildrenRequestChan() <-chan mcp.ListChildrenRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped {
+	if m.stopped || m.listChildren == nil {
 		return nil
 	}
-	return m.listChildrenReqChan
+	return m.listChildren.Req
 }
 
 // SendListChildrenResponse implements RunnerInterface.
 func (m *MockRunner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped || m.listChildrenRespChan == nil {
+	if m.stopped || m.listChildren == nil {
 		return
 	}
 	select {
-	case m.listChildrenRespChan <- resp:
+	case m.listChildren.Resp <- resp:
 	default:
 	}
 }
@@ -450,21 +435,21 @@ func (m *MockRunner) SendListChildrenResponse(resp mcp.ListChildrenResponse) {
 func (m *MockRunner) MergeChildRequestChan() <-chan mcp.MergeChildRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped {
+	if m.stopped || m.mergeChild == nil {
 		return nil
 	}
-	return m.mergeChildReqChan
+	return m.mergeChild.Req
 }
 
 // SendMergeChildResponse implements RunnerInterface.
 func (m *MockRunner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped || m.mergeChildRespChan == nil {
+	if m.stopped || m.mergeChild == nil {
 		return
 	}
 	select {
-	case m.mergeChildRespChan <- resp:
+	case m.mergeChild.Resp <- resp:
 	default:
 	}
 }
@@ -473,13 +458,10 @@ func (m *MockRunner) SendMergeChildResponse(resp mcp.MergeChildResponse) {
 func (m *MockRunner) SetHostTools(hostTools bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if hostTools && m.createPRReqChan == nil {
-		m.createPRReqChan = make(chan mcp.CreatePRRequest, 1)
-		m.createPRRespChan = make(chan mcp.CreatePRResponse, 1)
-		m.pushBranchReqChan = make(chan mcp.PushBranchRequest, 1)
-		m.pushBranchRespChan = make(chan mcp.PushBranchResponse, 1)
-		m.getReviewCommentsReqChan = make(chan mcp.GetReviewCommentsRequest, 1)
-		m.getReviewCommentsRespChan = make(chan mcp.GetReviewCommentsResponse, 1)
+	if hostTools && m.createPR == nil {
+		m.createPR = mcp.NewChannelPair[mcp.CreatePRRequest, mcp.CreatePRResponse](1)
+		m.pushBranch = mcp.NewChannelPair[mcp.PushBranchRequest, mcp.PushBranchResponse](1)
+		m.getReviewComments = mcp.NewChannelPair[mcp.GetReviewCommentsRequest, mcp.GetReviewCommentsResponse](1)
 	}
 }
 
@@ -487,21 +469,21 @@ func (m *MockRunner) SetHostTools(hostTools bool) {
 func (m *MockRunner) CreatePRRequestChan() <-chan mcp.CreatePRRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped {
+	if m.stopped || m.createPR == nil {
 		return nil
 	}
-	return m.createPRReqChan
+	return m.createPR.Req
 }
 
 // SendCreatePRResponse implements RunnerInterface.
 func (m *MockRunner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped || m.createPRRespChan == nil {
+	if m.stopped || m.createPR == nil {
 		return
 	}
 	select {
-	case m.createPRRespChan <- resp:
+	case m.createPR.Resp <- resp:
 	default:
 	}
 }
@@ -510,21 +492,21 @@ func (m *MockRunner) SendCreatePRResponse(resp mcp.CreatePRResponse) {
 func (m *MockRunner) PushBranchRequestChan() <-chan mcp.PushBranchRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped {
+	if m.stopped || m.pushBranch == nil {
 		return nil
 	}
-	return m.pushBranchReqChan
+	return m.pushBranch.Req
 }
 
 // SendPushBranchResponse implements RunnerInterface.
 func (m *MockRunner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped || m.pushBranchRespChan == nil {
+	if m.stopped || m.pushBranch == nil {
 		return
 	}
 	select {
-	case m.pushBranchRespChan <- resp:
+	case m.pushBranch.Resp <- resp:
 	default:
 	}
 }
@@ -533,21 +515,21 @@ func (m *MockRunner) SendPushBranchResponse(resp mcp.PushBranchResponse) {
 func (m *MockRunner) GetReviewCommentsRequestChan() <-chan mcp.GetReviewCommentsRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped {
+	if m.stopped || m.getReviewComments == nil {
 		return nil
 	}
-	return m.getReviewCommentsReqChan
+	return m.getReviewComments.Req
 }
 
 // SendGetReviewCommentsResponse implements RunnerInterface.
 func (m *MockRunner) SendGetReviewCommentsResponse(resp mcp.GetReviewCommentsResponse) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	if m.stopped || m.getReviewCommentsRespChan == nil {
+	if m.stopped || m.getReviewComments == nil {
 		return
 	}
 	select {
-	case m.getReviewCommentsRespChan <- resp:
+	case m.getReviewComments.Resp <- resp:
 	default:
 	}
 }
@@ -563,60 +545,15 @@ func (m *MockRunner) Stop() {
 	m.stopped = true
 
 	// Close channels
-	if m.permReqChan != nil {
-		close(m.permReqChan)
-	}
-	if m.permRespChan != nil {
-		close(m.permRespChan)
-	}
-	if m.questReqChan != nil {
-		close(m.questReqChan)
-	}
-	if m.questRespChan != nil {
-		close(m.questRespChan)
-	}
-	if m.planReqChan != nil {
-		close(m.planReqChan)
-	}
-	if m.planRespChan != nil {
-		close(m.planRespChan)
-	}
-	if m.createChildReqChan != nil {
-		close(m.createChildReqChan)
-	}
-	if m.createChildRespChan != nil {
-		close(m.createChildRespChan)
-	}
-	if m.listChildrenReqChan != nil {
-		close(m.listChildrenReqChan)
-	}
-	if m.listChildrenRespChan != nil {
-		close(m.listChildrenRespChan)
-	}
-	if m.mergeChildReqChan != nil {
-		close(m.mergeChildReqChan)
-	}
-	if m.mergeChildRespChan != nil {
-		close(m.mergeChildRespChan)
-	}
-	if m.createPRReqChan != nil {
-		close(m.createPRReqChan)
-	}
-	if m.createPRRespChan != nil {
-		close(m.createPRRespChan)
-	}
-	if m.pushBranchReqChan != nil {
-		close(m.pushBranchReqChan)
-	}
-	if m.pushBranchRespChan != nil {
-		close(m.pushBranchRespChan)
-	}
-	if m.getReviewCommentsReqChan != nil {
-		close(m.getReviewCommentsReqChan)
-	}
-	if m.getReviewCommentsRespChan != nil {
-		close(m.getReviewCommentsRespChan)
-	}
+	m.permission.Close()
+	m.question.Close()
+	m.planApproval.Close()
+	m.createChild.Close()
+	m.listChildren.Close()
+	m.mergeChild.Close()
+	m.createPR.Close()
+	m.pushBranch.Close()
+	m.getReviewComments.Close()
 	if m.responseChan != nil {
 		// Only close if we control it
 		select {

@@ -619,26 +619,9 @@ func (s *Server) handleCreateChildSession(req *JSONRPCRequest, params ToolCallPa
 
 	s.log.Info("create_child_session called", "task", task)
 
-	childReq := CreateChildRequest{ID: req.ID, Task: task}
-
-	select {
-	case s.createChildChan <- childReq:
-	case <-time.After(ChannelSendTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
-		return
-	}
-
-	select {
-	case resp := <-s.createChildResp:
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
-			return
-		}
-		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(ChannelReceiveTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for child session creation"}`)
-	}
+	handleToolChannelRequest(s, req.ID, CreateChildRequest{ID: req.ID, Task: task},
+		s.createChildChan, s.createChildResp, ChannelReceiveTimeout,
+		func(r CreateChildResponse) bool { return !r.Success }, "child session creation")
 }
 
 // handleListChildSessions handles the list_child_sessions supervisor tool
@@ -650,26 +633,9 @@ func (s *Server) handleListChildSessions(req *JSONRPCRequest, params ToolCallPar
 
 	s.log.Info("list_child_sessions called")
 
-	listReq := ListChildrenRequest{ID: req.ID}
-
-	select {
-	case s.listChildrenChan <- listReq:
-	case <-time.After(ChannelSendTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
-		return
-	}
-
-	select {
-	case resp := <-s.listChildrenResp:
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
-			return
-		}
-		s.sendToolResult(req.ID, false, string(resultJSON))
-	case <-time.After(ChannelReceiveTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for child session list"}`)
-	}
+	handleToolChannelRequest(s, req.ID, ListChildrenRequest{ID: req.ID},
+		s.listChildrenChan, s.listChildrenResp, ChannelReceiveTimeout,
+		func(r ListChildrenResponse) bool { return false }, "child session list")
 }
 
 // handleMergeChildToParent handles the merge_child_to_parent supervisor tool
@@ -687,26 +653,9 @@ func (s *Server) handleMergeChildToParent(req *JSONRPCRequest, params ToolCallPa
 
 	s.log.Info("merge_child_to_parent called", "childSessionID", childSessionID)
 
-	mergeReq := MergeChildRequest{ID: req.ID, ChildSessionID: childSessionID}
-
-	select {
-	case s.mergeChildChan <- mergeReq:
-	case <-time.After(ChannelSendTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
-		return
-	}
-
-	select {
-	case resp := <-s.mergeChildResp:
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
-			return
-		}
-		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(ChannelReceiveTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for merge result"}`)
-	}
+	handleToolChannelRequest(s, req.ID, MergeChildRequest{ID: req.ID, ChildSessionID: childSessionID},
+		s.mergeChildChan, s.mergeChildResp, ChannelReceiveTimeout,
+		func(r MergeChildResponse) bool { return !r.Success }, "merge result")
 }
 
 // handleCreatePR handles the create_pr host tool
@@ -720,26 +669,9 @@ func (s *Server) handleCreatePR(req *JSONRPCRequest, params ToolCallParams) {
 
 	s.log.Info("create_pr called", "title", title)
 
-	prReq := CreatePRRequest{ID: req.ID, Title: title}
-
-	select {
-	case s.createPRChan <- prReq:
-	case <-time.After(ChannelSendTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
-		return
-	}
-
-	select {
-	case resp := <-s.createPRResp:
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
-			return
-		}
-		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(HostToolReceiveTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for PR creation"}`)
-	}
+	handleToolChannelRequest(s, req.ID, CreatePRRequest{ID: req.ID, Title: title},
+		s.createPRChan, s.createPRResp, HostToolReceiveTimeout,
+		func(r CreatePRResponse) bool { return !r.Success }, "PR creation")
 }
 
 // handlePushBranch handles the push_branch host tool
@@ -753,26 +685,9 @@ func (s *Server) handlePushBranch(req *JSONRPCRequest, params ToolCallParams) {
 
 	s.log.Info("push_branch called", "commitMessage", commitMessage)
 
-	pushReq := PushBranchRequest{ID: req.ID, CommitMessage: commitMessage}
-
-	select {
-	case s.pushBranchChan <- pushReq:
-	case <-time.After(ChannelSendTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
-		return
-	}
-
-	select {
-	case resp := <-s.pushBranchResp:
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
-			return
-		}
-		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(HostToolReceiveTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for push result"}`)
-	}
+	handleToolChannelRequest(s, req.ID, PushBranchRequest{ID: req.ID, CommitMessage: commitMessage},
+		s.pushBranchChan, s.pushBranchResp, HostToolReceiveTimeout,
+		func(r PushBranchResponse) bool { return !r.Success }, "push result")
 }
 
 // handleGetReviewComments handles the get_review_comments host tool
@@ -784,26 +699,9 @@ func (s *Server) handleGetReviewComments(req *JSONRPCRequest, params ToolCallPar
 
 	s.log.Info("get_review_comments called")
 
-	reviewReq := GetReviewCommentsRequest{ID: req.ID}
-
-	select {
-	case s.getReviewCommentsChan <- reviewReq:
-	case <-time.After(ChannelSendTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"TUI not responding"}`)
-		return
-	}
-
-	select {
-	case resp := <-s.getReviewCommentsResp:
-		resultJSON, err := json.Marshal(resp)
-		if err != nil {
-			s.sendToolResult(req.ID, true, `{"error":"failed to marshal response"}`)
-			return
-		}
-		s.sendToolResult(req.ID, !resp.Success, string(resultJSON))
-	case <-time.After(HostToolReceiveTimeout):
-		s.sendToolResult(req.ID, true, `{"error":"timeout waiting for review comments"}`)
-	}
+	handleToolChannelRequest(s, req.ID, GetReviewCommentsRequest{ID: req.ID},
+		s.getReviewCommentsChan, s.getReviewCommentsResp, HostToolReceiveTimeout,
+		func(r GetReviewCommentsResponse) bool { return !r.Success }, "review comments")
 }
 
 // sendToolResult sends a tool call result with text content.

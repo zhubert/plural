@@ -44,20 +44,20 @@ func (r *Runner) ensureServerRunning() error {
 
 	// Build optional socket server options for supervisor channels
 	var socketOpts []mcp.SocketServerOption
-	if r.supervisor && r.mcp.CreateChildReq != nil {
+	if r.supervisor && r.mcp.CreateChild != nil {
 		socketOpts = append(socketOpts, mcp.WithSupervisorChannels(
-			r.mcp.CreateChildReq, r.mcp.CreateChildResp,
-			r.mcp.ListChildrenReq, r.mcp.ListChildrenResp,
-			r.mcp.MergeChildReq, r.mcp.MergeChildResp,
+			r.mcp.CreateChild.Req, r.mcp.CreateChild.Resp,
+			r.mcp.ListChildren.Req, r.mcp.ListChildren.Resp,
+			r.mcp.MergeChild.Req, r.mcp.MergeChild.Resp,
 		))
 	}
 
 	// Build optional socket server options for host tool channels
-	if r.hostTools && r.mcp.CreatePRReq != nil {
+	if r.hostTools && r.mcp.CreatePR != nil {
 		socketOpts = append(socketOpts, mcp.WithHostToolChannels(
-			r.mcp.CreatePRReq, r.mcp.CreatePRResp,
-			r.mcp.PushBranchReq, r.mcp.PushBranchResp,
-			r.mcp.GetReviewCommentsReq, r.mcp.GetReviewCommentsResp,
+			r.mcp.CreatePR.Req, r.mcp.CreatePR.Resp,
+			r.mcp.PushBranch.Req, r.mcp.PushBranch.Resp,
+			r.mcp.GetReviewComments.Req, r.mcp.GetReviewComments.Resp,
 		))
 	}
 
@@ -65,14 +65,14 @@ func (r *Runner) ensureServerRunning() error {
 		// Container sessions use TCP because Unix sockets don't work across
 		// the Docker container boundary.
 		socketServer, err = mcp.NewTCPSocketServer(r.sessionID,
-			r.mcp.PermissionReq, r.mcp.PermissionResp,
-			r.mcp.QuestionReq, r.mcp.QuestionResp,
-			r.mcp.PlanReq, r.mcp.PlanResp, socketOpts...)
+			r.mcp.Permission.Req, r.mcp.Permission.Resp,
+			r.mcp.Question.Req, r.mcp.Question.Resp,
+			r.mcp.PlanApproval.Req, r.mcp.PlanApproval.Resp, socketOpts...)
 	} else {
 		socketServer, err = mcp.NewSocketServer(r.sessionID,
-			r.mcp.PermissionReq, r.mcp.PermissionResp,
-			r.mcp.QuestionReq, r.mcp.QuestionResp,
-			r.mcp.PlanReq, r.mcp.PlanResp, socketOpts...)
+			r.mcp.Permission.Req, r.mcp.Permission.Resp,
+			r.mcp.Question.Req, r.mcp.Question.Resp,
+			r.mcp.PlanApproval.Req, r.mcp.PlanApproval.Resp, socketOpts...)
 	}
 	if err != nil {
 		r.log.Error("failed to create socket server", "error", err)

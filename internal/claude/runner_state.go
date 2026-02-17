@@ -14,138 +14,57 @@ import (
 // Request channels are populated by the MCP server, response channels by the TUI.
 // Supervisor channels are only used when the session is a supervisor session.
 type MCPChannels struct {
-	PermissionReq  chan mcp.PermissionRequest
-	PermissionResp chan mcp.PermissionResponse
-	QuestionReq    chan mcp.QuestionRequest
-	QuestionResp   chan mcp.QuestionResponse
-	PlanReq        chan mcp.PlanApprovalRequest
-	PlanResp       chan mcp.PlanApprovalResponse
+	Permission   *mcp.ChannelPair[mcp.PermissionRequest, mcp.PermissionResponse]
+	Question     *mcp.ChannelPair[mcp.QuestionRequest, mcp.QuestionResponse]
+	PlanApproval *mcp.ChannelPair[mcp.PlanApprovalRequest, mcp.PlanApprovalResponse]
 
 	// Supervisor tool channels (nil when not a supervisor session)
-	CreateChildReq   chan mcp.CreateChildRequest
-	CreateChildResp  chan mcp.CreateChildResponse
-	ListChildrenReq  chan mcp.ListChildrenRequest
-	ListChildrenResp chan mcp.ListChildrenResponse
-	MergeChildReq    chan mcp.MergeChildRequest
-	MergeChildResp   chan mcp.MergeChildResponse
+	CreateChild  *mcp.ChannelPair[mcp.CreateChildRequest, mcp.CreateChildResponse]
+	ListChildren *mcp.ChannelPair[mcp.ListChildrenRequest, mcp.ListChildrenResponse]
+	MergeChild   *mcp.ChannelPair[mcp.MergeChildRequest, mcp.MergeChildResponse]
 
 	// Host tool channels (nil when not an autonomous supervisor session)
-	CreatePRReq           chan mcp.CreatePRRequest
-	CreatePRResp          chan mcp.CreatePRResponse
-	PushBranchReq         chan mcp.PushBranchRequest
-	PushBranchResp        chan mcp.PushBranchResponse
-	GetReviewCommentsReq  chan mcp.GetReviewCommentsRequest
-	GetReviewCommentsResp chan mcp.GetReviewCommentsResponse
+	CreatePR          *mcp.ChannelPair[mcp.CreatePRRequest, mcp.CreatePRResponse]
+	PushBranch        *mcp.ChannelPair[mcp.PushBranchRequest, mcp.PushBranchResponse]
+	GetReviewComments *mcp.ChannelPair[mcp.GetReviewCommentsRequest, mcp.GetReviewCommentsResponse]
 }
 
 // NewMCPChannels creates a new MCPChannels with buffered channels.
 func NewMCPChannels() *MCPChannels {
 	return &MCPChannels{
-		PermissionReq:  make(chan mcp.PermissionRequest, PermissionChannelBuffer),
-		PermissionResp: make(chan mcp.PermissionResponse, PermissionChannelBuffer),
-		QuestionReq:    make(chan mcp.QuestionRequest, PermissionChannelBuffer),
-		QuestionResp:   make(chan mcp.QuestionResponse, PermissionChannelBuffer),
-		PlanReq:        make(chan mcp.PlanApprovalRequest, PermissionChannelBuffer),
-		PlanResp:       make(chan mcp.PlanApprovalResponse, PermissionChannelBuffer),
+		Permission:   mcp.NewChannelPair[mcp.PermissionRequest, mcp.PermissionResponse](PermissionChannelBuffer),
+		Question:     mcp.NewChannelPair[mcp.QuestionRequest, mcp.QuestionResponse](PermissionChannelBuffer),
+		PlanApproval: mcp.NewChannelPair[mcp.PlanApprovalRequest, mcp.PlanApprovalResponse](PermissionChannelBuffer),
 	}
 }
 
 // InitSupervisorChannels initializes the supervisor tool channels.
 // These are only created when the session is a supervisor session.
 func (m *MCPChannels) InitSupervisorChannels() {
-	m.CreateChildReq = make(chan mcp.CreateChildRequest, PermissionChannelBuffer)
-	m.CreateChildResp = make(chan mcp.CreateChildResponse, PermissionChannelBuffer)
-	m.ListChildrenReq = make(chan mcp.ListChildrenRequest, PermissionChannelBuffer)
-	m.ListChildrenResp = make(chan mcp.ListChildrenResponse, PermissionChannelBuffer)
-	m.MergeChildReq = make(chan mcp.MergeChildRequest, PermissionChannelBuffer)
-	m.MergeChildResp = make(chan mcp.MergeChildResponse, PermissionChannelBuffer)
+	m.CreateChild = mcp.NewChannelPair[mcp.CreateChildRequest, mcp.CreateChildResponse](PermissionChannelBuffer)
+	m.ListChildren = mcp.NewChannelPair[mcp.ListChildrenRequest, mcp.ListChildrenResponse](PermissionChannelBuffer)
+	m.MergeChild = mcp.NewChannelPair[mcp.MergeChildRequest, mcp.MergeChildResponse](PermissionChannelBuffer)
 }
 
 // InitHostToolChannels initializes the host tool channels.
 // These are only created when the session is an autonomous supervisor.
 func (m *MCPChannels) InitHostToolChannels() {
-	m.CreatePRReq = make(chan mcp.CreatePRRequest, PermissionChannelBuffer)
-	m.CreatePRResp = make(chan mcp.CreatePRResponse, PermissionChannelBuffer)
-	m.PushBranchReq = make(chan mcp.PushBranchRequest, PermissionChannelBuffer)
-	m.PushBranchResp = make(chan mcp.PushBranchResponse, PermissionChannelBuffer)
-	m.GetReviewCommentsReq = make(chan mcp.GetReviewCommentsRequest, PermissionChannelBuffer)
-	m.GetReviewCommentsResp = make(chan mcp.GetReviewCommentsResponse, PermissionChannelBuffer)
+	m.CreatePR = mcp.NewChannelPair[mcp.CreatePRRequest, mcp.CreatePRResponse](PermissionChannelBuffer)
+	m.PushBranch = mcp.NewChannelPair[mcp.PushBranchRequest, mcp.PushBranchResponse](PermissionChannelBuffer)
+	m.GetReviewComments = mcp.NewChannelPair[mcp.GetReviewCommentsRequest, mcp.GetReviewCommentsResponse](PermissionChannelBuffer)
 }
 
 // Close closes all channels. Safe to call multiple times.
 func (m *MCPChannels) Close() {
-	if m.PermissionReq != nil {
-		close(m.PermissionReq)
-		m.PermissionReq = nil
-	}
-	if m.PermissionResp != nil {
-		close(m.PermissionResp)
-		m.PermissionResp = nil
-	}
-	if m.QuestionReq != nil {
-		close(m.QuestionReq)
-		m.QuestionReq = nil
-	}
-	if m.QuestionResp != nil {
-		close(m.QuestionResp)
-		m.QuestionResp = nil
-	}
-	if m.PlanReq != nil {
-		close(m.PlanReq)
-		m.PlanReq = nil
-	}
-	if m.PlanResp != nil {
-		close(m.PlanResp)
-		m.PlanResp = nil
-	}
-	if m.CreateChildReq != nil {
-		close(m.CreateChildReq)
-		m.CreateChildReq = nil
-	}
-	if m.CreateChildResp != nil {
-		close(m.CreateChildResp)
-		m.CreateChildResp = nil
-	}
-	if m.ListChildrenReq != nil {
-		close(m.ListChildrenReq)
-		m.ListChildrenReq = nil
-	}
-	if m.ListChildrenResp != nil {
-		close(m.ListChildrenResp)
-		m.ListChildrenResp = nil
-	}
-	if m.MergeChildReq != nil {
-		close(m.MergeChildReq)
-		m.MergeChildReq = nil
-	}
-	if m.MergeChildResp != nil {
-		close(m.MergeChildResp)
-		m.MergeChildResp = nil
-	}
-	if m.CreatePRReq != nil {
-		close(m.CreatePRReq)
-		m.CreatePRReq = nil
-	}
-	if m.CreatePRResp != nil {
-		close(m.CreatePRResp)
-		m.CreatePRResp = nil
-	}
-	if m.PushBranchReq != nil {
-		close(m.PushBranchReq)
-		m.PushBranchReq = nil
-	}
-	if m.PushBranchResp != nil {
-		close(m.PushBranchResp)
-		m.PushBranchResp = nil
-	}
-	if m.GetReviewCommentsReq != nil {
-		close(m.GetReviewCommentsReq)
-		m.GetReviewCommentsReq = nil
-	}
-	if m.GetReviewCommentsResp != nil {
-		close(m.GetReviewCommentsResp)
-		m.GetReviewCommentsResp = nil
-	}
+	m.Permission.Close()
+	m.Question.Close()
+	m.PlanApproval.Close()
+	m.CreateChild.Close()
+	m.ListChildren.Close()
+	m.MergeChild.Close()
+	m.CreatePR.Close()
+	m.PushBranch.Close()
+	m.GetReviewComments.Close()
 }
 
 // StreamingState tracks state during response streaming.

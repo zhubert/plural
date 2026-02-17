@@ -99,56 +99,24 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	// Start goroutines to forward requests to the TUI via socket and return responses.
 	// Each goroutine exits when its request channel is closed (range loop ends).
 	var wg sync.WaitGroup
-	wg.Add(3)
 
-	go func() {
-		defer wg.Done()
-		for req := range reqChan {
-			resp, err := client.SendPermissionRequest(req)
-			if err != nil {
-				// On error, deny permission
-				respChan <- mcp.PermissionResponse{
-					ID:      req.ID,
-					Allowed: false,
-					Message: "Communication error with TUI",
-				}
-			} else {
-				respChan <- resp
-			}
-		}
-	}()
+	mcp.ForwardRequests(&wg, reqChan, respChan,
+		client.SendPermissionRequest,
+		func(req mcp.PermissionRequest) mcp.PermissionResponse {
+			return mcp.PermissionResponse{ID: req.ID, Allowed: false, Message: "Communication error with TUI"}
+		})
 
-	go func() {
-		defer wg.Done()
-		for req := range questionChan {
-			resp, err := client.SendQuestionRequest(req)
-			if err != nil {
-				// On error, return empty answers
-				answerChan <- mcp.QuestionResponse{
-					ID:      req.ID,
-					Answers: map[string]string{},
-				}
-			} else {
-				answerChan <- resp
-			}
-		}
-	}()
+	mcp.ForwardRequests(&wg, questionChan, answerChan,
+		client.SendQuestionRequest,
+		func(req mcp.QuestionRequest) mcp.QuestionResponse {
+			return mcp.QuestionResponse{ID: req.ID, Answers: map[string]string{}}
+		})
 
-	go func() {
-		defer wg.Done()
-		for req := range planApprovalChan {
-			resp, err := client.SendPlanApprovalRequest(req)
-			if err != nil {
-				// On error, reject the plan
-				planResponseChan <- mcp.PlanApprovalResponse{
-					ID:       req.ID,
-					Approved: false,
-				}
-			} else {
-				planResponseChan <- resp
-			}
-		}
-	}()
+	mcp.ForwardRequests(&wg, planApprovalChan, planResponseChan,
+		client.SendPlanApprovalRequest,
+		func(req mcp.PlanApprovalRequest) mcp.PlanApprovalResponse {
+			return mcp.PlanApprovalResponse{ID: req.ID, Approved: false}
+		})
 
 	// Supervisor channels and forwarding goroutines
 	var serverOpts []mcp.ServerOption
@@ -167,43 +135,23 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		mergeChildChan = make(chan mcp.MergeChildRequest)
 		mergeChildRespChan = make(chan mcp.MergeChildResponse, 1)
 
-		wg.Add(3)
+		mcp.ForwardRequests(&wg, createChildChan, createChildRespChan,
+			client.SendCreateChildRequest,
+			func(req mcp.CreateChildRequest) mcp.CreateChildResponse {
+				return mcp.CreateChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+			})
 
-		go func() {
-			defer wg.Done()
-			for req := range createChildChan {
-				resp, fwdErr := client.SendCreateChildRequest(req)
-				if fwdErr != nil {
-					createChildRespChan <- mcp.CreateChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
-				} else {
-					createChildRespChan <- resp
-				}
-			}
-		}()
+		mcp.ForwardRequests(&wg, listChildrenChan, listChildrenRespChan,
+			client.SendListChildrenRequest,
+			func(req mcp.ListChildrenRequest) mcp.ListChildrenResponse {
+				return mcp.ListChildrenResponse{ID: req.ID, Children: []mcp.ChildSessionInfo{}}
+			})
 
-		go func() {
-			defer wg.Done()
-			for req := range listChildrenChan {
-				resp, fwdErr := client.SendListChildrenRequest(req)
-				if fwdErr != nil {
-					listChildrenRespChan <- mcp.ListChildrenResponse{ID: req.ID, Children: []mcp.ChildSessionInfo{}}
-				} else {
-					listChildrenRespChan <- resp
-				}
-			}
-		}()
-
-		go func() {
-			defer wg.Done()
-			for req := range mergeChildChan {
-				resp, fwdErr := client.SendMergeChildRequest(req)
-				if fwdErr != nil {
-					mergeChildRespChan <- mcp.MergeChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
-				} else {
-					mergeChildRespChan <- resp
-				}
-			}
-		}()
+		mcp.ForwardRequests(&wg, mergeChildChan, mergeChildRespChan,
+			client.SendMergeChildRequest,
+			func(req mcp.MergeChildRequest) mcp.MergeChildResponse {
+				return mcp.MergeChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+			})
 
 		serverOpts = append(serverOpts, mcp.WithSupervisor(
 			createChildChan, createChildRespChan,
@@ -228,43 +176,23 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 		getReviewCommentsChan = make(chan mcp.GetReviewCommentsRequest)
 		getReviewCommentsRespChan = make(chan mcp.GetReviewCommentsResponse, 1)
 
-		wg.Add(3)
+		mcp.ForwardRequests(&wg, createPRChan, createPRRespChan,
+			client.SendCreatePRRequest,
+			func(req mcp.CreatePRRequest) mcp.CreatePRResponse {
+				return mcp.CreatePRResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+			})
 
-		go func() {
-			defer wg.Done()
-			for req := range createPRChan {
-				resp, fwdErr := client.SendCreatePRRequest(req)
-				if fwdErr != nil {
-					createPRRespChan <- mcp.CreatePRResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
-				} else {
-					createPRRespChan <- resp
-				}
-			}
-		}()
+		mcp.ForwardRequests(&wg, pushBranchChan, pushBranchRespChan,
+			client.SendPushBranchRequest,
+			func(req mcp.PushBranchRequest) mcp.PushBranchResponse {
+				return mcp.PushBranchResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+			})
 
-		go func() {
-			defer wg.Done()
-			for req := range pushBranchChan {
-				resp, fwdErr := client.SendPushBranchRequest(req)
-				if fwdErr != nil {
-					pushBranchRespChan <- mcp.PushBranchResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
-				} else {
-					pushBranchRespChan <- resp
-				}
-			}
-		}()
-
-		go func() {
-			defer wg.Done()
-			for req := range getReviewCommentsChan {
-				resp, fwdErr := client.SendGetReviewCommentsRequest(req)
-				if fwdErr != nil {
-					getReviewCommentsRespChan <- mcp.GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
-				} else {
-					getReviewCommentsRespChan <- resp
-				}
-			}
-		}()
+		mcp.ForwardRequests(&wg, getReviewCommentsChan, getReviewCommentsRespChan,
+			client.SendGetReviewCommentsRequest,
+			func(req mcp.GetReviewCommentsRequest) mcp.GetReviewCommentsResponse {
+				return mcp.GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+			})
 
 		serverOpts = append(serverOpts, mcp.WithHostTools(
 			createPRChan, createPRRespChan,
