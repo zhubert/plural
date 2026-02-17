@@ -11,8 +11,8 @@ import (
 )
 
 // ContainerGatewayIP is the hostname of the host as seen from inside a Docker
-// container. Docker Desktop provides this automatically; on Linux Docker Engine,
-// the --add-host flag maps it to the host gateway.
+// container. Docker Desktop and Colima (v0.5.0+) provide this automatically;
+// on Linux Docker Engine, the --add-host flag maps it to the host gateway.
 const ContainerGatewayIP = "host.docker.internal"
 
 // MCPServer represents an external MCP server configuration

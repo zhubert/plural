@@ -890,13 +890,19 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 	args := []string{
 		"run", "-i", "--rm",
 		"--name", containerName,
-		// Maps host.docker.internal to the host's gateway IP. This is primarily
-		// needed for Linux Docker Engine; on Docker Desktop (macOS/Windows) the
-		// mapping is provided automatically by the VM and this is a harmless no-op.
-		"--add-host", "host.docker.internal:host-gateway",
 		"-v", config.WorkingDir + ":/workspace",
 		"-v", homeDir + "/.claude:/home/claude/.claude-host:ro",
 		"-w", "/workspace",
+	}
+
+	// On Linux, explicitly map host.docker.internal to the host gateway IP.
+	// On macOS/Windows, Docker Desktop and Colima both provide native
+	// host.docker.internal resolution. Passing --add-host here would override
+	// Colima's correct mapping (which points to the macOS host) with the Docker
+	// bridge gateway (which points to the Lima VM), breaking container→host
+	// communication.
+	if runtime.GOOS == "linux" {
+		args = append(args, "--add-host", "host.docker.internal:host-gateway")
 	}
 
 	// Pass auth credentials via --env-file.

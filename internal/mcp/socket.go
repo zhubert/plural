@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -180,25 +179,14 @@ func WithHostToolChannels(
 // Unix socket. Used for container sessions where Unix sockets can't cross the
 // Docker container boundary.
 //
-// Bind address selection:
-//   - macOS/Windows: 127.0.0.1 — Docker Desktop routes host.docker.internal
-//     through the VM to the host's loopback, so localhost binding works.
-//   - Linux: 0.0.0.0 — Docker bridge networking requires the host to listen
-//     on an interface reachable from the bridge (host-gateway maps to the
-//     bridge gateway IP, not 127.0.0.1). The port is ephemeral and short-lived.
+// Binds to 0.0.0.0 (all interfaces) because host.docker.internal may resolve
+// to a non-loopback IP depending on the Docker runtime. For example, Colima
+// routes through the Lima VM bridge rather than loopback. The port is ephemeral
+// and short-lived (session lifetime only).
 func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-chan PermissionResponse, questCh chan<- QuestionRequest, ansCh <-chan QuestionResponse, planReqCh chan<- PlanApprovalRequest, planRespCh <-chan PlanApprovalResponse, opts ...SocketServerOption) (*SocketServer, error) {
 	log := logger.WithSession(sessionID).With("component", "mcp-socket")
 
-	// On macOS/Windows (Docker Desktop), bind to loopback for security.
-	// On Linux, bind to all interfaces since host.docker.internal resolves
-	// to the bridge gateway IP, not 127.0.0.1. Note: the ephemeral port is
-	// exposed to the local network on Linux for the lifetime of the session.
-	// This is acceptable for local development; production deployments on
-	// shared Linux hosts should use firewall rules to restrict access.
-	bindAddr := "127.0.0.1:0"
-	if runtime.GOOS == "linux" {
-		bindAddr = "0.0.0.0:0"
-	}
+	bindAddr := "0.0.0.0:0"
 	listener, err := net.Listen("tcp", bindAddr)
 	if err != nil {
 		return nil, err

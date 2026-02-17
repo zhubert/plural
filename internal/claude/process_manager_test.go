@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1175,12 +1176,19 @@ func TestBuildContainerRunArgs(t *testing.T) {
 		t.Error("Should have --rm flag for auto-cleanup")
 	}
 
-	// Verify --add-host for host.docker.internal
-	if !containsArg(args, "--add-host") {
-		t.Error("Should have --add-host flag for host.docker.internal")
-	}
-	if got := getArgValue(args, "--add-host"); got != "host.docker.internal:host-gateway" {
-		t.Errorf("--add-host = %q, want 'host.docker.internal:host-gateway'", got)
+	// Verify --add-host for host.docker.internal (Linux only; on macOS/Windows,
+	// Docker Desktop and Colima provide native resolution)
+	if runtime.GOOS == "linux" {
+		if !containsArg(args, "--add-host") {
+			t.Error("Should have --add-host flag for host.docker.internal on Linux")
+		}
+		if got := getArgValue(args, "--add-host"); got != "host.docker.internal:host-gateway" {
+			t.Errorf("--add-host = %q, want 'host.docker.internal:host-gateway'", got)
+		}
+	} else {
+		if containsArg(args, "--add-host") {
+			t.Error("Should not have --add-host flag on macOS/Windows (native resolution)")
+		}
 	}
 
 	// Verify container name
