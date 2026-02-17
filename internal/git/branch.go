@@ -209,12 +209,21 @@ Example output format:
 		}
 
 		// Parse "N. branch-name" or "N) branch-name"
+		// Use Sscanf only for the number, then extract the full name after the delimiter
+		// to support multi-word names (fmt.Sscanf %s stops at whitespace).
 		var num int
 		var name string
-		if _, err := fmt.Sscanf(line, "%d. %s", &num, &name); err != nil {
-			if _, err := fmt.Sscanf(line, "%d) %s", &num, &name); err != nil {
-				continue
-			}
+		if _, err := fmt.Sscanf(line, "%d", &num); err != nil {
+			continue
+		}
+		// Find the delimiter (". " or ") ") after the number and take everything after it
+		rest := strings.TrimLeft(line, "0123456789")
+		if strings.HasPrefix(rest, ". ") {
+			name = rest[2:]
+		} else if strings.HasPrefix(rest, ") ") {
+			name = rest[2:]
+		} else {
+			continue
 		}
 
 		if num > 0 && name != "" {
