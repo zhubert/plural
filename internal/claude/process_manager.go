@@ -65,16 +65,17 @@ type ProcessManagerInterface interface {
 
 // ProcessConfig holds the configuration for starting a Claude CLI process.
 type ProcessConfig struct {
-	SessionID         string
-	WorkingDir        string
-	RepoPath          string // Main repository path (for containerized worktree support)
-	SessionStarted    bool
-	AllowedTools      []string
-	MCPConfigPath     string
-	ForkFromSessionID string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
-	Containerized     bool   // When true, wraps Claude CLI in a container
-	ContainerImage    string // Container image name (e.g., "ghcr.io/zhubert/plural-claude")
-	Supervisor        bool   // When true, appends supervisor instructions to system prompt
+	SessionID              string
+	WorkingDir             string
+	RepoPath               string // Main repository path (for containerized worktree support)
+	SessionStarted         bool
+	AllowedTools           []string
+	MCPConfigPath          string
+	ForkFromSessionID      string // When set, uses --resume <parentID> --fork-session to inherit parent conversation
+	Containerized          bool   // When true, wraps Claude CLI in a container
+	ContainerImage         string // Container image name (e.g., "ghcr.io/zhubert/plural-claude")
+	Supervisor             bool   // When true, appends supervisor instructions to system prompt
+	DisableStreamingChunks bool   // When true, omits --include-partial-messages for less verbose output (useful for agent mode)
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -206,9 +207,12 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--print",
 			"--output-format", "stream-json",
 			"--input-format", "stream-json",
-			"--include-partial-messages",
 			"--verbose",
 			"--resume", config.SessionID,
+		}
+		// Add streaming chunks flag unless disabled (e.g., for agent mode)
+		if !config.DisableStreamingChunks {
+			args = append(args, "--include-partial-messages")
 		}
 	} else if config.ForkFromSessionID != "" && !config.Containerized {
 		// Forked session - resume parent and fork to inherit conversation history
@@ -220,11 +224,14 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--print",
 			"--output-format", "stream-json",
 			"--input-format", "stream-json",
-			"--include-partial-messages",
 			"--verbose",
 			"--resume", config.ForkFromSessionID,
 			"--fork-session",
 			"--session-id", config.SessionID,
+		}
+		// Add streaming chunks flag unless disabled (e.g., for agent mode)
+		if !config.DisableStreamingChunks {
+			args = append(args, "--include-partial-messages")
 		}
 	} else {
 		// New session
@@ -232,9 +239,12 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			"--print",
 			"--output-format", "stream-json",
 			"--input-format", "stream-json",
-			"--include-partial-messages",
 			"--verbose",
 			"--session-id", config.SessionID,
+		}
+		// Add streaming chunks flag unless disabled (e.g., for agent mode)
+		if !config.DisableStreamingChunks {
+			args = append(args, "--include-partial-messages")
 		}
 	}
 

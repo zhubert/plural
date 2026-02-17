@@ -284,6 +284,12 @@ func (m *MockRunner) SetOnContainerReady(callback func()) {
 	// No-op for mock
 }
 
+// SetDisableStreamingChunks implements RunnerInterface.
+// In mock, this is a no-op since we don't use real streaming.
+func (m *MockRunner) SetDisableStreamingChunks(disable bool) {
+	// No-op for mock
+}
+
 // PermissionRequestChan implements RunnerInterface.
 func (m *MockRunner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	m.mu.RLock()

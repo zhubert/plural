@@ -28,6 +28,7 @@ type RunnerInterface interface {
 	SetForkFromSession(parentSessionID string)
 	SetContainerized(containerized bool, image string)
 	SetOnContainerReady(callback func())
+	SetDisableStreamingChunks(disable bool)
 
 	// Permission/Question/Plan channels
 	PermissionRequestChan() <-chan mcp.PermissionRequest

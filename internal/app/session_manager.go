@@ -392,6 +392,13 @@ func (sm *SessionManager) GetOrCreateRunner(sess *config.Session) claude.RunnerI
 		}
 	}
 
+	// Disable streaming chunks for autonomous sessions (agent mode)
+	// This reduces logging verbosity since real-time streaming is not needed for headless operation
+	if sess.Autonomous {
+		runner.SetDisableStreamingChunks(true)
+		log.Debug("autonomous session, streaming chunks disabled for reduced logging")
+	}
+
 	return runner
 }
 

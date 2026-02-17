@@ -264,6 +264,10 @@ type Runner struct {
 	// Only used for autonomous supervisor sessions running inside containers
 	hostTools bool
 
+	// Disable streaming chunks: when true, omits --include-partial-messages for less verbose output
+	// Useful for agent mode where real-time streaming is not needed
+	disableStreamingChunks bool
+
 	// Container ready callback: invoked when containerized session receives init message
 	onContainerReady func()
 }
@@ -375,6 +379,16 @@ func (r *Runner) SetOnContainerReady(callback func()) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.onContainerReady = callback
+}
+
+// SetDisableStreamingChunks configures the runner to disable streaming chunks.
+// When disabled, Claude CLI will send complete messages instead of partial streaming deltas.
+// This reduces logging verbosity and is useful for agent mode where real-time streaming is not needed.
+func (r *Runner) SetDisableStreamingChunks(disable bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.disableStreamingChunks = disable
+	r.log.Debug("set disable streaming chunks", "disabled", disable)
 }
 
 // PermissionRequestChan returns the channel for receiving permission requests.
@@ -810,16 +824,17 @@ func (r *Runner) ensureProcessRunning() error {
 	// drainStderr, monitorExit) may still be winding down. Reusing it would cause
 	// race conditions between old and new goroutines competing for pipes and locks.
 	config := ProcessConfig{
-		SessionID:         r.sessionID,
-		WorkingDir:        r.workingDir,
-		RepoPath:          r.repoPath,
-		SessionStarted:    r.sessionStarted,
-		AllowedTools:      make([]string, len(r.allowedTools)),
-		MCPConfigPath:     r.mcpConfigPath,
-		ForkFromSessionID: r.forkFromSessionID,
-		Containerized:     r.containerized,
-		ContainerImage:    r.containerImage,
-		Supervisor:        r.supervisor,
+		SessionID:              r.sessionID,
+		WorkingDir:             r.workingDir,
+		RepoPath:               r.repoPath,
+		SessionStarted:         r.sessionStarted,
+		AllowedTools:           make([]string, len(r.allowedTools)),
+		MCPConfigPath:          r.mcpConfigPath,
+		ForkFromSessionID:      r.forkFromSessionID,
+		Containerized:          r.containerized,
+		ContainerImage:         r.containerImage,
+		Supervisor:             r.supervisor,
+		DisableStreamingChunks: r.disableStreamingChunks,
 	}
 	copy(config.AllowedTools, r.allowedTools)
 
@@ -891,10 +906,14 @@ func (r *Runner) handleProcessLine(line string) {
 	}
 
 	// Parse the JSON message
-	// hasStreamEvents is true because we always use --include-partial-messages,
-	// which means text content arrives via stream_event deltas. The full assistant
-	// message text should be skipped to avoid duplication.
-	chunks := parseStreamMessage(line, true, r.log)
+	// hasStreamEvents depends on whether we're using --include-partial-messages.
+	// When enabled (default for TUI), text arrives via stream_event deltas and the full
+	// assistant message text is skipped to avoid duplication.
+	// When disabled (agent mode), complete assistant messages are processed.
+	r.mu.RLock()
+	hasStreamEvents := !r.disableStreamingChunks
+	r.mu.RUnlock()
+	chunks := parseStreamMessage(line, hasStreamEvents, r.log)
 
 	// Get the current response channel (nil if already closed)
 	r.mu.RLock()
