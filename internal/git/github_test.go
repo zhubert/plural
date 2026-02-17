@@ -1052,10 +1052,10 @@ func TestAddIssueLabel_Error(t *testing.T) {
 
 func TestRemoveIssueLabel_Success(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--remove-label", "ready"}, pexec.MockResponse{})
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--remove-label", "queued"}, pexec.MockResponse{})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.RemoveIssueLabel(context.Background(), "/repo", 42, "ready")
+	err := svc.RemoveIssueLabel(context.Background(), "/repo", 42, "queued")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

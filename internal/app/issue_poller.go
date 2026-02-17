@@ -210,7 +210,7 @@ type issueAutoInfo struct {
 const autonomousWIPLabel = "wip"
 
 // createAutonomousIssueSessions creates autonomous containerized sessions for issues.
-// filterLabel is the label that was used to find these issues (e.g., "ready").
+// filterLabel is the label that was used to find these issues (e.g., "queued").
 // When non-empty, the filter label is removed and replaced with "wip".
 func (m *Model) createAutonomousIssueSessions(repoPath, filterLabel string, issueInfos []issueAutoInfo) (tea.Model, tea.Cmd) {
 	branchPrefix := m.config.GetDefaultBranchPrefix()
@@ -316,7 +316,7 @@ func (m *Model) createAutonomousIssueSessions(repoPath, filterLabel string, issu
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			for _, num := range issueNums {
-				// Remove the filter label (e.g., "ready")
+				// Remove the filter label (e.g., "queued")
 				if err := gitSvc.RemoveIssueLabel(ctx, repoPath, num, label); err != nil {
 					log.Error("failed to remove issue label", "issue", num, "label", label, "error", err)
 				}
