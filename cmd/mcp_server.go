@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,14 @@ var autoApprove bool
 var mcpSessionID string
 var mcpSupervisor bool
 var mcpHostTools bool
+
+// osStdin and osStdout are indirections for os.Stdin/os.Stdout,
+// allowing tests to swap them without modifying global process state.
+var osStdin *os.File = os.Stdin
+var osStdout *os.File = os.Stdout
+
+// osPipe wraps os.Pipe for test indirection.
+var osPipe = os.Pipe
 
 var mcpServerCmd = &cobra.Command{
 	Use:    "mcp-server",
@@ -67,11 +76,11 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	var client *mcp.SocketClient
 	var err error
 	if listenAddr != "" {
-		// Reverse TCP: listen and wait for the host to connect
-		client, err = mcp.NewListeningSocketClient(listenAddr)
-		if err != nil {
-			return fmt.Errorf("error listening for TUI connection on %s: %w", listenAddr, err)
-		}
+		// Reverse TCP: listen on the port immediately so Docker can publish it,
+		// but start the MCP JSONRPC server BEFORE blocking on Accept(). This way
+		// Claude CLI can complete its "initialize" handshake over stdin/stdout
+		// while the host TCP connection is established asynchronously.
+		return runListenMode(listenAddr, sessionID)
 	} else if tcpAddr != "" {
 		const maxRetries = 10
 		const retryInterval = 500 * time.Millisecond
@@ -220,11 +229,217 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	if autoApprove {
 		allowedTools = []string{"*"}
 	}
-	server := mcp.NewServer(os.Stdin, os.Stdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID, serverOpts...)
+	server := mcp.NewServer(osStdin, osStdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID, serverOpts...)
 	err = server.Run()
 
 	// Close request channels so the forwarding goroutines exit their range loops,
 	// then wait for them to finish before closing response channels.
+	close(reqChan)
+	close(questionChan)
+	close(planApprovalChan)
+	if mcpSupervisor {
+		close(createChildChan)
+		close(listChildrenChan)
+		close(mergeChildChan)
+	}
+	if mcpHostTools {
+		close(createPRChan)
+		close(pushBranchChan)
+		close(getReviewCommentsChan)
+	}
+	wg.Wait()
+	close(respChan)
+	close(answerChan)
+	close(planResponseChan)
+	if mcpSupervisor {
+		close(createChildRespChan)
+		close(listChildrenRespChan)
+		close(mergeChildRespChan)
+	}
+	if mcpHostTools {
+		close(createPRRespChan)
+		close(pushBranchRespChan)
+		close(getReviewCommentsRespChan)
+	}
+
+	if err != nil {
+		return fmt.Errorf("MCP server error: %w", err)
+	}
+	return nil
+}
+
+// runListenMode handles the --listen flag path for container sessions.
+// It starts the MCP JSONRPC server on stdin/stdout immediately (so Claude CLI
+// can complete initialization), then accepts the host TCP connection in a
+// background goroutine. Permission/question/plan requests are only forwarded
+// once the host connects; until then, --auto-approve handles regular permissions
+// locally.
+func runListenMode(addr string, sessionID string) error {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("error listening on %s: %w", addr, err)
+	}
+
+	// Create all channels
+	reqChan := make(chan mcp.PermissionRequest)
+	respChan := make(chan mcp.PermissionResponse, 1)
+	questionChan := make(chan mcp.QuestionRequest)
+	answerChan := make(chan mcp.QuestionResponse, 1)
+	planApprovalChan := make(chan mcp.PlanApprovalRequest)
+	planResponseChan := make(chan mcp.PlanApprovalResponse, 1)
+
+	var serverOpts []mcp.ServerOption
+	var createChildChan chan mcp.CreateChildRequest
+	var createChildRespChan chan mcp.CreateChildResponse
+	var listChildrenChan chan mcp.ListChildrenRequest
+	var listChildrenRespChan chan mcp.ListChildrenResponse
+	var mergeChildChan chan mcp.MergeChildRequest
+	var mergeChildRespChan chan mcp.MergeChildResponse
+
+	if mcpSupervisor {
+		createChildChan = make(chan mcp.CreateChildRequest)
+		createChildRespChan = make(chan mcp.CreateChildResponse, 1)
+		listChildrenChan = make(chan mcp.ListChildrenRequest)
+		listChildrenRespChan = make(chan mcp.ListChildrenResponse, 1)
+		mergeChildChan = make(chan mcp.MergeChildRequest)
+		mergeChildRespChan = make(chan mcp.MergeChildResponse, 1)
+
+		serverOpts = append(serverOpts, mcp.WithSupervisor(
+			createChildChan, createChildRespChan,
+			listChildrenChan, listChildrenRespChan,
+			mergeChildChan, mergeChildRespChan,
+		))
+	}
+
+	var createPRChan chan mcp.CreatePRRequest
+	var createPRRespChan chan mcp.CreatePRResponse
+	var pushBranchChan chan mcp.PushBranchRequest
+	var pushBranchRespChan chan mcp.PushBranchResponse
+	var getReviewCommentsChan chan mcp.GetReviewCommentsRequest
+	var getReviewCommentsRespChan chan mcp.GetReviewCommentsResponse
+
+	if mcpHostTools {
+		createPRChan = make(chan mcp.CreatePRRequest)
+		createPRRespChan = make(chan mcp.CreatePRResponse, 1)
+		pushBranchChan = make(chan mcp.PushBranchRequest)
+		pushBranchRespChan = make(chan mcp.PushBranchResponse, 1)
+		getReviewCommentsChan = make(chan mcp.GetReviewCommentsRequest)
+		getReviewCommentsRespChan = make(chan mcp.GetReviewCommentsResponse, 1)
+
+		serverOpts = append(serverOpts, mcp.WithHostTools(
+			createPRChan, createPRRespChan,
+			pushBranchChan, pushBranchRespChan,
+			getReviewCommentsChan, getReviewCommentsRespChan,
+		))
+	}
+
+	// Build allowed tools
+	var allowedTools []string
+	if autoApprove {
+		allowedTools = []string{"*"}
+	}
+
+	// Start the MCP JSONRPC server on stdin/stdout in a goroutine.
+	// This responds to Claude CLI's "initialize" handshake immediately.
+	server := mcp.NewServer(osStdin, osStdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID, serverOpts...)
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- server.Run()
+	}()
+
+	// Accept host connection in a background goroutine.
+	type acceptResult struct {
+		conn net.Conn
+		err  error
+	}
+	acceptCh := make(chan acceptResult, 1)
+	go func() {
+		conn, err := ln.Accept()
+		acceptCh <- acceptResult{conn, err}
+	}()
+
+	// Wait for either the host to connect or the server to exit.
+	var client *mcp.SocketClient
+	var wg sync.WaitGroup
+
+	select {
+	case result := <-acceptCh:
+		// Host connected — wire up forwarding goroutines
+		ln.Close()
+		if result.err != nil {
+			// Accept failed; wait for server to finish and return
+			err := <-serverDone
+			if err != nil {
+				return fmt.Errorf("MCP server error: %w", err)
+			}
+			return fmt.Errorf("accept error: %w", result.err)
+		}
+
+		client = mcp.NewSocketClientFromConn(result.conn)
+		defer client.Close()
+
+		mcp.ForwardRequests(&wg, reqChan, respChan,
+			client.SendPermissionRequest,
+			func(req mcp.PermissionRequest) mcp.PermissionResponse {
+				return mcp.PermissionResponse{ID: req.ID, Allowed: false, Message: "Communication error with TUI"}
+			})
+		mcp.ForwardRequests(&wg, questionChan, answerChan,
+			client.SendQuestionRequest,
+			func(req mcp.QuestionRequest) mcp.QuestionResponse {
+				return mcp.QuestionResponse{ID: req.ID, Answers: map[string]string{}}
+			})
+		mcp.ForwardRequests(&wg, planApprovalChan, planResponseChan,
+			client.SendPlanApprovalRequest,
+			func(req mcp.PlanApprovalRequest) mcp.PlanApprovalResponse {
+				return mcp.PlanApprovalResponse{ID: req.ID, Approved: false}
+			})
+
+		if mcpSupervisor {
+			mcp.ForwardRequests(&wg, createChildChan, createChildRespChan,
+				client.SendCreateChildRequest,
+				func(req mcp.CreateChildRequest) mcp.CreateChildResponse {
+					return mcp.CreateChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				})
+			mcp.ForwardRequests(&wg, listChildrenChan, listChildrenRespChan,
+				client.SendListChildrenRequest,
+				func(req mcp.ListChildrenRequest) mcp.ListChildrenResponse {
+					return mcp.ListChildrenResponse{ID: req.ID, Children: []mcp.ChildSessionInfo{}}
+				})
+			mcp.ForwardRequests(&wg, mergeChildChan, mergeChildRespChan,
+				client.SendMergeChildRequest,
+				func(req mcp.MergeChildRequest) mcp.MergeChildResponse {
+					return mcp.MergeChildResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				})
+		}
+
+		if mcpHostTools {
+			mcp.ForwardRequests(&wg, createPRChan, createPRRespChan,
+				client.SendCreatePRRequest,
+				func(req mcp.CreatePRRequest) mcp.CreatePRResponse {
+					return mcp.CreatePRResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				})
+			mcp.ForwardRequests(&wg, pushBranchChan, pushBranchRespChan,
+				client.SendPushBranchRequest,
+				func(req mcp.PushBranchRequest) mcp.PushBranchResponse {
+					return mcp.PushBranchResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				})
+			mcp.ForwardRequests(&wg, getReviewCommentsChan, getReviewCommentsRespChan,
+				client.SendGetReviewCommentsRequest,
+				func(req mcp.GetReviewCommentsRequest) mcp.GetReviewCommentsResponse {
+					return mcp.GetReviewCommentsResponse{ID: req.ID, Success: false, Error: "Communication error with TUI"}
+				})
+		}
+
+		// Wait for the JSONRPC server to finish (Claude CLI closes stdin)
+		err = <-serverDone
+
+	case err = <-serverDone:
+		// Server exited before host connected (e.g., Claude CLI closed stdin).
+		// Close listener to unblock the Accept goroutine.
+		ln.Close()
+	}
+
+	// Clean up channels and forwarding goroutines
 	close(reqChan)
 	close(questionChan)
 	close(planApprovalChan)

@@ -992,6 +992,92 @@ func TestNewListeningSocketClient(t *testing.T) {
 	}
 }
 
+func TestNewSocketClientFromConn(t *testing.T) {
+	// Use net.Pipe to create an in-memory bidirectional connection
+	clientSide, serverSide := net.Pipe()
+	defer serverSide.Close()
+
+	client := NewSocketClientFromConn(clientSide)
+	if client == nil {
+		t.Fatal("NewSocketClientFromConn returned nil")
+	}
+	defer client.Close()
+
+	// Verify the client can send/receive by writing from the server side
+	// and reading from the client side
+	testMsg := `{"type":"permission","permResp":{"id":"from-conn","allowed":true}}` + "\n"
+	go func() {
+		serverSide.Write([]byte(testMsg))
+	}()
+
+	line, err := client.reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("Client read failed: %v", err)
+	}
+	if line != testMsg {
+		t.Errorf("Client received = %q, want %q", line, testMsg)
+	}
+}
+
+func TestNewSocketClientFromConn_Integration(t *testing.T) {
+	// Full round-trip: use NewSocketClientFromConn with a SocketServer via HandleConn
+	permReqCh := make(chan PermissionRequest, 1)
+	permRespCh := make(chan PermissionResponse, 1)
+	questReqCh := make(chan QuestionRequest, 1)
+	questRespCh := make(chan QuestionResponse, 1)
+	planReqCh := make(chan PlanApprovalRequest, 1)
+	planRespCh := make(chan PlanApprovalResponse, 1)
+
+	server := NewDialingSocketServer("test-from-conn-int", permReqCh, permRespCh, questReqCh, questRespCh, planReqCh, planRespCh)
+	defer server.Close()
+
+	clientConn, serverConn := net.Pipe()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.HandleConn(serverConn)
+	}()
+
+	// Handle the permission request on the server side
+	go func() {
+		select {
+		case req := <-permReqCh:
+			permRespCh <- PermissionResponse{
+				ID:      req.ID,
+				Allowed: true,
+				Message: "Approved via FromConn",
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Timeout waiting for permission request")
+		}
+	}()
+
+	client := NewSocketClientFromConn(clientConn)
+	defer client.Close()
+
+	resp, err := client.SendPermissionRequest(PermissionRequest{
+		ID:   "fromconn-perm-1",
+		Tool: "Read",
+	})
+	if err != nil {
+		t.Fatalf("SendPermissionRequest failed: %v", err)
+	}
+
+	if resp.ID != "fromconn-perm-1" {
+		t.Errorf("Response ID = %q, want 'fromconn-perm-1'", resp.ID)
+	}
+	if !resp.Allowed {
+		t.Error("Expected Allowed to be true")
+	}
+	if resp.Message != "Approved via FromConn" {
+		t.Errorf("Message = %q, want 'Approved via FromConn'", resp.Message)
+	}
+
+	clientConn.Close()
+	<-done
+}
+
 // contains checks if s contains substr (helper for tests)
 func contains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
