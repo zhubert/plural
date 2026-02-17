@@ -3211,8 +3211,10 @@ func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	started := make(chan struct{})
 	go func() {
 		defer wg.Done()
+		close(started) // signal we've started
 		for range 100 {
 			runner.handleProcessLine(line)
 		}
@@ -3220,8 +3222,7 @@ func TestRunner_StreamLogFile_NoRaceWithStop(t *testing.T) {
 
 	go func() {
 		defer wg.Done()
-		// Give handleProcessLine a head start so calls overlap
-		time.Sleep(time.Millisecond)
+		<-started // wait for handleProcessLine goroutine to start
 		runner.Stop()
 	}()
 

@@ -217,7 +217,7 @@ func TestSocketClientServer_Integration(t *testing.T) {
 	server.Start()
 
 	// Give server time to start
-	time.Sleep(50 * time.Millisecond)
+	server.WaitReady()
 
 	// Create client
 	client, err := NewSocketClient(server.SocketPath())
@@ -288,7 +288,7 @@ func TestSocketClientServer_Question(t *testing.T) {
 	// Start server
 	server.Start()
 
-	time.Sleep(50 * time.Millisecond)
+	server.WaitReady()
 
 	client, err := NewSocketClient(server.SocketPath())
 	if err != nil {
@@ -374,7 +374,7 @@ func TestSocketClientServer_PlanApproval(t *testing.T) {
 	// Start server
 	server.Start()
 
-	time.Sleep(50 * time.Millisecond)
+	server.WaitReady()
 
 	client, err := NewSocketClient(server.SocketPath())
 	if err != nil {
@@ -542,7 +542,7 @@ func TestTCPClientServer_Integration(t *testing.T) {
 	server.Start()
 
 	// Give server time to start
-	time.Sleep(50 * time.Millisecond)
+	server.WaitReady()
 
 	// Create TCP client
 	client, err := NewTCPSocketClient(server.TCPAddr())
@@ -609,7 +609,7 @@ func TestTCPClientServer_Question(t *testing.T) {
 	defer server.Close()
 
 	server.Start()
-	time.Sleep(50 * time.Millisecond)
+	server.WaitReady()
 
 	client, err := NewTCPSocketClient(server.TCPAddr())
 	if err != nil {
@@ -668,7 +668,7 @@ func TestTCPClientServer_PlanApproval(t *testing.T) {
 	defer server.Close()
 
 	server.Start()
-	time.Sleep(50 * time.Millisecond)
+	server.WaitReady()
 
 	client, err := NewTCPSocketClient(server.TCPAddr())
 	if err != nil {
