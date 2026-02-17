@@ -97,6 +97,7 @@ type SocketServer struct {
 	closed                bool           // Set to true when Close() is called
 	closedMu              sync.RWMutex   // Guards closed flag
 	wg                    sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
+	readyCh               chan struct{}   // Closed when the server is ready to accept connections
 	log                   *slog.Logger   // Logger with session context
 }
 
@@ -131,6 +132,7 @@ func NewSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh <-
 		answerCh:   ansCh,
 		planReqCh:  planReqCh,
 		planRespCh: planRespCh,
+		readyCh:    make(chan struct{}),
 		log:        log,
 	}
 	for _, opt := range opts {
@@ -214,6 +216,7 @@ func NewTCPSocketServer(sessionID string, reqCh chan<- PermissionRequest, respCh
 		answerCh:   ansCh,
 		planReqCh:  planReqCh,
 		planRespCh: planRespCh,
+		readyCh:    make(chan struct{}),
 		log:        log,
 	}
 	for _, opt := range opts {
@@ -255,10 +258,17 @@ func (s *SocketServer) Start() {
 	go s.Run()
 }
 
+// WaitReady blocks until the server is ready to accept connections.
+func (s *SocketServer) WaitReady() {
+	<-s.readyCh
+}
+
 // Run starts accepting connections. Must be paired with a wg.Add(1) call
 // before the goroutine is launched — use Start() instead of calling go Run() directly.
 func (s *SocketServer) Run() {
 	defer s.wg.Done()
+
+	close(s.readyCh)
 
 	for {
 		// Check if we're closed before accepting
