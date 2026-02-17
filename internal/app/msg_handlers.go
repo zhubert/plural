@@ -10,7 +10,6 @@ import (
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/mcp"
 	"github.com/zhubert/plural/internal/notification"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -153,82 +152,6 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 		return m, func() tea.Msg {
 			return SendPendingMessageMsg{SessionID: sessionID}
 		}
-	}
-
-	// Emit SessionCompletedMsg for autonomous sessions
-	if sess != nil && sess.Autonomous {
-		state := m.sessionState().GetOrCreate(sessionID)
-
-		// Initialize autonomous start time if not already set
-		// (e.g., for sessions created via issue poller or child sessions where
-		// shortcutToggleAutonomous wasn't called)
-		if state.GetAutonomousStartTime().IsZero() {
-			state.SetAutonomousStartTime(m.sessionState().GetStreamingStartTimeOrNow(sessionID))
-		}
-
-		turns := state.IncrementAutonomousTurns()
-		maxTurns := m.config.GetAutoMaxTurns()
-		maxDuration := time.Duration(m.config.GetAutoMaxDurationMin()) * time.Minute
-		elapsed := time.Since(state.GetAutonomousStartTime())
-
-		// Check limits
-		if turns >= maxTurns {
-			logger.WithSession(sessionID).Warn("autonomous session hit turn limit", "turns", turns, "max", maxTurns)
-			limitCmd := func() tea.Msg {
-				return AutonomousLimitReachedMsg{SessionID: sessionID, Reason: "turn_limit"}
-			}
-			if completionCmd != nil {
-				return m, tea.Batch(completionCmd, limitCmd)
-			}
-			return m, limitCmd
-		}
-		if elapsed >= maxDuration {
-			logger.WithSession(sessionID).Warn("autonomous session hit duration limit", "elapsed", elapsed, "max", maxDuration)
-			limitCmd := func() tea.Msg {
-				return AutonomousLimitReachedMsg{SessionID: sessionID, Reason: "duration_limit"}
-			}
-			if completionCmd != nil {
-				return m, tea.Batch(completionCmd, limitCmd)
-			}
-			return m, limitCmd
-		}
-
-		// Supervisor sessions with active children should not be considered
-		// complete yet — children will notify the supervisor via
-		// SendPendingMessageMsg when they finish, which triggers another
-		// Claude response. The supervisor only truly completes when Claude
-		// finishes a response with no active children remaining.
-		if sess.IsSupervisor {
-			children := m.config.GetChildSessions(sessionID)
-			for _, child := range children {
-				childRunner := m.sessionMgr.GetRunner(child.ID)
-				if childRunner != nil && childRunner.IsStreaming() {
-					logger.WithSession(sessionID).Debug("supervisor has active children, deferring completion")
-					if completionCmd != nil {
-						return m, completionCmd
-					}
-					return m, nil
-				}
-				if childState := m.sessionState().GetIfExists(child.ID); childState != nil {
-					if childState.GetIsWaiting() || childState.IsMerging() {
-						logger.WithSession(sessionID).Debug("supervisor has active children, deferring completion")
-						if completionCmd != nil {
-							return m, completionCmd
-						}
-						return m, nil
-					}
-				}
-			}
-		}
-
-		// Emit completion event (no pending interactions)
-		completedCmd := func() tea.Msg {
-			return SessionCompletedMsg{SessionID: sessionID}
-		}
-		if completionCmd != nil {
-			return m, tea.Batch(completionCmd, completedCmd)
-		}
-		return m, completedCmd
 	}
 
 	if completionCmd != nil {
@@ -418,12 +341,6 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 	case MergeTypePR:
 		m.config.MarkSessionPRCreated(sessionID)
 		log.Info("marked session as PR created")
-		// Phase 5A: Start auto-merge state machine (review → CI → merge)
-		sess := m.config.GetSession(sessionID)
-		if sess != nil && sess.Autonomous && m.config.GetRepoAutoMerge(sess.RepoPath) {
-			log.Info("starting auto-merge polling", "branch", sess.Branch)
-			cmds = append(cmds, m.pollForAutoMerge(sessionID))
-		}
 	case MergeTypeMerge:
 		m.config.MarkSessionMerged(sessionID)
 		log.Info("marked session as merged")
@@ -554,39 +471,6 @@ func (m *Model) handleQuestionRequestMsg(msg QuestionRequestMsg) (tea.Model, tea
 		return m, nil
 	}
 
-	// Auto-respond for autonomous sessions
-	sess := m.config.GetSession(msg.SessionID)
-	if sess != nil && sess.Autonomous {
-		log.Info("auto-responding to question (autonomous mode)")
-
-		// Build auto-response: select first option for each question
-		answers := make(map[string]string)
-		for _, q := range msg.Request.Questions {
-			if len(q.Options) > 0 {
-				answers[q.Question] = q.Options[0].Label
-			} else {
-				answers[q.Question] = "Continue as you see fit"
-			}
-		}
-
-		resp := mcp.QuestionResponse{
-			ID:      msg.Request.ID,
-			Answers: answers,
-		}
-		runner.SendQuestionResponse(resp)
-
-		// Log auto-response in chat
-		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
-		autoMsg := "[AUTO-RESPONSE] Answered question automatically"
-		if isActiveSession {
-			m.chat.AppendStreaming("\n" + autoMsg + "\n")
-		} else {
-			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + autoMsg + "\n")
-		}
-
-		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
-	}
-
 	// Store question request for this session
 	log.Debug("question request received", "questionCount", len(msg.Request.Questions))
 	m.sessionState().GetOrCreate(msg.SessionID).SetPendingQuestion(&msg.Request)
@@ -611,29 +495,6 @@ func (m *Model) handlePlanApprovalRequestMsg(msg PlanApprovalRequestMsg) (tea.Mo
 	if !exists {
 		log.Warn("received plan approval request for unknown session")
 		return m, nil
-	}
-
-	// Auto-approve for autonomous sessions
-	sess := m.config.GetSession(msg.SessionID)
-	if sess != nil && sess.Autonomous {
-		log.Info("auto-approving plan (autonomous mode)")
-
-		resp := mcp.PlanApprovalResponse{
-			ID:       msg.Request.ID,
-			Approved: true,
-		}
-		runner.SendPlanApprovalResponse(resp)
-
-		// Log auto-response in chat
-		isActiveSession := m.activeSession != nil && m.activeSession.ID == msg.SessionID
-		autoMsg := "[AUTO-RESPONSE] Plan approved automatically"
-		if isActiveSession {
-			m.chat.AppendStreaming("\n" + autoMsg + "\n")
-		} else {
-			m.sessionState().GetOrCreate(msg.SessionID).AppendStreamingContent("\n" + autoMsg + "\n")
-		}
-
-		return m, tea.Batch(m.sessionListeners(msg.SessionID, runner, nil)...)
 	}
 
 	// Store plan approval request for this session
@@ -759,39 +620,13 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 			log.Info("PR merged on GitHub", "session", sessionName)
 			m.config.MarkSessionPRMerged(result.SessionID)
 			changed = true
-
-			// Remove "wip" label from the issue now that work is complete
-			if cmd := m.removeIssueWIPLabel(sess); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-
-			if m.config.GetAutoCleanupMerged() {
-				cleanupCmd := m.autoCleanupSession(result.SessionID, sessionName, "merged")
-				if cleanupCmd != nil {
-					cmds = append(cmds, cleanupCmd)
-				}
-			} else {
-				cmds = append(cmds, m.ShowFlashSuccess("PR merged: "+sessionName))
-			}
+			cmds = append(cmds, m.ShowFlashSuccess("PR merged: "+sessionName))
 
 		case git.PRStateClosed:
 			log.Info("PR closed on GitHub", "session", sessionName)
 			m.config.MarkSessionPRClosed(result.SessionID)
 			changed = true
-
-			// Remove "wip" label from the issue now that work is complete
-			if cmd := m.removeIssueWIPLabel(sess); cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-
-			if m.config.GetAutoCleanupMerged() {
-				cleanupCmd := m.autoCleanupSession(result.SessionID, sessionName, "closed")
-				if cleanupCmd != nil {
-					cmds = append(cmds, cleanupCmd)
-				}
-			} else {
-				cmds = append(cmds, m.ShowFlashWarning("PR closed: "+sessionName))
-			}
+			cmds = append(cmds, m.ShowFlashWarning("PR closed: "+sessionName))
 
 		case git.PRStateOpen:
 			// Check for new comments on open PRs
@@ -806,12 +641,6 @@ func (m *Model) handlePRBatchStatusCheckMsg(msg PRBatchStatusCheckMsg) (tea.Mode
 				// Update comment count
 				m.config.UpdateSessionPRCommentCount(result.SessionID, result.CommentCount)
 				changed = true
-
-				// Auto-address comments for autonomous sessions
-				if sess.Autonomous && m.config.GetAutoAddressPRComments() {
-					log.Info("auto-fetching PR comments for autonomous session")
-					cmds = append(cmds, m.autoFetchAndSendPRComments(result.SessionID))
-				}
 			}
 		}
 	}

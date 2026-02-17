@@ -68,13 +68,6 @@ type SessionState struct {
 	ContainerInitializing bool      // true during container startup
 	ContainerInitStart    time.Time // When container init started
 
-	// Autonomous mode state
-	AutonomousTurns     int       // Number of autonomous turns completed
-	AutonomousStartTime time.Time // When autonomous mode started (for duration limit)
-
-	// Auto-merge polling guard - prevents multiple concurrent polling chains
-	AutoMergePolling bool
-
 	// Pending merge child request ID (for supervisor MCP tool correlation).
 	// Uses interface{} because JSON-RPC request IDs can be numbers or strings.
 	PendingMergeChildRequestID interface{}
@@ -718,10 +711,6 @@ func (m *SessionStateManager) Delete(sessionID string) {
 		state.DetectedOptions = nil
 		state.CurrentTodoList = nil
 		state.ToolUseRollup = nil
-		state.AutonomousTurns = 0
-		state.AutonomousStartTime = time.Time{}
-		state.AutoMergePolling = false
-
 		state.mu.Unlock()
 		delete(m.states, sessionID)
 	}
@@ -945,50 +934,6 @@ func (m *SessionStateManager) GetContainerInitStart(sessionID string) (time.Time
 	return time.Time{}, false
 }
 
-// --- Thread-safe accessors for Autonomous state ---
-
-// GetAutonomousTurns returns the number of autonomous turns completed.
-// Thread-safe.
-func (s *SessionState) GetAutonomousTurns() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.AutonomousTurns
-}
-
-// IncrementAutonomousTurns increments the autonomous turn counter and returns the new value.
-// Thread-safe.
-func (s *SessionState) IncrementAutonomousTurns() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.AutonomousTurns++
-	return s.AutonomousTurns
-}
-
-// GetAutonomousStartTime returns when autonomous mode started.
-// Thread-safe.
-func (s *SessionState) GetAutonomousStartTime() time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.AutonomousStartTime
-}
-
-// SetAutonomousStartTime sets when autonomous mode started.
-// Thread-safe.
-func (s *SessionState) SetAutonomousStartTime(t time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.AutonomousStartTime = t
-}
-
-// ResetAutonomousState resets autonomous mode tracking state.
-// Thread-safe.
-func (s *SessionState) ResetAutonomousState() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.AutonomousTurns = 0
-	s.AutonomousStartTime = time.Time{}
-}
-
 // --- Thread-safe accessors for PendingMergeChildRequestID ---
 
 // GetPendingMergeChildRequestID returns the stored merge child request ID.
@@ -1003,24 +948,6 @@ func (s *SessionState) SetPendingMergeChildRequestID(id interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.PendingMergeChildRequestID = id
-}
-
-// --- Thread-safe accessors for AutoMergePolling ---
-
-// GetAutoMergePolling returns whether auto-merge polling is active.
-// Thread-safe.
-func (s *SessionState) GetAutoMergePolling() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.AutoMergePolling
-}
-
-// SetAutoMergePolling sets whether auto-merge polling is active.
-// Thread-safe.
-func (s *SessionState) SetAutoMergePolling(polling bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.AutoMergePolling = polling
 }
 
 // getOrCreate returns existing state or creates new one. Caller must hold lock.

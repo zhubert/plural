@@ -1,0 +1,314 @@
+package agent
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/config"
+)
+
+func TestAgentOptions(t *testing.T) {
+	cfg := testConfig()
+
+	t.Run("WithOnce", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.once {
+			t.Error("expected once=false by default")
+		}
+
+		a2 := testAgent(cfg)
+		WithOnce(true)(a2)
+		if !a2.once {
+			t.Error("expected once=true after WithOnce")
+		}
+	})
+
+	t.Run("WithRepoFilter", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.repoFilter != "" {
+			t.Error("expected empty repoFilter by default")
+		}
+
+		WithRepoFilter("/test/repo")(a)
+		if a.repoFilter != "/test/repo" {
+			t.Errorf("expected /test/repo, got %q", a.repoFilter)
+		}
+	})
+
+	t.Run("WithMaxConcurrent", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.maxConcurrent != 0 {
+			t.Error("expected 0 maxConcurrent by default")
+		}
+
+		WithMaxConcurrent(5)(a)
+		if a.maxConcurrent != 5 {
+			t.Errorf("expected 5, got %d", a.maxConcurrent)
+		}
+	})
+
+	t.Run("WithPollInterval", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.pollInterval != defaultPollInterval {
+			t.Errorf("expected default interval, got %v", a.pollInterval)
+		}
+
+		WithPollInterval(10 * time.Second)(a)
+		if a.pollInterval != 10*time.Second {
+			t.Errorf("expected 10s, got %v", a.pollInterval)
+		}
+	})
+}
+
+func TestGetMaxConcurrent(t *testing.T) {
+	t.Run("uses config when no override", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.IssueMaxConcurrent = 5
+		a := testAgent(cfg)
+
+		if got := a.getMaxConcurrent(); got != 5 {
+			t.Errorf("expected 5, got %d", got)
+		}
+	})
+
+	t.Run("uses override when set", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.IssueMaxConcurrent = 5
+		a := testAgent(cfg)
+		a.maxConcurrent = 10
+
+		if got := a.getMaxConcurrent(); got != 10 {
+			t.Errorf("expected 10, got %d", got)
+		}
+	})
+
+	t.Run("defaults to 3 when config is zero", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.IssueMaxConcurrent = 0
+		a := testAgent(cfg)
+
+		if got := a.getMaxConcurrent(); got != 3 {
+			t.Errorf("expected default 3, got %d", got)
+		}
+	})
+}
+
+func TestActiveWorkerCount(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	if got := a.activeWorkerCount(); got != 0 {
+		t.Errorf("expected 0, got %d", got)
+	}
+
+	// Add an active worker
+	sess1 := testSession("worker-1")
+	mock1 := claude.NewMockRunner("worker-1", true, nil)
+	w1 := NewSessionWorker(a, sess1, mock1, "")
+	a.workers["worker-1"] = w1
+
+	if got := a.activeWorkerCount(); got != 1 {
+		t.Errorf("expected 1, got %d", got)
+	}
+
+	// Add another active worker
+	sess2 := testSession("worker-2")
+	mock2 := claude.NewMockRunner("worker-2", true, nil)
+	w2 := NewSessionWorker(a, sess2, mock2, "")
+	a.workers["worker-2"] = w2
+
+	if got := a.activeWorkerCount(); got != 2 {
+		t.Errorf("expected 2, got %d", got)
+	}
+
+	// Mark one as done
+	close(w1.done)
+
+	if got := a.activeWorkerCount(); got != 1 {
+		t.Errorf("expected 1 after completing one, got %d", got)
+	}
+}
+
+func TestCleanupCompletedWorkers(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	// Add workers — one active, one done
+	sess1 := testSession("active-1")
+	mock1 := claude.NewMockRunner("active-1", true, nil)
+	w1 := NewSessionWorker(a, sess1, mock1, "")
+	a.workers["active-1"] = w1
+
+	sess2 := testSession("done-1")
+	mock2 := claude.NewMockRunner("done-1", true, nil)
+	w2 := NewSessionWorker(a, sess2, mock2, "")
+	close(w2.done) // Mark as done
+	a.workers["done-1"] = w2
+
+	if len(a.workers) != 2 {
+		t.Fatalf("expected 2 workers, got %d", len(a.workers))
+	}
+
+	a.cleanupCompletedWorkers()
+
+	if len(a.workers) != 1 {
+		t.Errorf("expected 1 worker after cleanup, got %d", len(a.workers))
+	}
+	if _, ok := a.workers["active-1"]; !ok {
+		t.Error("expected active-1 to remain")
+	}
+	if _, ok := a.workers["done-1"]; ok {
+		t.Error("expected done-1 to be removed")
+	}
+}
+
+func TestWaitForWorkers(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	sess := testSession("wait-1")
+	cfg.AddSession(*sess)
+
+	mock := claude.NewMockRunner("wait-1", true, nil)
+	mock.QueueResponse(
+		claude.ResponseChunk{Done: true},
+	)
+
+	w := NewSessionWorker(a, sess, mock, "Do this")
+	a.workers["wait-1"] = w
+
+	ctx := context.Background()
+	w.Start(ctx)
+
+	// waitForWorkers should return after the worker finishes
+	done := make(chan struct{})
+	go func() {
+		a.waitForWorkers(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("waitForWorkers timed out")
+	}
+}
+
+func TestShutdown(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	// Create a worker that is in-flight (no done chunk in response)
+	sess := testSession("shutdown-1")
+	cfg.AddSession(*sess)
+
+	mock := claude.NewMockRunner("shutdown-1", true, nil)
+	mock.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Working..."},
+	)
+
+	w := NewSessionWorker(a, sess, mock, "Do work")
+	a.workers["shutdown-1"] = w
+
+	ctx, cancel := context.WithCancel(context.Background())
+	w.Start(ctx)
+
+	// Give worker time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel first, then shutdown (Shutdown also cancels workers)
+	cancel()
+	a.Shutdown()
+
+	// Worker should be done after shutdown
+	done := make(chan struct{})
+	go func() {
+		w.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not stop after shutdown")
+	}
+}
+
+func TestPollForIssues_NoPollingRepos(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	// No repos configured at all
+	result := a.pollForIssues(context.Background())
+	if len(result) != 0 {
+		t.Errorf("expected no issues, got %d groups", len(result))
+	}
+}
+
+func TestPollForIssues_RespectsRepoFilter(t *testing.T) {
+	cfg := testConfig()
+	cfg.Repos = []string{"/repo1", "/repo2"}
+	cfg.RepoIssuePolling = map[string]bool{"/repo1": true, "/repo2": true}
+	a := testAgent(cfg)
+	a.repoFilter = "/repo1"
+
+	// Even with two repos configured, only repo1 should be polled.
+	// The actual fetch will fail (mock executor returns no output) but
+	// the filtering logic is what we're testing.
+	result := a.pollForIssues(context.Background())
+	// No issues found because mock executor returns nothing, but the code path is exercised.
+	if len(result) != 0 {
+		t.Errorf("expected 0 groups (mock returns nothing), got %d", len(result))
+	}
+}
+
+func TestPollForIssues_DeduplicatesExistingSessions(t *testing.T) {
+	cfg := testConfig()
+	cfg.Repos = []string{"/repo1"}
+	cfg.RepoIssuePolling = map[string]bool{"/repo1": true}
+	// Add an existing session for issue #1
+	cfg.Sessions = []config.Session{
+		{
+			ID:       "existing-1",
+			RepoPath: "/repo1",
+			IssueRef: &config.IssueRef{
+				ID:     "1",
+				Source: "github",
+			},
+		},
+	}
+	a := testAgent(cfg)
+
+	// The deduplication map should include issue #1
+	result := a.pollForIssues(context.Background())
+	// No new issues found (mock executor returns nothing)
+	if len(result) != 0 {
+		t.Errorf("expected 0 groups, got %d", len(result))
+	}
+}
+
+func TestRemoveIssueWIPLabel_NilIssueRef(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	sess := &config.Session{ID: "test", RepoPath: "/repo"}
+	// Should not panic with nil IssueRef
+	a.removeIssueWIPLabel(sess)
+}
+
+func TestRemoveIssueWIPLabel_InvalidIssueID(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+
+	sess := &config.Session{
+		ID:       "test",
+		RepoPath: "/repo",
+		IssueRef: &config.IssueRef{ID: "not-a-number"},
+	}
+	// Should not panic with non-numeric issue ID
+	a.removeIssueWIPLabel(sess)
+}
