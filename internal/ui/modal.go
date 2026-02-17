@@ -63,6 +63,7 @@ type (
 	ContainerBuildState      = modals.ContainerBuildState
 	ContainerCommandState    = modals.ContainerCommandState
 	AsanaProjectOption       = modals.AsanaProjectOption
+	LinearTeamOption         = modals.LinearTeamOption
 	RepoSettingsState        = modals.RepoSettingsState
 	SessionSettingsState     = modals.SessionSettingsState
 )

@@ -177,7 +177,7 @@ func TestSettingsState_ContainersSupported(t *testing.T) {
 // =============================================================================
 
 func newTestRepoSettingsState(asanaPATSet bool) *RepoSettingsState {
-	return NewRepoSettingsState("/path/to/myrepo", asanaPATSet, "")
+	return NewRepoSettingsState("/path/to/myrepo", asanaPATSet, "", false, "")
 }
 
 func TestRepoSettingsState_Title(t *testing.T) {
@@ -255,7 +255,7 @@ func TestRepoSettingsState_Render_AsanaError(t *testing.T) {
 }
 
 func TestRepoSettingsState_Render_AsanaProjectList(t *testing.T) {
-	s := NewRepoSettingsState("/repo/a", true, "p1")
+	s := NewRepoSettingsState("/repo/a", true, "p1", false, "")
 
 	options := []AsanaProjectOption{
 		{GID: "", Name: "(none)"},
@@ -273,7 +273,7 @@ func TestRepoSettingsState_Render_AsanaProjectList(t *testing.T) {
 }
 
 func TestRepoSettingsState_GetAsanaProject(t *testing.T) {
-	s := NewRepoSettingsState("/repo/a", true, "p1")
+	s := NewRepoSettingsState("/repo/a", true, "p1", false, "")
 	if s.GetAsanaProject() != "p1" {
 		t.Errorf("Expected 'p1', got %q", s.GetAsanaProject())
 	}
@@ -311,11 +311,117 @@ func TestRepoSettingsState_Help_WithAsana(t *testing.T) {
 	}
 }
 
-func TestRepoSettingsState_Help_NoAsana(t *testing.T) {
+func TestRepoSettingsState_Help_NoProviders(t *testing.T) {
 	s := newTestRepoSettingsState(false)
 	help := s.Help()
 	if !strings.Contains(help, "Esc") {
 		t.Errorf("Help should mention Esc, got %q", help)
+	}
+}
+
+func TestRepoSettingsState_LinearFields(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", false, "", true, "team-123")
+	if !s.LinearAPIKeySet {
+		t.Error("LinearAPIKeySet should be true")
+	}
+	if !s.LinearLoading {
+		t.Error("LinearLoading should be true initially when API key set")
+	}
+	if s.GetLinearTeam() != "team-123" {
+		t.Errorf("Expected Linear team 'team-123', got %q", s.GetLinearTeam())
+	}
+}
+
+func TestRepoSettingsState_SetLinearTeams(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", false, "", true, "")
+
+	options := []LinearTeamOption{
+		{ID: "", Name: "(none)"},
+		{ID: "t1", Name: "Engineering"},
+		{ID: "t2", Name: "Product"},
+	}
+	s.SetLinearTeams(options)
+
+	if s.LinearLoading {
+		t.Error("Expected LinearLoading to be false after SetLinearTeams")
+	}
+	if s.LinearLoadError != "" {
+		t.Errorf("Expected no error, got %q", s.LinearLoadError)
+	}
+	if s.form == nil {
+		t.Error("Expected form to be created after SetLinearTeams")
+	}
+}
+
+func TestRepoSettingsState_SetLinearTeamsError(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", false, "", true, "")
+	s.SetLinearTeamsError("network error")
+
+	if s.LinearLoading {
+		t.Error("Expected LinearLoading to be false after error")
+	}
+	if s.LinearLoadError != "network error" {
+		t.Errorf("Expected error 'network error', got %q", s.LinearLoadError)
+	}
+}
+
+func TestRepoSettingsState_Render_LinearLoading(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", false, "", true, "")
+	rendered := s.Render()
+
+	if !strings.Contains(rendered, "Fetching Linear teams") {
+		t.Error("Should show loading state for Linear when API key set")
+	}
+}
+
+func TestRepoSettingsState_Render_LinearTeamList(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", false, "", true, "t1")
+	options := []LinearTeamOption{
+		{ID: "", Name: "(none)"},
+		{ID: "t1", Name: "Engineering"},
+	}
+	s.SetLinearTeams(options)
+
+	rendered := s.Render()
+	if !strings.Contains(rendered, "Engineering") {
+		t.Error("Should show team name in rendered output")
+	}
+	if !strings.Contains(rendered, "Linear team") {
+		t.Error("Should show Linear team title")
+	}
+}
+
+func TestRepoSettingsState_Render_BothProviders(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", true, "p1", true, "t1")
+
+	// Set Asana projects
+	s.SetAsanaProjects([]AsanaProjectOption{
+		{GID: "", Name: "(none)"},
+		{GID: "p1", Name: "My Project"},
+	})
+	// Set Linear teams
+	s.SetLinearTeams([]LinearTeamOption{
+		{ID: "", Name: "(none)"},
+		{ID: "t1", Name: "Engineering"},
+	})
+
+	rendered := s.Render()
+	if !strings.Contains(rendered, "Asana project") {
+		t.Error("Should show Asana project section")
+	}
+	if !strings.Contains(rendered, "Linear team") {
+		t.Error("Should show Linear team section")
+	}
+}
+
+func TestRepoSettingsState_Render_NoProvidersConfigured(t *testing.T) {
+	s := NewRepoSettingsState("/path/to/repo", false, "", false, "")
+	rendered := s.Render()
+	if !strings.Contains(rendered, "No per-repo settings") {
+		t.Error("Should show no-settings message when no providers configured")
+	}
+	if !strings.Contains(rendered, "Linear") {
+		t.Error("No-settings message should mention Linear")
 	}
 }
 

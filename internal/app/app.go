@@ -181,6 +181,12 @@ type AsanaProjectsFetchedMsg struct {
 	Error    error
 }
 
+// LinearTeamsFetchedMsg is sent when Linear teams have been fetched
+type LinearTeamsFetchedMsg struct {
+	Teams []issues.LinearTeam
+	Error error
+}
+
 // ContainerPrereqCheckMsg is sent when async container prerequisite checks complete
 type ContainerPrereqCheckMsg struct {
 	Result process.ContainerPrerequisites
@@ -744,6 +750,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AsanaProjectsFetchedMsg:
 		return m.handleAsanaProjectsFetchedMsg(msg)
+
+	case LinearTeamsFetchedMsg:
+		return m.handleLinearTeamsFetchedMsg(msg)
 
 	case ContainerPrereqCheckMsg:
 		return m.handleContainerPrereqCheckMsg(msg)
@@ -1633,6 +1642,54 @@ func (m *Model) handleAsanaProjectsFetchedMsg(msg AsanaProjectsFetchedMsg) (tea.
 		// Modal closed or wrong type - ignore
 	}
 	return m, nil
+}
+
+// handleLinearTeamsFetchedMsg handles the fetched Linear teams for the settings modal.
+func (m *Model) handleLinearTeamsFetchedMsg(msg LinearTeamsFetchedMsg) (tea.Model, tea.Cmd) {
+	switch state := m.modal.State.(type) {
+	case *ui.RepoSettingsState:
+		if msg.Error != nil {
+			state.SetLinearTeamsError("Failed to fetch teams: " + msg.Error.Error())
+			return m, nil
+		}
+		options := make([]ui.LinearTeamOption, 0, len(msg.Teams)+1)
+		options = append(options, ui.LinearTeamOption{ID: "", Name: "(none)"})
+		for _, t := range msg.Teams {
+			options = append(options, ui.LinearTeamOption{ID: t.ID, Name: t.Name})
+		}
+		state.SetLinearTeams(options)
+	default:
+		// Modal closed or wrong type - ignore
+	}
+	return m, nil
+}
+
+// fetchLinearTeams creates a command to fetch Linear teams asynchronously.
+func (m *Model) fetchLinearTeams() tea.Cmd {
+	registry := m.issueRegistry
+	return func() tea.Msg {
+		provider := registry.GetProvider(issues.SourceLinear)
+		if provider == nil {
+			return LinearTeamsFetchedMsg{
+				Error: fmt.Errorf("Linear provider not available"),
+			}
+		}
+		linearProvider, ok := provider.(*issues.LinearProvider)
+		if !ok {
+			return LinearTeamsFetchedMsg{
+				Error: fmt.Errorf("Linear provider type assertion failed"),
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		teams, err := linearProvider.FetchTeams(ctx)
+		return LinearTeamsFetchedMsg{
+			Teams: teams,
+			Error: err,
+		}
+	}
 }
 
 // fetchAsanaProjects creates a command to fetch Asana projects asynchronously.

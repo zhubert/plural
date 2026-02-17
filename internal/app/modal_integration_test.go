@@ -620,7 +620,7 @@ func TestRepoSettingsModal_AsanaProjectGID(t *testing.T) {
 	repoPath := cfg.Sessions[0].RepoPath
 
 	// Show repo settings modal directly
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, ""))
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "", false, ""))
 	state := m.modal.State.(*ui.RepoSettingsState)
 
 	// Set the Asana project GID via the selector
@@ -644,7 +644,7 @@ func TestRepoSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Show repo settings modal directly (pass pre-set asana GID)
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "9999999999999"))
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "9999999999999", false, ""))
 	state := m.modal.State.(*ui.RepoSettingsState)
 
 	// Verify it was loaded
@@ -664,6 +664,62 @@ func TestRepoSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
 	}
 	if m.config.HasAsanaProject(repoPath) {
 		t.Error("HasAsanaProject should return false after clearing")
+	}
+}
+
+func TestRepoSettingsModal_LinearTeamID(t *testing.T) {
+	cfg := testConfigWithSessions()
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Get a repo path from config
+	repoPath := cfg.Sessions[0].RepoPath
+
+	// Show repo settings modal directly (no providers configured)
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "", false, ""))
+	state := m.modal.State.(*ui.RepoSettingsState)
+
+	// Set the Linear team ID via the selector
+	state.LinearSelectedTeamID = "team-abc-123"
+
+	// Save
+	m = sendKey(m, "enter")
+
+	// Config should have the Linear team ID
+	if got := m.config.GetLinearTeam(repoPath); got != "team-abc-123" {
+		t.Errorf("Expected Linear team 'team-abc-123', got %q", got)
+	}
+}
+
+func TestRepoSettingsModal_LinearTeamID_ClearRemoves(t *testing.T) {
+	cfg := testConfigWithSessions()
+	// Pre-set a Linear team ID
+	repoPath := cfg.Sessions[0].RepoPath
+	cfg.SetLinearTeam(repoPath, "team-xyz-999")
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	// Show repo settings modal directly (pass pre-set linear team ID)
+	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "", false, "team-xyz-999"))
+	state := m.modal.State.(*ui.RepoSettingsState)
+
+	// Verify it was loaded
+	if state.GetLinearTeam() != "team-xyz-999" {
+		t.Errorf("Expected pre-set Linear team 'team-xyz-999', got %q", state.GetLinearTeam())
+	}
+
+	// Clear the value via the selector (selecting "(none)")
+	state.LinearSelectedTeamID = ""
+
+	// Save
+	m = sendKey(m, "enter")
+
+	// Config should have the Linear team removed
+	if got := m.config.GetLinearTeam(repoPath); got != "" {
+		t.Errorf("Expected empty Linear team after clearing, got %q", got)
+	}
+	if m.config.HasLinearTeam(repoPath) {
+		t.Error("HasLinearTeam should return false after clearing")
 	}
 }
 

@@ -374,6 +374,7 @@ func (m *Model) handleRepoSettingsModal(key string, msg tea.KeyPressMsg, state *
 		// Save per-repo settings
 		repo := state.RepoPath
 		m.config.SetAsanaProject(repo, state.GetAsanaProject())
+		m.config.SetLinearTeam(repo, state.GetLinearTeam())
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save repo settings", "error", err)
 			m.modal.SetError("Failed to save: " + err.Error())

@@ -669,17 +669,27 @@ func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 // showRepoSettings opens the repo-specific settings modal for the given repo.
 func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
 	asanaPATSet := os.Getenv("ASANA_PAT") != ""
+	linearAPIKeySet := os.Getenv("LINEAR_API_KEY") != ""
 
 	repoState := ui.NewRepoSettingsState(
 		repoPath,
 		asanaPATSet,
 		m.config.GetAsanaProject(repoPath),
+		linearAPIKeySet,
+		m.config.GetLinearTeam(repoPath),
 	)
 	m.modal.Show(repoState)
 
-	// Kick off async fetch of Asana projects if PAT is set
+	// Kick off async fetches for configured providers
+	var cmds []tea.Cmd
 	if asanaPATSet {
-		return m, m.fetchAsanaProjects()
+		cmds = append(cmds, m.fetchAsanaProjects())
+	}
+	if linearAPIKeySet {
+		cmds = append(cmds, m.fetchLinearTeams())
+	}
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
 	}
 	return m, nil
 }
