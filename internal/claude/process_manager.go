@@ -184,6 +184,11 @@ type ProcessManager struct {
 
 	// Goroutine lifecycle management
 	wg sync.WaitGroup
+
+	// Container startup watchdog
+	containerReady chan struct{} // closed when MarkSessionStarted is called
+	containerTimeout bool       // set by watchdog before killing
+	containerLogs    string     // captured docker logs on timeout
 }
 
 // NewProcessManager creates a new ProcessManager with the given configuration and callbacks.
@@ -392,14 +397,29 @@ func (pm *ProcessManager) Start() error {
 	pm.waitDone = make(chan struct{})
 	pm.running = true
 
+	// Cancel any previous context to prevent goroutine leaks from prior runs
+	if pm.cancel != nil {
+		pm.cancel()
+	}
 	// Create context for process goroutines
 	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+
+	// Initialize container watchdog state for containerized sessions
+	if pm.config.Containerized {
+		pm.containerReady = make(chan struct{})
+		pm.containerTimeout = false
+		pm.containerLogs = ""
+	}
 
 	pm.log.Info("process started", "elapsed", time.Since(startTime), "pid", cmd.Process.Pid)
 
 	// Start goroutines to read output, drain stderr, and monitor process
 	// Track them with WaitGroup for proper cleanup on Stop()
-	pm.wg.Add(3)
+	goroutines := 3
+	if pm.config.Containerized {
+		goroutines = 4 // +1 for watchdog
+	}
+	pm.wg.Add(goroutines)
 	go func() {
 		defer pm.wg.Done()
 		pm.readOutput()
@@ -412,6 +432,12 @@ func (pm *ProcessManager) Start() error {
 		defer pm.wg.Done()
 		pm.monitorExit()
 	}()
+	if pm.config.Containerized {
+		go func() {
+			defer pm.wg.Done()
+			pm.containerStartupWatchdog()
+		}()
+	}
 
 	return nil
 }
@@ -576,6 +602,16 @@ func (pm *ProcessManager) MarkSessionStarted() {
 	wasContainerized := pm.config.Containerized
 	callback := pm.callbacks.OnContainerReady
 	pm.config.SessionStarted = true
+
+	// Signal the watchdog that container startup succeeded
+	if pm.containerReady != nil {
+		select {
+		case <-pm.containerReady:
+			// Already closed
+		default:
+			close(pm.containerReady)
+		}
+	}
 	pm.mu.Unlock()
 
 	// Notify that container is ready (if this was a containerized session)
@@ -782,6 +818,38 @@ func (pm *ProcessManager) handleExit(err error) {
 		pm.log.Debug("process exit due to user interrupt or stop, not restarting")
 		if pm.callbacks.OnProcessExit != nil {
 			pm.callbacks.OnProcessExit(err, stderrContent)
+		}
+		return
+	}
+
+	// If container startup timed out, report fatal error without retrying.
+	// The watchdog already killed the process; retrying won't help since the
+	// root cause is typically a broken/outdated container image.
+	pm.mu.Lock()
+	wasContainerTimeout := pm.containerTimeout
+	containerLogs := pm.containerLogs
+	pm.mu.Unlock()
+
+	if wasContainerTimeout {
+		pm.log.Error("container startup timed out", "timeout", ContainerStartupTimeout)
+
+		// Clean up auth credentials file
+		if pm.config.Containerized {
+			if authFile := containerAuthFilePath(pm.config.SessionID); authFile != "" {
+				if removeErr := os.Remove(authFile); removeErr == nil {
+					pm.log.Debug("cleaned up auth file on container timeout", "path", authFile)
+				}
+			}
+		}
+
+		errMsg := fmt.Sprintf("container failed to start within %s — Claude CLI produced no output", ContainerStartupTimeout)
+		if containerLogs != "" {
+			errMsg += fmt.Sprintf("\n\nContainer logs:\n%s", containerLogs)
+		}
+		errMsg += "\n\nThis usually means the container image is outdated. Try pulling the latest image."
+
+		if pm.callbacks.OnFatalError != nil {
+			pm.callbacks.OnFatalError(fmt.Errorf("%s", errMsg))
 		}
 		return
 	}
@@ -1098,6 +1166,67 @@ func (pm *ProcessManager) cleanupLocked() {
 	pm.stderrDone = nil
 	pm.waitDone = nil
 	pm.running = false
+
+	// Close containerReady if still open to unblock the watchdog goroutine.
+	// This handles the case where the process crashes before the init message
+	// is received (non-timeout crash).
+	if pm.containerReady != nil {
+		select {
+		case <-pm.containerReady:
+			// Already closed
+		default:
+			close(pm.containerReady)
+		}
+	}
+}
+
+// containerStartupWatchdog monitors containerized session startup and kills the
+// process if it doesn't produce output within ContainerStartupTimeout.
+// This prevents the UI from hanging forever when Claude CLI inside the container
+// hangs during initialization (e.g., MCP server init with an outdated image).
+func (pm *ProcessManager) containerStartupWatchdog() {
+	pm.log.Debug("container startup watchdog started", "timeout", ContainerStartupTimeout)
+
+	pm.mu.Lock()
+	ready := pm.containerReady
+	pm.mu.Unlock()
+
+	if ready == nil {
+		pm.log.Debug("container startup watchdog exiting - no containerReady channel")
+		return
+	}
+
+	select {
+	case <-time.After(ContainerStartupTimeout):
+		pm.log.Error("container startup watchdog fired - killing process", "timeout", ContainerStartupTimeout)
+
+		// Capture docker logs before killing the process for diagnostics
+		containerName := "plural-" + pm.config.SessionID
+		logCmd := exec.Command("docker", "logs", "--tail", "50", containerName)
+		logOutput, logErr := logCmd.CombinedOutput()
+		var logs string
+		if logErr == nil && len(logOutput) > 0 {
+			logs = strings.TrimSpace(string(logOutput))
+		}
+
+		pm.mu.Lock()
+		pm.containerTimeout = true
+		pm.containerLogs = logs
+		cmd := pm.cmd
+		pm.mu.Unlock()
+
+		// Kill the process — this will trigger monitorExit → handleExit
+		// which checks containerTimeout and reports the fatal error
+		if cmd != nil && cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+
+	case <-ready:
+		pm.log.Debug("container startup watchdog exiting - session started successfully")
+
+	case <-pm.ctx.Done():
+		pm.log.Debug("container startup watchdog exiting - context cancelled")
+	}
 }
 
 // friendlyContainerError translates known container stderr patterns into

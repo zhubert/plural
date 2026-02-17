@@ -2200,6 +2200,349 @@ func TestContainerAuthAvailable_WithCredentialsFile(t *testing.T) {
 	}
 }
 
+func TestContainerStartupWatchdog_Timeout(t *testing.T) {
+	// Use a real subprocess (sleep 60) with containerized config.
+	// Override timeout to 1s for fast test.
+	// Verify watchdog kills it and OnFatalError is called with timeout error.
+
+	var fatalErr error
+	fatalCh := make(chan struct{})
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-watchdog-timeout",
+		WorkingDir:    t.TempDir(),
+		Containerized: true,
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderrContent string) bool {
+			return true // allow restart path — but containerTimeout will prevent it
+		},
+		OnFatalError: func(err error) {
+			fatalErr = err
+			close(fatalCh)
+		},
+	}, pmTestLogger())
+
+	// Manually start a real process that blocks forever
+	cmd := exec.Command("sleep", "60")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("failed to get stdin pipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("failed to get stdout pipe: %v", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("failed to get stderr pipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+
+	pm.mu.Lock()
+	pm.cmd = cmd
+	pm.stdin = stdin
+	pm.stdout = bufio.NewReader(stdout)
+	pm.stderr = stderrPipe
+	pm.stderrDone = make(chan struct{})
+	pm.waitDone = make(chan struct{})
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.containerReady = make(chan struct{})
+	pm.containerTimeout = false
+	pm.mu.Unlock()
+
+	// Start goroutines
+	pm.wg.Add(4) // readOutput, drainStderr, monitorExit, watchdog
+	go func() {
+		defer pm.wg.Done()
+		pm.readOutput()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.drainStderr()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.monitorExit()
+	}()
+
+	// Run watchdog with a short timeout for testing (monkey-patch via goroutine)
+	go func() {
+		defer pm.wg.Done()
+		// Short timeout for testing: select on 1s instead of ContainerStartupTimeout
+		pm.mu.Lock()
+		ready := pm.containerReady
+		pm.mu.Unlock()
+
+		select {
+		case <-time.After(1 * time.Second):
+			pm.log.Error("test watchdog fired")
+			pm.mu.Lock()
+			pm.containerTimeout = true
+			innerCmd := pm.cmd
+			pm.mu.Unlock()
+			if innerCmd != nil && innerCmd.Process != nil {
+				innerCmd.Process.Kill()
+			}
+		case <-ready:
+			return
+		case <-pm.ctx.Done():
+			return
+		}
+	}()
+
+	// Wait for fatal error callback
+	select {
+	case <-fatalCh:
+		// Good — watchdog triggered fatal error
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for OnFatalError callback")
+	}
+
+	if fatalErr == nil {
+		t.Fatal("expected non-nil fatal error")
+	}
+	if !strings.Contains(fatalErr.Error(), "container failed to start") {
+		t.Errorf("expected timeout error message, got: %v", fatalErr)
+	}
+
+	// Verify containerTimeout flag was set
+	pm.mu.Lock()
+	timedOut := pm.containerTimeout
+	pm.mu.Unlock()
+	if !timedOut {
+		t.Error("containerTimeout should be true after watchdog fires")
+	}
+
+	// Clean up
+	pm.Stop()
+}
+
+func TestContainerStartupWatchdog_CancelledOnReady(t *testing.T) {
+	// Start watchdog, call MarkSessionStarted(), verify watchdog exits cleanly.
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-watchdog-ready",
+		WorkingDir:    t.TempDir(),
+		Containerized: true,
+	}, ProcessCallbacks{
+		OnFatalError: func(err error) {
+			t.Errorf("OnFatalError should not be called, got: %v", err)
+		},
+	}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.containerReady = make(chan struct{})
+	pm.containerTimeout = false
+	pm.running = true
+	pm.mu.Unlock()
+
+	watchdogDone := make(chan struct{})
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+		pm.containerStartupWatchdog()
+		close(watchdogDone)
+	}()
+
+	// Signal ready
+	pm.MarkSessionStarted()
+
+	// Watchdog should exit promptly
+	select {
+	case <-watchdogDone:
+		// Good
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchdog did not exit after MarkSessionStarted")
+	}
+
+	// containerTimeout should NOT be set
+	pm.mu.Lock()
+	timedOut := pm.containerTimeout
+	pm.mu.Unlock()
+	if timedOut {
+		t.Error("containerTimeout should be false when session started normally")
+	}
+
+	pm.cancel()
+}
+
+func TestContainerStartupWatchdog_CancelledOnStop(t *testing.T) {
+	// Start watchdog, cancel context, verify watchdog exits cleanly.
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-watchdog-stop",
+		WorkingDir:    t.TempDir(),
+		Containerized: true,
+	}, ProcessCallbacks{
+		OnFatalError: func(err error) {
+			t.Errorf("OnFatalError should not be called, got: %v", err)
+		},
+	}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.containerReady = make(chan struct{})
+	pm.containerTimeout = false
+	pm.running = true
+	pm.mu.Unlock()
+
+	watchdogDone := make(chan struct{})
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+		pm.containerStartupWatchdog()
+		close(watchdogDone)
+	}()
+
+	// Cancel context (simulates Stop)
+	pm.cancel()
+
+	// Watchdog should exit promptly
+	select {
+	case <-watchdogDone:
+		// Good
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchdog did not exit after context cancel")
+	}
+
+	// containerTimeout should NOT be set
+	pm.mu.Lock()
+	timedOut := pm.containerTimeout
+	pm.mu.Unlock()
+	if timedOut {
+		t.Error("containerTimeout should be false when context was cancelled")
+	}
+}
+
+func TestContainerStartupWatchdog_NotStartedForNonContainer(t *testing.T) {
+	// Non-containerized config: verify no containerReady channel is created.
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-watchdog-noncontainer",
+		WorkingDir:    t.TempDir(),
+		Containerized: false,
+	}, ProcessCallbacks{}, pmTestLogger())
+
+	pm.mu.Lock()
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.running = true
+	pm.mu.Unlock()
+
+	// containerReady should be nil for non-containerized sessions
+	pm.mu.Lock()
+	ready := pm.containerReady
+	pm.mu.Unlock()
+
+	if ready != nil {
+		t.Error("containerReady should be nil for non-containerized sessions")
+	}
+
+	// Watchdog should exit immediately when containerReady is nil
+	watchdogDone := make(chan struct{})
+	pm.wg.Add(1)
+	go func() {
+		defer pm.wg.Done()
+		pm.containerStartupWatchdog()
+		close(watchdogDone)
+	}()
+
+	select {
+	case <-watchdogDone:
+		// Good — exited immediately
+	case <-time.After(2 * time.Second):
+		t.Fatal("watchdog should exit immediately for non-containerized sessions")
+	}
+
+	pm.cancel()
+}
+
+func TestContainerStartupWatchdog_CleanupOnCrash(t *testing.T) {
+	// Process exits before timeout. Verify cleanupLocked closes containerReady
+	// so the watchdog exits cleanly.
+
+	pm := NewProcessManager(ProcessConfig{
+		SessionID:     "test-watchdog-crash",
+		WorkingDir:    t.TempDir(),
+		Containerized: true,
+	}, ProcessCallbacks{
+		OnProcessExit: func(err error, stderrContent string) bool {
+			return false // don't restart
+		},
+		OnFatalError: func(err error) {
+			// Should NOT be called for non-timeout crash when restarts not exhausted
+		},
+	}, pmTestLogger())
+
+	// Start a process that exits immediately (simulating a crash)
+	cmd := exec.Command("true")
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	stderrPipe, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start process: %v", err)
+	}
+
+	pm.mu.Lock()
+	pm.cmd = cmd
+	pm.stdin = stdin
+	pm.stdout = bufio.NewReader(stdout)
+	pm.stderr = stderrPipe
+	pm.stderrDone = make(chan struct{})
+	pm.waitDone = make(chan struct{})
+	pm.running = true
+	pm.ctx, pm.cancel = context.WithCancel(context.Background())
+	pm.containerReady = make(chan struct{})
+	pm.containerTimeout = false
+	pm.mu.Unlock()
+
+	// Start all goroutines including watchdog
+	pm.wg.Add(4)
+	go func() {
+		defer pm.wg.Done()
+		pm.readOutput()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.drainStderr()
+	}()
+	go func() {
+		defer pm.wg.Done()
+		pm.monitorExit()
+	}()
+
+	watchdogDone := make(chan struct{})
+	go func() {
+		defer pm.wg.Done()
+		pm.containerStartupWatchdog()
+		close(watchdogDone)
+	}()
+
+	// The process exits immediately (true command).
+	// monitorExit → handleExit → cleanupLocked should close containerReady,
+	// which unblocks the watchdog.
+	select {
+	case <-watchdogDone:
+		// Good — watchdog exited because cleanupLocked closed containerReady
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchdog did not exit after process crash — cleanupLocked may not be closing containerReady")
+	}
+
+	// containerTimeout should NOT be set (it was a crash, not a timeout)
+	pm.mu.Lock()
+	timedOut := pm.containerTimeout
+	pm.mu.Unlock()
+	if timedOut {
+		t.Error("containerTimeout should be false for a non-timeout crash")
+	}
+
+	// Clean up
+	pm.Stop()
+}
+
 func TestBuildContainerRunArgs_CredentialsJsonAuthSource(t *testing.T) {
 	// Clear env-based credentials so writeContainerAuthFile returns empty
 	t.Setenv("ANTHROPIC_API_KEY", "")

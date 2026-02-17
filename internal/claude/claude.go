@@ -49,6 +49,12 @@ const (
 	// ResponseChannelFullTimeout is how long to wait when the response channel is full
 	// before reporting an error (instead of silently dropping chunks).
 	ResponseChannelFullTimeout = 10 * time.Second
+
+	// ContainerStartupTimeout is how long to wait for a containerized session to
+	// produce its first output (init message) before killing the process.
+	// If Claude CLI hangs during startup (e.g., MCP server initialization with an
+	// outdated image), the watchdog kills it after this timeout instead of hanging forever.
+	ContainerStartupTimeout = 60 * time.Second
 )
 
 // DefaultAllowedTools is the minimal set of safe tools allowed by default.
