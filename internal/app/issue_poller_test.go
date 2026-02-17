@@ -167,10 +167,10 @@ func TestCheckForNewIssues_RespectsMaxConcurrent(t *testing.T) {
 func TestCheckForNewIssues_LabelThreadedThroughMsg(t *testing.T) {
 	cfg := testConfig()
 	cfg.SetRepoIssuePolling("/test/repo1", true)
-	cfg.SetRepoIssueLabels("/test/repo1", "autonomous ready")
+	cfg.SetRepoIssueLabels("/test/repo1", "ready")
 
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "autonomous ready"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"issue", "list", "--json", "number,title,body,url", "--state", "open", "--label", "ready"}, pexec.MockResponse{
 		Stdout: []byte(`[{"number": 5, "title": "Issue Five", "body": "Body five", "url": "https://github.com/repo/issues/5"}]`),
 	})
 	gitSvc := git.NewGitServiceWithExecutor(mock)
@@ -186,8 +186,8 @@ func TestCheckForNewIssues_LabelThreadedThroughMsg(t *testing.T) {
 		t.Fatalf("expected NewIssuesDetectedMsg, got %T", msg)
 	}
 
-	if detected.Label != "autonomous ready" {
-		t.Errorf("expected label 'autonomous ready', got '%s'", detected.Label)
+	if detected.Label != "ready" {
+		t.Errorf("expected label 'ready', got '%s'", detected.Label)
 	}
 	if len(detected.Issues) != 1 {
 		t.Fatalf("expected 1 issue, got %d", len(detected.Issues))

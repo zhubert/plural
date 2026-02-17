@@ -36,7 +36,7 @@ type Config struct {
 	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
 	RepoAutoMerge      map[string]bool  `json:"repo_auto_merge,omitempty"`      // Per-repo auto-merge after CI passes
 	RepoIssuePolling   map[string]bool  `json:"repo_issue_polling,omitempty"`   // Per-repo issue polling enabled
-	RepoIssueLabels    map[string]string `json:"repo_issue_labels,omitempty"`    // Per-repo issue filter label (e.g., "autonomous ready")
+	RepoIssueLabels    map[string]string `json:"repo_issue_labels,omitempty"`    // Per-repo issue filter label (e.g., "ready")
 	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
 
 	// Workspace organization

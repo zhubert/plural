@@ -1023,10 +1023,10 @@ func TestCheckPRReviewDecision_CLIError(t *testing.T) {
 
 func TestAddIssueLabel_Success(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--add-label", "autonomous wip"}, pexec.MockResponse{})
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--add-label", "wip"}, pexec.MockResponse{})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.AddIssueLabel(context.Background(), "/repo", 42, "autonomous wip")
+	err := svc.AddIssueLabel(context.Background(), "/repo", 42, "wip")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1052,10 +1052,10 @@ func TestAddIssueLabel_Error(t *testing.T) {
 
 func TestRemoveIssueLabel_Success(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--remove-label", "autonomous ready"}, pexec.MockResponse{})
+	mock.AddExactMatch("gh", []string{"issue", "edit", "42", "--remove-label", "ready"}, pexec.MockResponse{})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.RemoveIssueLabel(context.Background(), "/repo", 42, "autonomous ready")
+	err := svc.RemoveIssueLabel(context.Background(), "/repo", 42, "ready")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

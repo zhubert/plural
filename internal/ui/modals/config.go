@@ -770,7 +770,7 @@ func NewRepoSettingsState(repoPath string, containersSupported bool, asanaPATSet
 	issuePolling bool, issueLabel string, autoMerge bool, asanaGID string) *RepoSettingsState {
 
 	issueLabelInput := textinput.New()
-	issueLabelInput.Placeholder = "e.g., autonomous ready (leave empty for all issues)"
+	issueLabelInput.Placeholder = "e.g., ready (leave empty for all issues)"
 	issueLabelInput.CharLimit = 100
 	issueLabelInput.SetWidth(ModalWidthWide - 10)
 	issueLabelInput.SetValue(issueLabel)
