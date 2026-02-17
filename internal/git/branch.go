@@ -38,6 +38,59 @@ func (s *GitService) HasRemoteOrigin(ctx context.Context, repoPath string) bool 
 	return err == nil
 }
 
+// GetRemoteOriginURL returns the URL of the "origin" remote.
+func (s *GitService) GetRemoteOriginURL(ctx context.Context, repoPath string) (string, error) {
+	output, err := s.executor.Output(ctx, repoPath, "git", "remote", "get-url", "origin")
+	if err != nil {
+		return "", fmt.Errorf("failed to get remote origin URL: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// ExtractOwnerRepo extracts "owner/repo" from a git remote URL.
+// Supports SSH (git@github.com:owner/repo.git) and HTTPS (https://github.com/owner/repo.git) formats.
+// Returns empty string if the URL cannot be parsed.
+func ExtractOwnerRepo(remoteURL string) string {
+	remoteURL = strings.TrimSpace(remoteURL)
+	if remoteURL == "" {
+		return ""
+	}
+
+	// SSH format: git@github.com:owner/repo.git
+	if strings.Contains(remoteURL, ":") && strings.HasPrefix(remoteURL, "git@") {
+		// Extract part after ":"
+		parts := strings.SplitN(remoteURL, ":", 2)
+		if len(parts) == 2 {
+			path := strings.TrimSuffix(parts[1], ".git")
+			if strings.Contains(path, "/") {
+				return path
+			}
+		}
+		return ""
+	}
+
+	// HTTPS/HTTP format: https://github.com/owner/repo.git
+	// Strip scheme and host
+	for _, prefix := range []string{"https://", "http://"} {
+		if strings.HasPrefix(remoteURL, prefix) {
+			rest := remoteURL[len(prefix):]
+			// rest is like "github.com/owner/repo.git"
+			// Find first "/" to skip host
+			idx := strings.Index(rest, "/")
+			if idx < 0 {
+				return ""
+			}
+			path := strings.TrimSuffix(rest[idx+1:], ".git")
+			if strings.Contains(path, "/") {
+				return path
+			}
+			return ""
+		}
+	}
+
+	return ""
+}
+
 // GetDefaultBranch returns the default branch name (main or master)
 func (s *GitService) GetDefaultBranch(ctx context.Context, repoPath string) string {
 	// Try to get the default branch from origin

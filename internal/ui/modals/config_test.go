@@ -17,14 +17,14 @@ var (
 // newTestSettingsState is a helper that prepends theme data to NewSettingsState calls.
 func newTestSettingsState(branchPrefix string, notifs bool) *SettingsState {
 	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, false, "", false, false, false)
+		branchPrefix, notifs, false, "", false)
 }
 
 // newTestSettingsStateWithContainers is like newTestSettingsState but with container support.
 func newTestSettingsStateWithContainers(branchPrefix string, notifs bool,
 	containersSupported bool, containerImage string) *SettingsState {
 	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, containersSupported, containerImage, false, false, false)
+		branchPrefix, notifs, containersSupported, containerImage, false)
 }
 
 // =============================================================================
@@ -139,30 +139,6 @@ func TestSettingsState_GetNotificationsEnabled(t *testing.T) {
 	}
 }
 
-func TestSettingsState_GetAutoMaxTurns(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "")
-	s.SetAutoMaxTurns("100")
-	if v := s.GetAutoMaxTurns(); v != "100" {
-		t.Errorf("Expected auto max turns '100', got %q", v)
-	}
-}
-
-func TestSettingsState_GetAutoMaxDuration(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "")
-	s.SetAutoMaxDuration("60")
-	if v := s.GetAutoMaxDuration(); v != "60" {
-		t.Errorf("Expected auto max duration '60', got %q", v)
-	}
-}
-
-func TestSettingsState_GetIssueMaxConcurrent(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "")
-	s.SetIssueMaxConcurrent("5")
-	if v := s.GetIssueMaxConcurrent(); v != "5" {
-		t.Errorf("Expected issue max concurrent '5', got %q", v)
-	}
-}
-
 func TestSettingsState_HelpText(t *testing.T) {
 	s := newTestSettingsState("", false)
 	help := s.Help()
@@ -185,59 +161,6 @@ func TestSettingsState_Title(t *testing.T) {
 }
 
 // --- Autonomous global settings tests ---
-
-func TestSettingsState_AutonomousSection_HiddenWithoutContainers(t *testing.T) {
-	s := newTestSettingsState("", false)
-
-	if s.ContainersSupported {
-		t.Error("ContainersSupported should be false")
-	}
-
-	// General settings should render correctly
-	rendered := s.Render()
-	if !strings.Contains(rendered, "Settings") {
-		t.Error("should contain title")
-	}
-
-	// Autonomous-related getters should return defaults when containers not supported
-	if s.GetAutoMaxTurns() != "" {
-		t.Errorf("auto max turns should be empty without containers, got %q", s.GetAutoMaxTurns())
-	}
-	if s.GetAutoMaxDuration() != "" {
-		t.Errorf("auto max duration should be empty without containers, got %q", s.GetAutoMaxDuration())
-	}
-	if s.GetIssueMaxConcurrent() != "" {
-		t.Errorf("issue max concurrent should be empty without containers, got %q", s.GetIssueMaxConcurrent())
-	}
-	if s.AutoAddressPRComments {
-		t.Error("AutoAddressPRComments should default to false without containers")
-	}
-}
-
-func TestSettingsState_AutonomousSection_ShownWithContainers(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "")
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "Autonomous options") {
-		t.Error("Autonomous options section should appear")
-	}
-	if !strings.Contains(rendered, "Max autonomous turns") {
-		t.Error("Max autonomous turns field should appear")
-	}
-	if !strings.Contains(rendered, "Max autonomous duration") {
-		t.Error("Max autonomous duration field should appear")
-	}
-	if !strings.Contains(rendered, "Max concurrent auto-sessions") {
-		t.Error("Max concurrent auto-sessions field should appear")
-	}
-}
-
-func TestSettingsState_AutoAddressPRComments_Default(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "")
-	if s.AutoAddressPRComments {
-		t.Error("AutoAddressPRComments should default to false")
-	}
-}
 
 func TestSettingsState_ContainersSupported(t *testing.T) {
 	s := newTestSettingsState("", false)

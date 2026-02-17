@@ -340,8 +340,8 @@ func (w *SessionWorker) handleCompletion() {
 
 // checkLimits returns true if the session has hit its turn or duration limit.
 func (w *SessionWorker) checkLimits() bool {
-	maxTurns := w.agent.config.GetAutoMaxTurns()
-	maxDuration := time.Duration(w.agent.config.GetAutoMaxDurationMin()) * time.Minute
+	maxTurns := w.agent.getMaxTurns()
+	maxDuration := time.Duration(w.agent.getMaxDuration()) * time.Minute
 
 	if w.turns >= maxTurns {
 		w.agent.logger.Warn("turn limit reached",

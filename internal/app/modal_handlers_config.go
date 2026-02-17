@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -335,7 +334,6 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.config.SetDefaultBranchPrefix(state.GetBranchPrefix())
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		m.config.SetAutoCleanupMerged(state.AutoCleanupMerged)
-		m.config.SetAutoBroadcastPR(state.AutoBroadcastPR)
 		// Save container image if containers are supported.
 		if state.ContainersSupported {
 			containerImage := state.GetContainerImage()
@@ -351,34 +349,6 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 			ui.SetTheme(selectedTheme)
 			m.config.SetTheme(string(selectedTheme))
 			m.chat.RefreshStyles()
-		}
-		// Save autonomous global settings
-		if state.ContainersSupported {
-			m.config.SetAutoAddressPRComments(state.AutoAddressPRComments)
-			if v := state.GetAutoMaxTurns(); v != "" {
-				turns, err := strconv.Atoi(v)
-				if err != nil || turns <= 0 {
-					m.modal.SetError("Max autonomous turns must be a positive number")
-					return m, nil
-				}
-				m.config.SetAutoMaxTurns(turns)
-			}
-			if v := state.GetAutoMaxDuration(); v != "" {
-				dur, err := strconv.Atoi(v)
-				if err != nil || dur <= 0 {
-					m.modal.SetError("Max autonomous duration must be a positive number")
-					return m, nil
-				}
-				m.config.SetAutoMaxDurationMin(dur)
-			}
-			if v := state.GetIssueMaxConcurrent(); v != "" {
-				n, err := strconv.Atoi(v)
-				if err != nil || n <= 0 {
-					m.modal.SetError("Max concurrent sessions must be a positive number")
-					return m, nil
-				}
-				m.config.SetIssueMaxConcurrent(n)
-			}
 		}
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save settings", "error", err)

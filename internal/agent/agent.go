@@ -35,10 +35,14 @@ type Agent struct {
 	logger         *slog.Logger
 
 	// Options
-	once           bool   // Process available issues and exit
-	repoFilter     string // Limit to specific repo
-	maxConcurrent  int    // Override config's IssueMaxConcurrent (0 = use config)
-	pollInterval   time.Duration
+	once                  bool          // Process available issues and exit
+	repoFilter            string        // Limit to specific repo
+	maxConcurrent         int           // Override config's IssueMaxConcurrent (0 = use config)
+	maxTurns              int           // Override config's AutoMaxTurns (0 = use config)
+	maxDuration           int           // Override config's AutoMaxDurationMin (0 = use config)
+	autoAddressPRComments bool          // Auto-address PR review comments
+	autoBroadcastPR       bool          // Auto-create PRs when broadcast group completes
+	pollInterval          time.Duration
 }
 
 // Option configures the agent.
@@ -57,6 +61,26 @@ func WithRepoFilter(repo string) Option {
 // WithMaxConcurrent overrides the config's max concurrent setting.
 func WithMaxConcurrent(max int) Option {
 	return func(a *Agent) { a.maxConcurrent = max }
+}
+
+// WithMaxTurns overrides the config's max autonomous turns setting.
+func WithMaxTurns(max int) Option {
+	return func(a *Agent) { a.maxTurns = max }
+}
+
+// WithMaxDuration overrides the config's max autonomous duration (minutes) setting.
+func WithMaxDuration(max int) Option {
+	return func(a *Agent) { a.maxDuration = max }
+}
+
+// WithAutoAddressPRComments enables auto-addressing PR review comments.
+func WithAutoAddressPRComments(v bool) Option {
+	return func(a *Agent) { a.autoAddressPRComments = v }
+}
+
+// WithAutoBroadcastPR enables auto-creating PRs when broadcast group completes.
+func WithAutoBroadcastPR(v bool) Option {
+	return func(a *Agent) { a.autoBroadcastPR = v }
 }
 
 // WithPollInterval sets the polling interval (mainly for testing).
@@ -88,6 +112,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		"once", a.once,
 		"repoFilter", a.repoFilter,
 		"maxConcurrent", a.getMaxConcurrent(),
+		"maxTurns", a.getMaxTurns(),
+		"maxDuration", a.getMaxDuration(),
 	)
 
 	// Do an immediate poll
@@ -299,6 +325,32 @@ func (a *Agent) getMaxConcurrent() int {
 		return a.maxConcurrent
 	}
 	return a.config.GetIssueMaxConcurrent()
+}
+
+// getMaxTurns returns the effective max autonomous turns limit.
+func (a *Agent) getMaxTurns() int {
+	if a.maxTurns > 0 {
+		return a.maxTurns
+	}
+	return a.config.GetAutoMaxTurns()
+}
+
+// getMaxDuration returns the effective max autonomous duration (minutes).
+func (a *Agent) getMaxDuration() int {
+	if a.maxDuration > 0 {
+		return a.maxDuration
+	}
+	return a.config.GetAutoMaxDurationMin()
+}
+
+// getAutoAddressPRComments returns whether auto-address PR comments is enabled.
+func (a *Agent) getAutoAddressPRComments() bool {
+	return a.autoAddressPRComments || a.config.GetAutoAddressPRComments()
+}
+
+// getAutoBroadcastPR returns whether auto-broadcast PR is enabled.
+func (a *Agent) getAutoBroadcastPR() bool {
+	return a.autoBroadcastPR || a.config.GetAutoBroadcastPR()
 }
 
 // swapIssueLabels removes "queued" and adds "wip" label, and comments on the issue.

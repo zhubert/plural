@@ -235,22 +235,16 @@ const AsanaProjectMaxVisible = 5
 
 type SettingsState struct {
 	// Bound form values
-	selectedTheme         string
-	OriginalTheme         string // To detect if theme changed
-	branchPrefix          string
-	NotificationsEnabled  bool
-	AutoCleanupMerged     bool // Auto-cleanup sessions when PR merged/closed
-	AutoBroadcastPR       bool // Auto-create PRs when broadcast group completes
-	containerImage        string
-	ContainersSupported   bool // Whether Docker is available for container mode
-	AutoAddressPRComments bool
-	autoMaxTurns          string
-	autoMaxDuration       string
-	issueMaxConcurrent    string
+	selectedTheme        string
+	OriginalTheme        string // To detect if theme changed
+	branchPrefix         string
+	NotificationsEnabled bool
+	AutoCleanupMerged    bool // Auto-cleanup sessions when PR merged/closed
+	containerImage       string
+	ContainersSupported  bool // Whether Docker is available for container mode
 
 	// MultiSelect bindings
-	generalOptions    []string
-	autonomousOptions []string
+	generalOptions []string
 
 	form *huh.Form
 
@@ -259,10 +253,8 @@ type SettingsState struct {
 }
 
 const (
-	optionNotifications  = "notifications"
-	optionAutoCleanup    = "auto-cleanup"
-	optionAutoBroadcast  = "auto-broadcast"
-	optionAutoAddressPR  = "auto-address-pr"
+	optionNotifications = "notifications"
+	optionAutoCleanup   = "auto-cleanup"
 )
 
 func (*SettingsState) modalState() {}
@@ -305,8 +297,6 @@ func (s *SettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
 func (s *SettingsState) syncFromMultiSelect() {
 	s.NotificationsEnabled = slices.Contains(s.generalOptions, optionNotifications)
 	s.AutoCleanupMerged = slices.Contains(s.generalOptions, optionAutoCleanup)
-	s.AutoBroadcastPR = slices.Contains(s.generalOptions, optionAutoBroadcast)
-	s.AutoAddressPRComments = slices.Contains(s.autonomousOptions, optionAutoAddressPR)
 }
 
 // GetBranchPrefix returns the branch prefix value
@@ -324,21 +314,6 @@ func (s *SettingsState) GetContainerImage() string {
 	return strings.TrimSpace(s.containerImage)
 }
 
-// GetAutoMaxTurns returns the max autonomous turns value.
-func (s *SettingsState) GetAutoMaxTurns() string {
-	return s.autoMaxTurns
-}
-
-// GetAutoMaxDuration returns the max autonomous duration value.
-func (s *SettingsState) GetAutoMaxDuration() string {
-	return s.autoMaxDuration
-}
-
-// GetIssueMaxConcurrent returns the max concurrent auto-sessions value.
-func (s *SettingsState) GetIssueMaxConcurrent() string {
-	return s.issueMaxConcurrent
-}
-
 // GetSelectedTheme returns the selected theme key.
 func (s *SettingsState) GetSelectedTheme() string {
 	return s.selectedTheme
@@ -347,27 +322,6 @@ func (s *SettingsState) GetSelectedTheme() string {
 // ThemeChanged returns true if the selected theme differs from the original.
 func (s *SettingsState) ThemeChanged() bool {
 	return s.selectedTheme != s.OriginalTheme
-}
-
-// SetAutoMaxTurns sets the initial value for max autonomous turns.
-// Must be called before the form is displayed to the user. Works because
-// huh binds via pointer, so mutations to the struct field reflect in the form.
-func (s *SettingsState) SetAutoMaxTurns(v string) {
-	s.autoMaxTurns = v
-}
-
-// SetAutoMaxDuration sets the initial value for max autonomous duration.
-// Must be called before the form is displayed to the user. Works because
-// huh binds via pointer, so mutations to the struct field reflect in the form.
-func (s *SettingsState) SetAutoMaxDuration(v string) {
-	s.autoMaxDuration = v
-}
-
-// SetIssueMaxConcurrent sets the initial value for max concurrent sessions.
-// Must be called before the form is displayed to the user. Works because
-// huh binds via pointer, so mutations to the struct field reflect in the form.
-func (s *SettingsState) SetIssueMaxConcurrent(v string) {
-	s.issueMaxConcurrent = v
 }
 
 // SetBranchPrefix sets the branch prefix value.
@@ -802,19 +756,17 @@ func renderCheckboxField(label, desc string, checked bool, focusIdx, currentFocu
 func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme string,
 	currentBranchPrefix string, notificationsEnabled bool,
 	containersSupported bool, containerImage string,
-	autoCleanupMerged bool, autoBroadcastPR bool, autoAddressPRComments bool) *SettingsState {
+	autoCleanupMerged bool) *SettingsState {
 
 	s := &SettingsState{
-		selectedTheme:         currentTheme,
-		OriginalTheme:         currentTheme,
-		branchPrefix:          currentBranchPrefix,
-		NotificationsEnabled:  notificationsEnabled,
-		AutoCleanupMerged:     autoCleanupMerged,
-		AutoBroadcastPR:       autoBroadcastPR,
-		AutoAddressPRComments: autoAddressPRComments,
-		containerImage:        containerImage,
-		ContainersSupported:   containersSupported,
-		availableWidth:        ModalWidthWide,
+		selectedTheme:        currentTheme,
+		OriginalTheme:        currentTheme,
+		branchPrefix:         currentBranchPrefix,
+		NotificationsEnabled: notificationsEnabled,
+		AutoCleanupMerged:    autoCleanupMerged,
+		containerImage:       containerImage,
+		ContainersSupported:  containersSupported,
+		availableWidth:       ModalWidthWide,
 	}
 
 	// Build theme options
@@ -829,8 +781,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 			Selected(notificationsEnabled),
 		huh.NewOption("Auto-cleanup merged sessions", optionAutoCleanup).
 			Selected(autoCleanupMerged),
-		huh.NewOption("Auto-create broadcast PRs", optionAutoBroadcast).
-			Selected(autoBroadcastPR),
 	}
 	// Initialize the enabledOptions slice to match
 	if notificationsEnabled {
@@ -838,9 +788,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 	}
 	if autoCleanupMerged {
 		s.generalOptions = append(s.generalOptions, optionAutoCleanup)
-	}
-	if autoBroadcastPR {
-		s.generalOptions = append(s.generalOptions, optionAutoBroadcast)
 	}
 
 	// General settings group
@@ -872,40 +819,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 			Value(&s.containerImage),
 	).WithHideFunc(func() bool { return !containersSupported })
 
-	// Build autonomous options MultiSelect
-	autoOpts := []huh.Option[string]{
-		huh.NewOption("Auto-address PR comments", optionAutoAddressPR).
-			Selected(autoAddressPRComments),
-	}
-	if autoAddressPRComments {
-		s.autonomousOptions = append(s.autonomousOptions, optionAutoAddressPR)
-	}
-
-	// Autonomous settings group (conditionally shown)
-	autonomousGroup := huh.NewGroup(
-		huh.NewMultiSelect[string]().
-			Title("Autonomous options").
-			Options(autoOpts...).
-			Height(len(autoOpts)).
-			Value(&s.autonomousOptions),
-		huh.NewInput().
-			Title("Max autonomous turns").
-			Placeholder("50").
-			CharLimit(5).
-			Value(&s.autoMaxTurns),
-		huh.NewInput().
-			Title("Max autonomous duration (min)").
-			Placeholder("30").
-			CharLimit(5).
-			Value(&s.autoMaxDuration),
-		huh.NewInput().
-			Title("Max concurrent auto-sessions").
-			Placeholder("3").
-			CharLimit(3).
-			Value(&s.issueMaxConcurrent),
-	).WithHideFunc(func() bool { return !containersSupported })
-
-	s.form = huh.NewForm(generalGroup, containerGroup, autonomousGroup).
+	s.form = huh.NewForm(generalGroup, containerGroup).
 		WithTheme(ModalTheme()).
 		WithShowHelp(false).
 		WithWidth(s.contentWidth()).

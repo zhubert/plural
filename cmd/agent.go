@@ -19,9 +19,13 @@ import (
 )
 
 var (
-	agentOnce          bool
-	agentRepo          string
-	agentMaxConcurrent int
+	agentOnce                  bool
+	agentRepo                  string
+	agentMaxConcurrent         int
+	agentMaxTurns              int
+	agentMaxDuration           int
+	agentAutoAddressPRComments bool
+	agentAutoBroadcastPR       bool
 )
 
 var agentCmd = &cobra.Command{
@@ -35,16 +39,22 @@ It uses the same configuration as the TUI (repos, allowed tools, auto-merge sett
 All sessions are containerized (container = sandbox).
 
 Examples:
-  plural agent              # Continuous polling mode
-  plural agent --once       # Process available issues and exit
-  plural agent --repo /path # Limit to specific repo`,
+  plural agent                          # Continuous polling mode
+  plural agent --once                   # Process available issues and exit
+  plural agent --repo owner/repo        # Limit to specific repo (owner/repo or path)
+  plural agent --max-turns 100          # Override max autonomous turns
+  plural agent --max-duration 60        # Override max duration (minutes)`,
 	RunE: runAgent,
 }
 
 func init() {
 	agentCmd.Flags().BoolVar(&agentOnce, "once", false, "Process available issues and exit (vs continuous polling)")
-	agentCmd.Flags().StringVar(&agentRepo, "repo", "", "Limit to specific repo path (vs all repos with polling enabled)")
+	agentCmd.Flags().StringVar(&agentRepo, "repo", "", "Limit to specific repo (owner/repo or filesystem path)")
 	agentCmd.Flags().IntVar(&agentMaxConcurrent, "max-concurrent", 0, "Override max concurrent sessions (0 = use config)")
+	agentCmd.Flags().IntVar(&agentMaxTurns, "max-turns", 0, "Override max autonomous turns per session (0 = use config default of 50)")
+	agentCmd.Flags().IntVar(&agentMaxDuration, "max-duration", 0, "Override max autonomous duration in minutes (0 = use config default of 30)")
+	agentCmd.Flags().BoolVar(&agentAutoAddressPRComments, "auto-address-pr-comments", false, "Auto-address PR review comments")
+	agentCmd.Flags().BoolVar(&agentAutoBroadcastPR, "auto-broadcast-pr", false, "Auto-create PRs when broadcast group completes")
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -105,6 +115,18 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 	if agentMaxConcurrent > 0 {
 		opts = append(opts, agent.WithMaxConcurrent(agentMaxConcurrent))
+	}
+	if agentMaxTurns > 0 {
+		opts = append(opts, agent.WithMaxTurns(agentMaxTurns))
+	}
+	if agentMaxDuration > 0 {
+		opts = append(opts, agent.WithMaxDuration(agentMaxDuration))
+	}
+	if agentAutoAddressPRComments {
+		opts = append(opts, agent.WithAutoAddressPRComments(true))
+	}
+	if agentAutoBroadcastPR {
+		opts = append(opts, agent.WithAutoBroadcastPR(true))
 	}
 
 	// Create agent

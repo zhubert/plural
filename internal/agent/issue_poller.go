@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
 )
 
@@ -25,7 +27,7 @@ func (a *Agent) pollForIssues(ctx context.Context) []repoIssues {
 	var pollingRepos []string
 	for _, repoPath := range repos {
 		// If repo filter is set, only poll that repo
-		if a.repoFilter != "" && repoPath != a.repoFilter {
+		if a.repoFilter != "" && !a.matchesRepoFilter(ctx, repoPath) {
 			continue
 		}
 		if a.config.GetRepoIssuePolling(repoPath) {
@@ -100,4 +102,26 @@ func (a *Agent) pollForIssues(ctx context.Context) []repoIssues {
 	}
 
 	return allNewIssues
+}
+
+// matchesRepoFilter checks if a repo path matches the agent's repo filter.
+// Supports both filesystem path matching (exact) and owner/repo matching.
+// Heuristic: if the filter contains "/" but doesn't start with "/", treat as owner/repo.
+func (a *Agent) matchesRepoFilter(ctx context.Context, repoPath string) bool {
+	// Exact path match
+	if repoPath == a.repoFilter {
+		return true
+	}
+
+	// If filter looks like owner/repo (contains "/" but doesn't start with "/")
+	if strings.Contains(a.repoFilter, "/") && !strings.HasPrefix(a.repoFilter, "/") {
+		remoteURL, err := a.gitService.GetRemoteOriginURL(ctx, repoPath)
+		if err != nil {
+			return false
+		}
+		ownerRepo := git.ExtractOwnerRepo(remoteURL)
+		return ownerRepo == a.repoFilter
+	}
+
+	return false
 }

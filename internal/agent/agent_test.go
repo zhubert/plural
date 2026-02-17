@@ -7,6 +7,8 @@ import (
 
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/exec"
+	"github.com/zhubert/plural/internal/git"
 )
 
 func TestAgentOptions(t *testing.T) {
@@ -58,6 +60,54 @@ func TestAgentOptions(t *testing.T) {
 		WithPollInterval(10 * time.Second)(a)
 		if a.pollInterval != 10*time.Second {
 			t.Errorf("expected 10s, got %v", a.pollInterval)
+		}
+	})
+
+	t.Run("WithMaxTurns", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.maxTurns != 0 {
+			t.Error("expected 0 maxTurns by default")
+		}
+
+		WithMaxTurns(100)(a)
+		if a.maxTurns != 100 {
+			t.Errorf("expected 100, got %d", a.maxTurns)
+		}
+	})
+
+	t.Run("WithMaxDuration", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.maxDuration != 0 {
+			t.Error("expected 0 maxDuration by default")
+		}
+
+		WithMaxDuration(60)(a)
+		if a.maxDuration != 60 {
+			t.Errorf("expected 60, got %d", a.maxDuration)
+		}
+	})
+
+	t.Run("WithAutoAddressPRComments", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.autoAddressPRComments {
+			t.Error("expected autoAddressPRComments=false by default")
+		}
+
+		WithAutoAddressPRComments(true)(a)
+		if !a.autoAddressPRComments {
+			t.Error("expected autoAddressPRComments=true after WithAutoAddressPRComments")
+		}
+	})
+
+	t.Run("WithAutoBroadcastPR", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.autoBroadcastPR {
+			t.Error("expected autoBroadcastPR=false by default")
+		}
+
+		WithAutoBroadcastPR(true)(a)
+		if !a.autoBroadcastPR {
+			t.Error("expected autoBroadcastPR=true after WithAutoBroadcastPR")
 		}
 	})
 }
@@ -311,4 +361,203 @@ func TestRemoveIssueWIPLabel_InvalidIssueID(t *testing.T) {
 	}
 	// Should not panic with non-numeric issue ID
 	a.removeIssueWIPLabel(sess)
+}
+
+func TestGetMaxTurns(t *testing.T) {
+	t.Run("uses config when no override", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMaxTurns = 50
+		a := testAgent(cfg)
+
+		if got := a.getMaxTurns(); got != 50 {
+			t.Errorf("expected 50, got %d", got)
+		}
+	})
+
+	t.Run("uses override when set", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMaxTurns = 50
+		a := testAgent(cfg)
+		a.maxTurns = 100
+
+		if got := a.getMaxTurns(); got != 100 {
+			t.Errorf("expected 100, got %d", got)
+		}
+	})
+
+	t.Run("defaults to 50 when config is zero", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMaxTurns = 0
+		a := testAgent(cfg)
+
+		if got := a.getMaxTurns(); got != 50 {
+			t.Errorf("expected default 50, got %d", got)
+		}
+	})
+}
+
+func TestGetMaxDuration(t *testing.T) {
+	t.Run("uses config when no override", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMaxDurationMin = 30
+		a := testAgent(cfg)
+
+		if got := a.getMaxDuration(); got != 30 {
+			t.Errorf("expected 30, got %d", got)
+		}
+	})
+
+	t.Run("uses override when set", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMaxDurationMin = 30
+		a := testAgent(cfg)
+		a.maxDuration = 60
+
+		if got := a.getMaxDuration(); got != 60 {
+			t.Errorf("expected 60, got %d", got)
+		}
+	})
+
+	t.Run("defaults to 30 when config is zero", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMaxDurationMin = 0
+		a := testAgent(cfg)
+
+		if got := a.getMaxDuration(); got != 30 {
+			t.Errorf("expected default 30, got %d", got)
+		}
+	})
+}
+
+func TestGetAutoAddressPRComments(t *testing.T) {
+	t.Run("false when both CLI and config are false", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+
+		if a.getAutoAddressPRComments() {
+			t.Error("expected false")
+		}
+	})
+
+	t.Run("true when CLI flag is true", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+		a.autoAddressPRComments = true
+
+		if !a.getAutoAddressPRComments() {
+			t.Error("expected true when CLI flag set")
+		}
+	})
+
+	t.Run("true when config is true", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoAddressPRComments = true
+		a := testAgent(cfg)
+
+		if !a.getAutoAddressPRComments() {
+			t.Error("expected true when config set")
+		}
+	})
+}
+
+func TestGetAutoBroadcastPR(t *testing.T) {
+	t.Run("false when both CLI and config are false", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+
+		if a.getAutoBroadcastPR() {
+			t.Error("expected false")
+		}
+	})
+
+	t.Run("true when CLI flag is true", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+		a.autoBroadcastPR = true
+
+		if !a.getAutoBroadcastPR() {
+			t.Error("expected true when CLI flag set")
+		}
+	})
+
+	t.Run("true when config is true", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoBroadcastPR = true
+		a := testAgent(cfg)
+
+		if !a.getAutoBroadcastPR() {
+			t.Error("expected true when config set")
+		}
+	})
+}
+
+func TestMatchesRepoFilter(t *testing.T) {
+	t.Run("exact path match", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+		a.repoFilter = "/path/to/repo"
+
+		if !a.matchesRepoFilter(context.Background(), "/path/to/repo") {
+			t.Error("expected exact path to match")
+		}
+	})
+
+	t.Run("owner/repo matches SSH remote", func(t *testing.T) {
+		cfg := testConfig()
+		mockExec := exec.NewMockExecutor(nil)
+		mockExec.AddPrefixMatch("git", []string{"remote", "get-url"}, exec.MockResponse{
+			Stdout: []byte("git@github.com:zhubert/plural.git\n"),
+		})
+		gitSvc := git.NewGitServiceWithExecutor(mockExec)
+		a := testAgent(cfg)
+		a.gitService = gitSvc
+		a.repoFilter = "zhubert/plural"
+
+		if !a.matchesRepoFilter(context.Background(), "/some/path") {
+			t.Error("expected owner/repo to match SSH remote")
+		}
+	})
+
+	t.Run("owner/repo matches HTTPS remote", func(t *testing.T) {
+		cfg := testConfig()
+		mockExec := exec.NewMockExecutor(nil)
+		mockExec.AddPrefixMatch("git", []string{"remote", "get-url"}, exec.MockResponse{
+			Stdout: []byte("https://github.com/zhubert/plural.git\n"),
+		})
+		gitSvc := git.NewGitServiceWithExecutor(mockExec)
+		a := testAgent(cfg)
+		a.gitService = gitSvc
+		a.repoFilter = "zhubert/plural"
+
+		if !a.matchesRepoFilter(context.Background(), "/some/path") {
+			t.Error("expected owner/repo to match HTTPS remote")
+		}
+	})
+
+	t.Run("no match when remote differs", func(t *testing.T) {
+		cfg := testConfig()
+		mockExec := exec.NewMockExecutor(nil)
+		mockExec.AddPrefixMatch("git", []string{"remote", "get-url"}, exec.MockResponse{
+			Stdout: []byte("git@github.com:other/repo.git\n"),
+		})
+		gitSvc := git.NewGitServiceWithExecutor(mockExec)
+		a := testAgent(cfg)
+		a.gitService = gitSvc
+		a.repoFilter = "zhubert/plural"
+
+		if a.matchesRepoFilter(context.Background(), "/some/path") {
+			t.Error("expected no match when remote differs")
+		}
+	})
+
+	t.Run("filesystem path with slash does not trigger owner/repo", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+		a.repoFilter = "/path/to/repo"
+
+		// Should only match exact path, not try owner/repo matching
+		if a.matchesRepoFilter(context.Background(), "/different/path") {
+			t.Error("expected no match for different path")
+		}
+	})
 }

@@ -2640,3 +2640,97 @@ func TestGeneratePRTitleAndBodyWithEmptyBaseBranch(t *testing.T) {
 		t.Error("Expected to fall back to default branch 'main' when baseBranch is empty")
 	}
 }
+
+func TestExtractOwnerRepo(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "SSH format",
+			input:    "git@github.com:zhubert/plural.git",
+			expected: "zhubert/plural",
+		},
+		{
+			name:     "HTTPS format",
+			input:    "https://github.com/zhubert/plural.git",
+			expected: "zhubert/plural",
+		},
+		{
+			name:     "HTTP format",
+			input:    "http://github.com/zhubert/plural.git",
+			expected: "zhubert/plural",
+		},
+		{
+			name:     "no .git suffix",
+			input:    "https://github.com/zhubert/plural",
+			expected: "zhubert/plural",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "bare path",
+			input:    "/path/to/repo",
+			expected: "",
+		},
+		{
+			name:     "malformed SSH no slash",
+			input:    "git@github.com:justowner.git",
+			expected: "",
+		},
+		{
+			name:     "HTTPS no path",
+			input:    "https://github.com/",
+			expected: "",
+		},
+		{
+			name:     "SSH with nested path",
+			input:    "git@github.com:org/sub/repo.git",
+			expected: "org/sub/repo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ExtractOwnerRepo(tt.input)
+			if got != tt.expected {
+				t.Errorf("ExtractOwnerRepo(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGetRemoteOriginURL(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		mockExec := pexec.NewMockExecutor(nil)
+		mockExec.AddPrefixMatch("git", []string{"remote", "get-url", "origin"}, pexec.MockResponse{
+			Stdout: []byte("https://github.com/zhubert/plural.git\n"),
+		})
+		gitSvc := NewGitServiceWithExecutor(mockExec)
+
+		url, err := gitSvc.GetRemoteOriginURL(context.Background(), "/any/path")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if url != "https://github.com/zhubert/plural.git" {
+			t.Errorf("expected URL 'https://github.com/zhubert/plural.git', got %q", url)
+		}
+	})
+
+	t.Run("error when no remote", func(t *testing.T) {
+		mockExec := pexec.NewMockExecutor(nil)
+		mockExec.AddPrefixMatch("git", []string{"remote", "get-url", "origin"}, pexec.MockResponse{
+			Err: fmt.Errorf("fatal: No such remote 'origin'"),
+		})
+		gitSvc := NewGitServiceWithExecutor(mockExec)
+
+		_, err := gitSvc.GetRemoteOriginURL(context.Background(), "/any/path")
+		if err == nil {
+			t.Error("expected error when no remote")
+		}
+	})
+}

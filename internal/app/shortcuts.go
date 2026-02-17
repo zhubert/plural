@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -662,12 +661,7 @@ func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 		process.ContainersSupported(),
 		m.config.GetContainerImage(),
 		m.config.GetAutoCleanupMerged(),
-		m.config.GetAutoBroadcastPR(),
-		m.config.GetAutoAddressPRComments(),
 	)
-	settingsState.SetAutoMaxTurns(strconv.Itoa(m.config.GetAutoMaxTurns()))
-	settingsState.SetAutoMaxDuration(strconv.Itoa(m.config.GetAutoMaxDurationMin()))
-	settingsState.SetIssueMaxConcurrent(strconv.Itoa(m.config.GetIssueMaxConcurrent()))
 	m.modal.Show(settingsState)
 	return m, nil
 }
