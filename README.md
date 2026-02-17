@@ -78,7 +78,16 @@ Press `i` to import issues or tasks. Select multiple and Plural creates a sessio
    ```
 3. Map a repository to an Asana project by pressing `,` to open Settings, then select an Asana project from the list for the current repo
 
-When both GitHub and Asana are configured for a repository, Plural will prompt you to choose a source before importing.
+**Linear Issues** — Available when configured. To set up Linear integration:
+
+1. Create an [API key](https://linear.app/settings/api) in Linear
+2. Set the `LINEAR_API_KEY` environment variable:
+   ```bash
+   export LINEAR_API_KEY="your-api-key-here"
+   ```
+3. Map a repository to a Linear team by pressing `,` to open Settings, then select a Linear team from the list for the current repo
+
+When multiple sources are configured for a repository, Plural will prompt you to choose a source before importing.
 
 ### Broadcast Across Repos
 
