@@ -1428,6 +1428,11 @@ func (r *Runner) handleContainerReady() {
 // connectToContainerMCP discovers the host-mapped port for the container's MCP
 // listener and dials into it, passing the connection to the socket server.
 // This runs as a goroutine after the container process starts.
+//
+// Retry logic: Docker's port forwarding accepts TCP connections even before the
+// MCP subprocess starts listening inside the container, which causes an immediate
+// EOF. The outer loop retries the entire connect+handle cycle when the connection
+// drops within a few seconds, indicating the MCP subprocess wasn't ready yet.
 func (r *Runner) connectToContainerMCP() {
 	r.mu.RLock()
 	sessionID := r.sessionID
@@ -1440,11 +1445,14 @@ func (r *Runner) connectToContainerMCP() {
 	const maxAttempts = 30
 	const retryInterval = 1 * time.Second
 	const dialTimeout = 5 * time.Second
+	// If HandleConn returns within this duration, the MCP subprocess likely
+	// wasn't listening yet — Docker forwarded the TCP handshake but there was
+	// no backend process, resulting in an immediate EOF.
+	const immediateDisconnectThreshold = 2 * time.Second
 
 	// Step 1: Discover the host-mapped port via `docker port`
 	var hostPort string
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Check if runner has been stopped
 		r.mu.RLock()
 		stopped := r.stopped
 		r.mu.RUnlock()
@@ -1482,43 +1490,59 @@ func (r *Runner) connectToContainerMCP() {
 		return
 	}
 
-	// Step 2: Dial the container's published port
+	// Step 2: Connect and handle messages, retrying if the connection drops immediately.
 	addr := "localhost:" + hostPort
-	var conn net.Conn
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		r.mu.RLock()
 		stopped := r.stopped
 		r.mu.RUnlock()
 		if stopped {
-			r.log.Debug("connectToContainerMCP: runner stopped before dial, aborting")
+			r.log.Debug("connectToContainerMCP: runner stopped, aborting")
 			return
 		}
 
-		var err error
-		conn, err = net.DialTimeout("tcp", addr, dialTimeout)
-		if err == nil {
-			r.log.Info("connected to container MCP", "addr", addr, "attempt", attempt)
-			break
-		}
-
-		if attempt < maxAttempts {
-			r.log.Debug("dial to container MCP failed, retrying", "addr", addr, "attempt", attempt, "error", err)
-			time.Sleep(retryInterval)
-		} else {
+		conn, err := net.DialTimeout("tcp", addr, dialTimeout)
+		if err != nil {
+			if attempt < maxAttempts {
+				r.log.Debug("dial to container MCP failed, retrying", "addr", addr, "attempt", attempt, "error", err)
+				time.Sleep(retryInterval)
+				continue
+			}
 			r.log.Error("failed to connect to container MCP after retries", "addr", addr, "maxAttempts", maxAttempts, "error", err)
 			return
 		}
+
+		connectTime := time.Now()
+		r.log.Info("connected to container MCP", "addr", addr, "attempt", attempt)
+
+		// Hand the connection to the socket server (blocks until closed)
+		r.mu.RLock()
+		ss := r.socketServer
+		r.mu.RUnlock()
+		if ss == nil {
+			conn.Close()
+			return
+		}
+
+		ss.HandleConn(conn)
+
+		// If HandleConn returned quickly, the MCP subprocess likely wasn't
+		// listening yet. Docker's port forwarding accepted the TCP handshake
+		// but there was no backend process, causing immediate EOF. Retry.
+		elapsed := time.Since(connectTime)
+		if elapsed < immediateDisconnectThreshold {
+			r.log.Debug("container MCP connection dropped immediately, MCP subprocess may not be ready yet",
+				"elapsed", elapsed, "attempt", attempt)
+			time.Sleep(retryInterval)
+			continue
+		}
+
+		// HandleConn ran for a meaningful duration — normal shutdown
+		r.log.Info("container MCP connection closed", "elapsed", elapsed)
+		return
 	}
 
-	// Step 3: Hand the connection to the socket server (blocks until closed)
-	r.mu.RLock()
-	ss := r.socketServer
-	r.mu.RUnlock()
-	if ss != nil {
-		ss.HandleConn(conn)
-	} else {
-		conn.Close()
-	}
+	r.log.Error("failed to establish stable container MCP connection after retries", "maxAttempts", maxAttempts)
 }
 
 // sendChunkWithTimeout sends a chunk to the response channel with timeout handling.
