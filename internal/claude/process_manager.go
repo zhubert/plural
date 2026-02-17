@@ -494,6 +494,23 @@ func (pm *ProcessManager) Stop() {
 	// Defense-in-depth: force remove the container if we were running in container mode
 	if pm.config.Containerized {
 		containerName := "plural-" + pm.config.SessionID
+
+		// If the container never started successfully, capture docker logs
+		// for diagnostics before removing it. This helps debug startup
+		// issues (especially with alternative Docker runtimes like Colima).
+		pm.mu.Lock()
+		ready := pm.containerReady
+		pm.mu.Unlock()
+
+		containerNeverStarted := ready != nil && !isChannelClosed(ready)
+		if containerNeverStarted {
+			pm.log.Warn("container session was stopped before startup completed - capturing docker logs for diagnostics")
+			logCmd := exec.Command("docker", "logs", "--tail", "100", containerName)
+			if logOutput, logErr := logCmd.CombinedOutput(); logErr == nil && len(logOutput) > 0 {
+				pm.log.Warn("container logs on shutdown", "logs", strings.TrimSpace(string(logOutput)))
+			}
+		}
+
 		pm.log.Debug("removing container", "name", containerName)
 		rmCmd := exec.Command("docker", "rm", "-f", containerName)
 		if err := rmCmd.Run(); err != nil {
@@ -705,28 +722,53 @@ func (pm *ProcessManager) readLine(reader *bufio.Reader) (string, error) {
 // drainStderr reads all stderr content and stores it for later retrieval.
 // This must run concurrently with the process so stderr is captured before
 // cmd.Wait() closes the pipe.
+//
+// For containerized sessions, stderr is read line-by-line and each line is
+// logged immediately. This provides real-time visibility into container
+// startup issues (e.g., entrypoint failures, Claude CLI errors) rather than
+// only surfacing stderr after the process exits.
 func (pm *ProcessManager) drainStderr() {
 	defer close(pm.stderrDone)
 
 	pm.mu.Lock()
 	stderr := pm.stderr
+	containerized := pm.config.Containerized
 	pm.mu.Unlock()
 
 	if stderr == nil {
 		return
 	}
 
-	stderrBytes, err := io.ReadAll(stderr)
-	if err != nil {
-		pm.log.Debug("error reading stderr", "error", err)
-		return
-	}
-
-	if len(stderrBytes) > 0 {
-		pm.mu.Lock()
-		pm.stderrContent = strings.TrimSpace(string(stderrBytes))
-		pm.mu.Unlock()
-		pm.log.Debug("captured stderr", "content", pm.stderrContent)
+	if containerized {
+		// Stream stderr line-by-line for containers so each line is logged
+		// immediately — critical for diagnosing container startup hangs.
+		var lines []string
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			pm.log.Debug("container stderr", "line", line)
+			lines = append(lines, line)
+		}
+		if err := scanner.Err(); err != nil {
+			pm.log.Debug("error reading container stderr", "error", err)
+		}
+		if len(lines) > 0 {
+			pm.mu.Lock()
+			pm.stderrContent = strings.Join(lines, "\n")
+			pm.mu.Unlock()
+		}
+	} else {
+		stderrBytes, err := io.ReadAll(stderr)
+		if err != nil {
+			pm.log.Debug("error reading stderr", "error", err)
+			return
+		}
+		if len(stderrBytes) > 0 {
+			pm.mu.Lock()
+			pm.stderrContent = strings.TrimSpace(string(stderrBytes))
+			pm.mu.Unlock()
+			pm.log.Debug("captured stderr", "content", pm.stderrContent)
+		}
 	}
 }
 
@@ -1196,36 +1238,74 @@ func (pm *ProcessManager) containerStartupWatchdog() {
 		return
 	}
 
+	// Log periodic heartbeats so it's clear the container is still starting
+	const heartbeatInterval = 15 * time.Second
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	startTime := time.Now()
+	timeout := time.After(ContainerStartupTimeout)
+
+	for {
+		select {
+		case <-ticker.C:
+			elapsed := time.Since(startTime).Round(time.Second)
+			remaining := ContainerStartupTimeout - elapsed
+			pm.log.Warn("container still starting - no output yet",
+				"elapsed", elapsed,
+				"remaining", remaining,
+			)
+		case <-timeout:
+			break // fall through to the timeout handling below
+		case <-ready:
+			pm.log.Debug("container startup watchdog exiting - session started successfully")
+			return
+		case <-pm.ctx.Done():
+			pm.log.Debug("container startup watchdog exiting - context cancelled")
+			return
+		}
+
+		// Check if the timeout case was selected
+		select {
+		case <-timeout:
+			// Timeout fired — proceed to kill the process
+		default:
+			continue
+		}
+		break
+	}
+
+	pm.log.Error("container startup watchdog fired - killing process", "timeout", ContainerStartupTimeout)
+
+	// Capture docker logs before killing the process for diagnostics
+	containerName := "plural-" + pm.config.SessionID
+	logCmd := exec.Command("docker", "logs", "--tail", "50", containerName)
+	logOutput, logErr := logCmd.CombinedOutput()
+	var logs string
+	if logErr == nil && len(logOutput) > 0 {
+		logs = strings.TrimSpace(string(logOutput))
+	}
+
+	pm.mu.Lock()
+	pm.containerTimeout = true
+	pm.containerLogs = logs
+	cmd := pm.cmd
+	pm.mu.Unlock()
+
+	// Kill the process — this will trigger monitorExit → handleExit
+	// which checks containerTimeout and reports the fatal error
+	if cmd != nil && cmd.Process != nil {
+		cmd.Process.Kill()
+	}
+}
+
+// isChannelClosed returns true if the channel has been closed.
+// Non-blocking check using select.
+func isChannelClosed(ch <-chan struct{}) bool {
 	select {
-	case <-time.After(ContainerStartupTimeout):
-		pm.log.Error("container startup watchdog fired - killing process", "timeout", ContainerStartupTimeout)
-
-		// Capture docker logs before killing the process for diagnostics
-		containerName := "plural-" + pm.config.SessionID
-		logCmd := exec.Command("docker", "logs", "--tail", "50", containerName)
-		logOutput, logErr := logCmd.CombinedOutput()
-		var logs string
-		if logErr == nil && len(logOutput) > 0 {
-			logs = strings.TrimSpace(string(logOutput))
-		}
-
-		pm.mu.Lock()
-		pm.containerTimeout = true
-		pm.containerLogs = logs
-		cmd := pm.cmd
-		pm.mu.Unlock()
-
-		// Kill the process — this will trigger monitorExit → handleExit
-		// which checks containerTimeout and reports the fatal error
-		if cmd != nil && cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-
-	case <-ready:
-		pm.log.Debug("container startup watchdog exiting - session started successfully")
-
-	case <-pm.ctx.Done():
-		pm.log.Debug("container startup watchdog exiting - context cancelled")
+	case <-ch:
+		return true
+	default:
+		return false
 	}
 }
 
