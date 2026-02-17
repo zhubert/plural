@@ -38,10 +38,6 @@ type Config struct {
 	RepoIssuePolling   map[string]bool  `json:"repo_issue_polling,omitempty"`   // Per-repo issue polling enabled
 	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
 
-	// Workspace organization
-	Workspaces        []Workspace `json:"workspaces,omitempty"`
-	ActiveWorkspaceID string      `json:"active_workspace_id,omitempty"`
-
 	// Preview state - tracks when a session's branch is checked out in the main repo
 	PreviewSessionID      string `json:"preview_session_id,omitempty"`      // Session ID currently being previewed (empty if none)
 	PreviewPreviousBranch string `json:"preview_previous_branch,omitempty"` // Branch that was checked out before preview started
@@ -127,9 +123,6 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoLinearTeam == nil {
 		c.RepoLinearTeam = make(map[string]string)
-	}
-	if c.Workspaces == nil {
-		c.Workspaces = []Workspace{}
 	}
 	if c.RepoAutoMerge == nil {
 		c.RepoAutoMerge = make(map[string]bool)
@@ -604,133 +597,6 @@ func (c *Config) SetIssueMaxConcurrent(n int) {
 	c.IssueMaxConcurrent = n
 }
 
-// GetWorkspaces returns a copy of the workspaces slice
-func (c *Config) GetWorkspaces() []Workspace {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	workspaces := make([]Workspace, len(c.Workspaces))
-	copy(workspaces, c.Workspaces)
-	return workspaces
-}
-
-// AddWorkspace adds a new workspace. Returns false if a workspace with the same name already exists.
-func (c *Config) AddWorkspace(ws Workspace) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, existing := range c.Workspaces {
-		if existing.Name == ws.Name {
-			return false
-		}
-	}
-	c.Workspaces = append(c.Workspaces, ws)
-	return true
-}
-
-// RemoveWorkspace removes a workspace by ID. Also clears WorkspaceID on all sessions
-// in that workspace and clears ActiveWorkspaceID if it was the active workspace.
-// Returns false if the workspace was not found.
-func (c *Config) RemoveWorkspace(id string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	found := false
-	for i, ws := range c.Workspaces {
-		if ws.ID == id {
-			c.Workspaces = append(c.Workspaces[:i], c.Workspaces[i+1:]...)
-			found = true
-			break
-		}
-	}
-	if !found {
-		return false
-	}
-
-	// Clear workspace assignment from all sessions that were in this workspace
-	for i := range c.Sessions {
-		if c.Sessions[i].WorkspaceID == id {
-			c.Sessions[i].WorkspaceID = ""
-		}
-	}
-
-	// Clear active workspace if it was this one
-	if c.ActiveWorkspaceID == id {
-		c.ActiveWorkspaceID = ""
-	}
-
-	return true
-}
-
-// RenameWorkspace renames a workspace. Returns false if the workspace was not found
-// or if a workspace with the new name already exists.
-func (c *Config) RenameWorkspace(id, newName string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Check for name conflict
-	for _, ws := range c.Workspaces {
-		if ws.Name == newName && ws.ID != id {
-			return false
-		}
-	}
-
-	for i := range c.Workspaces {
-		if c.Workspaces[i].ID == id {
-			c.Workspaces[i].Name = newName
-			return true
-		}
-	}
-	return false
-}
-
-// GetActiveWorkspaceID returns the active workspace ID, or empty string if none
-func (c *Config) GetActiveWorkspaceID() string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.ActiveWorkspaceID
-}
-
-// SetActiveWorkspaceID sets the active workspace ID. Pass empty string to clear.
-func (c *Config) SetActiveWorkspaceID(id string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.ActiveWorkspaceID = id
-}
-
-// SetSessionWorkspace assigns a session to a workspace. Pass empty workspaceID to unassign.
-// Returns false if the session was not found.
-func (c *Config) SetSessionWorkspace(sessionID, workspaceID string) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for i := range c.Sessions {
-		if c.Sessions[i].ID == sessionID {
-			c.Sessions[i].WorkspaceID = workspaceID
-			return true
-		}
-	}
-	return false
-}
-
-// GetSessionsByWorkspace returns all sessions that belong to the given workspace.
-func (c *Config) GetSessionsByWorkspace(workspaceID string) []Session {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if workspaceID == "" {
-		return nil
-	}
-
-	var sessions []Session
-	for _, s := range c.Sessions {
-		if s.WorkspaceID == workspaceID {
-			sessions = append(sessions, s)
-		}
-	}
-	return sessions
-}
-
 // RemoveSessions removes multiple sessions by ID. Returns the count of sessions removed.
 func (c *Config) RemoveSessions(ids []string) int {
 	c.mu.Lock()
@@ -752,24 +618,4 @@ func (c *Config) RemoveSessions(ids []string) int {
 	}
 	c.Sessions = remaining
 	return removed
-}
-
-// SetSessionsWorkspace assigns multiple sessions to a workspace. Returns the count updated.
-func (c *Config) SetSessionsWorkspace(ids []string, workspaceID string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
-	}
-
-	updated := 0
-	for i := range c.Sessions {
-		if idSet[c.Sessions[i].ID] {
-			c.Sessions[i].WorkspaceID = workspaceID
-			updated++
-		}
-	}
-	return updated
 }

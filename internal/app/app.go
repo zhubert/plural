@@ -281,13 +281,10 @@ func New(cfg *config.Config, version string) *Model {
 	// Configure footer to use shortcut registry for dynamic bindings
 	m.footer.SetBindingsGenerator(m.getApplicableFooterBindings)
 
-	// Load repos and sessions into sidebar (filtered by active workspace)
+	// Load repos and sessions into sidebar
 	m.sidebar.SetRepos(cfg.GetRepos())
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	m.sidebar.SetFocused(true)
-
-	// Set workspace name in header
-	m.header.SetWorkspaceName(m.getActiveWorkspaceName())
 
 	// Restore preview state from config (in case app was closed during a preview)
 	if cfg.IsPreviewActive() {
@@ -342,35 +339,9 @@ func (m *Model) sessionState() *SessionStateManager {
 	return m.sessionMgr.StateManager()
 }
 
-// getFilteredSessions returns sessions filtered by the active workspace.
-// If no workspace is active, returns all sessions.
+// getFilteredSessions returns all sessions.
 func (m *Model) getFilteredSessions() []config.Session {
-	sessions := m.config.GetSessions()
-	activeWS := m.config.GetActiveWorkspaceID()
-	if activeWS == "" {
-		return sessions
-	}
-	var filtered []config.Session
-	for _, s := range sessions {
-		if s.WorkspaceID == activeWS {
-			filtered = append(filtered, s)
-		}
-	}
-	return filtered
-}
-
-// getActiveWorkspaceName returns the name of the active workspace, or empty if none.
-func (m *Model) getActiveWorkspaceName() string {
-	activeWS := m.config.GetActiveWorkspaceID()
-	if activeWS == "" {
-		return ""
-	}
-	for _, ws := range m.config.GetWorkspaces() {
-		if ws.ID == activeWS {
-			return ws.Name
-		}
-	}
-	return ""
+	return m.config.GetSessions()
 }
 
 // refreshDiffStats updates the header with current git diff statistics for the active session
@@ -636,8 +607,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case keys.Enter:
 				ids := m.sidebar.GetSelectedSessionIDs()
 				if len(ids) > 0 {
-					workspaces := m.config.GetWorkspaces()
-					m.modal.Show(ui.NewBulkActionState(ids, workspaces))
+					m.modal.Show(ui.NewBulkActionState(ids))
 				}
 				return m, nil
 			case keys.Up, "k", keys.Down, "j":

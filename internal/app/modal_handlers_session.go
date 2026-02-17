@@ -330,9 +330,6 @@ func (m *Model) createNewSession(repoPath, branchName, branchPrefix string, base
 	if useContainers {
 		sess.Containerized = true
 	}
-	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
-		sess.WorkspaceID = activeWS
-	}
 	m.config.AddSession(*sess)
 	if err := m.config.Save(); err != nil {
 		logger.Get().Error("failed to save config", "error", err)
@@ -501,9 +498,6 @@ func (m *Model) createForkSession(repoPath, parentSessionID, branchName, branchP
 	sess.ParentID = parentSessionID
 	if useContainers {
 		sess.Containerized = true
-	}
-	if activeWS := m.config.GetActiveWorkspaceID(); activeWS != "" {
-		sess.WorkspaceID = activeWS
 	}
 
 	log.Info("forked session created", "name", sess.Name, "parentID", sess.ParentID)
@@ -787,11 +781,7 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 	wg.Wait()
 
 	// Add all sessions to config (after parallel creation completes)
-	activeWS := m.config.GetActiveWorkspaceID()
 	for _, sess := range createdSessions {
-		if activeWS != "" {
-			sess.WorkspaceID = activeWS
-		}
 		m.config.AddSession(*sess)
 	}
 
@@ -1080,12 +1070,6 @@ func (m *Model) handleBulkActionModal(key string, msg tea.KeyPressMsg, state *ui
 		switch state.GetAction() {
 		case ui.BulkActionDelete:
 			return m.executeBulkDelete(state.SessionIDs)
-		case ui.BulkActionMoveToWorkspace:
-			wsID := state.GetSelectedWorkspaceID()
-			if wsID == "" {
-				return m, nil
-			}
-			return m.executeBulkMove(state.SessionIDs, wsID)
 		case ui.BulkActionCreatePRs:
 			return m.executeBulkCreatePRs(state.SessionIDs)
 		case ui.BulkActionSendPrompt:
@@ -1170,31 +1154,6 @@ func (m *Model) executeBulkDelete(sessionIDs []string) (tea.Model, tea.Cmd) {
 }
 
 // executeBulkMove moves multiple sessions to a workspace
-func (m *Model) executeBulkMove(sessionIDs []string, workspaceID string) (tea.Model, tea.Cmd) {
-	count := m.config.SetSessionsWorkspace(sessionIDs, workspaceID)
-	var cmds []tea.Cmd
-	if cmd := m.saveConfigOrFlash(); cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-
-	// Exit multi-select mode and update sidebar
-	m.sidebar.ExitMultiSelect()
-	m.sidebar.SetSessions(m.getFilteredSessions())
-	m.modal.Hide()
-
-	// Find workspace name for flash message
-	var wsName string
-	for _, ws := range m.config.GetWorkspaces() {
-		if ws.ID == workspaceID {
-			wsName = ws.Name
-			break
-		}
-	}
-
-	cmds = append(cmds, m.ShowFlashSuccess(fmt.Sprintf("Moved %d session(s) to \"%s\"", count, wsName)))
-	return m, tea.Batch(cmds...)
-}
-
 // executeBulkCreatePRs creates PRs for multiple sessions
 func (m *Model) executeBulkCreatePRs(sessionIDs []string) (tea.Model, tea.Cmd) {
 	// Convert session IDs to session objects

@@ -224,13 +224,6 @@ var ShortcutRegistry = []Shortcut{
 		Category:    CategoryConfiguration,
 		Handler:     shortcutGlobalSettings,
 	},
-	{
-		Key:             "w",
-		Description:     "Manage workspaces",
-		Category:        CategoryConfiguration,
-		RequiresSidebar: true,
-		Handler:         shortcutWorkspaces,
-	},
 
 	// Chat
 	{
@@ -1219,11 +1212,6 @@ end tell`, termApp, escapedPath)
 
 func shortcutMultiSelect(m *Model) (tea.Model, tea.Cmd) {
 	m.sidebar.EnterMultiSelect()
-	return m, nil
-}
-
-func shortcutWorkspaces(m *Model) (tea.Model, tea.Cmd) {
-	m.showWorkspaceListModal()
 	return m, nil
 }
 

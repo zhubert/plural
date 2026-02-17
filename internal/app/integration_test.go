@@ -7,7 +7,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/mcp"
@@ -2297,90 +2296,3 @@ func TestConfirmExitModal_VimNavigation(t *testing.T) {
 // =============================================================================
 // Workspace Filtering Tests
 // =============================================================================
-
-func TestGetFilteredSessions_NoActiveWorkspace(t *testing.T) {
-	cfg := testConfigWithSessions()
-	m := testModelWithSize(cfg, 120, 40)
-
-	// No workspace set - should return all sessions
-	sessions := m.getFilteredSessions()
-	if len(sessions) != len(cfg.Sessions) {
-		t.Errorf("expected %d sessions, got %d", len(cfg.Sessions), len(sessions))
-	}
-}
-
-func TestGetFilteredSessions_WithActiveWorkspace(t *testing.T) {
-	cfg := testConfigWithSessions()
-
-	// Add a workspace and assign some sessions to it
-	ws := config.Workspace{ID: "ws-1", Name: "Frontend"}
-	cfg.AddWorkspace(ws)
-	cfg.Sessions[0].WorkspaceID = "ws-1" // session-1 in workspace
-	cfg.Sessions[2].WorkspaceID = "ws-1" // session-3 in workspace
-	cfg.SetActiveWorkspaceID("ws-1")
-
-	m := testModelWithSize(cfg, 120, 40)
-
-	sessions := m.getFilteredSessions()
-	if len(sessions) != 2 {
-		t.Errorf("expected 2 sessions in workspace, got %d", len(sessions))
-	}
-	for _, s := range sessions {
-		if s.WorkspaceID != "ws-1" {
-			t.Errorf("expected all sessions to have workspace ws-1, got %q", s.WorkspaceID)
-		}
-	}
-}
-
-func TestGetFilteredSessions_WorkspaceNoMatchingSessions(t *testing.T) {
-	cfg := testConfigWithSessions()
-
-	// Add a workspace but don't assign any sessions to it
-	ws := config.Workspace{ID: "ws-empty", Name: "Empty"}
-	cfg.AddWorkspace(ws)
-	cfg.SetActiveWorkspaceID("ws-empty")
-
-	m := testModelWithSize(cfg, 120, 40)
-
-	sessions := m.getFilteredSessions()
-	if len(sessions) != 0 {
-		t.Errorf("expected 0 sessions for empty workspace, got %d", len(sessions))
-	}
-}
-
-func TestGetActiveWorkspaceName_NoActiveWorkspace(t *testing.T) {
-	cfg := testConfig()
-	m := testModelWithSize(cfg, 120, 40)
-
-	name := m.getActiveWorkspaceName()
-	if name != "" {
-		t.Errorf("expected empty workspace name, got %q", name)
-	}
-}
-
-func TestGetActiveWorkspaceName_ValidWorkspace(t *testing.T) {
-	cfg := testConfig()
-	ws := config.Workspace{ID: "ws-1", Name: "My Project"}
-	cfg.AddWorkspace(ws)
-	cfg.SetActiveWorkspaceID("ws-1")
-
-	m := testModelWithSize(cfg, 120, 40)
-
-	name := m.getActiveWorkspaceName()
-	if name != "My Project" {
-		t.Errorf("expected 'My Project', got %q", name)
-	}
-}
-
-func TestGetActiveWorkspaceName_UnknownWorkspaceID(t *testing.T) {
-	cfg := testConfig()
-	// Set an active workspace ID that doesn't exist in the workspaces list
-	cfg.SetActiveWorkspaceID("nonexistent")
-
-	m := testModelWithSize(cfg, 120, 40)
-
-	name := m.getActiveWorkspaceName()
-	if name != "" {
-		t.Errorf("expected empty for unknown workspace ID, got %q", name)
-	}
-}
