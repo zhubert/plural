@@ -382,7 +382,8 @@
             position: relative;
             overflow-x: auto;
             max-width: 600px;
-            margin: 0 auto;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .command-block code {
@@ -476,30 +477,6 @@
         footer p a:hover {
             color: var(--primary);
         }
-
-        /* ── Animations ── */
-
-        .fade-in {
-            opacity: 0;
-            transform: translateY(12px);
-        }
-
-        .fade-in.visible {
-            animation: fadeIn 0.5s ease forwards;
-        }
-
-        @keyframes fadeIn {
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Stagger children inside hero */
-        .hero .fade-in:nth-child(1) { animation-delay: 0s; }
-        .hero .fade-in:nth-child(2) { animation-delay: 0.08s; }
-        .hero .fade-in:nth-child(3) { animation-delay: 0.16s; }
-        .hero .fade-in:nth-child(4) { animation-delay: 0.24s; }
 
         /* ── Responsive ── */
 
@@ -612,12 +589,12 @@
     <!-- Hero -->
     <div class="container">
         <section class="hero">
-            <div class="fade-in">
+            <div>
                 <img src="logo.svg" alt="plural" class="logo-svg">
             </div>
-            <p class="hero-tagline fade-in">explore multiple solutions at once.</p>
-            <p class="hero-sub fade-in">run parallel Claude Code sessions, each in its own git branch. compare approaches side by side and ship faster. or run fully headless — label a GitHub issue and let plural code, review, and merge autonomously.</p>
-            <div class="hero-cta fade-in">
+            <p class="hero-tagline">explore multiple solutions at once.</p>
+            <p class="hero-sub">run parallel Claude Code sessions, each in its own git branch. compare approaches side by side and ship faster. or run fully headless — label a GitHub issue and let plural code, review, and merge autonomously.</p>
+            <div class="hero-cta">
                 <a href="#install" class="btn btn-primary">install</a>
                 <a href="https://github.com/zhubert/plural" class="btn btn-secondary">view on github</a>
             </div>
@@ -626,7 +603,7 @@
 
     <!-- Demo -->
     <div class="container">
-        <div class="demo fade-in">
+        <div class="demo">
             <img src="demo.gif" alt="Plural demo showing multiple Claude sessions running in parallel" class="demo-gif">
         </div>
     </div>
@@ -634,42 +611,42 @@
     <!-- Features -->
     <div class="container">
         <section class="features">
-            <div class="features-heading fade-in">
+            <div class="features-heading">
                 <h2>built for parallel exploration</h2>
                 <p>everything you need to run Claude at full speed</p>
             </div>
             <div class="features-grid">
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">//</span>
                     <h3>parallel sessions</h3>
                     <p>run multiple Claude Code instances simultaneously, each working on a different approach in its own git worktree.</p>
                 </div>
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">*</span>
                     <h3>branch isolation</h3>
                     <p>every session gets its own branch and worktree. experiment freely without conflicts or lost work.</p>
                 </div>
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">[ ]</span>
                     <h3>container sandboxing</h3>
                     <p>run sessions inside containers with full permissions. the container is the sandbox &mdash; no confirmation prompts.</p>
                 </div>
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">#</span>
                     <h3>issue integration</h3>
                     <p>connect GitHub Issues or Asana tasks. start a session directly from a ticket, branch named and ready to go.</p>
                 </div>
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">&lt;&gt;</span>
                     <h3>session merging</h3>
                     <p>merge results between sessions or back to main. compare diffs, pick the best approach, and move on.</p>
                 </div>
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">&gt;_</span>
                     <h3>full TUI</h3>
                     <p>keyboard-driven terminal interface with sidebar navigation, streaming output, and inline permission prompts.</p>
                 </div>
-                <div class="feature-card fade-in">
+                <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">~</span>
                     <h3>headless agent mode</h3>
                     <p>run as a fully autonomous daemon. polls GitHub issues, codes, opens PRs, addresses review comments, and auto-merges — no human required.</p>
@@ -681,21 +658,21 @@
     <!-- How it works -->
     <div class="container">
         <section class="how-it-works">
-            <div class="how-heading fade-in">
+            <div class="how-heading">
                 <h2>how it works</h2>
             </div>
             <div class="steps">
-                <div class="step fade-in">
+                <div class="step">
                     <span class="step-number">1</span>
                     <h3>register a repo</h3>
                     <p>point plural at any git repository you're working on.</p>
                 </div>
-                <div class="step fade-in">
+                <div class="step">
                     <span class="step-number">2</span>
                     <h3>spawn sessions</h3>
                     <p>create multiple sessions. each gets an isolated worktree and branch.</p>
                 </div>
-                <div class="step fade-in">
+                <div class="step">
                     <span class="step-number">3</span>
                     <h3>merge the winner</h3>
                     <p>compare results, merge the best solution back, and clean up the rest.</p>
@@ -707,11 +684,11 @@
     <!-- Headless Agent Mode -->
     <div class="container">
         <section class="headless">
-            <div class="headless-heading fade-in">
+            <div class="headless-heading">
                 <h2>headless agent mode</h2>
                 <p>fully autonomous end-to-end issue resolution</p>
             </div>
-            <div class="headless-body fade-in">
+            <div class="headless-body">
                 <p class="headless-desc">run plural as a persistent daemon on your server or CI — no TUI, no human in the loop. point it at a GitHub repo, label issues <code>queued</code>, and plural handles everything: picks up the issue, writes the code, opens a PR, addresses review comments, and merges when approved.</p>
                 <div class="command-block headless-cmd">
                     <button class="copy-btn" onclick="copyCommand(this, 'plural agent --repo owner/repo')">copy</button>
@@ -730,19 +707,17 @@
     <!-- Install -->
     <div class="container">
         <section class="install" id="install">
-            <div class="install-heading fade-in">
+            <div class="install-heading">
                 <h2>get started</h2>
                 <p>install in seconds via homebrew</p>
             </div>
-            <div class="fade-in">
-                <div class="command-block">
-                    <button class="copy-btn" onclick="copyCommand(this, 'brew tap zhubert/tap && brew install plural')">copy</button>
-                    <code><span class="prompt">$</span> brew tap zhubert/tap && brew install plural</code>
-                </div>
-                <p class="install-alt">
-                    <a href="https://github.com/zhubert/plural#installation">or build from source</a>
-                </p>
+            <div class="command-block">
+                <button class="copy-btn" onclick="copyCommand(this, 'brew tap zhubert/tap && brew install plural')">copy</button>
+                <code><span class="prompt">$</span> brew tap zhubert/tap && brew install plural</code>
             </div>
+            <p class="install-alt">
+                <a href="https://github.com/zhubert/plural#installation">or build from source</a>
+            </p>
         </section>
     </div>
 
@@ -770,17 +745,6 @@
             });
         }
 
-        // Intersection Observer for fade-in animations
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('visible');
-                    observer.unobserve(entry.target);
-                }
-            });
-        }, { threshold: 0.1 });
-
-        document.querySelectorAll('.fade-in').forEach((el) => observer.observe(el));
     </script>
 </body>
 </html>
