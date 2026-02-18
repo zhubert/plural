@@ -599,6 +599,12 @@ func (w *SessionWorker) handleCreatePR(req mcp.CreatePRRequest) {
 
 	log.Info("creating PR via MCP tool", "branch", sess.Branch, "title", req.Title)
 
+	// Save messages to disk before creating PR so the transcript upload
+	// (which reads from disk via loadTranscript) can find them. Without this,
+	// messages from the current turn haven't been persisted yet since
+	// handleDone/saveRunnerMessages only runs after the turn completes.
+	w.agent.saveRunnerMessages(w.sessionID, w.runner)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

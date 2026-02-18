@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/paths"
 	"github.com/zhubert/plural/internal/session"
 )
 
@@ -896,6 +898,140 @@ func TestWorkerDaemonManagedSkipsAutoMerge(t *testing.T) {
 	if !worker.Done() {
 		t.Error("expected worker to be done")
 	}
+}
+
+// TestWorkerHandleCreatePRSavesMessagesBeforePR verifies that handleCreatePR
+// saves the runner's messages to disk before calling CreatePR. This ensures
+// loadTranscript() can find the messages and upload the transcript to the PR.
+// Without this, messages from the current turn haven't been persisted yet
+// since handleDone/saveRunnerMessages only runs after the turn completes.
+func TestWorkerHandleCreatePRSavesMessagesBeforePR(t *testing.T) {
+	// Set up temp dir for session messages so we don't pollute real data.
+	// Override HOME so paths.resolve() won't find ~/.plural (legacy mode)
+	// and will fall through to the XDG env var path.
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	origXDG := os.Getenv("XDG_DATA_HOME")
+	os.Setenv("HOME", tmpDir)
+	os.Setenv("XDG_DATA_HOME", tmpDir)
+	paths.Reset()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origXDG != "" {
+			os.Setenv("XDG_DATA_HOME", origXDG)
+		} else {
+			os.Unsetenv("XDG_DATA_HOME")
+		}
+		paths.Reset()
+	}()
+
+	cfg := testConfig()
+	sess := testSession("test-createpr-msgs")
+	sess.Autonomous = true
+	sess.PRCreated = false
+
+	cfg.AddSession(*sess)
+
+	// Track whether messages were on disk when gh pr create ran
+	var messagesFoundDuringPR bool
+	var mu sync.Mutex
+
+	mockExec := exec.NewMockExecutor(nil)
+	// Use AddRule with a custom matcher that checks for messages on disk
+	// at the time gh pr create is invoked
+	mockExec.AddRule(func(dir, name string, args []string) bool {
+		if name != "gh" || len(args) < 2 || args[0] != "pr" || args[1] != "create" {
+			return false
+		}
+		// Side effect: check if messages exist on disk during PR creation
+		msgs, err := config.LoadSessionMessages("test-createpr-msgs")
+		mu.Lock()
+		if err == nil && len(msgs) > 0 {
+			messagesFoundDuringPR = true
+		}
+		mu.Unlock()
+		return true
+	}, exec.MockResponse{
+		Stdout: []byte("https://github.com/owner/repo/pull/42\n"),
+	})
+	mockExec.AddPrefixMatch("git", []string{"push"}, exec.MockResponse{})
+	mockExec.AddPrefixMatch("git", []string{"log"}, exec.MockResponse{
+		Stdout: []byte("abc1234 Initial commit\n"),
+	})
+	mockExec.AddPrefixMatch("git", []string{"diff"}, exec.MockResponse{
+		Stdout: []byte("diff content"),
+	})
+
+	gitSvc := git.NewGitServiceWithExecutor(mockExec)
+	sessSvc := session.NewSessionServiceWithExecutor(mockExec)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry := issues.NewProviderRegistry()
+
+	a := New(cfg, gitSvc, sessSvc, registry, logger)
+	a.sessionMgr.SetSkipMessageLoad(true)
+	a.daemonManaged = true
+
+	// Create a mock runner with pre-existing messages (simulates the
+	// conversation that happened before Claude called create_pr)
+	initialMessages := []claude.Message{
+		{Role: "user", Content: "Fix the bug in login"},
+		{Role: "assistant", Content: "I'll fix the login bug by updating the auth handler."},
+	}
+	mockRunner := claude.NewMockRunner(sess.ID, true, initialMessages)
+	mockRunner.SetHostTools(true) // Enable create_pr channel
+
+	// Queue initial response that won't complete (worker stays in select loop)
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Working..."},
+	)
+
+	worker := NewSessionWorker(a, sess, mockRunner, "Test task")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	worker.Start(ctx)
+
+	// Give worker time to enter the select loop
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify no messages on disk yet (handleDone hasn't been called)
+	msgs, _ := config.LoadSessionMessages("test-createpr-msgs")
+	if len(msgs) != 0 {
+		t.Fatalf("expected no messages on disk before create_pr, got %d", len(msgs))
+	}
+
+	// Simulate Claude calling create_pr MCP tool
+	mockRunner.SimulateCreatePRRequest(mcp.CreatePRRequest{
+		ID:    "pr-1",
+		Title: "Fix login bug",
+	})
+
+	// Wait for the request to be processed
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify messages were on disk when gh pr create executed
+	mu.Lock()
+	found := messagesFoundDuringPR
+	mu.Unlock()
+	if !found {
+		t.Error("expected session messages to be saved to disk before gh pr create ran")
+	}
+
+	// Also verify messages are still on disk after completion.
+	// Expect 3 messages: 2 initial + 1 user message from SendContent("Test task")
+	msgs, err := config.LoadSessionMessages("test-createpr-msgs")
+	if err != nil {
+		t.Fatalf("failed to load messages: %v", err)
+	}
+	if len(msgs) < 2 {
+		t.Errorf("expected at least 2 messages on disk, got %d", len(msgs))
+	}
+	if msgs[0].Role != "user" || msgs[0].Content != "Fix the bug in login" {
+		t.Errorf("unexpected first message: %+v", msgs[0])
+	}
+
+	cancel()
+	worker.Wait()
 }
 
 // TestWorkerDaemonManagedHandleCreatePRSkipsAutoMerge verifies that
