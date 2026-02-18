@@ -711,11 +711,11 @@ func (s *SessionSettingsState) Render() string {
 		s.form.View(),
 	}
 
-	// Repo settings section (only when at least one provider is configured)
-	if s.AsanaPATSet || s.LinearAPIKeySet {
-		repoHeader := renderSectionHeader("Repo Settings (" + s.RepoName + "):")
-		parts = append(parts, repoHeader)
+	// Repo settings section
+	repoHeader := renderSectionHeader("Repo Settings (" + s.RepoName + "):")
+	parts = append(parts, repoHeader)
 
+	if s.AsanaPATSet || s.LinearAPIKeySet {
 		// Show loading states
 		var statusParts []string
 		if s.AsanaPATSet && s.AsanaLoading {
@@ -753,6 +753,13 @@ func (s *SessionSettingsState) Render() string {
 		if s.repoForm != nil {
 			parts = append(parts, s.repoForm.View())
 		}
+	} else {
+		hint := lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Italic(true).
+			PaddingLeft(2).
+			Render("Set ASANA_PAT or LINEAR_API_KEY to configure issue tracking")
+		parts = append(parts, hint)
 	}
 
 	parts = append(parts, help)

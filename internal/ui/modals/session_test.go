@@ -507,12 +507,18 @@ func TestSessionSettingsState_GetLinearTeam(t *testing.T) {
 	}
 }
 
-func TestSessionSettingsState_Render_NoProvidersOmitsRepoSection(t *testing.T) {
+func TestSessionSettingsState_Render_NoProvidersShowsHint(t *testing.T) {
 	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", false, "")
 	rendered := state.Render()
 
-	if strings.Contains(rendered, "Repo Settings") {
-		t.Error("should not show Repo Settings section when no providers configured")
+	if !strings.Contains(rendered, "Repo Settings") {
+		t.Error("should show Repo Settings header even when no providers configured")
+	}
+	if !strings.Contains(rendered, "ASANA_PAT") {
+		t.Error("should show hint mentioning ASANA_PAT")
+	}
+	if !strings.Contains(rendered, "LINEAR_API_KEY") {
+		t.Error("should show hint mentioning LINEAR_API_KEY")
 	}
 }
 
