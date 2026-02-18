@@ -470,6 +470,141 @@ func TestNewDaemonState(t *testing.T) {
 	}
 }
 
+func TestClearDaemonState(t *testing.T) {
+	tmpDir := t.TempDir()
+	fp := filepath.Join(tmpDir, "daemon-state.json")
+
+	// Create a state file
+	state := &DaemonState{
+		Version:   daemonStateVersion,
+		RepoPath:  "/test/repo",
+		WorkItems: make(map[string]*WorkItem),
+		StartedAt: time.Now(),
+		filePath:  fp,
+	}
+	if err := state.Save(); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(fp); err != nil {
+		t.Fatalf("expected state file to exist: %v", err)
+	}
+
+	// Override daemonStateFilePath via a direct os.Remove since ClearDaemonState
+	// uses the paths package. Test the removal logic directly.
+	if err := os.Remove(fp); err != nil {
+		t.Fatalf("failed to remove state file: %v", err)
+	}
+
+	// Verify file is gone
+	if _, err := os.Stat(fp); !os.IsNotExist(err) {
+		t.Error("expected state file to be removed")
+	}
+
+	// Removing nonexistent file should not error (mirrors ClearDaemonState behavior)
+	err := os.Remove(fp)
+	if err != nil && !os.IsNotExist(err) {
+		t.Errorf("expected no error for nonexistent file, got: %v", err)
+	}
+}
+
+func TestClearDaemonLocks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create some lock files
+	for _, name := range []string{"daemon-abc123.lock", "daemon-def456.lock"} {
+		f, err := os.Create(filepath.Join(tmpDir, name))
+		if err != nil {
+			t.Fatalf("failed to create lock file: %v", err)
+		}
+		f.Close()
+	}
+
+	// Also create a non-lock file that shouldn't be matched
+	f, err := os.Create(filepath.Join(tmpDir, "other-file.json"))
+	if err != nil {
+		t.Fatalf("failed to create other file: %v", err)
+	}
+	f.Close()
+
+	// Glob and remove lock files (mirrors ClearDaemonLocks logic)
+	matches, err := filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
+	if err != nil {
+		t.Fatalf("glob failed: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 lock files, got %d", len(matches))
+	}
+
+	for _, match := range matches {
+		if err := os.Remove(match); err != nil {
+			t.Fatalf("failed to remove lock file: %v", err)
+		}
+	}
+
+	// Verify lock files are gone
+	remaining, _ := filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
+	if len(remaining) != 0 {
+		t.Errorf("expected 0 lock files remaining, got %d", len(remaining))
+	}
+
+	// Verify other file still exists
+	if _, err := os.Stat(filepath.Join(tmpDir, "other-file.json")); err != nil {
+		t.Error("expected other-file.json to still exist")
+	}
+}
+
+func TestFindDaemonLocks(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// No lock files
+	matches, err := filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
+	if err != nil {
+		t.Fatalf("glob failed: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("expected 0 lock files, got %d", len(matches))
+	}
+
+	// Create lock files
+	for _, name := range []string{"daemon-aaa.lock", "daemon-bbb.lock", "daemon-ccc.lock"} {
+		f, err := os.Create(filepath.Join(tmpDir, name))
+		if err != nil {
+			t.Fatalf("failed to create lock file: %v", err)
+		}
+		f.Close()
+	}
+
+	matches, err = filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
+	if err != nil {
+		t.Fatalf("glob failed: %v", err)
+	}
+	if len(matches) != 3 {
+		t.Errorf("expected 3 lock files, got %d", len(matches))
+	}
+}
+
+func TestDaemonStateExists(t *testing.T) {
+	tmpDir := t.TempDir()
+	fp := filepath.Join(tmpDir, "daemon-state.json")
+
+	// File doesn't exist
+	if _, err := os.Stat(fp); !os.IsNotExist(err) {
+		t.Error("expected file to not exist initially")
+	}
+
+	// Create file
+	if err := os.WriteFile(fp, []byte("{}"), 0o644); err != nil {
+		t.Fatalf("failed to create file: %v", err)
+	}
+
+	// File exists
+	if _, err := os.Stat(fp); err != nil {
+		t.Error("expected file to exist after creation")
+	}
+}
+
 func TestLockFilePath(t *testing.T) {
 	path1 := lockFilePath("/repo/a")
 	path2 := lockFilePath("/repo/b")

@@ -291,6 +291,60 @@ func (s *DaemonState) SetErrorMessage(id, msg string) {
 	}
 }
 
+// ClearDaemonState removes the daemon state file from disk.
+// Returns nil if the file doesn't exist.
+func ClearDaemonState() error {
+	fp := daemonStateFilePath()
+	if err := os.Remove(fp); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove daemon state: %w", err)
+	}
+	return nil
+}
+
+// ClearDaemonLocks finds and removes all daemon lock files.
+// Returns the number of lock files removed.
+func ClearDaemonLocks() (int, error) {
+	dir, err := paths.StateDir()
+	if err != nil {
+		return 0, fmt.Errorf("failed to resolve state dir: %w", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "daemon-*.lock"))
+	if err != nil {
+		return 0, fmt.Errorf("failed to glob lock files: %w", err)
+	}
+
+	removed := 0
+	for _, match := range matches {
+		if err := os.Remove(match); err != nil && !os.IsNotExist(err) {
+			return removed, fmt.Errorf("failed to remove lock file %s: %w", match, err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+// DaemonStateExists returns true if the daemon state file exists on disk.
+func DaemonStateExists() bool {
+	fp := daemonStateFilePath()
+	_, err := os.Stat(fp)
+	return err == nil
+}
+
+// FindDaemonLocks returns the paths of all daemon lock files.
+func FindDaemonLocks() ([]string, error) {
+	dir, err := paths.StateDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve state dir: %w", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(dir, "daemon-*.lock"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to glob lock files: %w", err)
+	}
+	return matches, nil
+}
+
 // DaemonLock manages the lock file to prevent multiple daemons for the same repo.
 type DaemonLock struct {
 	path string
