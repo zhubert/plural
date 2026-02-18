@@ -41,12 +41,14 @@ picking up issues, coding, PR creation, review feedback cycles, and final merge.
 The daemon is stoppable and restartable without losing track of in-flight work.
 State is persisted to ~/.plural/daemon-state.json.
 
-The --repo flag is required to specify which registered repo to poll.
-Auto-merge is enabled by default; use --no-auto-merge to disable.
+If --repo is not specified and the current directory is inside a git repository,
+that repository is used as the default. Auto-merge is enabled by default;
+use --no-auto-merge to disable.
 
 All sessions are containerized (container = sandbox).
 
 Examples:
+  plural agent                                # Use current git repo as default
   plural agent --repo owner/repo              # Run daemon (long-running, auto-merge on)
   plural agent --repo owner/repo --once       # Process one tick and exit
   plural agent --repo /path/to/repo           # Use filesystem path instead
@@ -114,10 +116,15 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	linearProvider := issues.NewLinearProvider(cfg)
 	issueRegistry := issues.NewProviderRegistry(githubProvider, asanaProvider, linearProvider)
 
-	// --repo is required
-	if agentRepo == "" {
-		return fmt.Errorf("--repo is required: specify which repo to poll (owner/repo or filesystem path)")
+	// If --repo is not provided, try to detect from current working directory
+	resolved, err := resolveAgentRepo(context.Background(), agentRepo, sessSvc)
+	if err != nil {
+		return err
 	}
+	if resolved != agentRepo {
+		agentLogger.Info("no --repo specified, using current directory", "repo", resolved)
+	}
+	agentRepo = resolved
 
 	// Build daemon options
 	var opts []agent.DaemonOption
@@ -170,4 +177,24 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	// Run daemon
 	return d.Run(ctx)
+}
+
+// cwdGitRootGetter abstracts the GetCurrentDirGitRoot call for testability.
+type cwdGitRootGetter interface {
+	GetCurrentDirGitRoot(ctx context.Context) string
+}
+
+// resolveAgentRepo returns the effective repo to use for the agent.
+// If repo is non-empty it is returned unchanged.
+// If repo is empty, the current working directory's git root is used.
+// An error is returned when no repo can be determined.
+func resolveAgentRepo(ctx context.Context, repo string, getter cwdGitRootGetter) (string, error) {
+	if repo != "" {
+		return repo, nil
+	}
+	cwdRoot := getter.GetCurrentDirGitRoot(ctx)
+	if cwdRoot == "" {
+		return "", fmt.Errorf("--repo is required: specify which repo to poll (owner/repo or filesystem path)\n\nAlternatively, run from within a git repository to use it as the default")
+	}
+	return cwdRoot, nil
 }
