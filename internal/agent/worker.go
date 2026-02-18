@@ -582,7 +582,7 @@ func (w *SessionWorker) handleCreatePR(req mcp.CreatePRRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	resultCh := w.agent.gitService.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, req.Title, sess.GetIssueRef())
+	resultCh := w.agent.gitService.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, req.Title, sess.GetIssueRef(), w.sessionID)
 
 	var lastErr error
 	var prURL string

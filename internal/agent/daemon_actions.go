@@ -166,7 +166,7 @@ func (d *Daemon) createPR(ctx context.Context, item *WorkItem) (string, error) {
 	prCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
-	resultCh := d.gitService.CreatePR(prCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef())
+	resultCh := d.gitService.CreatePR(prCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef(), item.SessionID)
 
 	var lastErr error
 	var prURL string

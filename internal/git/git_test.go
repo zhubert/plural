@@ -312,7 +312,7 @@ func TestCreatePR_NoGh(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	ch := svc.CreatePR(ctx, repoPath, repoPath, "test-branch", "", "", nil)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "test-branch", "", "", nil, "")
 
 	var hadError bool
 	for result := range ch {
@@ -599,7 +599,7 @@ func TestCreatePR_WithProvidedCommitMessage(t *testing.T) {
 	defer cancel()
 
 	// CreatePR will fail without a real remote, but we can verify it tries
-	ch := svc.CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "", "Custom PR commit", nil)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "feature-pr-msg", "", "Custom PR commit", nil, "")
 
 	// Drain channel - expect an error since no remote
 	for range ch {
@@ -754,7 +754,7 @@ func TestCreatePR_Cancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	ch := svc.CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", "", nil)
+	ch := svc.CreatePR(ctx, repoPath, repoPath, "pr-cancel-test", "", "", nil, "")
 
 	// Drain channel - should not hang
 	for range ch {
@@ -818,7 +818,7 @@ func TestCreatePR_UsesBaseBranchNotDefaultBranch(t *testing.T) {
 	defer cancel()
 
 	// Call CreatePR with baseBranch="parent-branch"
-	ch := svc.CreatePR(ctx, repoPath, worktreePath, branch, baseBranch, "", nil)
+	ch := svc.CreatePR(ctx, repoPath, worktreePath, branch, baseBranch, "", nil, "")
 
 	// Drain the channel
 	for range ch {

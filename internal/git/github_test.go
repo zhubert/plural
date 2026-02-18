@@ -1144,3 +1144,67 @@ func TestCommentOnIssue_Error(t *testing.T) {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+func TestUploadTranscriptToPR_Success(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddPrefixMatch("gh", []string{"pr", "comment", "feature-branch", "--body"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.UploadTranscriptToPR(context.Background(), "/repo", "feature-branch", "User:\nHello\n\nAssistant:\nHi")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the command was called
+	calls := mock.GetCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	call := calls[0]
+	if call.Name != "gh" {
+		t.Errorf("expected 'gh' command, got %q", call.Name)
+	}
+	// The args should contain "pr", "comment", the branch, and "--body" with wrapped content
+	argStr := strings.Join(call.Args, " ")
+	if !strings.Contains(argStr, "pr comment feature-branch") {
+		t.Errorf("expected PR comment args, got: %s", argStr)
+	}
+	if !strings.Contains(argStr, "<details>") {
+		t.Error("expected <details> block in PR comment body")
+	}
+	if !strings.Contains(argStr, "Session Transcript") {
+		t.Error("expected 'Session Transcript' in PR comment body")
+	}
+	if !strings.Contains(argStr, "User:") {
+		t.Error("expected transcript content in PR comment body")
+	}
+}
+
+func TestUploadTranscriptToPR_Empty(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	svc := NewGitServiceWithExecutor(mock)
+
+	// Empty transcript should be a no-op (no gh call)
+	err := svc.UploadTranscriptToPR(context.Background(), "/repo", "feature-branch", "")
+	if err != nil {
+		t.Fatalf("expected no error for empty transcript, got: %v", err)
+	}
+}
+
+func TestUploadTranscriptToPR_Error(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddPrefixMatch("gh", []string{"pr", "comment"}, pexec.MockResponse{
+		Err: fmt.Errorf("gh failed"),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.UploadTranscriptToPR(context.Background(), "/repo", "feature-branch", "some transcript")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "gh pr comment failed") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
