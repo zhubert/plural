@@ -312,9 +312,8 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 			return
 		}
 
-		ch <- Result{Output: "\nPull request created successfully!\n"}
-
 		// Upload session transcript as a PR comment (best-effort)
+		// Done before the final success message so the output sequence reflects completion order.
 		if sessionID != "" {
 			if transcript := loadTranscript(sessionID); transcript != "" {
 				ch <- Result{Output: "Uploading session transcript to PR...\n"}
@@ -327,7 +326,7 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 			}
 		}
 
-		ch <- Result{Done: true}
+		ch <- Result{Output: "\nPull request created successfully!\n", Done: true}
 	}()
 
 	return ch

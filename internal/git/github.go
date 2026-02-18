@@ -355,7 +355,7 @@ func (s *GitService) UploadTranscriptToPR(ctx context.Context, repoPath, branch,
 	if transcript == "" {
 		return nil
 	}
-	body := "<details>\n<summary>Session Transcript</summary>\n\n```\n" + transcript + "\n```\n</details>"
+	body := "<details>\n<summary>Session Transcript</summary>\n\n```text\n" + transcript + "\n```\n</details>"
 	_, _, err := s.executor.Run(ctx, repoPath, "gh", "pr", "comment", branch, "--body", body)
 	if err != nil {
 		return fmt.Errorf("gh pr comment failed: %w", err)

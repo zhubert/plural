@@ -1174,8 +1174,14 @@ func TestUploadTranscriptToPR_Success(t *testing.T) {
 	if !strings.Contains(argStr, "<details>") {
 		t.Error("expected <details> block in PR comment body")
 	}
+	if !strings.Contains(argStr, "</details>") {
+		t.Error("expected closing </details> tag in PR comment body")
+	}
 	if !strings.Contains(argStr, "Session Transcript") {
 		t.Error("expected 'Session Transcript' in PR comment body")
+	}
+	if !strings.Contains(argStr, "```text") {
+		t.Error("expected ```text code fence in PR comment body")
 	}
 	if !strings.Contains(argStr, "User:") {
 		t.Error("expected transcript content in PR comment body")
