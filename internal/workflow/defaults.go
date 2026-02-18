@@ -51,6 +51,7 @@ func DefaultConfig() *Config {
 
 // Merge fills in missing values in partial from defaults.
 // partial takes precedence; defaults fill gaps.
+// Hook slices (After) are not merged — if partial defines hooks, they fully replace defaults.
 func Merge(partial, defaults *Config) *Config {
 	result := *partial
 

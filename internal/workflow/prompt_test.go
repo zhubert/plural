@@ -80,3 +80,25 @@ func TestResolveSystemPrompt(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSystemPrompt_SymlinkTraversal(t *testing.T) {
+	repoDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	// Create a secret file outside the repo
+	secretFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("secret data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside the repo pointing outside
+	symlinkPath := filepath.Join(repoDir, "escape")
+	if err := os.Symlink(outsideDir, symlinkPath); err != nil {
+		t.Skipf("cannot create symlinks: %v", err)
+	}
+
+	_, err := ResolveSystemPrompt("file:escape/secret.txt", repoDir)
+	if err == nil {
+		t.Error("expected error for symlink traversal, got nil")
+	}
+}

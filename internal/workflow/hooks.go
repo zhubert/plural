@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 )
 
@@ -44,7 +45,7 @@ func RunHooks(ctx context.Context, hooks []HookConfig, hookCtx HookContext, logg
 
 		cmd := exec.CommandContext(ctx, "sh", "-c", hook.Run)
 		cmd.Dir = hookCtx.RepoPath
-		cmd.Env = append(cmd.Environ(), hookCtx.envVars()...)
+		cmd.Env = append(os.Environ(), hookCtx.envVars()...)
 
 		output, err := cmd.CombinedOutput()
 		if err != nil {
