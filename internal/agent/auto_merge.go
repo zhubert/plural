@@ -236,9 +236,6 @@ func doMerge(a *Agent, sessionID string, sess *config.Session) mergeAction {
 		log.Error("failed to save config after merge", "error", err)
 	}
 
-	// Remove "wip" label
-	a.removeIssueWIPLabel(sess)
-
 	// Auto-cleanup if enabled
 	if a.config.GetAutoCleanupMerged() {
 		if err := a.cleanupSession(context.Background(), sessionID); err != nil {

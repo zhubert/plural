@@ -351,28 +351,6 @@ func TestPollForIssues_DeduplicatesExistingSessions(t *testing.T) {
 	}
 }
 
-func TestRemoveIssueWIPLabel_NilIssueRef(t *testing.T) {
-	cfg := testConfig()
-	a := testAgent(cfg)
-
-	sess := &config.Session{ID: "test", RepoPath: "/repo"}
-	// Should not panic with nil IssueRef
-	a.removeIssueWIPLabel(sess)
-}
-
-func TestRemoveIssueWIPLabel_InvalidIssueID(t *testing.T) {
-	cfg := testConfig()
-	a := testAgent(cfg)
-
-	sess := &config.Session{
-		ID:       "test",
-		RepoPath: "/repo",
-		IssueRef: &config.IssueRef{ID: "not-a-number"},
-	}
-	// Should not panic with non-numeric issue ID
-	a.removeIssueWIPLabel(sess)
-}
-
 func TestGetMaxTurns(t *testing.T) {
 	t.Run("uses config when no override", func(t *testing.T) {
 		cfg := testConfig()
