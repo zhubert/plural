@@ -27,36 +27,42 @@ var (
 	agentAutoAddressPRComments bool
 	agentAutoBroadcastPR       bool
 	agentAutoMerge             bool
+	agentNoAutoMerge           bool
 )
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
-	Short: "Run headless autonomous agent",
-	Long: `Polls for issues and works them autonomously using containerized Claude sessions.
+	Short: "Run headless autonomous agent daemon",
+	Long: `Persistent orchestrator daemon that manages the full lifecycle of work items:
+picking up issues, coding, PR creation, review feedback cycles, and final merge.
 
-The agent runs headless (no TUI) and is suitable for CI/servers/background workers.
+The daemon is stoppable and restartable without losing track of in-flight work.
+State is persisted to ~/.plural/daemon-state.json.
+
 The --repo flag is required to specify which registered repo to poll.
+Auto-merge is enabled by default; use --no-auto-merge to disable.
 
 All sessions are containerized (container = sandbox).
 
 Examples:
-  plural agent --repo owner/repo        # Poll a specific repo (required)
-  plural agent --repo owner/repo --once # Process available issues and exit
-  plural agent --repo /path/to/repo     # Use filesystem path instead
-  plural agent --repo owner/repo --auto-merge  # Auto-merge PRs after review + CI
+  plural agent --repo owner/repo              # Run daemon (long-running, auto-merge on)
+  plural agent --repo owner/repo --once       # Process one tick and exit
+  plural agent --repo /path/to/repo           # Use filesystem path instead
+  plural agent --repo owner/repo --no-auto-merge  # Disable auto-merge
   plural agent --repo owner/repo --max-turns 100`,
 	RunE: runAgent,
 }
 
 func init() {
-	agentCmd.Flags().BoolVar(&agentOnce, "once", false, "Process available issues and exit (vs continuous polling)")
-	agentCmd.Flags().StringVar(&agentRepo, "repo", "", "Limit to specific repo (owner/repo or filesystem path)")
+	agentCmd.Flags().BoolVar(&agentOnce, "once", false, "Run one tick and exit (vs continuous daemon)")
+	agentCmd.Flags().StringVar(&agentRepo, "repo", "", "Repo to poll (owner/repo or filesystem path)")
 	agentCmd.Flags().IntVar(&agentMaxConcurrent, "max-concurrent", 0, "Override max concurrent sessions (0 = use config)")
 	agentCmd.Flags().IntVar(&agentMaxTurns, "max-turns", 0, "Override max autonomous turns per session (0 = use config default of 50)")
 	agentCmd.Flags().IntVar(&agentMaxDuration, "max-duration", 0, "Override max autonomous duration in minutes (0 = use config default of 30)")
 	agentCmd.Flags().BoolVar(&agentAutoAddressPRComments, "auto-address-pr-comments", false, "Auto-address PR review comments")
 	agentCmd.Flags().BoolVar(&agentAutoBroadcastPR, "auto-broadcast-pr", false, "Auto-create PRs when broadcast group completes")
-	agentCmd.Flags().BoolVar(&agentAutoMerge, "auto-merge", false, "Auto-merge PRs after review approval and CI pass")
+	agentCmd.Flags().BoolVar(&agentAutoMerge, "auto-merge", false, "Auto-merge PRs after review approval and CI pass (default: true)")
+	agentCmd.Flags().BoolVar(&agentNoAutoMerge, "no-auto-merge", false, "Disable auto-merge")
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -110,33 +116,34 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--repo is required: specify which repo to poll (owner/repo or filesystem path)")
 	}
 
-	// Build agent options
-	var opts []agent.Option
+	// Build daemon options
+	var opts []agent.DaemonOption
 	if agentOnce {
-		opts = append(opts, agent.WithOnce(true))
+		opts = append(opts, agent.WithDaemonOnce(true))
 	}
-	opts = append(opts, agent.WithRepoFilter(agentRepo))
+	opts = append(opts, agent.WithDaemonRepoFilter(agentRepo))
 	if agentMaxConcurrent > 0 {
-		opts = append(opts, agent.WithMaxConcurrent(agentMaxConcurrent))
+		opts = append(opts, agent.WithDaemonMaxConcurrent(agentMaxConcurrent))
 	}
 	if agentMaxTurns > 0 {
-		opts = append(opts, agent.WithMaxTurns(agentMaxTurns))
+		opts = append(opts, agent.WithDaemonMaxTurns(agentMaxTurns))
 	}
 	if agentMaxDuration > 0 {
-		opts = append(opts, agent.WithMaxDuration(agentMaxDuration))
+		opts = append(opts, agent.WithDaemonMaxDuration(agentMaxDuration))
 	}
 	if agentAutoAddressPRComments {
-		opts = append(opts, agent.WithAutoAddressPRComments(true))
+		opts = append(opts, agent.WithDaemonAutoAddressPRComments(true))
 	}
 	if agentAutoBroadcastPR {
-		opts = append(opts, agent.WithAutoBroadcastPR(true))
+		opts = append(opts, agent.WithDaemonAutoBroadcastPR(true))
 	}
-	if agentAutoMerge {
-		opts = append(opts, agent.WithAutoMerge(true))
+	// Auto-merge is on by default for daemon; --no-auto-merge disables it
+	if agentNoAutoMerge {
+		opts = append(opts, agent.WithDaemonAutoMerge(false))
 	}
 
-	// Create agent
-	a := agent.New(cfg, gitSvc, sessSvc, issueRegistry, agentLogger, opts...)
+	// Create daemon
+	d := agent.NewDaemon(cfg, gitSvc, sessSvc, issueRegistry, agentLogger, opts...)
 
 	// Set up signal handling
 	ctx, cancel := context.WithCancel(context.Background())
@@ -155,6 +162,6 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}()
 
-	// Run agent
-	return a.Run(ctx)
+	// Run daemon
+	return d.Run(ctx)
 }

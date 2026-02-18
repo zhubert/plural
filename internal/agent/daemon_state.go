@@ -1,0 +1,337 @@
+package agent
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/paths"
+)
+
+// WorkItemState represents the current state of a work item in the daemon lifecycle.
+type WorkItemState string
+
+const (
+	WorkItemQueued              WorkItemState = "queued"
+	WorkItemCoding              WorkItemState = "coding"
+	WorkItemPRCreated           WorkItemState = "pr_created"
+	WorkItemAwaitingReview      WorkItemState = "awaiting_review"
+	WorkItemAddressingFeedback  WorkItemState = "addressing_feedback"
+	WorkItemPushing             WorkItemState = "pushing"
+	WorkItemAwaitingCI          WorkItemState = "awaiting_ci"
+	WorkItemMerging             WorkItemState = "merging"
+	WorkItemCompleted           WorkItemState = "completed"
+	WorkItemFailed              WorkItemState = "failed"
+	WorkItemAbandoned           WorkItemState = "abandoned"
+)
+
+// validTransitions defines the allowed state transitions for work items.
+var validTransitions = map[WorkItemState][]WorkItemState{
+	WorkItemQueued:             {WorkItemCoding, WorkItemFailed},
+	WorkItemCoding:             {WorkItemPRCreated, WorkItemFailed},
+	WorkItemPRCreated:          {WorkItemAwaitingReview, WorkItemFailed},
+	WorkItemAwaitingReview:     {WorkItemAddressingFeedback, WorkItemAwaitingCI, WorkItemFailed, WorkItemAbandoned},
+	WorkItemAddressingFeedback: {WorkItemPushing, WorkItemFailed},
+	WorkItemPushing:            {WorkItemAwaitingReview, WorkItemFailed},
+	WorkItemAwaitingCI:         {WorkItemMerging, WorkItemFailed, WorkItemAwaitingReview},
+	WorkItemMerging:            {WorkItemCompleted, WorkItemFailed},
+	WorkItemCompleted:          {},
+	WorkItemFailed:             {},
+	WorkItemAbandoned:          {},
+}
+
+// ConsumesSlot returns true if the state consumes a concurrency slot.
+func (s WorkItemState) ConsumesSlot() bool {
+	return s == WorkItemCoding || s == WorkItemAddressingFeedback
+}
+
+// IsTerminal returns true if the state is a terminal state (no further transitions).
+func (s WorkItemState) IsTerminal() bool {
+	return s == WorkItemCompleted || s == WorkItemFailed || s == WorkItemAbandoned
+}
+
+// IsShelved returns true if the state is shelved (waiting for external event, no slot used).
+func (s WorkItemState) IsShelved() bool {
+	return s == WorkItemAwaitingReview || s == WorkItemAwaitingCI
+}
+
+// WorkItem tracks a single issue through its full lifecycle.
+type WorkItem struct {
+	ID                string          `json:"id"`
+	IssueRef          config.IssueRef `json:"issue_ref"`
+	State             WorkItemState   `json:"state"`
+	SessionID         string          `json:"session_id"`
+	Branch            string          `json:"branch"`
+	PRURL             string          `json:"pr_url,omitempty"`
+	CommentsAddressed int             `json:"comments_addressed"`
+	FeedbackRounds    int             `json:"feedback_rounds"`
+	ErrorMessage      string          `json:"error_message,omitempty"`
+	ErrorCount        int             `json:"error_count"`
+	CreatedAt         time.Time       `json:"created_at"`
+	UpdatedAt         time.Time       `json:"updated_at"`
+	CompletedAt       *time.Time      `json:"completed_at,omitempty"`
+}
+
+// ValidateTransition checks if a state transition is allowed.
+func ValidateTransition(from, to WorkItemState) error {
+	allowed, ok := validTransitions[from]
+	if !ok {
+		return fmt.Errorf("unknown state: %s", from)
+	}
+	for _, s := range allowed {
+		if s == to {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid transition: %s -> %s", from, to)
+}
+
+// DaemonState holds the persistent state of the daemon.
+type DaemonState struct {
+	Version    int                  `json:"version"`
+	RepoPath   string               `json:"repo_path"`
+	WorkItems  map[string]*WorkItem `json:"work_items"`
+	LastPollAt time.Time            `json:"last_poll_at"`
+	StartedAt  time.Time            `json:"started_at"`
+
+	mu       sync.RWMutex
+	filePath string
+}
+
+const daemonStateVersion = 1
+
+// NewDaemonState creates a new empty daemon state for the given repo.
+func NewDaemonState(repoPath string) *DaemonState {
+	return &DaemonState{
+		Version:   daemonStateVersion,
+		RepoPath:  repoPath,
+		WorkItems: make(map[string]*WorkItem),
+		StartedAt: time.Now(),
+		filePath:  daemonStateFilePath(),
+	}
+}
+
+// daemonStateFilePath returns the path to the daemon state file.
+func daemonStateFilePath() string {
+	dir, err := paths.DataDir()
+	if err != nil {
+		// Fall back to home dir
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".plural")
+	}
+	return filepath.Join(dir, "daemon-state.json")
+}
+
+// lockFilePath returns the path to the lock file for the given repo path.
+func lockFilePath(repoPath string) string {
+	dir, err := paths.StateDir()
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".plural")
+	}
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(repoPath)))
+	return filepath.Join(dir, fmt.Sprintf("daemon-%s.lock", hash[:12]))
+}
+
+// LoadDaemonState loads daemon state from disk.
+// Returns a new empty state if the file doesn't exist.
+func LoadDaemonState(repoPath string) (*DaemonState, error) {
+	fp := daemonStateFilePath()
+
+	data, err := os.ReadFile(fp)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return NewDaemonState(repoPath), nil
+		}
+		return nil, fmt.Errorf("failed to read daemon state: %w", err)
+	}
+
+	var state DaemonState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("failed to parse daemon state: %w", err)
+	}
+
+	state.filePath = fp
+	if state.WorkItems == nil {
+		state.WorkItems = make(map[string]*WorkItem)
+	}
+
+	// Validate repo path matches
+	if state.RepoPath != repoPath {
+		return nil, fmt.Errorf("daemon state repo mismatch: expected %s, got %s", repoPath, state.RepoPath)
+	}
+
+	return &state, nil
+}
+
+// Save persists the daemon state to disk atomically (write temp file, then rename).
+func (s *DaemonState) Save() error {
+	s.mu.RLock()
+	data, err := json.MarshalIndent(s, "", "  ")
+	s.mu.RUnlock()
+	if err != nil {
+		return fmt.Errorf("failed to marshal daemon state: %w", err)
+	}
+
+	dir := filepath.Dir(s.filePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create state directory: %w", err)
+	}
+
+	// Atomic write: temp file + rename
+	tmpFile := s.filePath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write temp state file: %w", err)
+	}
+	if err := os.Rename(tmpFile, s.filePath); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("failed to rename state file: %w", err)
+	}
+
+	return nil
+}
+
+// TransitionWorkItem transitions a work item to a new state with validation.
+func (s *DaemonState) TransitionWorkItem(id string, newState WorkItemState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, ok := s.WorkItems[id]
+	if !ok {
+		return fmt.Errorf("work item not found: %s", id)
+	}
+
+	if err := ValidateTransition(item.State, newState); err != nil {
+		return err
+	}
+
+	item.State = newState
+	item.UpdatedAt = time.Now()
+
+	if newState.IsTerminal() {
+		now := time.Now()
+		item.CompletedAt = &now
+	}
+
+	return nil
+}
+
+// AddWorkItem adds a new work item in the Queued state.
+func (s *DaemonState) AddWorkItem(item *WorkItem) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item.State = WorkItemQueued
+	item.CreatedAt = time.Now()
+	item.UpdatedAt = time.Now()
+	s.WorkItems[item.ID] = item
+}
+
+// GetWorkItem returns a work item by ID (nil if not found).
+func (s *DaemonState) GetWorkItem(id string) *WorkItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.WorkItems[id]
+}
+
+// GetWorkItemsByState returns all work items in a given state.
+func (s *DaemonState) GetWorkItemsByState(state WorkItemState) []*WorkItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var items []*WorkItem
+	for _, item := range s.WorkItems {
+		if item.State == state {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// ActiveSlotCount returns the number of work items consuming concurrency slots.
+func (s *DaemonState) ActiveSlotCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	count := 0
+	for _, item := range s.WorkItems {
+		if item.State.ConsumesSlot() {
+			count++
+		}
+	}
+	return count
+}
+
+// HasWorkItemForIssue checks if a work item already exists for the given issue.
+func (s *DaemonState) HasWorkItemForIssue(issueSource, issueID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, item := range s.WorkItems {
+		if item.IssueRef.Source == issueSource && item.IssueRef.ID == issueID && !item.State.IsTerminal() {
+			return true
+		}
+	}
+	return false
+}
+
+// SetErrorMessage sets the error message on a work item and increments the error count.
+func (s *DaemonState) SetErrorMessage(id, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if item, ok := s.WorkItems[id]; ok {
+		item.ErrorMessage = msg
+		item.ErrorCount++
+		item.UpdatedAt = time.Now()
+	}
+}
+
+// DaemonLock manages the lock file to prevent multiple daemons for the same repo.
+type DaemonLock struct {
+	path string
+	file *os.File
+}
+
+// AcquireLock attempts to acquire the daemon lock for the given repo path.
+// Returns an error if the lock is already held.
+func AcquireLock(repoPath string) (*DaemonLock, error) {
+	fp := lockFilePath(repoPath)
+
+	dir := filepath.Dir(fp)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create lock directory: %w", err)
+	}
+
+	// Try to create the lock file exclusively
+	f, err := os.OpenFile(fp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			// Check if the lock file is stale (process that created it is gone)
+			data, readErr := os.ReadFile(fp)
+			if readErr == nil {
+				return nil, fmt.Errorf("daemon lock already held (PID: %s). Remove %s if the process is not running", string(data), fp)
+			}
+			return nil, fmt.Errorf("daemon lock already held at %s", fp)
+		}
+		return nil, fmt.Errorf("failed to create lock file: %w", err)
+	}
+
+	// Write our PID
+	fmt.Fprintf(f, "%d", os.Getpid())
+
+	return &DaemonLock{path: fp, file: f}, nil
+}
+
+// Release releases the daemon lock.
+func (l *DaemonLock) Release() error {
+	if l.file != nil {
+		l.file.Close()
+	}
+	return os.Remove(l.path)
+}
