@@ -26,6 +26,9 @@ go test ./...            # Test
 ./plural --debug         # Enable debug logging (on by default)
 ./plural -q              # Quiet mode (info level only)
 ./plural --version       # Show version
+
+./plural workflow validate [--repo path]    # Validate .plural/workflow.yaml
+./plural workflow visualize [--repo path]   # Generate mermaid workflow diagram
 ```
 
 ## Debug Logs
@@ -64,7 +67,8 @@ internal/
 ├── paths/                 XDG Base Directory path resolution
 ├── process/               Find/kill orphaned Claude processes and Docker containers
 ├── session/               SessionService - worktree creation/management
-└── ui/                    Bubble Tea UI components (chat, sidebar, header, footer, modals/)
+├── ui/                    Bubble Tea UI components (chat, sidebar, header, footer, modals/)
+└── workflow/              Configurable workflow definitions (.plural/workflow.yaml)
 ```
 
 ### Data Storage
@@ -155,6 +159,18 @@ Plural implements its own slash commands because Claude CLI built-ins don't work
 
 Key fields on `config.Session`: `ID`, `RepoPath`, `WorkTree`, `Branch`, `Name`, `BaseBranch`, `Started`, `Merged`, `PRCreated`, `ParentID`, `MergedToParent`, `Containerized`, `IssueRef`, `BroadcastGroupID`. See `internal/config/session.go`.
 
+### Configurable Workflow
+
+Per-repo workflow config via `.plural/workflow.yaml`. See README for the YAML schema and user-facing docs.
+
+Key implementation details:
+- `internal/workflow/` — standalone package with no daemon dependencies: config types, loader, defaults/merge, validation, prompt resolution, hook execution, mermaid visualization
+- `Daemon.workflowConfigs` map loaded in `Run()`, keyed by repo path. `getWorkflowConfig(repoPath)` returns config or defaults.
+- `daemon_polling.go:fetchIssuesForProvider()` switches on provider (github/asana/linear). Label swapping is GitHub-only.
+- `ProcessConfig.CustomSystemPrompt` appended after supervisor prompt in `BuildCommandArgs()`. Set via `Runner.SetCustomSystemPrompt()` before starting a worker.
+- Hook execution points: `handleCodingComplete()`, after PR creation, `handleFeedbackComplete()`, and after merge in `processAwaitingCI()`. All best-effort via `workflow.RunHooks()`.
+- Override chain for settings like max_turns: CLI flag > workflow yaml > config.json > default. See `getEffectiveMaxTurns()` etc.
+
 ### Demo Generation
 
 Uses mock runners to simulate Claude responses. Scenarios defined in `internal/demo/scenarios/`. See existing scenarios for examples of the step builder API (`demo.Wait`, `demo.Key`, `demo.Type`, `demo.StreamingTextResponse`, `demo.Permission`, etc.).
@@ -167,6 +183,9 @@ Charm's Bubble Tea v2 stack:
 - `charm.land/bubbletea/v2`, `charm.land/bubbles/v2`, `charm.land/lipgloss/v2`
 - `github.com/charmbracelet/ultraviolet` - Screen buffer for text selection
 - `github.com/charmbracelet/x/ansi` - ANSI escape code handling
+
+Other:
+- `gopkg.in/yaml.v3` - YAML parsing for workflow config
 
 **Bubble Tea v2 API notes:**
 - Imports use `charm.land/*` not `github.com/charmbracelet/*`

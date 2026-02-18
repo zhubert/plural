@@ -140,6 +140,69 @@ plural agent --repo owner/repo --merge-method squash
 plural agent --repo owner/repo --auto-address-pr-comments
 ```
 
+### Workflow Configuration
+
+Create `.plural/workflow.yaml` in your repo to customize the agent's behavior per-repository. If no file exists, the agent uses sensible defaults.
+
+```yaml
+source:
+  provider: github          # github | asana | linear
+  filter:
+    label: "queued"         # github: issue label to poll
+    # project: ""           # asana: project GID
+    # team: ""              # linear: team ID
+
+workflow:
+  coding:
+    max_turns: 50
+    max_duration: 30m
+    containerized: true
+    supervisor: true
+    system_prompt: |
+      Custom instructions for the coding phase...
+    after:
+      - run: "./scripts/post-code.sh"
+
+  pr:
+    draft: false
+    link_issue: true
+    template: "file:./pr-template.md"
+    after:
+      - run: "./scripts/notify-slack.sh"
+
+  review:
+    auto_address: true
+    max_feedback_rounds: 3
+    system_prompt: "file:./prompts/review.md"
+    after:
+      - run: "./scripts/post-review.sh"
+
+  ci:
+    timeout: 2h
+    on_failure: retry       # retry | abandon | notify
+
+  merge:
+    method: rebase          # rebase | squash | merge
+    cleanup: true
+    after:
+      - run: "./scripts/post-merge.sh"
+```
+
+**Override precedence**: CLI flag > `.plural/workflow.yaml` > `~/.plural/config.json` > defaults.
+
+**System prompts** can be inline strings or `file:./path` references (relative to repo root).
+
+**Hooks** run on the host after each workflow step with environment variables: `PLURAL_REPO_PATH`, `PLURAL_BRANCH`, `PLURAL_SESSION_ID`, `PLURAL_ISSUE_ID`, `PLURAL_ISSUE_TITLE`, `PLURAL_ISSUE_URL`, `PLURAL_PR_URL`, `PLURAL_WORKTREE`, `PLURAL_PROVIDER`. Hook failures are logged but don't block the workflow.
+
+**Provider support**: The agent can poll GitHub issues (by label), Asana tasks (by project), or Linear issues (by team). Label swapping (`queued` -> `wip`) only applies to GitHub.
+
+Validate and visualize your workflow:
+
+```bash
+plural workflow validate --repo /path/to/repo
+plural workflow visualize --repo /path/to/repo   # outputs mermaid diagram
+```
+
 ### Agent Configuration
 
 These can also be set via TUI settings or `~/.plural/config.json`:
@@ -204,6 +267,8 @@ plural help               # Show help
 plural clean              # Remove sessions, logs, worktrees, and containers
 plural clean -y           # Clean without confirmation
 plural agent --repo ...   # Headless agent mode (see above)
+plural workflow validate  # Validate .plural/workflow.yaml
+plural workflow visualize # Generate mermaid workflow diagram
 ```
 
 ## Data Storage

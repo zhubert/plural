@@ -9,6 +9,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural/internal/workflow"
 )
 
 // startCoding creates a session and starts a Claude worker for a queued work item.
@@ -58,10 +59,11 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 		return
 	}
 
-	// Configure session
+	// Configure session from workflow config
+	wfCfg := d.getWorkflowConfig(repoPath)
 	sess.Autonomous = true
-	sess.Containerized = true
-	sess.IsSupervisor = true
+	sess.Containerized = wfCfg.Workflow.Coding.Containerized == nil || *wfCfg.Workflow.Coding.Containerized
+	sess.IsSupervisor = wfCfg.Workflow.Coding.Supervisor == nil || *wfCfg.Workflow.Coding.Supervisor
 	sess.IssueRef = &config.IssueRef{
 		Source: item.IssueRef.Source,
 		ID:     item.IssueRef.ID,
@@ -85,12 +87,17 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 		return
 	}
 
-	// Build initial message
-	initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s",
-		item.IssueRef.ID, item.IssueRef.Title, item.IssueRef.URL)
+	// Build initial message using provider-aware formatting
+	initialMsg := formatInitialMessage(item.IssueRef)
 
-	// Start worker
-	d.startWorker(ctx, item, sess, initialMsg)
+	// Resolve coding system prompt from workflow config
+	codingPrompt, err := workflow.ResolveSystemPrompt(wfCfg.Workflow.Coding.SystemPrompt, repoPath)
+	if err != nil {
+		log.Warn("failed to resolve coding system prompt", "error", err)
+	}
+
+	// Start worker with custom system prompt
+	d.startWorkerWithPrompt(ctx, item, sess, initialMsg, codingPrompt)
 
 	log.Info("started coding", "sessionID", sess.ID, "branch", sess.Branch)
 }
@@ -133,8 +140,15 @@ func (d *Daemon) addressFeedback(ctx context.Context, item *WorkItem) {
 	// Format comments as a prompt
 	prompt := formatPRCommentsPrompt(comments)
 
-	// Resume the existing session with the same session ID
-	d.startWorker(ctx, item, sess, prompt)
+	// Resolve review system prompt from workflow config
+	wfCfg := d.getWorkflowConfig(sess.RepoPath)
+	reviewPrompt, err := workflow.ResolveSystemPrompt(wfCfg.Workflow.Review.SystemPrompt, sess.RepoPath)
+	if err != nil {
+		log.Warn("failed to resolve review system prompt", "error", err)
+	}
+
+	// Resume the existing session with the review system prompt
+	d.startWorkerWithPrompt(ctx, item, sess, prompt, reviewPrompt)
 
 	log.Info("addressing review feedback", "commentCount", len(comments), "round", item.FeedbackRounds+1)
 }
@@ -213,7 +227,7 @@ func (d *Daemon) mergePR(ctx context.Context, item *WorkItem) error {
 	mergeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	err := d.gitService.MergePR(mergeCtx, sess.RepoPath, item.Branch, false, d.getMergeMethod())
+	err := d.gitService.MergePR(mergeCtx, sess.RepoPath, item.Branch, false, d.getEffectiveMergeMethod(sess.RepoPath))
 	if err != nil {
 		return err
 	}
@@ -234,7 +248,15 @@ func (d *Daemon) mergePR(ctx context.Context, item *WorkItem) error {
 
 // startWorker creates and starts a session worker for a work item.
 func (d *Daemon) startWorker(ctx context.Context, item *WorkItem, sess *config.Session, initialMsg string) {
+	d.startWorkerWithPrompt(ctx, item, sess, initialMsg, "")
+}
+
+// startWorkerWithPrompt creates and starts a session worker with an optional custom system prompt.
+func (d *Daemon) startWorkerWithPrompt(ctx context.Context, item *WorkItem, sess *config.Session, initialMsg, customPrompt string) {
 	runner := d.sessionMgr.GetOrCreateRunner(sess)
+	if customPrompt != "" {
+		runner.SetCustomSystemPrompt(customPrompt)
+	}
 	worker := NewSessionWorker(d.toAgent(), sess, runner, initialMsg)
 
 	d.mu.Lock()

@@ -78,6 +78,7 @@ type ProcessConfig struct {
 	ContainerMCPPort       int    // Port the MCP subprocess listens on inside the container (published via -p 0:port)
 	Supervisor             bool   // When true, appends supervisor instructions to system prompt
 	DisableStreamingChunks bool   // When true, omits --include-partial-messages for less verbose output (useful for agent mode)
+	CustomSystemPrompt     string // When set, appended after the supervisor prompt via --append-system-prompt
 }
 
 // ProcessCallbacks defines callbacks that the ProcessManager invokes during operation.
@@ -255,10 +256,17 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		}
 	}
 
-	// Build system prompt: supervisor instructions if applicable
+	// Build system prompt: supervisor instructions + custom prompt if applicable
 	systemPrompt := ""
 	if config.Supervisor {
 		systemPrompt = SupervisorSystemPrompt
+	}
+	if config.CustomSystemPrompt != "" {
+		if systemPrompt != "" {
+			systemPrompt += "\n\n" + config.CustomSystemPrompt
+		} else {
+			systemPrompt = config.CustomSystemPrompt
+		}
 	}
 
 	if config.Containerized {

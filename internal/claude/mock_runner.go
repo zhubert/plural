@@ -362,6 +362,11 @@ func (m *MockRunner) SetDisableStreamingChunks(disable bool) {
 	// No-op for mock
 }
 
+// SetCustomSystemPrompt implements RunnerInterface.
+func (m *MockRunner) SetCustomSystemPrompt(prompt string) {
+	// No-op for mock
+}
+
 // PermissionRequestChan implements RunnerInterface.
 func (m *MockRunner) PermissionRequestChan() <-chan mcp.PermissionRequest {
 	m.mu.RLock()

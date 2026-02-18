@@ -255,6 +255,9 @@ type Runner struct {
 	// Useful for agent mode where real-time streaming is not needed
 	disableStreamingChunks bool
 
+	// Custom system prompt: appended after supervisor prompt
+	customSystemPrompt string
+
 	// Container ready callback: invoked when containerized session receives init message
 	onContainerReady func()
 }
@@ -376,6 +379,13 @@ func (r *Runner) SetDisableStreamingChunks(disable bool) {
 	defer r.mu.Unlock()
 	r.disableStreamingChunks = disable
 	r.log.Debug("set disable streaming chunks", "disabled", disable)
+}
+
+// SetCustomSystemPrompt sets a custom system prompt that will be appended after the supervisor prompt.
+func (r *Runner) SetCustomSystemPrompt(prompt string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.customSystemPrompt = prompt
 }
 
 // PermissionRequestChan returns the channel for receiving permission requests.
@@ -837,6 +847,7 @@ func (r *Runner) ensureProcessRunning() error {
 		ContainerMCPPort:       containerMCPPort,
 		Supervisor:             r.supervisor,
 		DisableStreamingChunks: r.disableStreamingChunks,
+		CustomSystemPrompt:     r.customSystemPrompt,
 	}
 	copy(config.AllowedTools, r.allowedTools)
 
