@@ -1246,6 +1246,10 @@ func (m *Model) handleSessionSettingsModal(key string, msg tea.KeyPressMsg, stat
 			}
 		}
 
+		// Save per-repo settings
+		m.config.SetAsanaProject(state.RepoPath, state.GetAsanaProject())
+		m.config.SetLinearTeam(state.RepoPath, state.GetLinearTeam())
+
 		// Save config
 		if err := m.config.Save(); err != nil {
 			logger.Get().Error("failed to save session settings", "error", err)

@@ -62,8 +62,7 @@ type (
 	ContainerCommandState    = modals.ContainerCommandState
 	AsanaProjectOption       = modals.AsanaProjectOption
 	LinearTeamOption         = modals.LinearTeamOption
-	RepoSettingsState        = modals.RepoSettingsState
-	SessionSettingsState     = modals.SessionSettingsState
+	SessionSettingsState = modals.SessionSettingsState
 )
 
 // Re-export broadcast action constants
@@ -151,9 +150,6 @@ func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool,
 		containersSupported, containerImage,
 		autoCleanupMerged)
 }
-
-// NewRepoSettingsState creates a new RepoSettingsState for the given repo.
-var NewRepoSettingsState = modals.NewRepoSettingsState
 
 // GetSelectedSettingsTheme returns the selected theme from a SettingsState as a ThemeName.
 func GetSelectedSettingsTheme(s *SettingsState) ThemeName {

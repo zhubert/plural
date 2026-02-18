@@ -1594,7 +1594,7 @@ func (m *Model) handleChangelogFetchedMsg(msg ChangelogFetchedMsg) (tea.Model, t
 func (m *Model) handleAsanaProjectsFetchedMsg(msg AsanaProjectsFetchedMsg) (tea.Model, tea.Cmd) {
 	// Deliver to whichever settings modal is currently open
 	switch state := m.modal.State.(type) {
-	case *ui.RepoSettingsState:
+	case *ui.SessionSettingsState:
 		if msg.Error != nil {
 			state.SetAsanaProjectsError("Failed to fetch projects: " + msg.Error.Error())
 			return m, nil
@@ -1615,7 +1615,7 @@ func (m *Model) handleAsanaProjectsFetchedMsg(msg AsanaProjectsFetchedMsg) (tea.
 // handleLinearTeamsFetchedMsg handles the fetched Linear teams for the settings modal.
 func (m *Model) handleLinearTeamsFetchedMsg(msg LinearTeamsFetchedMsg) (tea.Model, tea.Cmd) {
 	switch state := m.modal.State.(type) {
-	case *ui.RepoSettingsState:
+	case *ui.SessionSettingsState:
 		if msg.Error != nil {
 			state.SetLinearTeamsError("Failed to fetch teams: " + msg.Error.Error())
 			return m, nil

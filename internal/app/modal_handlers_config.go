@@ -240,31 +240,6 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 	return m, cmd
 }
 
-// handleRepoSettingsModal handles key events for the per-repo Settings modal.
-func (m *Model) handleRepoSettingsModal(key string, msg tea.KeyPressMsg, state *ui.RepoSettingsState) (tea.Model, tea.Cmd) {
-	switch key {
-	case keys.Escape:
-		m.modal.Hide()
-		return m, nil
-	case keys.Enter:
-		// Save per-repo settings
-		repo := state.RepoPath
-		m.config.SetAsanaProject(repo, state.GetAsanaProject())
-		m.config.SetLinearTeam(repo, state.GetLinearTeam())
-		if err := m.config.Save(); err != nil {
-			logger.Get().Error("failed to save repo settings", "error", err)
-			m.modal.SetError("Failed to save: " + err.Error())
-			return m, nil
-		}
-		m.modal.Hide()
-		return m, nil
-	}
-	// Forward other keys to modal for text input handling
-	modal, cmd := m.modal.Update(msg)
-	m.modal = modal
-	return m, cmd
-}
-
 // handleContainerBuildModal handles key events for the Container Build modal.
 func (m *Model) handleContainerBuildModal(key string, _ tea.KeyPressMsg, state *ui.ContainerBuildState) (tea.Model, tea.Cmd) {
 	return m.handleCopyCommandModal(key, state.GetPullCommand, func() { state.Copied = true })

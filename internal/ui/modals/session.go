@@ -632,9 +632,38 @@ type SessionSettingsState struct {
 	name string
 
 	form *huh.Form
+
+	// Per-repo settings (merged from former RepoSettingsState)
+	RepoPath string
+	RepoName string // Display name (basename of path)
+
+	// Asana project selector
+	AsanaPATSet      bool
+	AsanaSelectedGID string // Selected Asana project GID for this repo (bound to form)
+	AsanaLoading     bool
+	AsanaLoadError   string
+
+	// Linear team selector
+	LinearAPIKeySet      bool
+	LinearSelectedTeamID string // Selected Linear team ID for this repo (bound to form)
+	LinearLoading        bool
+	LinearLoadError      string
+
+	repoForm *huh.Form // Second form for per-repo settings, built async
+
+	// Cached options so each provider can resolve independently
+	cachedAsanaOptions  []AsanaProjectOption
+	cachedLinearOptions []LinearTeamOption
 }
 
 func (*SessionSettingsState) modalState() {}
+
+func (s *SessionSettingsState) PreferredWidth() int {
+	if s.AsanaPATSet || s.LinearAPIKeySet {
+		return ModalWidthWide
+	}
+	return 0 // use default
+}
 
 func (s *SessionSettingsState) Title() string {
 	return "Session Settings"
@@ -672,7 +701,7 @@ func (s *SessionSettingsState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	parts := []string{
 		title,
 		infoHeader,
 		branchLine,
@@ -680,14 +709,67 @@ func (s *SessionSettingsState) Render() string {
 		containerLine,
 		editHeader,
 		s.form.View(),
-		help,
-	)
+	}
+
+	// Repo settings section (only when at least one provider is configured)
+	if s.AsanaPATSet || s.LinearAPIKeySet {
+		repoHeader := renderSectionHeader("Repo Settings (" + s.RepoName + "):")
+		parts = append(parts, repoHeader)
+
+		// Show loading states
+		var statusParts []string
+		if s.AsanaPATSet && s.AsanaLoading {
+			statusParts = append(statusParts, "Fetching Asana projects...")
+		}
+		if s.LinearAPIKeySet && s.LinearLoading {
+			statusParts = append(statusParts, "Fetching Linear teams...")
+		}
+		if len(statusParts) > 0 && s.repoForm == nil {
+			loading := lipgloss.NewStyle().
+				Foreground(ColorTextMuted).
+				Italic(true).
+				PaddingLeft(2).
+				Render(strings.Join(statusParts, "\n"))
+			parts = append(parts, loading)
+		}
+
+		// Show errors (only when no form has been built yet)
+		var errorParts []string
+		if s.AsanaPATSet && s.AsanaLoadError != "" {
+			errorParts = append(errorParts, s.AsanaLoadError)
+		}
+		if s.LinearAPIKeySet && s.LinearLoadError != "" {
+			errorParts = append(errorParts, s.LinearLoadError)
+		}
+		if len(errorParts) > 0 && s.repoForm == nil {
+			errMsg := lipgloss.NewStyle().
+				Foreground(ColorWarning).
+				PaddingLeft(2).
+				Render(strings.Join(errorParts, "\n"))
+			parts = append(parts, errMsg)
+		}
+
+		// Show repo form if built
+		if s.repoForm != nil {
+			parts = append(parts, s.repoForm.View())
+		}
+	}
+
+	parts = append(parts, help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func (s *SessionSettingsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	var cmds []tea.Cmd
 	var cmd tea.Cmd
 	s.form, cmd = huhFormUpdate(s.form, msg)
-	return s, cmd
+	cmds = append(cmds, cmd)
+	if s.repoForm != nil {
+		s.repoForm, cmd = huhFormUpdate(s.repoForm, msg)
+		cmds = append(cmds, cmd)
+	}
+	return s, tea.Batch(cmds...)
 }
 
 // GetNewName returns the new name entered by the user.
@@ -695,15 +777,123 @@ func (s *SessionSettingsState) GetNewName() string {
 	return s.name
 }
 
+// GetAsanaProject returns the Asana project GID.
+func (s *SessionSettingsState) GetAsanaProject() string {
+	return s.AsanaSelectedGID
+}
+
+// GetLinearTeam returns the Linear team ID.
+func (s *SessionSettingsState) GetLinearTeam() string {
+	return s.LinearSelectedTeamID
+}
+
+// SetAsanaProjects populates the Asana project options and rebuilds the repo form.
+func (s *SessionSettingsState) SetAsanaProjects(options []AsanaProjectOption) {
+	s.AsanaLoading = false
+	s.AsanaLoadError = ""
+	s.rebuildRepoForm(options, nil)
+}
+
+// SetAsanaProjectsError sets the error state and clears loading.
+func (s *SessionSettingsState) SetAsanaProjectsError(errMsg string) {
+	s.AsanaLoading = false
+	s.AsanaLoadError = errMsg
+}
+
+// SetLinearTeams populates the Linear team options and rebuilds the repo form.
+func (s *SessionSettingsState) SetLinearTeams(options []LinearTeamOption) {
+	s.LinearLoading = false
+	s.LinearLoadError = ""
+	s.rebuildRepoForm(nil, options)
+}
+
+// SetLinearTeamsError sets the error state and clears loading.
+func (s *SessionSettingsState) SetLinearTeamsError(errMsg string) {
+	s.LinearLoading = false
+	s.LinearLoadError = errMsg
+}
+
+// rebuildRepoForm constructs the repoForm from whichever provider options are available.
+// Pass nil to keep the previously-set options for that provider.
+func (s *SessionSettingsState) rebuildRepoForm(asanaOpts []AsanaProjectOption, linearOpts []LinearTeamOption) {
+	if asanaOpts == nil && s.cachedAsanaOptions != nil {
+		asanaOpts = s.cachedAsanaOptions
+	}
+	if linearOpts == nil && s.cachedLinearOptions != nil {
+		linearOpts = s.cachedLinearOptions
+	}
+
+	if asanaOpts != nil {
+		s.cachedAsanaOptions = asanaOpts
+	}
+	if linearOpts != nil {
+		s.cachedLinearOptions = linearOpts
+	}
+
+	var fields []huh.Field
+
+	if len(asanaOpts) > 0 {
+		huhOptions := make([]huh.Option[string], len(asanaOpts))
+		for i, opt := range asanaOpts {
+			huhOptions[i] = huh.NewOption(opt.Name, opt.GID)
+		}
+		fields = append(fields, huh.NewSelect[string]().
+			Title("Asana project").
+			Description("Links this repo to an Asana project for task import").
+			Options(huhOptions...).
+			Height(AsanaProjectMaxVisible+1).
+			Filtering(true).
+			Value(&s.AsanaSelectedGID))
+	}
+
+	if len(linearOpts) > 0 {
+		huhOptions := make([]huh.Option[string], len(linearOpts))
+		for i, opt := range linearOpts {
+			huhOptions[i] = huh.NewOption(opt.Name, opt.ID)
+		}
+		fields = append(fields, huh.NewSelect[string]().
+			Title("Linear team").
+			Description("Links this repo to a Linear team for issue import").
+			Options(huhOptions...).
+			Height(AsanaProjectMaxVisible+1).
+			Filtering(true).
+			Value(&s.LinearSelectedTeamID))
+	}
+
+	if len(fields) == 0 {
+		return
+	}
+
+	s.repoForm = huh.NewForm(huh.NewGroup(fields...)).
+		WithTheme(ModalTheme()).
+		WithShowHelp(false).
+		WithWidth(ModalWidthWide - 10)
+
+	initHuhForm(s.repoForm)
+}
+
 // NewSessionSettingsState creates a new SessionSettingsState.
-func NewSessionSettingsState(sessionID, currentName, branch, baseBranch string, containerized bool) *SessionSettingsState {
+func NewSessionSettingsState(
+	sessionID, currentName, branch, baseBranch string, containerized bool,
+	repoPath string,
+	asanaPATSet bool, asanaGID string,
+	linearAPIKeySet bool, linearTeamID string,
+) *SessionSettingsState {
 	s := &SessionSettingsState{
-		SessionID:     sessionID,
-		SessionName:   currentName,
-		Branch:        branch,
-		BaseBranch:    baseBranch,
-		name:          currentName,
-		Containerized: containerized,
+		SessionID:            sessionID,
+		SessionName:          currentName,
+		Branch:               branch,
+		BaseBranch:           baseBranch,
+		name:                 currentName,
+		Containerized:        containerized,
+		RepoPath:             repoPath,
+		RepoName:             filepath.Base(repoPath),
+		AsanaPATSet:          asanaPATSet,
+		AsanaSelectedGID:     asanaGID,
+		AsanaLoading:         asanaPATSet,
+		LinearAPIKeySet:      linearAPIKeySet,
+		LinearSelectedTeamID: linearTeamID,
+		LinearLoading:        linearAPIKeySet,
 	}
 
 	s.form = huh.NewForm(

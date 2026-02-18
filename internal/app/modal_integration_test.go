@@ -611,114 +611,109 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 	}
 }
 
-func TestRepoSettingsModal_AsanaProjectGID(t *testing.T) {
+func TestSessionSettingsModal_SavesAsanaProject(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	// Get a repo path from config
-	repoPath := cfg.Sessions[0].RepoPath
+	sess := cfg.Sessions[0]
+	// Use branch as name to avoid triggering rename path
+	state := ui.NewSessionSettingsState(sess.ID, sess.Branch, sess.Branch, "main", false,
+		sess.RepoPath, false, "", false, "")
+	m.modal.Show(state)
 
-	// Show repo settings modal directly
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "", false, ""))
-	state := m.modal.State.(*ui.RepoSettingsState)
-
-	// Set the Asana project GID via the selector
+	// Set the Asana project GID
 	state.AsanaSelectedGID = "1234567890123"
 
 	// Save
 	m = sendKey(m, "enter")
 
 	// Config should have the Asana project GID
-	if got := m.config.GetAsanaProject(repoPath); got != "1234567890123" {
+	if got := m.config.GetAsanaProject(sess.RepoPath); got != "1234567890123" {
 		t.Errorf("Expected Asana project '1234567890123', got %q", got)
 	}
 }
 
-func TestRepoSettingsModal_AsanaProjectGID_ClearRemoves(t *testing.T) {
-	cfg := testConfigWithSessions()
-	// Pre-set an Asana project GID
-	repoPath := cfg.Sessions[0].RepoPath
-	cfg.SetAsanaProject(repoPath, "9999999999999")
-	m := testModelWithSize(cfg, 120, 40)
-	m.sidebar.SetSessions(cfg.Sessions)
-
-	// Show repo settings modal directly (pass pre-set asana GID)
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "9999999999999", false, ""))
-	state := m.modal.State.(*ui.RepoSettingsState)
-
-	// Verify it was loaded
-	if state.GetAsanaProject() != "9999999999999" {
-		t.Errorf("Expected pre-set Asana project '9999999999999', got %q", state.GetAsanaProject())
-	}
-
-	// Clear the value via the selector (selecting "(none)")
-	state.AsanaSelectedGID = ""
-
-	// Save
-	m = sendKey(m, "enter")
-
-	// Config should have the Asana project removed
-	if got := m.config.GetAsanaProject(repoPath); got != "" {
-		t.Errorf("Expected empty Asana project after clearing, got %q", got)
-	}
-	if m.config.HasAsanaProject(repoPath) {
-		t.Error("HasAsanaProject should return false after clearing")
-	}
-}
-
-func TestRepoSettingsModal_LinearTeamID(t *testing.T) {
+func TestSessionSettingsModal_SavesLinearTeam(t *testing.T) {
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	// Get a repo path from config
-	repoPath := cfg.Sessions[0].RepoPath
+	sess := cfg.Sessions[0]
+	state := ui.NewSessionSettingsState(sess.ID, sess.Branch, sess.Branch, "main", false,
+		sess.RepoPath, false, "", false, "")
+	m.modal.Show(state)
 
-	// Show repo settings modal directly (no providers configured)
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "", false, ""))
-	state := m.modal.State.(*ui.RepoSettingsState)
-
-	// Set the Linear team ID via the selector
+	// Set the Linear team ID
 	state.LinearSelectedTeamID = "team-abc-123"
 
 	// Save
 	m = sendKey(m, "enter")
 
 	// Config should have the Linear team ID
-	if got := m.config.GetLinearTeam(repoPath); got != "team-abc-123" {
+	if got := m.config.GetLinearTeam(sess.RepoPath); got != "team-abc-123" {
 		t.Errorf("Expected Linear team 'team-abc-123', got %q", got)
 	}
 }
 
-func TestRepoSettingsModal_LinearTeamID_ClearRemoves(t *testing.T) {
+func TestSessionSettingsModal_ClearsAsanaProject(t *testing.T) {
 	cfg := testConfigWithSessions()
-	// Pre-set a Linear team ID
-	repoPath := cfg.Sessions[0].RepoPath
-	cfg.SetLinearTeam(repoPath, "team-xyz-999")
+	sess := cfg.Sessions[0]
+	cfg.SetAsanaProject(sess.RepoPath, "9999999999999")
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	// Show repo settings modal directly (pass pre-set linear team ID)
-	m.modal.Show(ui.NewRepoSettingsState(repoPath, false, "", false, "team-xyz-999"))
-	state := m.modal.State.(*ui.RepoSettingsState)
+	state := ui.NewSessionSettingsState(sess.ID, sess.Branch, sess.Branch, "main", false,
+		sess.RepoPath, false, "9999999999999", false, "")
+	m.modal.Show(state)
+
+	// Verify it was loaded
+	if state.GetAsanaProject() != "9999999999999" {
+		t.Errorf("Expected pre-set Asana project '9999999999999', got %q", state.GetAsanaProject())
+	}
+
+	// Clear the value
+	state.AsanaSelectedGID = ""
+
+	// Save
+	m = sendKey(m, "enter")
+
+	// Config should have the Asana project removed
+	if got := m.config.GetAsanaProject(sess.RepoPath); got != "" {
+		t.Errorf("Expected empty Asana project after clearing, got %q", got)
+	}
+	if m.config.HasAsanaProject(sess.RepoPath) {
+		t.Error("HasAsanaProject should return false after clearing")
+	}
+}
+
+func TestSessionSettingsModal_ClearsLinearTeam(t *testing.T) {
+	cfg := testConfigWithSessions()
+	sess := cfg.Sessions[0]
+	cfg.SetLinearTeam(sess.RepoPath, "team-xyz-999")
+	m := testModelWithSize(cfg, 120, 40)
+	m.sidebar.SetSessions(cfg.Sessions)
+
+	state := ui.NewSessionSettingsState(sess.ID, sess.Branch, sess.Branch, "main", false,
+		sess.RepoPath, false, "", false, "team-xyz-999")
+	m.modal.Show(state)
 
 	// Verify it was loaded
 	if state.GetLinearTeam() != "team-xyz-999" {
 		t.Errorf("Expected pre-set Linear team 'team-xyz-999', got %q", state.GetLinearTeam())
 	}
 
-	// Clear the value via the selector (selecting "(none)")
+	// Clear the value
 	state.LinearSelectedTeamID = ""
 
 	// Save
 	m = sendKey(m, "enter")
 
 	// Config should have the Linear team removed
-	if got := m.config.GetLinearTeam(repoPath); got != "" {
+	if got := m.config.GetLinearTeam(sess.RepoPath); got != "" {
 		t.Errorf("Expected empty Linear team after clearing, got %q", got)
 	}
-	if m.config.HasLinearTeam(repoPath) {
+	if m.config.HasLinearTeam(sess.RepoPath) {
 		t.Error("HasLinearTeam should return false after clearing")
 	}
 }
@@ -1993,7 +1988,8 @@ func TestSessionSettingsModal_CancelWithEscape(t *testing.T) {
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
 
-	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false)
+	state := ui.NewSessionSettingsState("session-1", "my-session", "feature-branch", "main", false,
+		"/test/repo1", false, "", false, "")
 	m.modal.Show(state)
 
 	if !m.modal.IsVisible() {

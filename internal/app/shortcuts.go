@@ -203,9 +203,10 @@ var ShortcutRegistry = []Shortcut{
 	},
 	{
 		Key:             ",",
-		Description:     "Repo settings",
+		Description:     "Session settings",
 		Category:        CategoryConfiguration,
 		RequiresSidebar: true,
+		RequiresSession: true,
 		Handler:         shortcutRepoSettings,
 	},
 	{
@@ -689,11 +690,11 @@ func shortcutToggleToolUseRollup(m *Model) (tea.Model, tea.Cmd) {
 }
 
 func shortcutRepoSettings(m *Model) (tea.Model, tea.Cmd) {
-	if sess := m.sidebar.SelectedSession(); sess != nil {
-		return m.showSessionSettings(sess)
+	sess := m.sidebar.SelectedSession()
+	if sess == nil {
+		return m, nil
 	}
-
-	return m, nil
+	return m.showSessionSettings(sess)
 }
 
 func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
@@ -708,19 +709,31 @@ func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// showRepoSettings opens the repo-specific settings modal for the given repo.
-func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
+// showSessionSettings opens the session-specific settings modal.
+func (m *Model) showSessionSettings(sess *config.Session) (tea.Model, tea.Cmd) {
+	// Strip branch prefix for display in the name input
+	name := sess.Name
+	branchPrefix := m.config.GetDefaultBranchPrefix()
+	if branchPrefix != "" {
+		name = strings.TrimPrefix(name, branchPrefix)
+	}
+
 	asanaPATSet := os.Getenv("ASANA_PAT") != ""
 	linearAPIKeySet := os.Getenv("LINEAR_API_KEY") != ""
 
-	repoState := ui.NewRepoSettingsState(
-		repoPath,
+	state := ui.NewSessionSettingsState(
+		sess.ID,
+		name,
+		sess.Branch,
+		sess.BaseBranch,
+		sess.Containerized,
+		sess.RepoPath,
 		asanaPATSet,
-		m.config.GetAsanaProject(repoPath),
+		m.config.GetAsanaProject(sess.RepoPath),
 		linearAPIKeySet,
-		m.config.GetLinearTeam(repoPath),
+		m.config.GetLinearTeam(sess.RepoPath),
 	)
-	m.modal.Show(repoState)
+	m.modal.Show(state)
 
 	// Kick off async fetches for configured providers
 	var cmds []tea.Cmd
@@ -733,26 +746,6 @@ func (m *Model) showRepoSettings(repoPath string) (tea.Model, tea.Cmd) {
 	if len(cmds) > 0 {
 		return m, tea.Batch(cmds...)
 	}
-	return m, nil
-}
-
-// showSessionSettings opens the session-specific settings modal.
-func (m *Model) showSessionSettings(sess *config.Session) (tea.Model, tea.Cmd) {
-	// Strip branch prefix for display in the name input
-	name := sess.Name
-	branchPrefix := m.config.GetDefaultBranchPrefix()
-	if branchPrefix != "" {
-		name = strings.TrimPrefix(name, branchPrefix)
-	}
-
-	state := ui.NewSessionSettingsState(
-		sess.ID,
-		name,
-		sess.Branch,
-		sess.BaseBranch,
-		sess.Containerized,
-	)
-	m.modal.Show(state)
 	return m, nil
 }
 

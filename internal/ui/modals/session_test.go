@@ -341,21 +341,21 @@ func TestForkSessionState_NoDockerHintWhenContainersSupported(t *testing.T) {
 }
 
 func TestSessionSettingsState_Title(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, "/repo", false, "", false, "")
 	if state.Title() != "Session Settings" {
 		t.Errorf("expected 'Session Settings', got %q", state.Title())
 	}
 }
 
 func TestSessionSettingsState_GetNewName(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, "/repo", false, "", false, "")
 	if state.GetNewName() != "my-session" {
 		t.Errorf("expected 'my-session', got %q", state.GetNewName())
 	}
 }
 
 func TestSessionSettingsState_Render(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", true, "/repo", false, "", false, "")
 	rendered := state.Render()
 
 	// Check info section and form structure
@@ -368,7 +368,7 @@ func TestSessionSettingsState_Render(t *testing.T) {
 }
 
 func TestSessionSettingsState_Help(t *testing.T) {
-	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false)
+	state := NewSessionSettingsState("s1", "my-session", "feature-branch", "main", false, "/repo", false, "", false, "")
 
 	help := state.Help()
 	if !strings.Contains(help, "Enter: save") {
@@ -376,5 +376,163 @@ func TestSessionSettingsState_Help(t *testing.T) {
 	}
 	if !strings.Contains(help, "Esc: cancel") {
 		t.Error("expected help to contain 'Esc: cancel'")
+	}
+}
+
+// =============================================================================
+// SessionSettingsState - Asana/Linear integration tests
+// =============================================================================
+
+func TestSessionSettingsState_PreferredWidth_NoProviders(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", false, "")
+	// Without providers, should not implement PreferredWidth (default modal width)
+	if state.AsanaPATSet || state.LinearAPIKeySet {
+		t.Error("expected no providers set")
+	}
+}
+
+func TestSessionSettingsState_PreferredWidth_WithAsana(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", true, "", false, "")
+	if w := state.PreferredWidth(); w != ModalWidthWide {
+		t.Errorf("expected preferred width %d with Asana, got %d", ModalWidthWide, w)
+	}
+}
+
+func TestSessionSettingsState_PreferredWidth_WithLinear(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", true, "")
+	if w := state.PreferredWidth(); w != ModalWidthWide {
+		t.Errorf("expected preferred width %d with Linear, got %d", ModalWidthWide, w)
+	}
+}
+
+func TestSessionSettingsState_AsanaLoading(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", true, "", false, "")
+	if !state.AsanaLoading {
+		t.Error("expected AsanaLoading to be true initially when PAT set")
+	}
+
+	rendered := state.Render()
+	if !strings.Contains(rendered, "Fetching Asana projects") {
+		t.Error("should show loading state for Asana")
+	}
+}
+
+func TestSessionSettingsState_SetAsanaProjects(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", true, "", false, "")
+
+	options := []AsanaProjectOption{
+		{GID: "", Name: "(none)"},
+		{GID: "p1", Name: "Project Alpha"},
+	}
+	state.SetAsanaProjects(options)
+
+	if state.AsanaLoading {
+		t.Error("expected AsanaLoading to be false after SetAsanaProjects")
+	}
+	if state.AsanaLoadError != "" {
+		t.Errorf("expected no error, got %q", state.AsanaLoadError)
+	}
+}
+
+func TestSessionSettingsState_SetAsanaProjectsError(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", true, "", false, "")
+
+	state.SetAsanaProjectsError("connection failed")
+
+	if state.AsanaLoading {
+		t.Error("expected AsanaLoading to be false after error")
+	}
+	if state.AsanaLoadError != "connection failed" {
+		t.Errorf("expected error 'connection failed', got %q", state.AsanaLoadError)
+	}
+
+	rendered := state.Render()
+	if !strings.Contains(rendered, "connection failed") {
+		t.Error("should show error message in render")
+	}
+}
+
+func TestSessionSettingsState_GetAsanaProject(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", true, "p1", false, "")
+	if state.GetAsanaProject() != "p1" {
+		t.Errorf("expected 'p1', got %q", state.GetAsanaProject())
+	}
+}
+
+func TestSessionSettingsState_LinearLoading(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", true, "")
+	if !state.LinearLoading {
+		t.Error("expected LinearLoading to be true initially when API key set")
+	}
+
+	rendered := state.Render()
+	if !strings.Contains(rendered, "Fetching Linear teams") {
+		t.Error("should show loading state for Linear")
+	}
+}
+
+func TestSessionSettingsState_SetLinearTeams(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", true, "")
+
+	options := []LinearTeamOption{
+		{ID: "", Name: "(none)"},
+		{ID: "t1", Name: "Engineering"},
+	}
+	state.SetLinearTeams(options)
+
+	if state.LinearLoading {
+		t.Error("expected LinearLoading to be false after SetLinearTeams")
+	}
+	if state.LinearLoadError != "" {
+		t.Errorf("expected no error, got %q", state.LinearLoadError)
+	}
+}
+
+func TestSessionSettingsState_SetLinearTeamsError(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", true, "")
+	state.SetLinearTeamsError("network error")
+
+	if state.LinearLoading {
+		t.Error("expected LinearLoading to be false after error")
+	}
+	if state.LinearLoadError != "network error" {
+		t.Errorf("expected error 'network error', got %q", state.LinearLoadError)
+	}
+}
+
+func TestSessionSettingsState_GetLinearTeam(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", true, "team-123")
+	if state.GetLinearTeam() != "team-123" {
+		t.Errorf("expected 'team-123', got %q", state.GetLinearTeam())
+	}
+}
+
+func TestSessionSettingsState_Render_NoProvidersOmitsRepoSection(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", false, "", false, "")
+	rendered := state.Render()
+
+	if strings.Contains(rendered, "Repo Settings") {
+		t.Error("should not show Repo Settings section when no providers configured")
+	}
+}
+
+func TestSessionSettingsState_Render_BothProviders(t *testing.T) {
+	state := NewSessionSettingsState("s1", "name", "branch", "main", false, "/repo", true, "p1", true, "t1")
+
+	state.SetAsanaProjects([]AsanaProjectOption{
+		{GID: "", Name: "(none)"},
+		{GID: "p1", Name: "My Project"},
+	})
+	state.SetLinearTeams([]LinearTeamOption{
+		{ID: "", Name: "(none)"},
+		{ID: "t1", Name: "Engineering"},
+	})
+
+	rendered := state.Render()
+	if !strings.Contains(rendered, "Asana project") {
+		t.Error("should show Asana project section")
+	}
+	if !strings.Contains(rendered, "Linear team") {
+		t.Error("should show Linear team section")
 	}
 }
