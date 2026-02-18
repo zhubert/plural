@@ -279,41 +279,54 @@ func (p *AsanaProvider) fetchWorkspaceProjects(ctx context.Context, pat, workspa
 	requestURL := baseURL
 
 	for {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+		projects, nextOffset, err := p.fetchProjectsPage(ctx, pat, requestURL)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+			return nil, err
 		}
 
-		req.Header.Set("Authorization", "Bearer "+pat)
-		req.Header.Set("Accept", "application/json")
+		allProjects = append(allProjects, projects...)
 
-		resp, err := p.httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch projects: %w", err)
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
-			return nil, fmt.Errorf("Asana API returned status %d for projects", resp.StatusCode)
-		}
-
-		var projResp asanaProjectsResponse
-		if err := json.NewDecoder(resp.Body).Decode(&projResp); err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("failed to parse projects response: %w", err)
-		}
-		resp.Body.Close()
-
-		allProjects = append(allProjects, projResp.Data...)
-
-		if projResp.NextPage == nil || projResp.NextPage.Offset == "" {
+		if nextOffset == "" {
 			break
 		}
 
-		requestURL = baseURL + "&offset=" + projResp.NextPage.Offset
+		requestURL = baseURL + "&offset=" + nextOffset
 	}
 
 	return allProjects, nil
+}
+
+// fetchProjectsPage fetches a single page of projects and returns the projects and the next page offset.
+func (p *AsanaProvider) fetchProjectsPage(ctx context.Context, pat, requestURL string) ([]asanaProject, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+pat)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch projects: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("Asana API returned status %d for projects", resp.StatusCode)
+	}
+
+	var projResp asanaProjectsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&projResp); err != nil {
+		return nil, "", fmt.Errorf("failed to parse projects response: %w", err)
+	}
+
+	var nextOffset string
+	if projResp.NextPage != nil {
+		nextOffset = projResp.NextPage.Offset
+	}
+
+	return projResp.Data, nextOffset, nil
 }
 
 // GetPRLinkText returns empty string for Asana tasks.
