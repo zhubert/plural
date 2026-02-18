@@ -410,7 +410,7 @@ func (a *Agent) autoCreatePR(ctx context.Context, sessionID string) (string, err
 	log := a.logger.With("sessionID", sessionID, "branch", sess.Branch)
 	log.Info("creating PR")
 
-	resultCh := a.gitService.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef())
+	resultCh := a.gitService.CreatePR(ctx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef(), sessionID)
 
 	var lastErr error
 	var prURL string

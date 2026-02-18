@@ -9,6 +9,19 @@ import (
 	"github.com/zhubert/plural/internal/logger"
 )
 
+// loadTranscript loads and formats the session transcript for the given sessionID.
+// Returns an empty string if the session has no messages or loading fails.
+func loadTranscript(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	messages, err := config.LoadSessionMessages(sessionID)
+	if err != nil || len(messages) == 0 {
+		return ""
+	}
+	return config.FormatTranscript(messages)
+}
+
 // Result represents output from a git operation
 type Result struct {
 	Output          string
@@ -233,7 +246,8 @@ func (s *GitService) AbortMerge(ctx context.Context, repoPath string) error {
 // If commitMsg is provided and non-empty, it will be used directly instead of generating one
 // If issueRef is provided, appropriate link text will be added to the PR body based on the source.
 // baseBranch is the branch this PR should be compared against (typically the session's BaseBranch).
-func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, baseBranch, commitMsg string, issueRef *config.IssueRef) <-chan Result {
+// sessionID is used to load and upload the session transcript as a PR comment; pass "" to skip.
+func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branch, baseBranch, commitMsg string, issueRef *config.IssueRef, sessionID string) <-chan Result {
 	ch := make(chan Result)
 
 	go func() {
@@ -298,7 +312,22 @@ func (s *GitService) CreatePR(ctx context.Context, repoPath, worktreePath, branc
 			return
 		}
 
-		ch <- Result{Output: "\nPull request created successfully!\n", Done: true}
+		ch <- Result{Output: "\nPull request created successfully!\n"}
+
+		// Upload session transcript as a PR comment (best-effort)
+		if sessionID != "" {
+			if transcript := loadTranscript(sessionID); transcript != "" {
+				ch <- Result{Output: "Uploading session transcript to PR...\n"}
+				if err := s.UploadTranscriptToPR(ctx, repoPath, branch, transcript); err != nil {
+					log.Warn("failed to upload transcript to PR", "error", err)
+					ch <- Result{Output: "Warning: could not upload session transcript: " + err.Error() + "\n"}
+				} else {
+					ch <- Result{Output: "Session transcript uploaded to PR.\n"}
+				}
+			}
+		}
+
+		ch <- Result{Done: true}
 	}()
 
 	return ch

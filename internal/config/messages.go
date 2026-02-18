@@ -182,6 +182,30 @@ func PruneOrphanedSessionMessages(cfg *Config) (int, error) {
 	return deleted, nil
 }
 
+// FormatTranscript formats session messages as a human-readable plain text transcript.
+// Each message is prefixed with "User:" or "Assistant:" and separated by blank lines.
+func FormatTranscript(messages []Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for i, msg := range messages {
+		switch msg.Role {
+		case "user":
+			sb.WriteString("User:\n")
+		case "assistant":
+			sb.WriteString("Assistant:\n")
+		default:
+			sb.WriteString(msg.Role + ":\n")
+		}
+		sb.WriteString(msg.Content)
+		if i < len(messages)-1 {
+			sb.WriteString("\n\n")
+		}
+	}
+	return sb.String()
+}
+
 // countLines counts the number of lines in a string
 func countLines(s string) int {
 	if s == "" {

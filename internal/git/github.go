@@ -349,6 +349,20 @@ func (s *GitService) CommentOnIssue(ctx context.Context, repoPath string, issueN
 	return nil
 }
 
+// UploadTranscriptToPR posts a session transcript as a comment on the PR for the given branch.
+// The transcript is formatted as a collapsed <details> block so it does not clutter the PR.
+func (s *GitService) UploadTranscriptToPR(ctx context.Context, repoPath, branch, transcript string) error {
+	if transcript == "" {
+		return nil
+	}
+	body := "<details>\n<summary>Session Transcript</summary>\n\n```\n" + transcript + "\n```\n</details>"
+	_, _, err := s.executor.Run(ctx, repoPath, "gh", "pr", "comment", branch, "--body", body)
+	if err != nil {
+		return fmt.Errorf("gh pr comment failed: %w", err)
+	}
+	return nil
+}
+
 // CIStatus represents the overall CI check status for a PR.
 type CIStatus string
 

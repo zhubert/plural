@@ -2214,3 +2214,68 @@ func TestConfig_GetChildSessions_Empty(t *testing.T) {
 		t.Errorf("expected 0 children for nonexistent supervisor, got %d", len(children))
 	}
 }
+
+func TestFormatTranscript_Empty(t *testing.T) {
+	result := FormatTranscript(nil)
+	if result != "" {
+		t.Errorf("expected empty string for nil messages, got %q", result)
+	}
+	result = FormatTranscript([]Message{})
+	if result != "" {
+		t.Errorf("expected empty string for empty messages, got %q", result)
+	}
+}
+
+func TestFormatTranscript_SingleUserMessage(t *testing.T) {
+	messages := []Message{{Role: "user", Content: "Hello"}}
+	result := FormatTranscript(messages)
+	if !strings.Contains(result, "User:") {
+		t.Errorf("expected 'User:' prefix, got %q", result)
+	}
+	if !strings.Contains(result, "Hello") {
+		t.Errorf("expected message content, got %q", result)
+	}
+}
+
+func TestFormatTranscript_MultipleMessages(t *testing.T) {
+	messages := []Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there"},
+		{Role: "user", Content: "How are you?"},
+	}
+	result := FormatTranscript(messages)
+
+	if !strings.Contains(result, "User:") {
+		t.Error("expected 'User:' prefix")
+	}
+	if !strings.Contains(result, "Assistant:") {
+		t.Error("expected 'Assistant:' prefix")
+	}
+	if !strings.Contains(result, "Hello") || !strings.Contains(result, "Hi there") || !strings.Contains(result, "How are you?") {
+		t.Error("expected all message contents")
+	}
+
+	// Messages should be separated by blank lines (except the last pair)
+	// There should be two blank-line separators for three messages
+	separatorCount := strings.Count(result, "\n\n")
+	if separatorCount < 2 {
+		t.Errorf("expected at least 2 double-newline separators, got %d in %q", separatorCount, result)
+	}
+}
+
+func TestFormatTranscript_Order(t *testing.T) {
+	messages := []Message{
+		{Role: "user", Content: "first"},
+		{Role: "assistant", Content: "second"},
+	}
+	result := FormatTranscript(messages)
+
+	userIdx := strings.Index(result, "first")
+	assistantIdx := strings.Index(result, "second")
+	if userIdx == -1 || assistantIdx == -1 {
+		t.Fatal("expected both messages in output")
+	}
+	if userIdx > assistantIdx {
+		t.Error("expected user message before assistant message")
+	}
+}
