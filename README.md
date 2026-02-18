@@ -194,9 +194,10 @@ workflow:
 
 **Provider support**: The agent can poll GitHub issues (by label), Asana tasks (by project), or Linear issues (by team).
 
-Validate and visualize your workflow:
+Scaffold, validate, and visualize your workflow:
 
 ```bash
+plural workflow init                              # generate .plural/workflow.yaml template
 plural workflow validate --repo /path/to/repo
 plural workflow visualize --repo /path/to/repo   # outputs mermaid diagram
 ```
@@ -265,6 +266,7 @@ plural help               # Show help
 plural clean              # Remove sessions, logs, worktrees, and containers
 plural clean -y           # Clean without confirmation
 plural agent --repo ...   # Headless agent mode (see above)
+plural workflow init      # Scaffold .plural/workflow.yaml
 plural workflow validate  # Validate .plural/workflow.yaml
 plural workflow visualize # Generate mermaid workflow diagram
 ```

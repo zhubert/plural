@@ -27,6 +27,7 @@ go test ./...            # Test
 ./plural -q              # Quiet mode (info level only)
 ./plural --version       # Show version
 
+./plural workflow init [--repo path]         # Scaffold .plural/workflow.yaml
 ./plural workflow validate [--repo path]    # Validate .plural/workflow.yaml
 ./plural workflow visualize [--repo path]   # Generate mermaid workflow diagram
 ```

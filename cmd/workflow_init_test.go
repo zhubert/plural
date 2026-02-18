@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-func TestAgentInitCmd_CreatesFile(t *testing.T) {
+func TestWorkflowInitCmd_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
-	agentInitRepo = dir
+	workflowRepoPath = dir
 
-	err := agentInitCmd.RunE(agentInitCmd, []string{})
+	err := workflowInitCmd.RunE(workflowInitCmd, []string{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestAgentInitCmd_CreatesFile(t *testing.T) {
 	}
 }
 
-func TestAgentInitCmd_ErrorsIfExists(t *testing.T) {
+func TestWorkflowInitCmd_ErrorsIfExists(t *testing.T) {
 	dir := t.TempDir()
 	pluralDir := filepath.Join(dir, ".plural")
 	if err := os.MkdirAll(pluralDir, 0o755); err != nil {
@@ -32,9 +32,9 @@ func TestAgentInitCmd_ErrorsIfExists(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	agentInitRepo = dir
+	workflowRepoPath = dir
 
-	err := agentInitCmd.RunE(agentInitCmd, []string{})
+	err := workflowInitCmd.RunE(workflowInitCmd, []string{})
 	if err == nil {
 		t.Fatal("expected error when file already exists")
 	}

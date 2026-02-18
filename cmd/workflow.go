@@ -24,6 +24,19 @@ var workflowValidateCmd = &cobra.Command{
 	RunE:  runWorkflowValidate,
 }
 
+var workflowInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Generate a .plural/workflow.yaml template",
+	Long: `Creates a .plural/workflow.yaml file with sensible defaults and commented
+optional sections. Run this in your repository root (or use --repo) to get started
+with a customizable agent workflow.
+
+Examples:
+  plural workflow init                   # Initialize in current directory
+  plural workflow init --repo /path/to/repo`,
+	RunE: runWorkflowInit,
+}
+
 var workflowVisualizeCmd = &cobra.Command{
 	Use:   "visualize",
 	Short: "Generate mermaid diagram of workflow",
@@ -33,9 +46,19 @@ var workflowVisualizeCmd = &cobra.Command{
 
 func init() {
 	workflowCmd.PersistentFlags().StringVar(&workflowRepoPath, "repo", ".", "Path to the repository")
+	workflowCmd.AddCommand(workflowInitCmd)
 	workflowCmd.AddCommand(workflowValidateCmd)
 	workflowCmd.AddCommand(workflowVisualizeCmd)
 	rootCmd.AddCommand(workflowCmd)
+}
+
+func runWorkflowInit(_ *cobra.Command, _ []string) error {
+	fp, err := workflow.WriteTemplate(workflowRepoPath)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Created %s\n", fp)
+	return nil
 }
 
 func runWorkflowValidate(cmd *cobra.Command, args []string) error {
