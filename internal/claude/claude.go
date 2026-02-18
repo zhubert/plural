@@ -1692,6 +1692,29 @@ func (r *Runner) GetMessages() []Message {
 	return messages
 }
 
+// GetMessagesWithStreaming returns a copy of the message history plus the
+// current in-progress streaming response (if any) as an assistant message.
+// This is useful when a mid-turn MCP tool (like create_pr) needs the full
+// transcript including content that hasn't been finalized into r.messages yet.
+func (r *Runner) GetMessagesWithStreaming() []Message {
+	r.mu.RLock()
+	streamingContent := r.streaming.Response.String()
+	msgLen := len(r.messages)
+	hasStreaming := r.streaming.Active && streamingContent != ""
+	extra := 0
+	if hasStreaming {
+		extra = 1
+	}
+	messages := make([]Message, msgLen, msgLen+extra)
+	copy(messages, r.messages)
+	r.mu.RUnlock()
+
+	if hasStreaming {
+		messages = append(messages, Message{Role: "assistant", Content: streamingContent})
+	}
+	return messages
+}
+
 // AddAssistantMessage adds an assistant message to the history
 func (r *Runner) AddAssistantMessage(content string) {
 	r.mu.Lock()

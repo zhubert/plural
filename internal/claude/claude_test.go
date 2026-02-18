@@ -243,6 +243,107 @@ func TestRunner_GetMessages(t *testing.T) {
 	}
 }
 
+func TestRunner_GetMessagesWithStreaming(t *testing.T) {
+	t.Run("no streaming returns same as GetMessages", func(t *testing.T) {
+		initialMsgs := []Message{
+			{Role: "user", Content: "Hi"},
+			{Role: "assistant", Content: "Hello!"},
+		}
+		runner := New("session-stream-1", "/tmp", "", true, initialMsgs)
+
+		msgs := runner.GetMessagesWithStreaming()
+		if len(msgs) != 2 {
+			t.Fatalf("Expected 2 messages, got %d", len(msgs))
+		}
+		if msgs[0].Content != "Hi" || msgs[1].Content != "Hello!" {
+			t.Errorf("unexpected messages: %+v", msgs)
+		}
+	})
+
+	t.Run("includes in-progress streaming content", func(t *testing.T) {
+		initialMsgs := []Message{
+			{Role: "user", Content: "Fix the bug"},
+		}
+		runner := New("session-stream-2", "/tmp", "", true, initialMsgs)
+
+		// Simulate active streaming with content in the response builder
+		runner.mu.Lock()
+		runner.streaming.Active = true
+		runner.streaming.Response.WriteString("I'm working on fixing the bug...")
+		runner.mu.Unlock()
+
+		msgs := runner.GetMessagesWithStreaming()
+		if len(msgs) != 2 {
+			t.Fatalf("Expected 2 messages (1 original + 1 streaming), got %d", len(msgs))
+		}
+		if msgs[1].Role != "assistant" {
+			t.Errorf("Expected streaming message to have role 'assistant', got %q", msgs[1].Role)
+		}
+		if msgs[1].Content != "I'm working on fixing the bug..." {
+			t.Errorf("Expected streaming content, got %q", msgs[1].Content)
+		}
+
+		// Original GetMessages should NOT include the streaming content
+		originalMsgs := runner.GetMessages()
+		if len(originalMsgs) != 1 {
+			t.Errorf("GetMessages should return only finalized messages, got %d", len(originalMsgs))
+		}
+	})
+
+	t.Run("empty streaming response not appended", func(t *testing.T) {
+		runner := New("session-stream-3", "/tmp", "", true, nil)
+
+		// Streaming is active but response builder is empty
+		runner.mu.Lock()
+		runner.streaming.Active = true
+		runner.mu.Unlock()
+
+		msgs := runner.GetMessagesWithStreaming()
+		if len(msgs) != 0 {
+			t.Fatalf("Expected 0 messages when streaming is active but empty, got %d", len(msgs))
+		}
+	})
+
+	t.Run("inactive streaming with content not appended", func(t *testing.T) {
+		runner := New("session-stream-4", "/tmp", "", true, nil)
+
+		// Response has content but streaming is not active (e.g., after completion)
+		runner.mu.Lock()
+		runner.streaming.Active = false
+		runner.streaming.Response.WriteString("leftover content")
+		runner.mu.Unlock()
+
+		msgs := runner.GetMessagesWithStreaming()
+		if len(msgs) != 0 {
+			t.Fatalf("Expected 0 messages when streaming is inactive, got %d", len(msgs))
+		}
+	})
+
+	t.Run("returns a copy not aliased to original", func(t *testing.T) {
+		initialMsgs := []Message{
+			{Role: "user", Content: "Hi"},
+		}
+		runner := New("session-stream-5", "/tmp", "", true, initialMsgs)
+
+		runner.mu.Lock()
+		runner.streaming.Active = true
+		runner.streaming.Response.WriteString("streaming...")
+		runner.mu.Unlock()
+
+		msgs := runner.GetMessagesWithStreaming()
+		if len(msgs) != 2 {
+			t.Fatalf("Expected 2 messages, got %d", len(msgs))
+		}
+
+		// Modifying the returned slice should not affect the runner
+		msgs[0].Content = "modified"
+		original := runner.GetMessages()
+		if original[0].Content == "modified" {
+			t.Error("GetMessagesWithStreaming should return a copy")
+		}
+	})
+}
+
 func TestRunner_Stop_Idempotent(t *testing.T) {
 	runner := New("session-1", "/tmp", "", false, nil)
 

@@ -18,6 +18,7 @@ type RunnerInterface interface {
 	Send(ctx context.Context, prompt string) <-chan ResponseChunk
 	SendContent(ctx context.Context, content []ContentBlock) <-chan ResponseChunk
 	GetMessages() []Message
+	GetMessagesWithStreaming() []Message
 	AddAssistantMessage(content string)
 	GetResponseChan() <-chan ResponseChunk
 

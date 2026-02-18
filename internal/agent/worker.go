@@ -600,10 +600,21 @@ func (w *SessionWorker) handleCreatePR(req mcp.CreatePRRequest) {
 	log.Info("creating PR via MCP tool", "branch", sess.Branch, "title", req.Title)
 
 	// Save messages to disk before creating PR so the transcript upload
-	// (which reads from disk via loadTranscript) can find them. Without this,
-	// messages from the current turn haven't been persisted yet since
-	// handleDone/saveRunnerMessages only runs after the turn completes.
-	w.agent.saveRunnerMessages(w.sessionID, w.runner)
+	// (which reads from disk via loadTranscript) can find them. We use
+	// GetMessagesWithStreaming() instead of GetMessages() to include the
+	// current turn's in-progress assistant response, which hasn't been
+	// finalized into the message list yet.
+	msgs := w.runner.GetMessagesWithStreaming()
+	var configMsgs []config.Message
+	for _, msg := range msgs {
+		configMsgs = append(configMsgs, config.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+	if err := config.SaveSessionMessages(w.sessionID, configMsgs, config.MaxSessionMessageLines); err != nil {
+		log.Error("failed to save session messages before PR creation", "error", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

@@ -980,6 +980,10 @@ func TestWorkerHandleCreatePRSavesMessagesBeforePR(t *testing.T) {
 	mockRunner := claude.NewMockRunner(sess.ID, true, initialMessages)
 	mockRunner.SetHostTools(true) // Enable create_pr channel
 
+	// Set simulated in-progress streaming content (the current turn's response
+	// that hasn't been finalized to messages yet)
+	mockRunner.SetStreamingContent("I'm now creating a PR for the fix...")
+
 	// Queue initial response that won't complete (worker stays in select loop)
 	mockRunner.QueueResponse(
 		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Working..."},
@@ -1018,7 +1022,8 @@ func TestWorkerHandleCreatePRSavesMessagesBeforePR(t *testing.T) {
 	}
 
 	// Also verify messages are still on disk after completion.
-	// Expect 3 messages: 2 initial + 1 user message from SendContent("Test task")
+	// Expect 4 messages: 2 initial + 1 user message from SendContent("Test task")
+	// + 1 in-progress streaming assistant message
 	msgs, err := config.LoadSessionMessages("test-createpr-msgs")
 	if err != nil {
 		t.Fatalf("failed to load messages: %v", err)
@@ -1028,6 +1033,21 @@ func TestWorkerHandleCreatePRSavesMessagesBeforePR(t *testing.T) {
 	}
 	if msgs[0].Role != "user" || msgs[0].Content != "Fix the bug in login" {
 		t.Errorf("unexpected first message: %+v", msgs[0])
+	}
+
+	// Verify the in-progress streaming content was captured in the transcript
+	var foundStreamingContent bool
+	for _, m := range msgs {
+		if m.Role == "assistant" && m.Content == "I'm now creating a PR for the fix..." {
+			foundStreamingContent = true
+			break
+		}
+	}
+	if !foundStreamingContent {
+		t.Error("expected in-progress streaming content to be saved in transcript")
+		for i, m := range msgs {
+			t.Logf("  msg[%d]: role=%s content=%q", i, m.Role, m.Content)
+		}
 	}
 
 	cancel()

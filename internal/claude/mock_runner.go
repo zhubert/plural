@@ -53,6 +53,9 @@ type MockRunner struct {
 	// Fork tracking
 	forkFromSessionID string
 
+	// Simulated streaming content for GetMessagesWithStreaming
+	streamingContent string
+
 	stopped bool
 }
 
@@ -286,6 +289,27 @@ func (m *MockRunner) GetMessages() []Message {
 	msgs := make([]Message, len(m.messages))
 	copy(msgs, m.messages)
 	return msgs
+}
+
+// GetMessagesWithStreaming implements RunnerInterface.
+// Returns GetMessages() plus any simulated streaming content set via SetStreamingContent.
+func (m *MockRunner) GetMessagesWithStreaming() []Message {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	msgs := make([]Message, len(m.messages))
+	copy(msgs, m.messages)
+	if m.streamingContent != "" {
+		msgs = append(msgs, Message{Role: "assistant", Content: m.streamingContent})
+	}
+	return msgs
+}
+
+// SetStreamingContent sets simulated in-progress streaming content
+// that will be included by GetMessagesWithStreaming but not GetMessages.
+func (m *MockRunner) SetStreamingContent(content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamingContent = content
 }
 
 // AddAssistantMessage implements RunnerInterface.
