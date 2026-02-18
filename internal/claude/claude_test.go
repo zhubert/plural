@@ -2193,38 +2193,6 @@ func TestSendChunkWithTimeout_ChannelFull(t *testing.T) {
 	t.Skip("Skipping timeout test - would take ResponseChannelFullTimeout to complete")
 }
 
-func TestOptionsSystemPrompt(t *testing.T) {
-	// Verify the system prompt contains expected structure
-	if OptionsSystemPrompt == "" {
-		t.Error("OptionsSystemPrompt should not be empty")
-	}
-
-	if !contains(OptionsSystemPrompt, "<options>") {
-		t.Error("OptionsSystemPrompt should contain <options> tag")
-	}
-
-	if !contains(OptionsSystemPrompt, "</options>") {
-		t.Error("OptionsSystemPrompt should contain </options> tag")
-	}
-
-	if !contains(OptionsSystemPrompt, "<optgroup>") {
-		t.Error("OptionsSystemPrompt should contain <optgroup> tag")
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 func TestMCPServer(t *testing.T) {
 	server := MCPServer{
 		Name:    "test-server",

@@ -1215,7 +1215,7 @@ func (c *Chat) updateContent() {
 			sb.WriteString("\n")
 
 			// Check cache for this message
-			content := stripOptionsTags(strings.TrimSpace(msg.Content))
+			content := strings.TrimSpace(msg.Content)
 			var renderedContent string
 
 			if i < len(c.messageCache) {
@@ -1255,7 +1255,7 @@ func (c *Chat) updateContent() {
 			// Render markdown for streaming content, stripping <options> tags
 			// Tool use lines are already included in streaming content with circle markers
 			if c.streaming != "" {
-				streamContent := stripOptionsTags(strings.TrimSpace(c.streaming))
+				streamContent := strings.TrimSpace(c.streaming)
 				sb.WriteString(renderMarkdown(streamContent, wrapWidth))
 			}
 			// Render active tool use rollup

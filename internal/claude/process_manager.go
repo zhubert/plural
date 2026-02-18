@@ -255,10 +255,10 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		}
 	}
 
-	// Build system prompt: base options prompt + supervisor instructions if applicable
-	systemPrompt := OptionsSystemPrompt
+	// Build system prompt: supervisor instructions if applicable
+	systemPrompt := ""
 	if config.Supervisor {
-		systemPrompt = OptionsSystemPrompt + "\n\n" + SupervisorSystemPrompt
+		systemPrompt = SupervisorSystemPrompt
 	}
 
 	if config.Containerized {
@@ -276,7 +276,9 @@ func BuildCommandArgs(config ProcessConfig) []string {
 			// Fallback if MCP server didn't start — use dangerously-skip-permissions
 			args = append(args, "--dangerously-skip-permissions")
 		}
-		args = append(args, "--append-system-prompt", systemPrompt)
+		if systemPrompt != "" {
+			args = append(args, "--append-system-prompt", systemPrompt)
+		}
 
 		// Pre-authorize all tools — the container is the sandbox
 		for _, tool := range ContainerAllowedTools {
@@ -287,8 +289,10 @@ func BuildCommandArgs(config ProcessConfig) []string {
 		args = append(args,
 			"--mcp-config", config.MCPConfigPath,
 			"--permission-prompt-tool", "mcp__plural__permission",
-			"--append-system-prompt", systemPrompt,
 		)
+		if systemPrompt != "" {
+			args = append(args, "--append-system-prompt", systemPrompt)
+		}
 
 		// Add pre-allowed tools
 		for _, tool := range config.AllowedTools {

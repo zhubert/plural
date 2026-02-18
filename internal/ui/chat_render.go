@@ -14,20 +14,6 @@ import (
 	pclaude "github.com/zhubert/plural/internal/claude"
 )
 
-// optionsTagStripPattern matches <options>...</options> blocks for stripping from display.
-var optionsTagStripPattern = regexp.MustCompile(`(?s)<options>\s*\n?(.*?)\n?\s*</options>`)
-
-// optgroupTagStripPattern matches <optgroup>...</optgroup> blocks for stripping from display.
-var optgroupTagStripPattern = regexp.MustCompile(`(?s)<optgroup>\s*\n?(.*?)\n?\s*</optgroup>`)
-
-// stripOptionsTags removes <options>, </options>, <optgroup>, and </optgroup> tags
-// from content for display, leaving only the numbered options inside.
-func stripOptionsTags(content string) string {
-	result := optionsTagStripPattern.ReplaceAllString(content, "$1")
-	result = optgroupTagStripPattern.ReplaceAllString(result, "$1")
-	return result
-}
-
 // Compiled regex patterns for markdown parsing
 var (
 	boldPattern       = regexp.MustCompile(`\*\*([^*]+)\*\*`)
