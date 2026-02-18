@@ -952,6 +952,86 @@ func TestDaemon_StartQueuedItems(t *testing.T) {
 	})
 }
 
+func TestDaemon_HandleCodingComplete_PRAlreadyCreated(t *testing.T) {
+	cfg := testConfig()
+	d := testDaemon(cfg)
+
+	// Create a session where the worker already created a PR via MCP tools
+	sess := testSession("sess-pr-created")
+	sess.PRCreated = true
+	cfg.AddSession(*sess)
+
+	// Add a work item in Coding state with a done worker
+	d.state.AddWorkItem(&WorkItem{
+		ID:        "item-pr-created",
+		IssueRef:  config.IssueRef{Source: "github", ID: "100"},
+		SessionID: "sess-pr-created",
+		Branch:    "feature-sess-pr-created",
+	})
+	d.state.TransitionWorkItem("item-pr-created", WorkItemCoding)
+
+	// Create a done worker and add it
+	mock := newMockDoneWorker()
+	d.workers["item-pr-created"] = mock
+
+	// Collect should call handleCodingComplete which should skip createPR
+	ctx := context.Background()
+	d.collectCompletedWorkers(ctx)
+
+	// Worker should be removed
+	if _, ok := d.workers["item-pr-created"]; ok {
+		t.Error("expected done worker to be removed")
+	}
+
+	// Item should be in AwaitingReview (skipped createPR, transitioned through pr_created)
+	item := d.state.GetWorkItem("item-pr-created")
+	if item.State != WorkItemAwaitingReview {
+		t.Errorf("expected awaiting_review, got %s", item.State)
+	}
+}
+
+func TestDaemon_HandleCodingComplete_PRAlreadyMerged(t *testing.T) {
+	cfg := testConfig()
+	d := testDaemon(cfg)
+
+	// Create a session where the worker already created and merged a PR
+	sess := testSession("sess-pr-merged")
+	sess.PRCreated = true
+	sess.PRMerged = true
+	cfg.AddSession(*sess)
+
+	// Add a work item in Coding state with a done worker
+	d.state.AddWorkItem(&WorkItem{
+		ID:        "item-pr-merged",
+		IssueRef:  config.IssueRef{Source: "github", ID: "101"},
+		SessionID: "sess-pr-merged",
+		Branch:    "feature-sess-pr-merged",
+	})
+	d.state.TransitionWorkItem("item-pr-merged", WorkItemCoding)
+
+	// Create a done worker and add it
+	mock := newMockDoneWorker()
+	d.workers["item-pr-merged"] = mock
+
+	// Collect should call handleCodingComplete which should fast-path to completed
+	ctx := context.Background()
+	d.collectCompletedWorkers(ctx)
+
+	// Worker should be removed
+	if _, ok := d.workers["item-pr-merged"]; ok {
+		t.Error("expected done worker to be removed")
+	}
+
+	// Item should be in Completed (fast-pathed through all states)
+	item := d.state.GetWorkItem("item-pr-merged")
+	if item.State != WorkItemCompleted {
+		t.Errorf("expected completed, got %s", item.State)
+	}
+	if item.CompletedAt == nil {
+		t.Error("expected CompletedAt to be set")
+	}
+}
+
 // newMockDoneWorker creates a SessionWorker that is already done.
 func newMockDoneWorker() *SessionWorker {
 	w := &SessionWorker{

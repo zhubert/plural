@@ -240,6 +240,38 @@ func (d *Daemon) handleCodingComplete(ctx context.Context, item *WorkItem) {
 		d.runWorkflowHooks(ctx, wfCfg.Workflow.Coding.After, item, sess)
 	}
 
+	// Check if the worker already created and merged a PR via MCP tools
+	if sess != nil && sess.PRMerged {
+		log.Info("PR already created and merged by worker, fast-pathing to completed")
+		d.state.TransitionWorkItem(item.ID, WorkItemPRCreated)
+		d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview)
+		d.state.TransitionWorkItem(item.ID, WorkItemAwaitingCI)
+		d.state.TransitionWorkItem(item.ID, WorkItemMerging)
+		d.state.TransitionWorkItem(item.ID, WorkItemCompleted)
+
+		// Run merge after-hooks
+		d.runWorkflowHooks(ctx, wfCfg.Workflow.Merge.After, item, sess)
+		return
+	}
+
+	// Check if the worker already created a PR via MCP tools (but not yet merged)
+	if sess != nil && sess.PRCreated {
+		log.Info("PR already created by worker, skipping createPR")
+		if err := d.state.TransitionWorkItem(item.ID, WorkItemPRCreated); err != nil {
+			log.Error("failed to transition to pr_created", "error", err)
+			return
+		}
+
+		// Run PR after-hooks
+		d.runWorkflowHooks(ctx, wfCfg.Workflow.PR.After, item, sess)
+
+		// Transition to awaiting review so daemon's review/CI polling takes over
+		if err := d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview); err != nil {
+			log.Error("failed to transition to awaiting_review", "error", err)
+		}
+		return
+	}
+
 	prURL, err := d.createPR(ctx, item)
 	if err != nil {
 		log.Error("failed to create PR", "error", err)

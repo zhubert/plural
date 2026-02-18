@@ -12,6 +12,13 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
+// autoMergeWorkerPollInterval is how often the worker checks for pending
+// messages or merge completion while waiting for auto-merge. The actual
+// auto-merge goroutine polls at 60s intervals — the worker's 15s check
+// just needs to detect pending messages or merge completion promptly.
+// This is a var (not const) so tests can override it.
+var autoMergeWorkerPollInterval = 15 * time.Second
+
 // SessionWorker manages a single autonomous session's lifecycle.
 // It runs a goroutine with a select loop over all runner channels,
 // replacing the TUI's Bubble Tea listener pattern.
@@ -85,6 +92,47 @@ func (w *SessionWorker) run() {
 	autoMergeActive := false // Track if auto-merge goroutine is running
 
 	for {
+		// When auto-merge is active, poll for merge completion and pending
+		// messages WITHOUT calling processOneResponse — there's no active
+		// Claude response to process, so reading the closed channel would
+		// just increment w.turns on every cycle.
+		if autoMergeActive {
+			sess := w.agent.config.GetSession(w.sessionID)
+			if sess == nil {
+				log.Warn("session disappeared during auto-merge")
+				return
+			}
+
+			// Check if auto-merge finished (merged, closed, or failed)
+			if sess.PRMerged {
+				log.Info("auto-merge completed - PR merged successfully")
+				return
+			}
+			if sess.PRClosed {
+				log.Info("auto-merge stopped - PR was closed")
+				return
+			}
+
+			// Check for pending messages (e.g., review comments from auto-merge)
+			pendingMsg := w.agent.sessionMgr.StateManager().GetPendingMessage(w.sessionID)
+			if pendingMsg != "" {
+				log.Debug("sending pending message during auto-merge")
+				content := []claude.ContentBlock{{Type: claude.ContentTypeText, Text: pendingMsg}}
+				responseChan = w.runner.SendContent(w.ctx, content)
+				autoMergeActive = false
+				// Fall through to processOneResponse below
+			} else {
+				// Still waiting — sleep and continue (no processOneResponse, no turns++)
+				log.Debug("waiting for auto-merge to complete, checking for review comment updates...")
+				select {
+				case <-w.ctx.Done():
+					return
+				case <-time.After(autoMergeWorkerPollInterval):
+					continue
+				}
+			}
+		}
+
 		if err := w.processOneResponse(responseChan); err != nil {
 			log.Info("worker stopping", "reason", err.Error())
 			return
@@ -109,34 +157,6 @@ func (w *SessionWorker) run() {
 		if w.session.IsSupervisor && w.hasActiveChildren() {
 			log.Debug("supervisor has active children, waiting...")
 			// Wait a bit then check again for pending messages
-			select {
-			case <-w.ctx.Done():
-				return
-			case <-time.After(5 * time.Second):
-				continue
-			}
-		}
-
-		// Check if we're waiting for auto-merge to complete
-		if autoMergeActive {
-			sess := w.agent.config.GetSession(w.sessionID)
-			if sess == nil {
-				log.Warn("session disappeared during auto-merge")
-				return
-			}
-
-			// Check if auto-merge finished (merged, closed, or failed)
-			if sess.PRMerged {
-				log.Info("auto-merge completed - PR merged successfully")
-				return
-			}
-			if sess.PRClosed {
-				log.Info("auto-merge stopped - PR was closed")
-				return
-			}
-
-			// Still waiting for auto-merge, continue polling for pending messages
-			log.Debug("waiting for auto-merge to complete, checking for review comment updates...")
 			select {
 			case <-w.ctx.Done():
 				return

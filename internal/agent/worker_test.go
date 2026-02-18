@@ -665,6 +665,10 @@ func TestSessionManagerStateManager(t *testing.T) {
 // continues running when auto-merge is active to process pending messages
 // (e.g., review comments from the auto-merge state machine).
 func TestWorkerKeepsRunningDuringAutoMerge(t *testing.T) {
+	origInterval := autoMergeWorkerPollInterval
+	autoMergeWorkerPollInterval = 100 * time.Millisecond
+	defer func() { autoMergeWorkerPollInterval = origInterval }()
+
 	cfg := testConfig()
 	sess := testSession("test-automerge")
 	sess.Autonomous = true
@@ -713,6 +717,10 @@ func TestWorkerKeepsRunningDuringAutoMerge(t *testing.T) {
 // TestWorkerProcessesPendingMessagesDuringAutoMerge verifies that pending
 // messages (e.g., review comments) are sent to Claude while auto-merge is running.
 func TestWorkerProcessesPendingMessagesDuringAutoMerge(t *testing.T) {
+	origInterval := autoMergeWorkerPollInterval
+	autoMergeWorkerPollInterval = 100 * time.Millisecond
+	defer func() { autoMergeWorkerPollInterval = origInterval }()
+
 	cfg := testConfig()
 	sess := testSession("test-automerge-comments")
 	sess.Autonomous = true
@@ -765,5 +773,68 @@ func TestWorkerProcessesPendingMessagesDuringAutoMerge(t *testing.T) {
 	// Verify worker processed at least 2 turns (initial + review comments)
 	if worker.turns < 2 {
 		t.Errorf("Expected at least 2 turns (initial + review comments), got %d", worker.turns)
+	}
+}
+
+// TestWorkerAutoMergeDoesNotIncrementTurns verifies that the worker's auto-merge
+// polling loop does NOT increment w.turns. Only actual Claude API round-trips
+// should count as turns.
+func TestWorkerAutoMergeDoesNotIncrementTurns(t *testing.T) {
+	origInterval := autoMergeWorkerPollInterval
+	autoMergeWorkerPollInterval = 100 * time.Millisecond
+	defer func() { autoMergeWorkerPollInterval = origInterval }()
+
+	cfg := testConfig()
+	sess := testSession("test-automerge-turns")
+	sess.Autonomous = true
+	sess.IsSupervisor = true
+	sess.PRCreated = true // PR already created
+	sess.PRMerged = false
+	sess.PRClosed = false
+
+	cfg.AddSession(*sess)
+
+	a := testAgent(cfg)
+	a.autoMerge = true
+
+	// Create a mock runner that completes after one response
+	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Task completed"},
+		claude.ResponseChunk{Done: true},
+	)
+
+	worker := NewSessionWorker(a, sess, mockRunner, "Test task")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	worker.Start(ctx)
+
+	// Wait for the initial response to be processed
+	time.Sleep(200 * time.Millisecond)
+
+	// At this point worker should have 1 turn from the initial response
+	// and be in auto-merge polling mode
+
+	// Let it poll a couple of cycles (autoMergeWorkerPollInterval is 15s
+	// but the worker should check every cycle). We'll just wait a short
+	// time and then mark as merged.
+	time.Sleep(300 * time.Millisecond)
+
+	turnsBeforeMerge := worker.turns
+
+	// Mark PR as merged to let the worker exit
+	cfg.MarkSessionPRMerged(sess.ID)
+
+	// Wait for worker to exit
+	worker.Wait()
+
+	// Turns should not have increased beyond what was set before auto-merge polling
+	if worker.turns != turnsBeforeMerge {
+		t.Errorf("expected turns to remain at %d during auto-merge polling, got %d",
+			turnsBeforeMerge, worker.turns)
+	}
+	if worker.turns != 1 {
+		t.Errorf("expected exactly 1 turn (initial response only), got %d", worker.turns)
 	}
 }
