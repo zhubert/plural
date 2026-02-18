@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	pexec "github.com/zhubert/plural/internal/exec"
+	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // svc creates a new GitService for testing (used by integration tests)
@@ -2733,4 +2736,89 @@ func TestGetRemoteOriginURL(t *testing.T) {
 			t.Error("expected error when no remote")
 		}
 	})
+}
+
+// setupTranscriptPaths sets HOME to a temp dir and resets the path cache so
+// config.LoadSessionMessages reads from the temp sessions directory.
+func setupTranscriptPaths(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
+	paths.Reset()
+	t.Cleanup(paths.Reset)
+	return tmpDir
+}
+
+// writeSessionMessages writes a JSON session message file for the given session ID.
+func writeSessionMessages(t *testing.T, sessionsDir, sessionID string, messages []config.Message) {
+	t.Helper()
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatalf("failed to create sessions dir: %v", err)
+	}
+	data, err := json.MarshalIndent(messages, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal messages: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionsDir, sessionID+".json"), data, 0644); err != nil {
+		t.Fatalf("failed to write session messages: %v", err)
+	}
+}
+
+func TestLoadTranscript_EmptySessionID(t *testing.T) {
+	result := loadTranscript("")
+	if result != "" {
+		t.Errorf("expected empty string for empty sessionID, got %q", result)
+	}
+}
+
+func TestLoadTranscript_MissingSession(t *testing.T) {
+	setupTranscriptPaths(t)
+	result := loadTranscript("nonexistent-session-id")
+	if result != "" {
+		t.Errorf("expected empty string for missing session, got %q", result)
+	}
+}
+
+func TestLoadTranscript_ValidSession(t *testing.T) {
+	tmpDir := setupTranscriptPaths(t)
+	sessionsDir := filepath.Join(tmpDir, ".plural", "sessions")
+
+	messages := []config.Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there"},
+	}
+	writeSessionMessages(t, sessionsDir, "test-session-123", messages)
+
+	result := loadTranscript("test-session-123")
+	if result == "" {
+		t.Fatal("expected non-empty transcript for valid session")
+	}
+	if !strings.Contains(result, "User:") {
+		t.Error("expected 'User:' prefix in transcript")
+	}
+	if !strings.Contains(result, "Assistant:") {
+		t.Error("expected 'Assistant:' prefix in transcript")
+	}
+	if !strings.Contains(result, "Hello") {
+		t.Error("expected user message content in transcript")
+	}
+	if !strings.Contains(result, "Hi there") {
+		t.Error("expected assistant message content in transcript")
+	}
+}
+
+func TestLoadTranscript_EmptyMessages(t *testing.T) {
+	tmpDir := setupTranscriptPaths(t)
+	sessionsDir := filepath.Join(tmpDir, ".plural", "sessions")
+
+	// Write session with no messages
+	writeSessionMessages(t, sessionsDir, "empty-session", []config.Message{})
+
+	result := loadTranscript("empty-session")
+	if result != "" {
+		t.Errorf("expected empty string for session with no messages, got %q", result)
+	}
 }
