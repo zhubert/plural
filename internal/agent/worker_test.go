@@ -674,11 +674,9 @@ func TestWorkerKeepsRunningDuringAutoMerge(t *testing.T) {
 	sess.PRClosed = false
 
 	cfg.AddSession(*sess)
-	cfg.RepoAutoMerge = map[string]bool{
-		sess.RepoPath: true, // Auto-merge enabled
-	}
 
 	a := testAgent(cfg)
+	a.autoMerge = true
 
 	// Create a mock runner that completes immediately
 	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
@@ -724,11 +722,9 @@ func TestWorkerProcessesPendingMessagesDuringAutoMerge(t *testing.T) {
 	sess.PRClosed = false
 
 	cfg.AddSession(*sess)
-	cfg.RepoAutoMerge = map[string]bool{
-		sess.RepoPath: true,
-	}
 
 	a := testAgent(cfg)
+	a.autoMerge = true
 
 	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
 

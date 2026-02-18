@@ -359,7 +359,7 @@ func (w *SessionWorker) handleCompletion() bool {
 		log.Info("PR created", "url", prURL)
 
 		// Start auto-merge if enabled
-		if w.agent.config.GetRepoAutoMerge(sess.RepoPath) {
+		if w.agent.getAutoMerge() {
 			go w.runAutoMerge()
 			autoMergeStarted = true
 		}
@@ -368,7 +368,7 @@ func (w *SessionWorker) handleCompletion() bool {
 	// For supervisor sessions, the PR was created via MCP tools.
 	// Check if auto-merge is needed.
 	if sess.PRCreated && !sess.PRMerged && !sess.PRClosed &&
-		w.agent.config.GetRepoAutoMerge(sess.RepoPath) {
+		w.agent.getAutoMerge() {
 		go w.runAutoMerge()
 		autoMergeStarted = true
 	}
@@ -616,7 +616,7 @@ func (w *SessionWorker) handleCreatePR(req mcp.CreatePRRequest) {
 	})
 
 	// Start auto-merge if enabled
-	if w.agent.config.GetRepoAutoMerge(sess.RepoPath) {
+	if w.agent.getAutoMerge() {
 		go w.runAutoMerge()
 	}
 }

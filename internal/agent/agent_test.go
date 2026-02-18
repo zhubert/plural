@@ -110,6 +110,18 @@ func TestAgentOptions(t *testing.T) {
 			t.Error("expected autoBroadcastPR=true after WithAutoBroadcastPR")
 		}
 	})
+
+	t.Run("WithAutoMerge", func(t *testing.T) {
+		a := testAgent(cfg)
+		if a.autoMerge {
+			t.Error("expected autoMerge=false by default")
+		}
+
+		WithAutoMerge(true)(a)
+		if !a.autoMerge {
+			t.Error("expected autoMerge=true after WithAutoMerge")
+		}
+	})
 }
 
 func TestGetMaxConcurrent(t *testing.T) {
@@ -302,11 +314,10 @@ func TestPollForIssues_NoPollingRepos(t *testing.T) {
 func TestPollForIssues_RespectsRepoFilter(t *testing.T) {
 	cfg := testConfig()
 	cfg.Repos = []string{"/repo1", "/repo2"}
-	cfg.RepoIssuePolling = map[string]bool{"/repo1": true, "/repo2": true}
 	a := testAgent(cfg)
 	a.repoFilter = "/repo1"
 
-	// Even with two repos configured, only repo1 should be polled.
+	// Even with two repos registered, only repo1 should be polled.
 	// The actual fetch will fail (mock executor returns no output) but
 	// the filtering logic is what we're testing.
 	result := a.pollForIssues(context.Background())
@@ -319,7 +330,6 @@ func TestPollForIssues_RespectsRepoFilter(t *testing.T) {
 func TestPollForIssues_DeduplicatesExistingSessions(t *testing.T) {
 	cfg := testConfig()
 	cfg.Repos = []string{"/repo1"}
-	cfg.RepoIssuePolling = map[string]bool{"/repo1": true}
 	// Add an existing session for issue #1
 	cfg.Sessions = []config.Session{
 		{
@@ -425,6 +435,27 @@ func TestGetMaxDuration(t *testing.T) {
 
 		if got := a.getMaxDuration(); got != 30 {
 			t.Errorf("expected default 30, got %d", got)
+		}
+	})
+}
+
+func TestGetAutoMerge(t *testing.T) {
+	t.Run("false by default", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+
+		if a.getAutoMerge() {
+			t.Error("expected false by default")
+		}
+	})
+
+	t.Run("true when set", func(t *testing.T) {
+		cfg := testConfig()
+		a := testAgent(cfg)
+		a.autoMerge = true
+
+		if !a.getAutoMerge() {
+			t.Error("expected true when set")
 		}
 	})
 }

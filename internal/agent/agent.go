@@ -42,6 +42,7 @@ type Agent struct {
 	maxDuration           int           // Override config's AutoMaxDurationMin (0 = use config)
 	autoAddressPRComments bool          // Auto-address PR review comments
 	autoBroadcastPR       bool          // Auto-create PRs when broadcast group completes
+	autoMerge             bool          // Auto-merge PRs after review + CI pass
 	pollInterval          time.Duration
 }
 
@@ -83,6 +84,11 @@ func WithAutoBroadcastPR(v bool) Option {
 	return func(a *Agent) { a.autoBroadcastPR = v }
 }
 
+// WithAutoMerge enables auto-merging PRs after review approval and CI pass.
+func WithAutoMerge(v bool) Option {
+	return func(a *Agent) { a.autoMerge = v }
+}
+
 // WithPollInterval sets the polling interval (mainly for testing).
 func WithPollInterval(d time.Duration) Option {
 	return func(a *Agent) { a.pollInterval = d }
@@ -114,6 +120,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		"maxConcurrent", a.getMaxConcurrent(),
 		"maxTurns", a.getMaxTurns(),
 		"maxDuration", a.getMaxDuration(),
+		"autoMerge", a.autoMerge,
 	)
 
 	// Do an immediate poll
@@ -341,6 +348,11 @@ func (a *Agent) getMaxDuration() int {
 		return a.maxDuration
 	}
 	return a.config.GetAutoMaxDurationMin()
+}
+
+// getAutoMerge returns whether auto-merge is enabled.
+func (a *Agent) getAutoMerge() bool {
+	return a.autoMerge
 }
 
 // getAutoAddressPRComments returns whether auto-address PR comments is enabled.

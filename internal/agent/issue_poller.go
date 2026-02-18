@@ -16,27 +16,31 @@ type repoIssues struct {
 	Issues   []issues.Issue
 }
 
-// pollForIssues checks all repos with issue polling enabled for new issues.
+// pollForIssues checks all registered repos for new issues.
 // It filters by label, deduplicates against existing sessions, and respects concurrency limits.
+// Use --repo to limit polling to a specific repo.
 func (a *Agent) pollForIssues(ctx context.Context) []repoIssues {
 	log := a.logger.With("component", "issue-poller")
+
+	if a.repoFilter == "" {
+		log.Debug("no repo filter set, skipping issue polling")
+		return nil
+	}
+
 	log.Debug("checking for new issues")
 
-	// Collect repos with issue polling enabled
+	// Collect repos to poll (all registered, filtered by --repo)
 	repos := a.config.GetRepos()
 	var pollingRepos []string
 	for _, repoPath := range repos {
-		// If repo filter is set, only poll that repo
 		if a.repoFilter != "" && !a.matchesRepoFilter(ctx, repoPath) {
 			continue
 		}
-		if a.config.GetRepoIssuePolling(repoPath) {
-			pollingRepos = append(pollingRepos, repoPath)
-		}
+		pollingRepos = append(pollingRepos, repoPath)
 	}
 
 	if len(pollingRepos) == 0 {
-		log.Debug("no repos with polling enabled")
+		log.Debug("no repos to poll")
 		return nil
 	}
 

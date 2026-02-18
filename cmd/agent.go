@@ -26,6 +26,7 @@ var (
 	agentMaxDuration           int
 	agentAutoAddressPRComments bool
 	agentAutoBroadcastPR       bool
+	agentAutoMerge             bool
 )
 
 var agentCmd = &cobra.Command{
@@ -34,16 +35,16 @@ var agentCmd = &cobra.Command{
 	Long: `Polls for issues and works them autonomously using containerized Claude sessions.
 
 The agent runs headless (no TUI) and is suitable for CI/servers/background workers.
-It uses the same configuration as the TUI (repos, allowed tools, auto-merge settings).
+The --repo flag is required to specify which registered repo to poll.
 
 All sessions are containerized (container = sandbox).
 
 Examples:
-  plural agent                          # Continuous polling mode
-  plural agent --once                   # Process available issues and exit
-  plural agent --repo owner/repo        # Limit to specific repo (owner/repo or path)
-  plural agent --max-turns 100          # Override max autonomous turns
-  plural agent --max-duration 60        # Override max duration (minutes)`,
+  plural agent --repo owner/repo        # Poll a specific repo (required)
+  plural agent --repo owner/repo --once # Process available issues and exit
+  plural agent --repo /path/to/repo     # Use filesystem path instead
+  plural agent --repo owner/repo --auto-merge  # Auto-merge PRs after review + CI
+  plural agent --repo owner/repo --max-turns 100`,
 	RunE: runAgent,
 }
 
@@ -55,6 +56,7 @@ func init() {
 	agentCmd.Flags().IntVar(&agentMaxDuration, "max-duration", 0, "Override max autonomous duration in minutes (0 = use config default of 30)")
 	agentCmd.Flags().BoolVar(&agentAutoAddressPRComments, "auto-address-pr-comments", false, "Auto-address PR review comments")
 	agentCmd.Flags().BoolVar(&agentAutoBroadcastPR, "auto-broadcast-pr", false, "Auto-create PRs when broadcast group completes")
+	agentCmd.Flags().BoolVar(&agentAutoMerge, "auto-merge", false, "Auto-merge PRs after review approval and CI pass")
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -103,14 +105,17 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	linearProvider := issues.NewLinearProvider(cfg)
 	issueRegistry := issues.NewProviderRegistry(githubProvider, asanaProvider, linearProvider)
 
+	// --repo is required
+	if agentRepo == "" {
+		return fmt.Errorf("--repo is required: specify which repo to poll (owner/repo or filesystem path)")
+	}
+
 	// Build agent options
 	var opts []agent.Option
 	if agentOnce {
 		opts = append(opts, agent.WithOnce(true))
 	}
-	if agentRepo != "" {
-		opts = append(opts, agent.WithRepoFilter(agentRepo))
-	}
+	opts = append(opts, agent.WithRepoFilter(agentRepo))
 	if agentMaxConcurrent > 0 {
 		opts = append(opts, agent.WithMaxConcurrent(agentMaxConcurrent))
 	}
@@ -125,6 +130,9 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	}
 	if agentAutoBroadcastPR {
 		opts = append(opts, agent.WithAutoBroadcastPR(true))
+	}
+	if agentAutoMerge {
+		opts = append(opts, agent.WithAutoMerge(true))
 	}
 
 	// Create agent

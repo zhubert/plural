@@ -170,26 +170,26 @@ Designed for CI pipelines, servers, and background workers.
 **Requirements:**
 - Docker (all agent sessions run in containers)
 - GitHub CLI (`gh`) authenticated
-- At least one repo registered in Plural with issue polling enabled
+- At least one repo registered in Plural
 
 **Usage:**
 
 ```bash
-plural agent                          # Continuous polling mode
-plural agent --once                   # Process available issues and exit
-plural agent --repo /path/to/repo     # Limit to a specific repo
-plural agent --max-concurrent 5       # Override max concurrent sessions
-plural agent --debug                  # Enable debug logging
+plural agent --repo owner/repo              # Poll a specific repo (required)
+plural agent --repo owner/repo --once       # Process available issues and exit
+plural agent --repo /path/to/repo           # Use filesystem path
+plural agent --repo owner/repo --auto-merge # Auto-merge PRs after review + CI
+plural agent --repo owner/repo --max-concurrent 5
 ```
 
 **How it works:**
 
-1. The agent polls repos with issue polling enabled for GitHub issues labeled `queued`
+1. The agent polls the specified repo (`--repo`) for GitHub issues labeled `queued`
 2. For each new issue, it creates a containerized Claude session on a new branch
 3. The issue label is swapped from `queued` to `wip` and a comment is posted
 4. Claude works the issue autonomously (questions auto-answered, plans auto-approved)
 5. When done, a PR is created automatically
-6. If auto-merge is enabled, the agent polls for review approval and CI, then merges
+6. If `--auto-merge` is set, the agent polls for review approval and CI, then merges
 7. The `wip` label is removed after merge
 
 **Supervisor/child sessions:** For complex issues, Claude can delegate subtasks to child sessions using MCP tools (`create_child_session`, `list_child_sessions`, `merge_child_to_parent`). The supervisor waits for all children to complete before creating a PR.
@@ -198,8 +198,6 @@ plural agent --debug                  # Enable debug logging
 
 | Setting | JSON Key | Default | Description |
 |---------|----------|---------|-------------|
-| Issue polling | `repo_issue_polling` | `false` | Enable per-repo issue polling |
-| Auto-merge | `repo_auto_merge` | `false` | Auto-merge PRs after review + CI pass |
 | Max concurrent | `issue_max_concurrent` | `3` | Max simultaneous agent sessions |
 | Max turns | `auto_max_turns` | `50` | Max Claude response turns per session |
 | Max duration | `auto_max_duration_min` | `30` | Max session duration in minutes |
@@ -242,10 +240,10 @@ plural clean                        # Remove all sessions, logs, orphaned worktr
 plural clean -y                     # Clear without confirmation prompt
 
 # Headless agent mode
-plural agent                        # Continuous polling mode
-plural agent --once                 # Process available issues and exit
-plural agent --repo /path/to/repo   # Limit to a specific repo
-plural agent --max-concurrent 5     # Override max concurrent sessions
+plural agent --repo owner/repo              # Poll a specific repo (required)
+plural agent --repo owner/repo --once       # Process available issues and exit
+plural agent --repo owner/repo --auto-merge # Auto-merge PRs after review + CI
+plural agent --repo owner/repo --max-concurrent 5
 ```
 
 ### Data Storage

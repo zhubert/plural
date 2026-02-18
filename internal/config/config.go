@@ -35,8 +35,6 @@ type Config struct {
 	AutoCleanupMerged  bool           `json:"auto_cleanup_merged,omitempty"`   // Auto-cleanup sessions when PR merged/closed
 	AutoAddressPRComments bool         `json:"auto_address_pr_comments,omitempty"` // Auto-fetch and address new PR review comments
 	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
-	RepoAutoMerge      map[string]bool  `json:"repo_auto_merge,omitempty"`      // Per-repo auto-merge after CI passes
-	RepoIssuePolling   map[string]bool  `json:"repo_issue_polling,omitempty"`   // Per-repo issue polling enabled
 	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
 
 	// Preview state - tracks when a session's branch is checked out in the main repo
@@ -124,12 +122,6 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoLinearTeam == nil {
 		c.RepoLinearTeam = make(map[string]string)
-	}
-	if c.RepoAutoMerge == nil {
-		c.RepoAutoMerge = make(map[string]bool)
-	}
-	if c.RepoIssuePolling == nil {
-		c.RepoIssuePolling = make(map[string]bool)
 	}
 }
 
@@ -537,54 +529,6 @@ func (c *Config) SetAutoBroadcastPR(enabled bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.AutoBroadcastPR = enabled
-}
-
-// GetRepoAutoMerge returns whether auto-merge is enabled for a repo
-func (c *Config) GetRepoAutoMerge(repoPath string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.RepoAutoMerge == nil {
-		return false
-	}
-	return c.RepoAutoMerge[repoPath]
-}
-
-// SetRepoAutoMerge sets whether auto-merge is enabled for a repo
-func (c *Config) SetRepoAutoMerge(repoPath string, enabled bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.RepoAutoMerge == nil {
-		c.RepoAutoMerge = make(map[string]bool)
-	}
-	if enabled {
-		c.RepoAutoMerge[repoPath] = true
-	} else {
-		delete(c.RepoAutoMerge, repoPath)
-	}
-}
-
-// GetRepoIssuePolling returns whether issue polling is enabled for a repo
-func (c *Config) GetRepoIssuePolling(repoPath string) bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	if c.RepoIssuePolling == nil {
-		return false
-	}
-	return c.RepoIssuePolling[repoPath]
-}
-
-// SetRepoIssuePolling sets whether issue polling is enabled for a repo
-func (c *Config) SetRepoIssuePolling(repoPath string, enabled bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.RepoIssuePolling == nil {
-		c.RepoIssuePolling = make(map[string]bool)
-	}
-	if enabled {
-		c.RepoIssuePolling[repoPath] = true
-	} else {
-		delete(c.RepoIssuePolling, repoPath)
-	}
 }
 
 // GetIssueMaxConcurrent returns the max concurrent auto-sessions, defaulting to 3
