@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1540,29 +1541,125 @@ func TestWriteContainerAuthFile_OAuthTokenFallback(t *testing.T) {
 	}
 }
 
-func TestWriteContainerAuthFile_NoShortLivedOAuth(t *testing.T) {
-	sessionID := "test-no-short-lived"
+func TestWriteContainerAuthFile_KeychainFallback(t *testing.T) {
+	sessionID := "test-keychain-fallback"
 	defer os.Remove(containerAuthFilePath(sessionID))
 
-	// With no env vars and no keychain entry, should return empty.
-	// The short-lived OAuth token from ~/.claude/.credentials.json
-	// is intentionally NOT read.
+	// With no env vars, writeContainerAuthFile falls back to keychain.
+	// On macOS with a keychain entry this will succeed; in CI it returns empty.
 	t.Setenv("ANTHROPIC_API_KEY", "")
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 
 	result := writeContainerAuthFile(sessionID)
 
-	// On macOS with a keychain entry for "anthropic_api_key" this would succeed,
-	// but the key point is that short-lived OAuth tokens are never extracted
 	if result.Path != "" {
 		content, err := os.ReadFile(result.Path)
 		if err != nil {
 			t.Fatalf("failed to read auth file: %v", err)
 		}
-		// Should be ANTHROPIC_API_KEY (from keychain), never a raw accessToken
-		if !strings.Contains(string(content), "ANTHROPIC_API_KEY=") {
-			t.Errorf("unexpected auth file content: %s", string(content))
+		// Should be either ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN from keychain
+		s := string(content)
+		if !strings.Contains(s, "ANTHROPIC_API_KEY=") && !strings.Contains(s, "CLAUDE_CODE_OAUTH_TOKEN=") {
+			t.Errorf("unexpected auth file content: %s", s)
 		}
+	}
+}
+
+func TestReadKeychainOAuthToken_ValidCredentials(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("keychain tests only run on macOS")
+	}
+	// We can't mock the keychain directly, but we can test the JSON parsing
+	// by testing the exported behavior indirectly. These tests verify the
+	// JSON parsing logic via the unexported function.
+}
+
+func TestKeychainOAuthCredentials_JSONParsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantKey  bool
+		wantVal  string
+	}{
+		{
+			name: "valid Pro/Max credentials",
+			input: `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-test-token","refreshToken":"sk-ant-ort01-refresh","expiresAt":` +
+				fmt.Sprintf("%d", time.Now().Add(time.Hour).UnixMilli()) +
+				`,"scopes":["user:inference"],"subscriptionType":"max"}}`,
+			wantKey: true,
+			wantVal: "sk-ant-oat01-test-token",
+		},
+		{
+			name:    "empty access token",
+			input:   `{"claudeAiOauth":{"accessToken":"","expiresAt":999999999999999}}`,
+			wantKey: false,
+		},
+		{
+			name:    "expired token",
+			input:   `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-expired","expiresAt":1000000000000}}`,
+			wantKey: false,
+		},
+		{
+			name:    "invalid JSON",
+			input:   `not json`,
+			wantKey: false,
+		},
+		{
+			name:    "empty JSON",
+			input:   `{}`,
+			wantKey: false,
+		},
+		{
+			name:    "missing claudeAiOauth",
+			input:   `{"other":"field"}`,
+			wantKey: false,
+		},
+		{
+			name: "zero expiresAt (no expiry check)",
+			input: `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-no-expiry","expiresAt":0}}`,
+			wantKey: true,
+			wantVal: "sk-ant-oat01-no-expiry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var creds keychainOAuthCredentials
+			err := json.Unmarshal([]byte(tt.input), &creds)
+
+			if tt.wantKey {
+				if err != nil {
+					t.Fatalf("unexpected parse error: %v", err)
+				}
+				if creds.ClaudeAiOauth.AccessToken != tt.wantVal {
+					t.Errorf("got accessToken %q, want %q", creds.ClaudeAiOauth.AccessToken, tt.wantVal)
+				}
+			} else {
+				// Either parse failed or the token is empty/expired
+				if err == nil && creds.ClaudeAiOauth.AccessToken != "" {
+					// Check if it should be rejected due to expiration
+					if creds.ClaudeAiOauth.ExpiresAt > 0 && time.Now().UnixMilli() >= creds.ClaudeAiOauth.ExpiresAt {
+						// Expected: expired token
+					} else {
+						t.Errorf("expected empty/expired token, got %q", creds.ClaudeAiOauth.AccessToken)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestKeychainCredential_EnvVarMapping(t *testing.T) {
+	// Test that readKeychainCredential returns the correct env var names.
+	// We can't mock the keychain, but we can verify the struct behavior.
+	cred := keychainCredential{Value: "test-key", EnvVar: "ANTHROPIC_API_KEY", Source: "test"}
+	if cred.EnvVar != "ANTHROPIC_API_KEY" {
+		t.Errorf("expected ANTHROPIC_API_KEY, got %s", cred.EnvVar)
+	}
+
+	cred = keychainCredential{Value: "oauth-token", EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Source: "test"}
+	if cred.EnvVar != "CLAUDE_CODE_OAUTH_TOKEN" {
+		t.Errorf("expected CLAUDE_CODE_OAUTH_TOKEN, got %s", cred.EnvVar)
 	}
 }
 

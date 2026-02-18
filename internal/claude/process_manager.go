@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1083,7 +1084,7 @@ func containerAuthFilePath(sessionID string) string {
 // container mode. Returns true if any of the following are set:
 //   - ANTHROPIC_API_KEY environment variable
 //   - CLAUDE_CODE_OAUTH_TOKEN environment variable (long-lived token from "claude setup-token")
-//   - "anthropic_api_key" or "Claude Code" macOS keychain entry
+//   - "anthropic_api_key", "Claude Code", or "Claude Code-credentials" macOS keychain entry
 //   - ~/.claude/.credentials.json file (from "claude login" interactive OAuth)
 func ContainerAuthAvailable() bool {
 	if os.Getenv("ANTHROPIC_API_KEY") != "" {
@@ -1092,7 +1093,7 @@ func ContainerAuthAvailable() bool {
 	if os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" {
 		return true
 	}
-	if readKeychainAPIKey() != "" {
+	if cred := readKeychainCredential(); cred.Value != "" {
 		return true
 	}
 	if credentialsFileExists() {
@@ -1101,14 +1102,64 @@ func ContainerAuthAvailable() bool {
 	return false
 }
 
-// readKeychainAPIKey reads an API key from the macOS keychain, checking
-// both the legacy "anthropic_api_key" service and the "Claude Code" service
-// (used by `claude login` on macOS).
-func readKeychainAPIKey() string {
+// keychainCredential holds a credential read from the macOS keychain.
+type keychainCredential struct {
+	Value  string // The credential value (API key or OAuth access token)
+	EnvVar string // The env var to set ("ANTHROPIC_API_KEY" or "CLAUDE_CODE_OAUTH_TOKEN")
+	Source string // Description for logging
+}
+
+// readKeychainCredential reads credentials from the macOS keychain, checking
+// (in priority order):
+//  1. "anthropic_api_key" - legacy API key entry
+//  2. "Claude Code" - API key for API usage billing
+//  3. "Claude Code-credentials" - OAuth credentials for Pro/Max subscriptions
+func readKeychainCredential() keychainCredential {
 	if key := readKeychainPassword("anthropic_api_key"); key != "" {
-		return key
+		return keychainCredential{Value: key, EnvVar: "ANTHROPIC_API_KEY", Source: "macOS keychain (anthropic_api_key)"}
 	}
-	return readKeychainPassword("Claude Code")
+	if key := readKeychainPassword("Claude Code"); key != "" {
+		return keychainCredential{Value: key, EnvVar: "ANTHROPIC_API_KEY", Source: "macOS keychain (Claude Code)"}
+	}
+	if token := readKeychainOAuthToken(); token != "" {
+		return keychainCredential{Value: token, EnvVar: "CLAUDE_CODE_OAUTH_TOKEN", Source: "macOS keychain (Claude Code-credentials)"}
+	}
+	return keychainCredential{}
+}
+
+// keychainOAuthCredentials represents the JSON structure stored in the
+// "Claude Code-credentials" macOS keychain entry for Pro/Max subscriptions.
+type keychainOAuthCredentials struct {
+	ClaudeAiOauth struct {
+		AccessToken string `json:"accessToken"`
+		ExpiresAt   int64  `json:"expiresAt"`
+	} `json:"claudeAiOauth"`
+}
+
+// readKeychainOAuthToken reads an OAuth access token from the macOS keychain
+// "Claude Code-credentials" entry, used by Claude Pro/Max subscriptions.
+// Returns empty string if not found, expired, on error, or on non-macOS platforms.
+func readKeychainOAuthToken() string {
+	raw := readKeychainPassword("Claude Code-credentials")
+	if raw == "" {
+		return ""
+	}
+
+	var creds keychainOAuthCredentials
+	if err := json.Unmarshal([]byte(raw), &creds); err != nil {
+		return ""
+	}
+
+	if creds.ClaudeAiOauth.AccessToken == "" {
+		return ""
+	}
+
+	// Check if token is expired
+	if creds.ClaudeAiOauth.ExpiresAt > 0 && time.Now().UnixMilli() >= creds.ClaudeAiOauth.ExpiresAt {
+		return ""
+	}
+
+	return creds.ClaudeAiOauth.AccessToken
 }
 
 // credentialsFileExists checks whether ~/.claude/.credentials.json exists.
@@ -1139,12 +1190,11 @@ type containerAuthResult struct {
 // Credential sources (in priority order):
 //  1. ANTHROPIC_API_KEY from environment
 //  2. CLAUDE_CODE_OAUTH_TOKEN from environment (long-lived token from "claude setup-token")
-//  3. "anthropic_api_key" macOS keychain entry
+//  3. macOS keychain entry ("anthropic_api_key", "Claude Code", or "Claude Code-credentials")
 //
-// Note: The short-lived OAuth access token from the macOS keychain (rotated
-// every ~8-12 hours by the native CLI) is NOT supported — it would become
-// invalid inside the container. Use "claude setup-token" to generate a
-// long-lived CLAUDE_CODE_OAUTH_TOKEN instead.
+// Note: OAuth access tokens from "Claude Code-credentials" (Pro/Max subscriptions)
+// are short-lived and will expire inside the container. For long-running container
+// sessions, use "claude setup-token" to generate a long-lived CLAUDE_CODE_OAUTH_TOKEN.
 //
 // Returns empty path if no credentials are available.
 func writeContainerAuthFile(sessionID string) containerAuthResult {
@@ -1158,9 +1208,9 @@ func writeContainerAuthFile(sessionID string) containerAuthResult {
 		// Claude CLI recognizes CLAUDE_CODE_OAUTH_TOKEN directly as an environment variable
 		content = "CLAUDE_CODE_OAUTH_TOKEN=" + oauthToken
 		source = "CLAUDE_CODE_OAUTH_TOKEN env var"
-	} else if apiKey := readKeychainAPIKey(); apiKey != "" {
-		content = "ANTHROPIC_API_KEY=" + apiKey
-		source = "macOS keychain"
+	} else if cred := readKeychainCredential(); cred.Value != "" {
+		content = cred.EnvVar + "=" + cred.Value
+		source = cred.Source
 	}
 
 	if content == "" {
