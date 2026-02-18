@@ -1,6 +1,10 @@
 # Binary
 plural
 
+# Core dumps
+core
+core.*
+
 # GoReleaser output
 dist/
 
