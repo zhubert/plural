@@ -1016,9 +1016,9 @@ func TestBuildCommandArgs_Containerized_NewSession(t *testing.T) {
 		t.Error("Containerized session must pre-authorize unrestricted Bash")
 	}
 
-	// Must still have --append-system-prompt
-	if !containsArg(args, "--append-system-prompt") {
-		t.Error("Containerized session should still have --append-system-prompt")
+	// Non-supervisor containerized session should not have --append-system-prompt
+	if containsArg(args, "--append-system-prompt") {
+		t.Error("Non-supervisor containerized session should NOT have --append-system-prompt")
 	}
 }
 
@@ -2136,13 +2136,10 @@ func TestBuildCommandArgs_Supervisor_AppendsSystemPrompt(t *testing.T) {
 	// Find the --append-system-prompt value
 	systemPrompt := getArgValue(args, "--append-system-prompt")
 	if systemPrompt == "" {
-		t.Fatal("expected --append-system-prompt to be set")
+		t.Fatal("expected --append-system-prompt to be set for supervisor sessions")
 	}
 
-	// Should contain both the options prompt and the supervisor prompt
-	if !strings.Contains(systemPrompt, "numbered or lettered choices") {
-		t.Error("system prompt should contain OptionsSystemPrompt content")
-	}
+	// Should contain the supervisor prompt
 	if !strings.Contains(systemPrompt, "orchestrator session") {
 		t.Error("system prompt should contain SupervisorSystemPrompt content")
 	}
@@ -2166,17 +2163,10 @@ func TestBuildCommandArgs_NonSupervisor_NoSupervisorPrompt(t *testing.T) {
 
 	args := BuildCommandArgs(config)
 
+	// Non-supervisor sessions should not have --append-system-prompt at all
 	systemPrompt := getArgValue(args, "--append-system-prompt")
-	if systemPrompt == "" {
-		t.Fatal("expected --append-system-prompt to be set")
-	}
-
-	// Should contain the options prompt but NOT the supervisor prompt
-	if !strings.Contains(systemPrompt, "numbered or lettered choices") {
-		t.Error("system prompt should contain OptionsSystemPrompt content")
-	}
-	if strings.Contains(systemPrompt, "orchestrator session") {
-		t.Error("non-supervisor session should NOT contain SupervisorSystemPrompt content")
+	if systemPrompt != "" {
+		t.Errorf("non-supervisor session should NOT have --append-system-prompt, got %q", systemPrompt)
 	}
 }
 

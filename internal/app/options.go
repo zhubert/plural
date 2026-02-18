@@ -13,13 +13,6 @@ type DetectedOption struct {
 	GroupIndex int    // Which group this option belongs to (0-indexed)
 }
 
-// optionsTagPattern matches <options>...</options> blocks in Claude's response.
-// Claude is instructed via system prompt to wrap numbered choices in these tags.
-var optionsTagPattern = regexp.MustCompile(`(?s)<options>\s*(.*?)\s*</options>`)
-
-// optgroupTagPattern matches <optgroup>...</optgroup> blocks within options.
-var optgroupTagPattern = regexp.MustCompile(`(?s)<optgroup>\s*(.*?)\s*</optgroup>`)
-
 // numericOptionPatterns are regexes that match numbered lists in Claude responses.
 // These are used as fallback when <options> tags are not present.
 var numericOptionPatterns = []*regexp.Regexp{
@@ -42,15 +35,9 @@ var letterOptionPatterns = []*regexp.Regexp{
 }
 
 // DetectOptions scans a message for numbered or lettered options.
-// It first looks for <options> tags (most reliable), then falls back to
-// pattern matching on numbered lists, then letter-based lists.
+// It uses pattern matching on numbered lists and letter-based lists.
 // Returns nil if no valid option list is found.
 func DetectOptions(message string) []DetectedOption {
-	// First, try to find options within <options> tags (most reliable)
-	if options := detectOptionsFromTags(message); len(options) >= 2 {
-		return options
-	}
-
 	// Try letter-based patterns first (they're more specific, like "Option A:")
 	for _, pattern := range letterOptionPatterns {
 		matches := pattern.FindAllStringSubmatch(message, -1)
@@ -73,98 +60,6 @@ func DetectOptions(message string) []DetectedOption {
 		}
 	}
 
-	return nil
-}
-
-// detectOptionsFromTags extracts options from <options>...</options> blocks.
-// Supports both:
-// 1. Multiple <options> blocks (each block becomes a group)
-// 2. Single <options> with <optgroup> tags inside (each optgroup becomes a group)
-func detectOptionsFromTags(message string) []DetectedOption {
-	matches := optionsTagPattern.FindAllStringSubmatch(message, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	// If there are multiple <options> blocks, treat each as a group
-	if len(matches) > 1 {
-		var result []DetectedOption
-		for groupIdx, match := range matches {
-			if len(match) < 2 {
-				continue
-			}
-			groupOptions := parseOptionsFromContent(match[1], groupIdx)
-			result = append(result, groupOptions...)
-		}
-		if len(result) >= 2 {
-			return result
-		}
-	}
-
-	// Single <options> block - check for <optgroup> tags inside
-	content := matches[0][1]
-
-	optgroupMatches := optgroupTagPattern.FindAllStringSubmatch(content, -1)
-	if len(optgroupMatches) > 0 {
-		var result []DetectedOption
-		for groupIdx, optgroupMatch := range optgroupMatches {
-			if len(optgroupMatch) < 2 {
-				continue
-			}
-			groupContent := optgroupMatch[1]
-			groupOptions := parseOptionsFromContent(groupContent, groupIdx)
-			result = append(result, groupOptions...)
-		}
-		if len(result) >= 2 {
-			return result
-		}
-	}
-
-	// No optgroups, parse the content directly
-	for _, pattern := range numericOptionPatterns {
-		lineMatches := pattern.FindAllStringSubmatch(content, -1)
-		if len(lineMatches) >= 2 {
-			options := extractSequentialOptions(lineMatches)
-			if len(options) >= 2 {
-				return options
-			}
-		}
-	}
-
-	return nil
-}
-
-// parseOptionsFromContent parses numbered options from content, assigning the given group index.
-func parseOptionsFromContent(content string, groupIndex int) []DetectedOption {
-	for _, pattern := range numericOptionPatterns {
-		lineMatches := pattern.FindAllStringSubmatch(content, -1)
-		if len(lineMatches) >= 2 {
-			var options []DetectedOption
-			for _, match := range lineMatches {
-				if len(match) < 3 {
-					continue
-				}
-				num := 0
-				for _, c := range match[1] {
-					if c >= '0' && c <= '9' {
-						num = num*10 + int(c-'0')
-					}
-				}
-				text := strings.TrimSpace(match[2])
-				if text == "" {
-					continue
-				}
-				options = append(options, DetectedOption{
-					Number:     num,
-					Text:       text,
-					GroupIndex: groupIndex,
-				})
-			}
-			if len(options) >= 2 {
-				return options
-			}
-		}
-	}
 	return nil
 }
 
