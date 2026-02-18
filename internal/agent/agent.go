@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	defaultPollInterval = 30 * time.Second
-	autonomousFilterLabel = "queued"
-	autonomousWIPLabel    = "wip"
+	defaultPollInterval       = 30 * time.Second
+	defaultReviewPollInterval = 60 * time.Second
+	autonomousFilterLabel     = "queued"
+	autonomousWIPLabel        = "wip"
 )
 
 // Agent is the headless autonomous agent that polls for issues
@@ -43,6 +44,7 @@ type Agent struct {
 	autoAddressPRComments bool          // Auto-address PR review comments
 	autoBroadcastPR       bool          // Auto-create PRs when broadcast group completes
 	autoMerge             bool          // Auto-merge PRs after review + CI pass
+	mergeMethod           string        // Merge method: rebase, squash, or merge
 	pollInterval          time.Duration
 }
 
@@ -353,6 +355,14 @@ func (a *Agent) getMaxDuration() int {
 // getAutoMerge returns whether auto-merge is enabled.
 func (a *Agent) getAutoMerge() bool {
 	return a.autoMerge
+}
+
+// getMergeMethod returns the effective merge method.
+func (a *Agent) getMergeMethod() string {
+	if a.mergeMethod != "" {
+		return a.mergeMethod
+	}
+	return a.config.GetAutoMergeMethod()
 }
 
 // getAutoAddressPRComments returns whether auto-address PR comments is enabled.

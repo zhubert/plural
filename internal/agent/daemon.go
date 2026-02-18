@@ -36,7 +36,10 @@ type Daemon struct {
 	autoAddressPRComments bool
 	autoBroadcastPR       bool
 	autoMerge             bool
+	mergeMethod           string
 	pollInterval          time.Duration
+	reviewPollInterval    time.Duration
+	lastReviewPollAt      time.Time
 }
 
 // DaemonOption configures the daemon.
@@ -82,23 +85,34 @@ func WithDaemonAutoMerge(v bool) DaemonOption {
 	return func(d *Daemon) { d.autoMerge = v }
 }
 
+// WithDaemonMergeMethod sets the merge method (rebase, squash, or merge).
+func WithDaemonMergeMethod(method string) DaemonOption {
+	return func(d *Daemon) { d.mergeMethod = method }
+}
+
 // WithDaemonPollInterval sets the polling interval (mainly for testing).
 func WithDaemonPollInterval(d time.Duration) DaemonOption {
 	return func(dm *Daemon) { dm.pollInterval = d }
 }
 
+// WithDaemonReviewPollInterval sets the review polling interval (mainly for testing).
+func WithDaemonReviewPollInterval(d time.Duration) DaemonOption {
+	return func(dm *Daemon) { dm.reviewPollInterval = d }
+}
+
 // NewDaemon creates a new daemon.
 func NewDaemon(cfg *config.Config, gitSvc *git.GitService, sessSvc *session.SessionService, registry *issues.ProviderRegistry, logger *slog.Logger, opts ...DaemonOption) *Daemon {
 	d := &Daemon{
-		config:         cfg,
-		gitService:     gitSvc,
-		sessionService: sessSvc,
-		sessionMgr:     app.NewSessionManager(cfg, gitSvc),
-		issueRegistry:  registry,
-		workers:        make(map[string]*SessionWorker),
-		logger:         logger,
-		autoMerge:      true, // Auto-merge is default for daemon
-		pollInterval:   defaultPollInterval,
+		config:             cfg,
+		gitService:         gitSvc,
+		sessionService:     sessSvc,
+		sessionMgr:         app.NewSessionManager(cfg, gitSvc),
+		issueRegistry:      registry,
+		workers:            make(map[string]*SessionWorker),
+		logger:             logger,
+		autoMerge:          true, // Auto-merge is default for daemon
+		pollInterval:       defaultPollInterval,
+		reviewPollInterval: defaultReviewPollInterval,
 	}
 	for _, opt := range opts {
 		opt(d)
@@ -262,9 +276,14 @@ func (d *Daemon) handleFeedbackComplete(ctx context.Context, item *WorkItem) {
 
 // processWorkItems checks shelved items for external events.
 func (d *Daemon) processWorkItems(ctx context.Context) {
-	// Check AwaitingReview items for new comments or review decisions
-	for _, item := range d.state.GetWorkItemsByState(WorkItemAwaitingReview) {
-		d.processAwaitingReview(ctx, item)
+	// Check AwaitingReview items for new comments or review decisions.
+	// Only poll for reviews at the slower reviewPollInterval since human
+	// reviewers may take hours or days to respond.
+	if time.Since(d.lastReviewPollAt) >= d.reviewPollInterval {
+		for _, item := range d.state.GetWorkItemsByState(WorkItemAwaitingReview) {
+			d.processAwaitingReview(ctx, item)
+		}
+		d.lastReviewPollAt = time.Now()
 	}
 
 	// Check AwaitingCI items for CI status
@@ -367,6 +386,14 @@ func (d *Daemon) getMaxDuration() int {
 // getAutoMerge returns whether auto-merge is enabled.
 func (d *Daemon) getAutoMerge() bool {
 	return d.autoMerge
+}
+
+// getMergeMethod returns the effective merge method.
+func (d *Daemon) getMergeMethod() string {
+	if d.mergeMethod != "" {
+		return d.mergeMethod
+	}
+	return d.config.GetAutoMergeMethod()
 }
 
 // getAutoAddressPRComments returns whether auto-address PR comments is enabled.

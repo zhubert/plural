@@ -890,12 +890,12 @@ func TestCheckPRChecks_ErrorNoOutput(t *testing.T) {
 
 func TestMergePR_Success(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--rebase", "--delete-branch"}, pexec.MockResponse{
 		Stdout: []byte(""),
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true, "rebase")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -903,12 +903,12 @@ func TestMergePR_Success(t *testing.T) {
 
 func TestMergePR_Error(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--rebase", "--delete-branch"}, pexec.MockResponse{
 		Err: fmt.Errorf("exit status 1"),
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true, "rebase")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -916,13 +916,13 @@ func TestMergePR_Error(t *testing.T) {
 
 func TestMergePR_ErrorIncludesStderr(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
-	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash", "--delete-branch"}, pexec.MockResponse{
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--rebase", "--delete-branch"}, pexec.MockResponse{
 		Stderr: []byte("Pull request #42 is not mergeable: the base branch policy prohibits the merge"),
 		Err:    fmt.Errorf("exit status 1"),
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", true, "rebase")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -933,12 +933,51 @@ func TestMergePR_ErrorIncludesStderr(t *testing.T) {
 
 func TestMergePR_WithoutDeletingBranch(t *testing.T) {
 	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--rebase"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", false, "rebase")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMergePR_SquashMethod(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
 	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--squash"}, pexec.MockResponse{
 		Stdout: []byte(""),
 	})
 
 	svc := NewGitServiceWithExecutor(mock)
-	err := svc.MergePR(context.Background(), "/repo", "feature-branch", false)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", false, "squash")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMergePR_MergeMethod(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--merge"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", false, "merge")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMergePR_EmptyMethodDefaultsToRebase(t *testing.T) {
+	mock := pexec.NewMockExecutor(nil)
+	mock.AddExactMatch("gh", []string{"pr", "merge", "feature-branch", "--rebase"}, pexec.MockResponse{
+		Stdout: []byte(""),
+	})
+
+	svc := NewGitServiceWithExecutor(mock)
+	err := svc.MergePR(context.Background(), "/repo", "feature-branch", false, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

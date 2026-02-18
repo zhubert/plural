@@ -461,13 +461,21 @@ func (s *GitService) CheckPRReviewDecision(ctx context.Context, repoPath, branch
 	return ReviewNone, nil
 }
 
-// MergePR merges a PR for the given branch using squash merge.
-// Note: hardcoded to --squash for simplicity. If per-repo merge
-// strategy configuration is needed, this should accept a merge strategy parameter.
+// MergePR merges a PR for the given branch using the specified merge method.
+// Valid methods: "rebase" (default), "squash", "merge". If method is empty, defaults to "rebase".
 // The deleteBranch parameter controls whether to delete the branch after merging.
 // For autonomous sessions, pass false since the branch is deleted during session cleanup.
-func (s *GitService) MergePR(ctx context.Context, repoPath, branch string, deleteBranch bool) error {
-	args := []string{"pr", "merge", branch, "--squash"}
+func (s *GitService) MergePR(ctx context.Context, repoPath, branch string, deleteBranch bool, method string) error {
+	var flag string
+	switch method {
+	case "squash":
+		flag = "--squash"
+	case "merge":
+		flag = "--merge"
+	default:
+		flag = "--rebase"
+	}
+	args := []string{"pr", "merge", branch, flag}
 	if deleteBranch {
 		args = append(args, "--delete-branch")
 	}

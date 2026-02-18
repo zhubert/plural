@@ -213,7 +213,7 @@ func (d *Daemon) mergePR(ctx context.Context, item *WorkItem) error {
 	mergeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	err := d.gitService.MergePR(mergeCtx, sess.RepoPath, item.Branch, false)
+	err := d.gitService.MergePR(mergeCtx, sess.RepoPath, item.Branch, false, d.getMergeMethod())
 	if err != nil {
 		return err
 	}
@@ -263,6 +263,7 @@ func (d *Daemon) toAgent() *Agent {
 		autoAddressPRComments: d.autoAddressPRComments,
 		autoBroadcastPR:       d.autoBroadcastPR,
 		autoMerge:             d.autoMerge,
+		mergeMethod:           d.mergeMethod,
 		pollInterval:          d.pollInterval,
 	}
 }

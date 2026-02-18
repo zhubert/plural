@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	maxAutoMergePollAttempts = 60 // ~30 minutes at 30s intervals
-	autoMergePollInterval   = 30 * time.Second
+	maxAutoMergePollAttempts = 120 // ~2 hours at 60s intervals
+	autoMergePollInterval   = 60 * time.Second
 )
 
 // runAutoMerge runs the auto-merge state machine for a session.
@@ -222,7 +222,7 @@ func doMerge(a *Agent, sessionID string, sess *config.Session) mergeAction {
 	defer cancel()
 
 	// Don't delete branch - it will be deleted during session cleanup
-	err := a.gitService.MergePR(ctx, sess.RepoPath, sess.Branch, false)
+	err := a.gitService.MergePR(ctx, sess.RepoPath, sess.Branch, false, a.getMergeMethod())
 	if err != nil {
 		log.Error("auto-merge failed", "error", err)
 		return mergeActionStop

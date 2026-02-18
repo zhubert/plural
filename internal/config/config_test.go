@@ -1621,6 +1621,36 @@ func TestConfig_BroadcastGroupID_Persistence(t *testing.T) {
 
 
 
+func TestConfig_AutoMergeMethod(t *testing.T) {
+	cfg := &Config{
+		Repos:    []string{},
+		Sessions: []Session{},
+	}
+
+	// Default should be "rebase"
+	if got := cfg.GetAutoMergeMethod(); got != "rebase" {
+		t.Errorf("GetAutoMergeMethod default = %q, want 'rebase'", got)
+	}
+
+	// Set to squash
+	cfg.SetAutoMergeMethod("squash")
+	if got := cfg.GetAutoMergeMethod(); got != "squash" {
+		t.Errorf("GetAutoMergeMethod = %q, want 'squash'", got)
+	}
+
+	// Set to merge
+	cfg.SetAutoMergeMethod("merge")
+	if got := cfg.GetAutoMergeMethod(); got != "merge" {
+		t.Errorf("GetAutoMergeMethod = %q, want 'merge'", got)
+	}
+
+	// Set empty reverts to default
+	cfg.SetAutoMergeMethod("")
+	if got := cfg.GetAutoMergeMethod(); got != "rebase" {
+		t.Errorf("GetAutoMergeMethod after clearing = %q, want 'rebase'", got)
+	}
+}
+
 func TestConfig_RemoveSessions(t *testing.T) {
 	cfg := &Config{
 		Repos: []string{},

@@ -95,6 +95,29 @@ func TestDaemonOptions(t *testing.T) {
 			t.Errorf("expected 10s, got %v", d.pollInterval)
 		}
 	})
+
+	t.Run("WithDaemonMergeMethod", func(t *testing.T) {
+		d := testDaemon(cfg)
+		WithDaemonMergeMethod("squash")(d)
+		if d.mergeMethod != "squash" {
+			t.Errorf("expected squash, got %s", d.mergeMethod)
+		}
+	})
+
+	t.Run("WithDaemonReviewPollInterval", func(t *testing.T) {
+		d := testDaemon(cfg)
+		WithDaemonReviewPollInterval(5 * time.Second)(d)
+		if d.reviewPollInterval != 5*time.Second {
+			t.Errorf("expected 5s, got %v", d.reviewPollInterval)
+		}
+	})
+
+	t.Run("default reviewPollInterval", func(t *testing.T) {
+		d := testDaemon(cfg)
+		if d.reviewPollInterval != defaultReviewPollInterval {
+			t.Errorf("expected default review poll interval, got %v", d.reviewPollInterval)
+		}
+	})
 }
 
 func TestDaemon_GetMaxConcurrent(t *testing.T) {
@@ -418,6 +441,104 @@ func TestDaemon_HasExistingSession(t *testing.T) {
 	}
 }
 
+func TestDaemon_GetMergeMethod(t *testing.T) {
+	t.Run("uses config when no override", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMergeMethod = "squash"
+		d := testDaemon(cfg)
+		if got := d.getMergeMethod(); got != "squash" {
+			t.Errorf("expected squash, got %s", got)
+		}
+	})
+
+	t.Run("uses override", func(t *testing.T) {
+		cfg := testConfig()
+		cfg.AutoMergeMethod = "squash"
+		d := testDaemon(cfg)
+		d.mergeMethod = "merge"
+		if got := d.getMergeMethod(); got != "merge" {
+			t.Errorf("expected merge, got %s", got)
+		}
+	})
+
+	t.Run("defaults to rebase", func(t *testing.T) {
+		cfg := testConfig()
+		d := testDaemon(cfg)
+		if got := d.getMergeMethod(); got != "rebase" {
+			t.Errorf("expected rebase, got %s", got)
+		}
+	})
+}
+
+func TestDaemon_ReviewPollIntervalGating(t *testing.T) {
+	cfg := testConfig()
+	mockExec := exec.NewMockExecutor(nil)
+
+	// Mock PR state check returning OPEN
+	prStateJSON, _ := json.Marshal(struct {
+		State string `json:"state"`
+	}{State: "OPEN"})
+	mockExec.AddPrefixMatch("gh", []string{"pr", "view"}, exec.MockResponse{
+		Stdout: prStateJSON,
+	})
+
+	// Mock batch PR states with comments (no new comments)
+	batchJSON, _ := json.Marshal([]struct {
+		State       string            `json:"state"`
+		HeadRefName string            `json:"headRefName"`
+		Comments    []json.RawMessage `json:"comments"`
+		Reviews     []json.RawMessage `json:"reviews"`
+	}{
+		{State: "OPEN", HeadRefName: "feature-sess-1", Comments: nil, Reviews: nil},
+	})
+	mockExec.AddPrefixMatch("gh", []string{"pr", "list"}, exec.MockResponse{
+		Stdout: batchJSON,
+	})
+
+	d := testDaemonWithExec(cfg, mockExec)
+	d.repoFilter = "/test/repo"
+	// Set review poll interval to something large
+	d.reviewPollInterval = 1 * time.Hour
+	// Set last poll to now, so the interval hasn't elapsed
+	d.lastReviewPollAt = time.Now()
+
+	// Add session
+	sess := testSession("sess-1")
+	cfg.AddSession(*sess)
+
+	// Add work item in AwaitingReview
+	d.state.AddWorkItem(&WorkItem{
+		ID:        "item-1",
+		IssueRef:  config.IssueRef{Source: "github", ID: "1"},
+		SessionID: "sess-1",
+		Branch:    "feature-sess-1",
+	})
+	d.state.TransitionWorkItem("item-1", WorkItemCoding)
+	d.state.TransitionWorkItem("item-1", WorkItemPRCreated)
+	d.state.TransitionWorkItem("item-1", WorkItemAwaitingReview)
+
+	// Process — review polling should be skipped because interval hasn't elapsed
+	d.processWorkItems(context.Background())
+
+	// Should still be in AwaitingReview (review poll was gated)
+	item := d.state.GetWorkItem("item-1")
+	if item.State != WorkItemAwaitingReview {
+		t.Errorf("expected awaiting_review (review poll gated), got %s", item.State)
+	}
+
+	// Now set lastReviewPollAt far in the past to simulate elapsed interval
+	d.lastReviewPollAt = time.Now().Add(-2 * time.Hour)
+
+	// Process again — review polling should now proceed
+	d.processWorkItems(context.Background())
+
+	// Item should still be in AwaitingReview (no new comments, no review decision)
+	// but the poll should have been executed (lastReviewPollAt updated)
+	if time.Since(d.lastReviewPollAt) > 1*time.Second {
+		t.Error("expected lastReviewPollAt to be updated after review poll ran")
+	}
+}
+
 func TestDaemon_ToAgent(t *testing.T) {
 	cfg := testConfig()
 	d := testDaemon(cfg)
@@ -426,6 +547,7 @@ func TestDaemon_ToAgent(t *testing.T) {
 	d.maxTurns = 100
 	d.maxDuration = 60
 	d.autoMerge = true
+	d.mergeMethod = "squash"
 
 	a := d.toAgent()
 
@@ -446,6 +568,9 @@ func TestDaemon_ToAgent(t *testing.T) {
 	}
 	if !a.autoMerge {
 		t.Error("autoMerge mismatch")
+	}
+	if a.mergeMethod != "squash" {
+		t.Errorf("mergeMethod mismatch: expected squash, got %s", a.mergeMethod)
 	}
 }
 

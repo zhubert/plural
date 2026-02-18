@@ -28,6 +28,7 @@ var (
 	agentAutoBroadcastPR       bool
 	agentAutoMerge             bool
 	agentNoAutoMerge           bool
+	agentMergeMethod           string
 )
 
 var agentCmd = &cobra.Command{
@@ -63,6 +64,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentAutoBroadcastPR, "auto-broadcast-pr", false, "Auto-create PRs when broadcast group completes")
 	agentCmd.Flags().BoolVar(&agentAutoMerge, "auto-merge", false, "Auto-merge PRs after review approval and CI pass (default: true)")
 	agentCmd.Flags().BoolVar(&agentNoAutoMerge, "no-auto-merge", false, "Disable auto-merge")
+	agentCmd.Flags().StringVar(&agentMergeMethod, "merge-method", "", "Merge method: rebase, squash, or merge (default: rebase)")
 	rootCmd.AddCommand(agentCmd)
 }
 
@@ -140,6 +142,9 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	// Auto-merge is on by default for daemon; --no-auto-merge disables it
 	if agentNoAutoMerge {
 		opts = append(opts, agent.WithDaemonAutoMerge(false))
+	}
+	if agentMergeMethod != "" {
+		opts = append(opts, agent.WithDaemonMergeMethod(agentMergeMethod))
 	}
 
 	// Create daemon

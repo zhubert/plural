@@ -35,6 +35,7 @@ type Config struct {
 	AutoCleanupMerged  bool           `json:"auto_cleanup_merged,omitempty"`   // Auto-cleanup sessions when PR merged/closed
 	AutoAddressPRComments bool         `json:"auto_address_pr_comments,omitempty"` // Auto-fetch and address new PR review comments
 	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
+	AutoMergeMethod    string         `json:"auto_merge_method,omitempty"`     // Merge method: "rebase", "squash", or "merge" (default "rebase")
 	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
 
 	// Preview state - tracks when a session's branch is checked out in the main repo
@@ -546,6 +547,23 @@ func (c *Config) SetIssueMaxConcurrent(n int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.IssueMaxConcurrent = n
+}
+
+// GetAutoMergeMethod returns the auto-merge method, defaulting to "rebase"
+func (c *Config) GetAutoMergeMethod() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.AutoMergeMethod == "" {
+		return "rebase"
+	}
+	return c.AutoMergeMethod
+}
+
+// SetAutoMergeMethod sets the auto-merge method (rebase, squash, or merge)
+func (c *Config) SetAutoMergeMethod(method string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.AutoMergeMethod = method
 }
 
 // RemoveSessions removes multiple sessions by ID. Returns the count of sessions removed.
