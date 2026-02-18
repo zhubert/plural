@@ -1,43 +1,26 @@
 # Plural
 
-**Explore multiple solutions at once.** Parallel Claude Code sessions.
+**Explore multiple solutions at once.** Parallel Claude Code sessions, or a fully autonomous agent.
 
-Run multiple Claude sessions on the same codebase—each in its own git branch. When Claude offers different approaches, fork the session and try them all in parallel. Switch freely. Merge the winner.
+Plural is a TUI and headless agent for Claude Code. Run parallel sessions across branches and repos, fork when Claude offers competing approaches, import issues from GitHub/Asana/Linear, broadcast prompts across services, and create PRs—all from a keyboard-driven terminal interface. Or skip the TUI entirely and run `plural agent` as an autonomous daemon that picks up GitHub issues, writes code, opens PRs, addresses review comments, and merges.
 
 ![Plural demo](docs/demo.gif)
 
-## Why Plural?
-
-Plural isn't a terminal multiplexer with Claude instances. It's a purpose-built TUI that integrates deeply with the Claude Code API—streaming responses, parsing tool calls, handling permissions, and understanding Claude's structured output.
-
-This integration enables features that wouldn't be possible with a tmux wrapper:
-- **Live todo sidebar** that updates as Claude works through tasks
-- **Option detection** that parses Claude's proposed approaches and lets you fork into parallel sessions
-- **Automatic permission handling** with inline prompts and "always allow" memory
-- **Git-aware merge workflow** that understands session branches and creates PRs
-- **Token cost tracking** parsed from Claude's session data
-- **PR review comments** imported directly into sessions for iterating on feedback
-
-## Requirements
-
-- [Claude Code CLI](https://claude.ai/code) installed and authenticated
-- Git
-- GitHub CLI (`gh`) for PR creation and issue import (optional)
-
-Run `plural help` to see all available commands and options.
-
-## Installation
-
-### Homebrew (Recommended)
+## Install
 
 ```bash
 brew tap zhubert/tap
 brew install plural
 ```
 
-### From Source
+Or [build from source](CONTRIBUTING.md).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
+## Requirements
+
+- [Claude Code CLI](https://claude.ai/code) installed and authenticated
+- Git
+- GitHub CLI (`gh`) — optional, for PRs and GitHub issue import
+- Docker — optional, for container mode and headless agent
 
 ## Quick Start
 
@@ -45,229 +28,215 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions.
 plural
 ```
 
-Add a repository, create a session, and start chatting with Claude. **Press `?` at any time to see all available keyboard shortcuts for your current context**—the help adapts based on what you're doing.
+Add a repository, create a session, and start chatting. Press `?` for context-sensitive help at any time.
 
-When Claude requests permission for tool use: `y` (allow), `n` (deny), or `a` (always allow).
+When Claude requests tool permissions: `y` (allow), `n` (deny), or `a` (always allow).
 
 ---
 
-## What You Can Do
+## TUI Features
 
-### Isolated Sessions
+### Parallel Sessions
 
-Each session runs in its own git worktree with a dedicated branch. Claude can edit files freely without touching your main branch—multiple sessions can work on the same repo simultaneously. You decide when and what to merge.
+Each session runs in its own git worktree with a dedicated branch. Claude can edit files freely without touching your main branch. Multiple sessions can work on the same repo simultaneously.
 
-### Parallel Exploration
+### Option Forking
 
-When Claude offers multiple approaches ("Option 1: Use Redis" vs "Option 2: Use PostgreSQL"), press `Ctrl+O` to detect options and fork into parallel sessions automatically. Each approach gets its own branch. Compare results and merge the winner.
+When Claude proposes competing approaches, press `Ctrl+O` to detect options and fork into parallel sessions automatically. Each approach gets its own branch. Compare results and merge the winner.
 
-You can also fork manually with `f` to branch off any session at any point.
+Fork manually with `f` to branch off any session at any point.
 
-### Import Issues in Parallel
+### Issue Import
 
-Press `i` to import issues or tasks. Select multiple and Plural creates a session for each—Claude starts working on all of them simultaneously.
+Press `i` to import issues or tasks. Select multiple and Plural creates a session for each—Claude starts working on all of them in parallel.
 
-**GitHub Issues** — Always available (uses the `gh` CLI). When you create a PR from an issue session, "Fixes #N" is automatically added to close the issue on merge.
+| Provider | Auth | Setup |
+|----------|------|-------|
+| **GitHub Issues** | `gh` CLI | Always available |
+| **Asana Tasks** | `ASANA_PAT` env var | Map repo to project in settings (`,`) |
+| **Linear Issues** | `LINEAR_API_KEY` env var | Map repo to team in settings (`,`) |
 
-**Asana Tasks** — Available when configured. To set up Asana integration:
+PRs created from issue sessions automatically include closing references (`Fixes #N` or `Fixes ENG-123`).
 
-1. Create a [Personal Access Token](https://app.asana.com/0/developer-console) in Asana
-2. Set the `ASANA_PAT` environment variable:
-   ```bash
-   export ASANA_PAT="your-token-here"
-   ```
-3. Map a repository to an Asana project by pressing `,` to open Settings, then select an Asana project from the list for the current repo
+### Broadcasting
 
-**Linear Issues** — Available when configured. To set up Linear integration:
+Send the same prompt to multiple repositories at once with `Ctrl+B`. Plural creates a session per repo and sends your prompt in parallel—useful for applying the same change across a fleet of services.
 
-1. Create an [API key](https://linear.app/settings/api) in Linear
-2. Set the `LINEAR_API_KEY` environment variable:
-   ```bash
-   export LINEAR_API_KEY="your-api-key-here"
-   ```
-3. Map a repository to a Linear team by pressing `,` to open Settings, then select a Linear team from the list for the current repo
+Follow up with `Ctrl+Shift+B` to send additional prompts or create PRs for all sessions in the group.
 
-When multiple sources are configured for a repository, Plural will prompt you to choose a source before importing.
+### PR Workflow
 
-### Broadcast Across Repos
+Press `m` to merge or create a PR. Options include merge to main, merge to parent session, create PR, or push updates to an existing PR. Uncommitted changes are auto-committed.
 
-Send the same prompt to multiple repositories at once with `Ctrl+B`. Plural creates a session for each repo and sends your prompt in parallel—perfect for applying the same change across a fleet of services.
+After a PR is created, the sidebar shows when new review comments arrive. Press `Ctrl+R` to import them so Claude can address the feedback directly.
 
-Later, use the broadcast group modal (`Ctrl+Shift+B`) to send follow-up prompts or create PRs for all sessions at once.
+Merge conflicts can be resolved by Claude, manually in a terminal, or aborted.
 
-### Open PRs in Parallel
+### Branch Preview
 
-When sessions are part of a broadcast group, you can create PRs for all of them in one action via `Ctrl+Shift+B`. For individual sessions, press `m` and choose "Create PR". Uncommitted changes are auto-committed.
+Press `p` to preview a session's branch in your main repo so dev servers pick up the changes without merging. The header shows `[PREVIEW]` while active. Press `p` again to restore.
 
-### PR Review Comments
+### Container Mode
 
-After a PR is created, the sidebar shows an indicator when new review comments arrive. Press `Ctrl+R` to import comments into the session so Claude can address the feedback directly.
+Run Claude inside a Docker container for sandboxed execution. The container IS the sandbox—Claude can use tools freely without permission prompts.
 
-### Merge & PR Workflow
+- Check "Run in container" when creating a session
+- Press `Ctrl+E` to open a terminal inside the container
+- Sessions show a `[CONTAINER]` indicator
 
-When a session's work is ready, merge directly to your main branch or create a GitHub PR. Uncommitted changes are auto-committed. If there are merge conflicts, Claude can help resolve them. Optionally enable squash-on-merge per repository in settings.
+Auth: `ANTHROPIC_API_KEY` env var, macOS keychain (`anthropic_api_key`), OAuth token from `claude setup-token`, or `~/.claude/.credentials.json` from `claude login`.
 
-### Preview Changes
+### Chat
 
-Preview a session's branch in your main repository (`p`) so dev servers pick up the changes without merging. The header shows a `[PREVIEW]` indicator while active. Press `p` again to restore your original branch.
+- **Image pasting** (`Ctrl+V`) — share screenshots directly with Claude
+- **Message search** (`Ctrl+/`) — search conversation history
+- **Text selection** — click+drag, double-click for word, triple-click for paragraph
+- **Tool use rollup** (`Ctrl+T`) — toggle collapsed/expanded view of tool operations
+- **Log viewer** (`Ctrl+L`) — debug, MCP, and stream logs in an overlay
+- **Cost tracking** (`/cost`) — token usage and estimated cost for the session
 
-### Container Mode (Sandboxed Execution)
+### Customization
 
-Run Claude CLI inside a Docker container for defense-in-depth security. The container serves as the sandbox—Claude can freely use tools without permission prompts.
+- 8 built-in themes — press `t` to switch (tokyo-night, dracula, nord, gruvbox, catppuccin, and more)
+- Branch naming prefixes
+- Desktop notifications
+- MCP servers and plugins (`/mcp`, `/plugins`)
+- Per-repo settings for allowed tools, squash-on-merge, and issue provider mapping
+- Global settings with `Alt+,`, session settings with `,`
 
-**Requirements:**
-- Docker installed
-- Authentication via one of:
-  - `ANTHROPIC_API_KEY` environment variable
-  - API key in macOS keychain (`anthropic_api_key`)
-  - Long-lived OAuth token from `claude setup-token`
+---
 
-**How to use:**
-- Check the "Run in container" box when creating a new session
-- Forked sessions inherit their parent's container setting
-- Sessions show a `[CONTAINER]` indicator in the header
-- Press `ctrl-e` to open a terminal inside the container for debugging
+## Headless Agent Mode
 
-**Tradeoffs:**
-- No permission prompts for tool use
-- Filesystem isolation from your host
-- External MCP servers not supported
-- Containers are defense-in-depth, not a complete security boundary
+Run Plural as an autonomous daemon—no TUI required. The agent polls a repo for GitHub issues labeled `queued`, creates containerized Claude sessions, and works each issue end-to-end.
 
-**Pre-built images:**
+```bash
+plural agent --repo owner/repo
+```
+
+### How It Works
+
+1. Agent finds issues labeled `queued` on the target repo
+2. Creates a containerized Claude session on a new branch
+3. Swaps the label from `queued` to `wip` and posts a comment
+4. Claude works the issue autonomously
+5. A PR is created when coding is complete
+6. Agent polls for review approval and CI, then merges
+7. The `wip` label is removed
+
+For complex issues, Claude can delegate subtasks to child sessions via MCP tools (`create_child_session`, `list_child_sessions`, `merge_child_to_parent`). The supervisor waits for all children before creating a PR.
+
+### Agent Flags
+
+```bash
+plural agent --repo owner/repo              # Required: repo to poll
+plural agent --repo owner/repo --once       # Single tick, then exit
+plural agent --repo owner/repo --auto-merge # Auto-merge after review + CI (default)
+plural agent --repo owner/repo --no-auto-merge
+plural agent --repo owner/repo --max-concurrent 5
+plural agent --repo owner/repo --max-turns 80
+plural agent --repo owner/repo --max-duration 45
+plural agent --repo owner/repo --merge-method squash
+plural agent --repo owner/repo --auto-address-pr-comments
+```
+
+### Agent Configuration
+
+These can also be set via TUI settings or `~/.plural/config.json`:
+
+| Setting | JSON Key | Default |
+|---------|----------|---------|
+| Max concurrent sessions | `issue_max_concurrent` | `3` |
+| Max turns per session | `auto_max_turns` | `50` |
+| Max duration (minutes) | `auto_max_duration_min` | `30` |
+| Merge method | `auto_merge_method` | `rebase` |
+| Auto-cleanup after merge | `auto_cleanup_merged` | `false` |
+| Auto-address PR comments | `auto_address_pr_comments` | `false` |
+
+Graceful shutdown: `SIGINT`/`SIGTERM` once to finish current work, twice to force exit.
+
+---
+
+## Keyboard Shortcuts
+
+Press `?` for the full list. Key shortcuts:
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Switch focus between sidebar and chat |
+| `n` | New session |
+| `f` | Fork session |
+| `i` | Import issues |
+| `d` | Delete session |
+| `r` | Rename session |
+| `m` | Merge / Create PR |
+| `p` | Preview branch |
+| `v` | View git diff |
+| `s` | Multi-select sessions |
+| `/` | Filter sessions in sidebar |
+| `a` | Add repository |
+| `,` | Session settings |
+| `Alt+,` | Global settings |
+| `t` | Switch theme |
+| `Ctrl+O` | Fork detected options |
+| `Ctrl+B` | Broadcast prompt |
+| `Ctrl+Shift+B` | Broadcast group actions |
+| `Ctrl+R` | Import PR review comments |
+| `Ctrl+E` | Open terminal in worktree |
+| `Ctrl+/` | Search messages |
+| `Ctrl+T` | Toggle tool use expansion |
+| `Ctrl+L` | Log viewer |
+| `Ctrl+V` | Paste image |
+| `W` | What's New |
+| `?` | Help |
+| `q` | Quit |
+
+---
+
+## CLI Reference
+
+```bash
+plural                    # Start the TUI
+plural --debug            # Debug logging (default: on)
+plural -q / --quiet       # Info-level logging only
+plural --version          # Show version
+plural help               # Show help
+plural clean              # Remove sessions, logs, worktrees, and containers
+plural clean -y           # Clean without confirmation
+plural agent --repo ...   # Headless agent mode (see above)
+```
+
+## Data Storage
+
+All data lives in `~/.plural/` by default. If [XDG environment variables](https://specifications.freedesktop.org/basedir-spec/latest/) are set and `~/.plural/` doesn't exist, Plural follows the XDG Base Directory Specification.
+
+| Purpose | Default | XDG |
+|---------|---------|-----|
+| Config | `~/.plural/config.json` | `$XDG_CONFIG_HOME/plural/` |
+| Sessions | `~/.plural/sessions/` | `$XDG_DATA_HOME/plural/` |
+| Logs | `~/.plural/logs/` | `$XDG_STATE_HOME/plural/` |
+
+## Container Image
+
+Pre-built:
 ```bash
 docker pull ghcr.io/zhubert/plural-claude
 ```
 
-**Building a custom image:**
+Build your own:
 ```bash
-# Build with latest plural binary from GitHub releases
-./scripts/build-container.sh ghcr.io/zhubert/plural-claude
-
-# Build with a specific plural version
-./scripts/build-container.sh ghcr.io/zhubert/plural-claude v0.1.0
+./scripts/build-container.sh ghcr.io/zhubert/plural-claude         # latest
+./scripts/build-container.sh ghcr.io/zhubert/plural-claude v0.1.0  # pinned
 ```
 
-The Docker image downloads the plural binary from GitHub releases rather than building from source, making it stable and version-independent. This means you don't need to rebuild the image every time plural is updated.
-
-**Automatic updates:**
-The container checks for newer plural versions on startup and automatically updates if available. This happens:
-- On every container start
-- Automatically during container initialization (status logged with `[plural-update]` prefix)
-- With graceful fallback if GitHub is unreachable
-
-To disable auto-updates:
-```bash
-export PLURAL_SKIP_UPDATE=1
-```
-
-### Headless Agent Mode
-
-Run Plural as a headless autonomous agent—no TUI required. The agent polls for GitHub issues labeled `queued`, creates containerized Claude sessions for each, and works them end-to-end: coding, PR creation, review comment handling, and auto-merge.
-
-Designed for CI pipelines, servers, and background workers.
-
-**Requirements:**
-- Docker (all agent sessions run in containers)
-- GitHub CLI (`gh`) authenticated
-- At least one repo registered in Plural
-
-**Usage:**
-
-```bash
-plural agent --repo owner/repo              # Poll a specific repo (required)
-plural agent --repo owner/repo --once       # Process available issues and exit
-plural agent --repo /path/to/repo           # Use filesystem path
-plural agent --repo owner/repo --auto-merge # Auto-merge PRs after review + CI
-plural agent --repo owner/repo --max-concurrent 5
-```
-
-**How it works:**
-
-1. The agent polls the specified repo (`--repo`) for GitHub issues labeled `queued`
-2. For each new issue, it creates a containerized Claude session on a new branch
-3. The issue label is swapped from `queued` to `wip` and a comment is posted
-4. Claude works the issue autonomously (questions auto-answered, plans auto-approved)
-5. When done, a PR is created automatically
-6. If `--auto-merge` is set, the agent polls for review approval and CI, then merges
-7. The `wip` label is removed after merge
-
-**Supervisor/child sessions:** For complex issues, Claude can delegate subtasks to child sessions using MCP tools (`create_child_session`, `list_child_sessions`, `merge_child_to_parent`). The supervisor waits for all children to complete before creating a PR.
-
-**Configuration** (via TUI settings or `~/.plural/config.json`):
-
-| Setting | JSON Key | Default | Description |
-|---------|----------|---------|-------------|
-| Max concurrent | `issue_max_concurrent` | `3` | Max simultaneous agent sessions |
-| Max turns | `auto_max_turns` | `50` | Max Claude response turns per session |
-| Max duration | `auto_max_duration_min` | `30` | Max session duration in minutes |
-| Auto-cleanup | `auto_cleanup_merged` | `false` | Remove sessions after PR merge |
-| Address PR comments | `auto_address_pr_comments` | `false` | Auto-fetch and address new review comments |
-
-**Signal handling:** Send `SIGINT`/`SIGTERM` once for graceful shutdown (waits for workers to finish), twice to force exit.
-
-### Rich Chat Features
-
-- **Image pasting**: Share screenshots and diagrams directly with Claude
-- **Message search** (`Ctrl+/`): Find anything in your conversation history
-- **Text selection**: Select and copy text from the chat (click+drag, double-click for word, triple-click for paragraph)
-- **Tool use rollup**: Collapsed view of Claude's tool operations, expandable with `ctrl-t`
-- **Log viewer** (`ctrl-l`): View debug, MCP, and stream logs in an overlay
-
-### Customization
-
-Choose from 8 built-in themes (`t`), configure branch naming prefixes, set up desktop notifications, and extend Claude's capabilities with MCP servers and plugins. Open settings with `,`.
-
-### Slash Commands
-
-- `/cost` - Token usage and estimated cost for the current session
-- `/help` - Available Plural commands
-- `/mcp` - MCP servers configuration
-- `/plugins` - Manage marketplaces and plugins
-
----
-
-## Reference
-
-### CLI Options
-
-```bash
-plural                              # Start the TUI
-plural --debug                      # Enable debug logging
-plural --version                    # Show version
-plural help                         # Show help
-plural clean                        # Remove all sessions, logs, orphaned worktrees, and containers
-plural clean -y                     # Clear without confirmation prompt
-
-# Headless agent mode
-plural agent --repo owner/repo              # Poll a specific repo (required)
-plural agent --repo owner/repo --once       # Process available issues and exit
-plural agent --repo owner/repo --auto-merge # Auto-merge PRs after review + CI
-plural agent --repo owner/repo --max-concurrent 5
-```
-
-### Data Storage
-
-Plural stores configuration, session data, and logs in one of two locations depending on your environment:
-
-| Purpose | Without XDG (Default) | With XDG Environment Variables |
-|---------|----------------------|-------------------------------|
-| Config | `~/.plural/config.json` | `$XDG_CONFIG_HOME/plural/config.json` |
-| Sessions | `~/.plural/sessions/*.json` | `$XDG_DATA_HOME/plural/sessions/*.json` |
-| Logs | `~/.plural/logs/` | `$XDG_STATE_HOME/plural/logs/` |
-
-**How it works:**
-
-- **Default behavior**: All files go into `~/.plural/`
-- **XDG mode**: If XDG environment variables (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`) are set **and** `~/.plural/` doesn't exist, Plural uses the [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir-spec/latest/)
-- **Existing installations**: If `~/.plural/` already exists, it continues to be used regardless of XDG variables
+The container auto-updates both the plural binary and Claude CLI on startup. Disable with `PLURAL_SKIP_UPDATE=1`.
 
 ---
 
 ## Changelog
 
-See the [GitHub Releases](https://github.com/zhubert/plural/releases) page for version history and release notes.
+See [GitHub Releases](https://github.com/zhubert/plural/releases).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
