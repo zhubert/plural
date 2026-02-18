@@ -29,4 +29,8 @@ if command -v gopls >/dev/null 2>&1 && [ ! -f "$DEST_DIR/plugins/gopls/plugin.js
 EOF
 fi
 
+# Log the exact command for debugging container startup issues.
+# This appears in the host stream log as a non-JSON line.
+echo "[entrypoint] exec claude $*" >&2
+
 exec claude "$@"

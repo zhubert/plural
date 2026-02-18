@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural/internal/paths"
 )
 
 // MCPServer represents an external MCP server configuration
@@ -194,7 +195,17 @@ func (r *Runner) createContainerMCPConfigLocked(containerPort int) (string, erro
 		return "", err
 	}
 
-	configPath := filepath.Join(os.TempDir(), fmt.Sprintf("plural-mcp-%s.json", r.sessionID))
+	// Write to ~/.plural/ (under $HOME) instead of os.TempDir() (/var/folders/ on macOS).
+	// Colima shares $HOME with the Docker VM by default, but /var/folders/ is NOT shared.
+	// When Docker can't access the host file, it creates an empty directory at the mount
+	// point inside the container, causing Claude CLI to hang trying to read a directory
+	// as a JSON file.
+	configDir, err := paths.ConfigDir()
+	if err != nil {
+		// Fall back to temp dir if config dir is unavailable
+		configDir = os.TempDir()
+	}
+	configPath := filepath.Join(configDir, fmt.Sprintf("plural-mcp-%s.json", r.sessionID))
 	if err := os.WriteFile(configPath, configJSON, 0600); err != nil {
 		return "", err
 	}

@@ -49,6 +49,19 @@ func init() {
 }
 
 func runMCPServer(cmd *cobra.Command, args []string) error {
+	// Diagnostic output to stderr — flows through Docker back to host stream log.
+	// Prefixed with [mcp] so the host can identify MCP subprocess lifecycle events.
+	mode := "socket"
+	if listenAddr != "" {
+		mode = "listen=" + listenAddr
+	} else if tcpAddr != "" {
+		mode = "tcp=" + tcpAddr
+	} else if socketPath != "" {
+		mode = "socket=" + socketPath
+	}
+	fmt.Fprintf(os.Stderr, "[mcp] starting (mode=%s auto-approve=%v supervisor=%v host-tools=%v)\n",
+		mode, autoApprove, mcpSupervisor, mcpHostTools)
+
 	// Determine session ID from flag or socket path
 	sessionID := mcpSessionID
 	if sessionID == "" {
@@ -225,12 +238,14 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run MCP server on stdin/stdout
+	fmt.Fprintf(os.Stderr, "[mcp] connected to TUI, starting JSONRPC server\n")
 	var allowedTools []string
 	if autoApprove {
 		allowedTools = []string{"*"}
 	}
 	server := mcp.NewServer(osStdin, osStdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID, serverOpts...)
 	err = server.Run()
+	fmt.Fprintf(os.Stderr, "[mcp] JSONRPC server exited (err=%v)\n", err)
 
 	// Close request channels so the forwarding goroutines exit their range loops,
 	// then wait for them to finish before closing response channels.
@@ -275,10 +290,13 @@ func runMCPServer(cmd *cobra.Command, args []string) error {
 // once the host connects; until then, --auto-approve handles regular permissions
 // locally.
 func runListenMode(addr string, sessionID string) error {
+	fmt.Fprintf(os.Stderr, "[mcp] listen: binding TCP %s\n", addr)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mcp] listen: bind failed: %v\n", err)
 		return fmt.Errorf("error listening on %s: %w", addr, err)
 	}
+	fmt.Fprintf(os.Stderr, "[mcp] listen: TCP ready on %s\n", ln.Addr().String())
 
 	// Create all channels
 	reqChan := make(chan mcp.PermissionRequest)
@@ -341,13 +359,17 @@ func runListenMode(addr string, sessionID string) error {
 
 	// Start the MCP JSONRPC server on stdin/stdout in a goroutine.
 	// This responds to Claude CLI's "initialize" handshake immediately.
+	fmt.Fprintf(os.Stderr, "[mcp] listen: starting JSONRPC server on stdin/stdout\n")
 	server := mcp.NewServer(osStdin, osStdout, reqChan, respChan, questionChan, answerChan, planApprovalChan, planResponseChan, allowedTools, sessionID, serverOpts...)
 	serverDone := make(chan error, 1)
 	go func() {
-		serverDone <- server.Run()
+		err := server.Run()
+		fmt.Fprintf(os.Stderr, "[mcp] listen: JSONRPC server exited (err=%v)\n", err)
+		serverDone <- err
 	}()
 
 	// Accept host connection in a background goroutine.
+	fmt.Fprintf(os.Stderr, "[mcp] listen: waiting for host TCP connection\n")
 	type acceptResult struct {
 		conn net.Conn
 		err  error
@@ -355,6 +377,11 @@ func runListenMode(addr string, sessionID string) error {
 	acceptCh := make(chan acceptResult, 1)
 	go func() {
 		conn, err := ln.Accept()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[mcp] listen: accept error: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "[mcp] listen: host connected from %s\n", conn.RemoteAddr())
+		}
 		acceptCh <- acceptResult{conn, err}
 	}()
 
@@ -365,6 +392,7 @@ func runListenMode(addr string, sessionID string) error {
 	select {
 	case result := <-acceptCh:
 		// Host connected — wire up forwarding goroutines
+		fmt.Fprintf(os.Stderr, "[mcp] listen: host connection received, wiring up forwarding\n")
 		ln.Close()
 		if result.err != nil {
 			// Accept failed; wait for server to finish and return
@@ -436,6 +464,7 @@ func runListenMode(addr string, sessionID string) error {
 	case err = <-serverDone:
 		// Server exited before host connected (e.g., Claude CLI closed stdin).
 		// Close listener to unblock the Accept goroutine.
+		fmt.Fprintf(os.Stderr, "[mcp] listen: JSONRPC server exited before host connected (err=%v)\n", err)
 		ln.Close()
 	}
 
