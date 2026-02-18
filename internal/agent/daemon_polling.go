@@ -95,11 +95,6 @@ func (d *Daemon) pollForNewIssues(ctx context.Context) {
 			remaining--
 
 			log.Info("queued new issue", "issue", issue.ID, "title", issue.Title, "provider", provider)
-
-			// Swap labels in the background (GitHub only)
-			if provider == issues.SourceGitHub {
-				go d.swapIssueLabels(repoPath, issue)
-			}
 		}
 	}
 }
@@ -190,7 +185,6 @@ func (d *Daemon) processAwaitingReview(ctx context.Context, item *WorkItem) {
 		d.state.TransitionWorkItem(item.ID, WorkItemAwaitingCI)
 		d.state.TransitionWorkItem(item.ID, WorkItemMerging)
 		d.state.TransitionWorkItem(item.ID, WorkItemCompleted)
-		d.removeIssueWIPLabel(sess)
 		return
 	}
 
@@ -287,7 +281,6 @@ func (d *Daemon) processAwaitingCI(ctx context.Context, item *WorkItem) {
 		}
 
 		d.state.TransitionWorkItem(item.ID, WorkItemCompleted)
-		d.removeIssueWIPLabel(sess)
 
 		// Run merge after-hooks
 		wfCfg := d.getWorkflowConfig(sess.RepoPath)
@@ -348,56 +341,3 @@ func (d *Daemon) hasExistingSession(repoPath, issueID string) bool {
 	return false
 }
 
-// swapIssueLabels removes the filter label and adds "wip" label on a GitHub issue.
-// This is a no-op for non-GitHub providers.
-func (d *Daemon) swapIssueLabels(repoPath string, issue issues.Issue) {
-	if issue.Source != issues.SourceGitHub {
-		return
-	}
-
-	issueNum, err := strconv.Atoi(issue.ID)
-	if err != nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Use configured label instead of hardcoded constant
-	wfCfg := d.getWorkflowConfig(repoPath)
-	filterLabel := wfCfg.Source.Filter.Label
-	if filterLabel == "" {
-		filterLabel = autonomousFilterLabel
-	}
-
-	if err := d.gitService.RemoveIssueLabel(ctx, repoPath, issueNum, filterLabel); err != nil {
-		d.logger.Error("failed to remove issue label", "issue", issueNum, "error", err)
-	}
-	if err := d.gitService.AddIssueLabel(ctx, repoPath, issueNum, autonomousWIPLabel); err != nil {
-		d.logger.Error("failed to add wip label", "issue", issueNum, "error", err)
-	}
-	comment := "This issue has been picked up by [Plural](https://github.com/zhubert/plural) and is being worked on autonomously."
-	if err := d.gitService.CommentOnIssue(ctx, repoPath, issueNum, comment); err != nil {
-		d.logger.Error("failed to comment on issue", "issue", issueNum, "error", err)
-	}
-}
-
-// removeIssueWIPLabel removes the "wip" label from a session's issue.
-// This is a no-op for non-GitHub providers.
-func (d *Daemon) removeIssueWIPLabel(sess *config.Session) {
-	if sess.IssueRef == nil {
-		return
-	}
-	if issues.Source(sess.IssueRef.Source) != issues.SourceGitHub {
-		return
-	}
-	issueNum, err := strconv.Atoi(sess.IssueRef.ID)
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := d.gitService.RemoveIssueLabel(ctx, sess.RepoPath, issueNum, autonomousWIPLabel); err != nil {
-		d.logger.Error("failed to remove wip label from issue", "issue", issueNum, "error", err)
-	}
-}

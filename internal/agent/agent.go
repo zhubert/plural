@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"sync"
 	"time"
 
@@ -19,8 +18,7 @@ import (
 const (
 	defaultPollInterval       = 30 * time.Second
 	defaultReviewPollInterval = 60 * time.Second
-	autonomousFilterLabel     = "queued"
-	autonomousWIPLabel        = "wip"
+	autonomousFilterLabel = "queued"
 )
 
 // Agent is the headless autonomous agent that polls for issues
@@ -261,9 +259,6 @@ func (a *Agent) createSessionForIssue(ctx context.Context, repoPath string, issu
 
 	log.Info("created session", "sessionID", sess.ID, "branch", sess.Branch)
 
-	// Swap labels in the background
-	go a.swapIssueLabels(repoPath, issue)
-
 	// Build initial message
 	initialMsg := fmt.Sprintf("GitHub Issue #%s: %s\n\n%s",
 		issue.ID, issue.Title, issue.Body)
@@ -373,45 +368,6 @@ func (a *Agent) getAutoAddressPRComments() bool {
 // getAutoBroadcastPR returns whether auto-broadcast PR is enabled.
 func (a *Agent) getAutoBroadcastPR() bool {
 	return a.autoBroadcastPR || a.config.GetAutoBroadcastPR()
-}
-
-// swapIssueLabels removes "queued" and adds "wip" label, and comments on the issue.
-func (a *Agent) swapIssueLabels(repoPath string, issue issues.Issue) {
-	issueNum, err := strconv.Atoi(issue.ID)
-	if err != nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if err := a.gitService.RemoveIssueLabel(ctx, repoPath, issueNum, autonomousFilterLabel); err != nil {
-		a.logger.Error("failed to remove issue label", "issue", issueNum, "label", autonomousFilterLabel, "error", err)
-	}
-	if err := a.gitService.AddIssueLabel(ctx, repoPath, issueNum, autonomousWIPLabel); err != nil {
-		a.logger.Error("failed to add wip label", "issue", issueNum, "error", err)
-	}
-	comment := "This issue has been picked up by [Plural](https://github.com/zhubert/plural) and is being worked on autonomously."
-	if err := a.gitService.CommentOnIssue(ctx, repoPath, issueNum, comment); err != nil {
-		a.logger.Error("failed to comment on issue", "issue", issueNum, "error", err)
-	}
-}
-
-// removeIssueWIPLabel removes the "wip" label from a session's issue.
-func (a *Agent) removeIssueWIPLabel(sess *config.Session) {
-	if sess.IssueRef == nil {
-		return
-	}
-	issueNum, err := strconv.Atoi(sess.IssueRef.ID)
-	if err != nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if err := a.gitService.RemoveIssueLabel(ctx, sess.RepoPath, issueNum, autonomousWIPLabel); err != nil {
-		a.logger.Error("failed to remove wip label from issue", "issue", issueNum, "error", err)
-	}
 }
 
 // cleanupSession cleans up a session's worktree and removes it from config.

@@ -118,11 +118,9 @@ plural agent --repo owner/repo
 
 1. Agent finds issues labeled `queued` on the target repo
 2. Creates a containerized Claude session on a new branch
-3. Swaps the label from `queued` to `wip` and posts a comment
-4. Claude works the issue autonomously
-5. A PR is created when coding is complete
-6. Agent polls for review approval and CI, then merges
-7. The `wip` label is removed
+3. Claude works the issue autonomously
+4. A PR is created when coding is complete
+5. Agent polls for review approval and CI, then merges
 
 For complex issues, Claude can delegate subtasks to child sessions via MCP tools (`create_child_session`, `list_child_sessions`, `merge_child_to_parent`). The supervisor waits for all children before creating a PR.
 
@@ -194,7 +192,7 @@ workflow:
 
 **Hooks** run on the host after each workflow step with environment variables: `PLURAL_REPO_PATH`, `PLURAL_BRANCH`, `PLURAL_SESSION_ID`, `PLURAL_ISSUE_ID`, `PLURAL_ISSUE_TITLE`, `PLURAL_ISSUE_URL`, `PLURAL_PR_URL`, `PLURAL_WORKTREE`, `PLURAL_PROVIDER`. Hook failures are logged but don't block the workflow.
 
-**Provider support**: The agent can poll GitHub issues (by label), Asana tasks (by project), or Linear issues (by team). Label swapping (`queued` -> `wip`) only applies to GitHub.
+**Provider support**: The agent can poll GitHub issues (by label), Asana tasks (by project), or Linear issues (by team).
 
 Validate and visualize your workflow:
 
