@@ -1,6 +1,9 @@
 # Binary
 plural
 
+# workflows
+.plural/
+
 # Core dumps
 core
 core.*
