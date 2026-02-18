@@ -1,5 +1,7 @@
 # Plural
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/zhubert/plural)](https://goreportcard.com/report/github.com/zhubert/plural)
+
 **Explore multiple solutions at once.** Parallel Claude Code sessions, or a fully autonomous agent.
 
 Plural is a TUI and headless agent for Claude Code. Run parallel sessions across branches and repos, fork when Claude offers competing approaches, import issues from GitHub/Asana/Linear, broadcast prompts across services, and create PRs—all from a keyboard-driven terminal interface. Or skip the TUI entirely and run `plural agent` as an autonomous daemon that picks up GitHub issues, writes code, opens PRs, addresses review comments, and merges.
