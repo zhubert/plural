@@ -29,6 +29,7 @@ type RunnerInterface interface {
 	SetContainerized(containerized bool, image string)
 	SetOnContainerReady(callback func())
 	SetDisableStreamingChunks(disable bool)
+	SetCustomSystemPrompt(prompt string)
 
 	// Permission/Question/Plan channels
 	PermissionRequestChan() <-chan mcp.PermissionRequest

@@ -10,6 +10,7 @@ import (
 	"github.com/zhubert/plural/internal/config"
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
+	"github.com/zhubert/plural/internal/workflow"
 )
 
 // pollForNewIssues checks for new issues and creates work items for them.
@@ -55,36 +56,37 @@ func (d *Daemon) pollForNewIssues(ctx context.Context) {
 			break
 		}
 
-		ghIssues, err := d.gitService.FetchGitHubIssuesWithLabel(pollCtx, repoPath, autonomousFilterLabel)
+		wfCfg := d.getWorkflowConfig(repoPath)
+		provider := issues.Source(wfCfg.Source.Provider)
+
+		fetchedIssues, err := d.fetchIssuesForProvider(pollCtx, repoPath, wfCfg)
 		if err != nil {
-			log.Debug("failed to fetch issues", "repo", repoPath, "error", err)
+			log.Debug("failed to fetch issues", "repo", repoPath, "provider", provider, "error", err)
 			continue
 		}
 
-		for _, ghIssue := range ghIssues {
+		for _, issue := range fetchedIssues {
 			if remaining <= 0 {
 				break
 			}
 
-			issueID := strconv.Itoa(ghIssue.Number)
-
 			// Check if we already have a work item for this issue
-			if d.state.HasWorkItemForIssue(string(issues.SourceGitHub), issueID) {
+			if d.state.HasWorkItemForIssue(string(provider), issue.ID) {
 				continue
 			}
 
 			// Also check config sessions for deduplication
-			if d.hasExistingSession(repoPath, issueID) {
+			if d.hasExistingSession(repoPath, issue.ID) {
 				continue
 			}
 
 			item := &WorkItem{
-				ID: fmt.Sprintf("%s-%s", repoPath, issueID),
+				ID: fmt.Sprintf("%s-%s", repoPath, issue.ID),
 				IssueRef: config.IssueRef{
-					Source: string(issues.SourceGitHub),
-					ID:     issueID,
-					Title:  ghIssue.Title,
-					URL:    ghIssue.URL,
+					Source: string(provider),
+					ID:     issue.ID,
+					Title:  issue.Title,
+					URL:    issue.URL,
 				},
 			}
 
@@ -92,17 +94,55 @@ func (d *Daemon) pollForNewIssues(ctx context.Context) {
 			queuedCount++
 			remaining--
 
-			log.Info("queued new issue", "issue", issueID, "title", ghIssue.Title)
+			log.Info("queued new issue", "issue", issue.ID, "title", issue.Title, "provider", provider)
 
-			// Swap labels in the background
-			go d.swapIssueLabels(repoPath, issues.Issue{
-				ID:     issueID,
+			// Swap labels in the background (GitHub only)
+			if provider == issues.SourceGitHub {
+				go d.swapIssueLabels(repoPath, issue)
+			}
+		}
+	}
+}
+
+// fetchIssuesForProvider fetches issues using the appropriate provider.
+func (d *Daemon) fetchIssuesForProvider(ctx context.Context, repoPath string, wfCfg *workflow.Config) ([]issues.Issue, error) {
+	provider := issues.Source(wfCfg.Source.Provider)
+
+	switch provider {
+	case issues.SourceGitHub:
+		label := wfCfg.Source.Filter.Label
+		if label == "" {
+			label = autonomousFilterLabel
+		}
+		ghIssues, err := d.gitService.FetchGitHubIssuesWithLabel(ctx, repoPath, label)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]issues.Issue, 0, len(ghIssues))
+		for _, ghIssue := range ghIssues {
+			result = append(result, issues.Issue{
+				ID:     strconv.Itoa(ghIssue.Number),
 				Title:  ghIssue.Title,
 				Body:   ghIssue.Body,
 				URL:    ghIssue.URL,
 				Source: issues.SourceGitHub,
 			})
 		}
+		return result, nil
+
+	case issues.SourceAsana, issues.SourceLinear:
+		p := d.issueRegistry.GetProvider(provider)
+		if p == nil {
+			return nil, fmt.Errorf("provider %q not registered", provider)
+		}
+		filterID := wfCfg.Source.Filter.Project
+		if provider == issues.SourceLinear {
+			filterID = wfCfg.Source.Filter.Team
+		}
+		return p.FetchIssues(ctx, repoPath, filterID)
+
+	default:
+		return nil, fmt.Errorf("unknown provider %q", provider)
 	}
 }
 
@@ -172,6 +212,16 @@ func (d *Daemon) processAwaitingReview(ctx context.Context, item *WorkItem) {
 			"current", result.CommentCount,
 		)
 
+		// Check max feedback rounds from workflow config
+		wfCfg := d.getWorkflowConfig(sess.RepoPath)
+		if wfCfg.Workflow.Review.MaxFeedbackRounds != nil && item.FeedbackRounds >= *wfCfg.Workflow.Review.MaxFeedbackRounds {
+			log.Warn("max feedback rounds reached, skipping",
+				"rounds", item.FeedbackRounds,
+				"max", *wfCfg.Workflow.Review.MaxFeedbackRounds,
+			)
+			return
+		}
+
 		// Check concurrency before starting feedback
 		if d.activeSlotCount() >= d.getMaxConcurrent() {
 			log.Debug("no concurrency slot available for feedback, deferring")
@@ -238,12 +288,32 @@ func (d *Daemon) processAwaitingCI(ctx context.Context, item *WorkItem) {
 
 		d.state.TransitionWorkItem(item.ID, WorkItemCompleted)
 		d.removeIssueWIPLabel(sess)
+
+		// Run merge after-hooks
+		wfCfg := d.getWorkflowConfig(sess.RepoPath)
+		d.runWorkflowHooks(ctx, wfCfg.Workflow.Merge.After, item, sess)
+
 		log.Info("PR merged successfully")
 
 	case git.CIStatusFailing:
-		log.Warn("CI failed")
-		// Transition back to awaiting review so the daemon can address any feedback
-		d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview)
+		wfCfg := d.getWorkflowConfig(sess.RepoPath)
+		onFailure := wfCfg.Workflow.CI.OnFailure
+		if onFailure == "" {
+			onFailure = "retry"
+		}
+
+		switch onFailure {
+		case "abandon":
+			log.Warn("CI failed, abandoning (on_failure=abandon)")
+			d.state.TransitionWorkItem(item.ID, WorkItemAbandoned)
+		case "notify":
+			log.Warn("CI failed (on_failure=notify)")
+			d.state.SetErrorMessage(item.ID, "CI failed")
+			d.state.TransitionWorkItem(item.ID, WorkItemFailed)
+		default: // "retry"
+			log.Warn("CI failed, transitioning to awaiting review (on_failure=retry)")
+			d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview)
+		}
 
 	case git.CIStatusPending:
 		log.Debug("CI still pending")
@@ -278,8 +348,13 @@ func (d *Daemon) hasExistingSession(repoPath, issueID string) bool {
 	return false
 }
 
-// swapIssueLabels removes "queued" and adds "wip" label on an issue.
+// swapIssueLabels removes the filter label and adds "wip" label on a GitHub issue.
+// This is a no-op for non-GitHub providers.
 func (d *Daemon) swapIssueLabels(repoPath string, issue issues.Issue) {
+	if issue.Source != issues.SourceGitHub {
+		return
+	}
+
 	issueNum, err := strconv.Atoi(issue.ID)
 	if err != nil {
 		return
@@ -288,7 +363,14 @@ func (d *Daemon) swapIssueLabels(repoPath string, issue issues.Issue) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := d.gitService.RemoveIssueLabel(ctx, repoPath, issueNum, autonomousFilterLabel); err != nil {
+	// Use configured label instead of hardcoded constant
+	wfCfg := d.getWorkflowConfig(repoPath)
+	filterLabel := wfCfg.Source.Filter.Label
+	if filterLabel == "" {
+		filterLabel = autonomousFilterLabel
+	}
+
+	if err := d.gitService.RemoveIssueLabel(ctx, repoPath, issueNum, filterLabel); err != nil {
 		d.logger.Error("failed to remove issue label", "issue", issueNum, "error", err)
 	}
 	if err := d.gitService.AddIssueLabel(ctx, repoPath, issueNum, autonomousWIPLabel); err != nil {
@@ -301,8 +383,12 @@ func (d *Daemon) swapIssueLabels(repoPath string, issue issues.Issue) {
 }
 
 // removeIssueWIPLabel removes the "wip" label from a session's issue.
+// This is a no-op for non-GitHub providers.
 func (d *Daemon) removeIssueWIPLabel(sess *config.Session) {
 	if sess.IssueRef == nil {
+		return
+	}
+	if issues.Source(sess.IssueRef.Source) != issues.SourceGitHub {
 		return
 	}
 	issueNum, err := strconv.Atoi(sess.IssueRef.ID)

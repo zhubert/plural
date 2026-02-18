@@ -12,6 +12,7 @@ import (
 	"github.com/zhubert/plural/internal/git"
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural/internal/workflow"
 )
 
 // Daemon is the persistent orchestrator that manages the full lifecycle of work items.
@@ -23,9 +24,10 @@ type Daemon struct {
 	issueRegistry  *issues.ProviderRegistry
 	state          *DaemonState
 	lock           *DaemonLock
-	workers        map[string]*SessionWorker
-	mu             sync.Mutex
-	logger         *slog.Logger
+	workers         map[string]*SessionWorker
+	workflowConfigs map[string]*workflow.Config // keyed by repo path
+	mu              sync.Mutex
+	logger          *slog.Logger
 
 	// Options (carried over from Agent)
 	once                  bool
@@ -148,6 +150,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.state = state
 
+	// Load workflow configs for all repos
+	d.loadWorkflowConfigs()
+
 	// Recover from any interrupted state
 	d.recoverFromState(ctx)
 
@@ -223,6 +228,18 @@ func (d *Daemon) collectCompletedWorkers(ctx context.Context) {
 func (d *Daemon) handleCodingComplete(ctx context.Context, item *WorkItem) {
 	log := d.logger.With("workItem", item.ID, "branch", item.Branch)
 
+	sess := d.config.GetSession(item.SessionID)
+	repoPath := ""
+	if sess != nil {
+		repoPath = sess.RepoPath
+	}
+	wfCfg := d.getWorkflowConfig(repoPath)
+
+	// Run coding after-hooks
+	if sess != nil {
+		d.runWorkflowHooks(ctx, wfCfg.Workflow.Coding.After, item, sess)
+	}
+
 	prURL, err := d.createPR(ctx, item)
 	if err != nil {
 		log.Error("failed to create PR", "error", err)
@@ -240,6 +257,11 @@ func (d *Daemon) handleCodingComplete(ctx context.Context, item *WorkItem) {
 	}
 
 	log.Info("PR created", "url", prURL)
+
+	// Run PR after-hooks
+	if sess != nil {
+		d.runWorkflowHooks(ctx, wfCfg.Workflow.PR.After, item, sess)
+	}
 
 	// Immediately transition to awaiting review
 	if err := d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview); err != nil {
@@ -262,6 +284,13 @@ func (d *Daemon) handleFeedbackComplete(ctx context.Context, item *WorkItem) {
 	if err := d.state.TransitionWorkItem(item.ID, WorkItemPushing); err != nil {
 		log.Error("failed to transition to pushing", "error", err)
 		return
+	}
+
+	// Run review after-hooks
+	sess := d.config.GetSession(item.SessionID)
+	if sess != nil {
+		wfCfg := d.getWorkflowConfig(sess.RepoPath)
+		d.runWorkflowHooks(ctx, wfCfg.Workflow.Review.After, item, sess)
 	}
 
 	// Immediately transition back to awaiting review
@@ -404,6 +433,86 @@ func (d *Daemon) getAutoAddressPRComments() bool {
 // getAutoBroadcastPR returns whether auto-broadcast PR is enabled.
 func (d *Daemon) getAutoBroadcastPR() bool {
 	return d.autoBroadcastPR || d.config.GetAutoBroadcastPR()
+}
+
+// loadWorkflowConfigs loads workflow configs for all registered repos.
+func (d *Daemon) loadWorkflowConfigs() {
+	d.workflowConfigs = make(map[string]*workflow.Config)
+
+	for _, repoPath := range d.config.GetRepos() {
+		cfg, err := workflow.LoadAndMerge(repoPath)
+		if err != nil {
+			d.logger.Warn("failed to load workflow config", "repo", repoPath, "error", err)
+			continue
+		}
+		d.workflowConfigs[repoPath] = cfg
+		d.logger.Debug("loaded workflow config", "repo", repoPath, "provider", cfg.Source.Provider)
+	}
+}
+
+// getWorkflowConfig returns the workflow config for a repo, or defaults.
+func (d *Daemon) getWorkflowConfig(repoPath string) *workflow.Config {
+	if cfg, ok := d.workflowConfigs[repoPath]; ok {
+		return cfg
+	}
+	return workflow.DefaultConfig()
+}
+
+// getEffectiveMaxTurns returns the effective max turns considering CLI > workflow > config > default.
+func (d *Daemon) getEffectiveMaxTurns(repoPath string) int {
+	if d.maxTurns > 0 {
+		return d.maxTurns
+	}
+	wfCfg := d.getWorkflowConfig(repoPath)
+	if wfCfg.Workflow.Coding.MaxTurns != nil {
+		return *wfCfg.Workflow.Coding.MaxTurns
+	}
+	return d.config.GetAutoMaxTurns()
+}
+
+// getEffectiveMaxDuration returns the effective max duration in minutes considering CLI > workflow > config > default.
+func (d *Daemon) getEffectiveMaxDuration(repoPath string) int {
+	if d.maxDuration > 0 {
+		return d.maxDuration
+	}
+	wfCfg := d.getWorkflowConfig(repoPath)
+	if wfCfg.Workflow.Coding.MaxDuration != nil {
+		return int(wfCfg.Workflow.Coding.MaxDuration.Duration.Minutes())
+	}
+	return d.config.GetAutoMaxDurationMin()
+}
+
+// getEffectiveMergeMethod returns the effective merge method considering CLI > workflow > config > default.
+func (d *Daemon) getEffectiveMergeMethod(repoPath string) string {
+	if d.mergeMethod != "" {
+		return d.mergeMethod
+	}
+	wfCfg := d.getWorkflowConfig(repoPath)
+	if wfCfg.Workflow.Merge.Method != "" {
+		return wfCfg.Workflow.Merge.Method
+	}
+	return d.config.GetAutoMergeMethod()
+}
+
+// runWorkflowHooks runs the after-hooks for a given workflow step.
+func (d *Daemon) runWorkflowHooks(ctx context.Context, hooks []workflow.HookConfig, item *WorkItem, sess *config.Session) {
+	if len(hooks) == 0 {
+		return
+	}
+
+	hookCtx := workflow.HookContext{
+		RepoPath:  sess.RepoPath,
+		Branch:    item.Branch,
+		SessionID: item.SessionID,
+		IssueID:   item.IssueRef.ID,
+		IssueTitle: item.IssueRef.Title,
+		IssueURL:  item.IssueRef.URL,
+		PRURL:     item.PRURL,
+		WorkTree:  sess.WorkTree,
+		Provider:  item.IssueRef.Source,
+	}
+
+	workflow.RunHooks(ctx, hooks, hookCtx, d.logger)
 }
 
 // activeSlotCount returns the number of work items consuming concurrency slots.
