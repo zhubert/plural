@@ -838,3 +838,139 @@ func TestWorkerAutoMergeDoesNotIncrementTurns(t *testing.T) {
 		t.Errorf("expected exactly 1 turn (initial response only), got %d", worker.turns)
 	}
 }
+
+// TestStandaloneAgentNotDaemonManaged verifies that agents created via New()
+// have daemonManaged=false by default.
+func TestStandaloneAgentNotDaemonManaged(t *testing.T) {
+	cfg := testConfig()
+	a := testAgent(cfg)
+	if a.daemonManaged {
+		t.Error("expected daemonManaged=false for standalone agent")
+	}
+}
+
+// TestWorkerDaemonManagedSkipsAutoMerge verifies that a daemon-managed worker
+// exits promptly after Claude completes without launching auto-merge goroutines.
+func TestWorkerDaemonManagedSkipsAutoMerge(t *testing.T) {
+	cfg := testConfig()
+	sess := testSession("test-daemon-managed")
+	sess.Autonomous = true
+	sess.IsSupervisor = true
+	sess.PRCreated = true
+	sess.PRMerged = false
+	sess.PRClosed = false
+
+	cfg.AddSession(*sess)
+
+	a := testAgent(cfg)
+	a.autoMerge = true
+	a.daemonManaged = true // Daemon manages lifecycle
+
+	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Task completed"},
+		claude.ResponseChunk{Done: true},
+	)
+
+	worker := NewSessionWorker(a, sess, mockRunner, "Test task")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	worker.Start(ctx)
+
+	// Worker should exit promptly since daemonManaged skips auto-merge.
+	// Use a channel with timeout to verify it doesn't hang.
+	done := make(chan struct{})
+	go func() {
+		worker.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Worker exited promptly — success
+	case <-time.After(1 * time.Second):
+		t.Fatal("daemon-managed worker should exit promptly without auto-merge, but it hung")
+	}
+
+	if !worker.Done() {
+		t.Error("expected worker to be done")
+	}
+}
+
+// TestWorkerDaemonManagedHandleCreatePRSkipsAutoMerge verifies that
+// handleCreatePR does not launch auto-merge when daemonManaged is true.
+func TestWorkerDaemonManagedHandleCreatePRSkipsAutoMerge(t *testing.T) {
+	cfg := testConfig()
+	sess := testSession("test-daemon-createpr")
+	sess.Autonomous = true
+	sess.PRCreated = false
+
+	cfg.AddSession(*sess)
+
+	mockExec := exec.NewMockExecutor(nil)
+	// Mock git operations for PR creation
+	mockExec.AddPrefixMatch("gh", []string{"pr", "create"}, exec.MockResponse{
+		Stdout: []byte("https://github.com/owner/repo/pull/1\n"),
+	})
+	mockExec.AddPrefixMatch("git", []string{"push"}, exec.MockResponse{})
+	mockExec.AddPrefixMatch("git", []string{"log"}, exec.MockResponse{
+		Stdout: []byte("abc1234 Initial commit\n"),
+	})
+	mockExec.AddPrefixMatch("git", []string{"diff"}, exec.MockResponse{
+		Stdout: []byte("diff content"),
+	})
+
+	gitSvc := git.NewGitServiceWithExecutor(mockExec)
+	sessSvc := session.NewSessionServiceWithExecutor(mockExec)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	registry := issues.NewProviderRegistry()
+
+	a := New(cfg, gitSvc, sessSvc, registry, logger)
+	a.sessionMgr.SetSkipMessageLoad(true)
+	a.autoMerge = true
+	a.daemonManaged = true
+
+	mockRunner := claude.NewMockRunner(sess.ID, true, nil)
+
+	// Queue initial response that won't complete (worker stays in select loop)
+	mockRunner.QueueResponse(
+		claude.ResponseChunk{Type: claude.ChunkTypeText, Content: "Working..."},
+	)
+
+	worker := NewSessionWorker(a, sess, mockRunner, "Test task")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	worker.Start(ctx)
+
+	// Give worker time to enter the select loop
+	time.Sleep(100 * time.Millisecond)
+
+	// Simulate a create_pr MCP request
+	mockRunner.SimulateCreatePRRequest(mcp.CreatePRRequest{
+		ID:    "pr-1",
+		Title: "Fix bug",
+	})
+
+	// Give worker time to process the request
+	time.Sleep(500 * time.Millisecond)
+
+	// The worker should still be running (not hung in auto-merge)
+	// and should NOT have started auto-merge. We verify by cancelling
+	// and confirming it exits promptly.
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		worker.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Worker exited promptly — no auto-merge goroutine blocking
+	case <-time.After(2 * time.Second):
+		t.Fatal("daemon-managed worker hung after handleCreatePR, auto-merge may have been started")
+	}
+}

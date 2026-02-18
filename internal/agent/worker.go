@@ -378,17 +378,17 @@ func (w *SessionWorker) handleCompletion() bool {
 		}
 		log.Info("PR created", "url", prURL)
 
-		// Start auto-merge if enabled
-		if w.agent.getAutoMerge() {
+		// Start auto-merge if enabled (skip when daemon manages lifecycle)
+		if w.agent.getAutoMerge() && !w.agent.daemonManaged {
 			go w.runAutoMerge()
 			autoMergeStarted = true
 		}
 	}
 
 	// For supervisor sessions, the PR was created via MCP tools.
-	// Check if auto-merge is needed.
+	// Check if auto-merge is needed (skip when daemon manages lifecycle).
 	if sess.PRCreated && !sess.PRMerged && !sess.PRClosed &&
-		w.agent.getAutoMerge() {
+		w.agent.getAutoMerge() && !w.agent.daemonManaged {
 		go w.runAutoMerge()
 		autoMergeStarted = true
 	}
@@ -635,8 +635,8 @@ func (w *SessionWorker) handleCreatePR(req mcp.CreatePRRequest) {
 		PRURL:   prURL,
 	})
 
-	// Start auto-merge if enabled
-	if w.agent.getAutoMerge() {
+	// Start auto-merge if enabled (skip when daemon manages lifecycle)
+	if w.agent.getAutoMerge() && !w.agent.daemonManaged {
 		go w.runAutoMerge()
 	}
 }

@@ -44,6 +44,7 @@ type Agent struct {
 	autoMerge             bool          // Auto-merge PRs after review + CI pass
 	mergeMethod           string        // Merge method: rebase, squash, or merge
 	pollInterval          time.Duration
+	daemonManaged         bool          // Skip worker auto-merge; daemon tick handles lifecycle
 }
 
 // Option configures the agent.

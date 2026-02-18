@@ -572,6 +572,9 @@ func TestDaemon_ToAgent(t *testing.T) {
 	if a.mergeMethod != "squash" {
 		t.Errorf("mergeMethod mismatch: expected squash, got %s", a.mergeMethod)
 	}
+	if !a.daemonManaged {
+		t.Error("expected daemonManaged=true for daemon-created agent")
+	}
 }
 
 // Recovery tests

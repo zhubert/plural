@@ -287,6 +287,7 @@ func (d *Daemon) toAgent() *Agent {
 		autoMerge:             d.autoMerge,
 		mergeMethod:           d.mergeMethod,
 		pollInterval:          d.pollInterval,
+		daemonManaged:         true,
 	}
 }
 
