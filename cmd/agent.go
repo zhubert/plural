@@ -16,6 +16,7 @@ import (
 	"github.com/zhubert/plural/internal/issues"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural/internal/workflow"
 )
 
 var (
@@ -30,6 +31,21 @@ var (
 	agentNoAutoMerge           bool
 	agentMergeMethod           string
 )
+
+var agentInitRepo string
+
+var agentInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Generate a .plural/workflow.yaml template",
+	Long: `Creates a .plural/workflow.yaml file with sensible defaults and commented
+optional sections. Run this in your repository root (or use --repo) to get started
+with a customizable agent workflow.
+
+Examples:
+  plural agent init                   # Initialize in current directory
+  plural agent init --repo /path/to/repo`,
+	RunE: runAgentInit,
+}
 
 var agentCmd = &cobra.Command{
 	Use:   "agent",
@@ -65,7 +81,18 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentAutoMerge, "auto-merge", false, "Auto-merge PRs after review approval and CI pass (default: true)")
 	agentCmd.Flags().BoolVar(&agentNoAutoMerge, "no-auto-merge", false, "Disable auto-merge")
 	agentCmd.Flags().StringVar(&agentMergeMethod, "merge-method", "", "Merge method: rebase, squash, or merge (default: rebase)")
+	agentInitCmd.Flags().StringVar(&agentInitRepo, "repo", ".", "Path to the repository")
+	agentCmd.AddCommand(agentInitCmd)
 	rootCmd.AddCommand(agentCmd)
+}
+
+func runAgentInit(_ *cobra.Command, _ []string) error {
+	fp, err := workflow.WriteTemplate(agentInitRepo)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Created %s\n", fp)
+	return nil
 }
 
 func runAgent(cmd *cobra.Command, args []string) error {
