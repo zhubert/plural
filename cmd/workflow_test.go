@@ -85,20 +85,14 @@ func TestWorkflowVisualizeCmd(t *testing.T) {
 	// Use default config (no file)
 	workflowRepoPath = dir
 
-	// Capture stdout
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+	buf := new(bytes.Buffer)
+	workflowVisualizeCmd.SetOut(buf)
+	workflowVisualizeCmd.SetErr(buf)
 
 	err := workflowVisualizeCmd.RunE(workflowVisualizeCmd, []string{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	w.Close()
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	os.Stdout = old
 
 	output := buf.String()
 	if !strings.Contains(output, "stateDiagram-v2") {
@@ -136,19 +130,14 @@ workflow:
 
 	workflowRepoPath = dir
 
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+	buf := new(bytes.Buffer)
+	workflowVisualizeCmd.SetOut(buf)
+	workflowVisualizeCmd.SetErr(buf)
 
 	err := workflowVisualizeCmd.RunE(workflowVisualizeCmd, []string{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	w.Close()
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
-	os.Stdout = old
 
 	output := buf.String()
 	if !strings.Contains(output, "linear") {

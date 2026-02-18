@@ -22,7 +22,8 @@ func ResolveSystemPrompt(prompt, repoPath string) (string, error) {
 	relPath := strings.TrimPrefix(prompt, "file:")
 	absPath := filepath.Join(repoPath, relPath)
 
-	// Ensure the resolved path is within the repo
+	// Ensure the resolved path is within the repo.
+	// Use EvalSymlinks to prevent symlink-based path traversal.
 	absPath, err := filepath.Abs(absPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve path %q: %w", relPath, err)
@@ -33,7 +34,18 @@ func ResolveSystemPrompt(prompt, repoPath string) (string, error) {
 		return "", fmt.Errorf("failed to resolve repo path: %w", err)
 	}
 
-	if !strings.HasPrefix(absPath, repoAbs+string(filepath.Separator)) && absPath != repoAbs {
+	// Resolve symlinks to get the real paths before checking containment
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve prompt file %q: %w", relPath, err)
+	}
+
+	realRepo, err := filepath.EvalSymlinks(repoAbs)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve repo path: %w", err)
+	}
+
+	if !strings.HasPrefix(realPath, realRepo+string(filepath.Separator)) && realPath != realRepo {
 		return "", fmt.Errorf("prompt file %q escapes repository root", relPath)
 	}
 

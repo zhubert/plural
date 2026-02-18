@@ -86,6 +86,6 @@ func runWorkflowVisualize(cmd *cobra.Command, args []string) error {
 	}
 
 	mermaid := workflow.GenerateMermaid(cfg)
-	fmt.Println(mermaid)
+	fmt.Fprintln(cmd.OutOrStdout(), mermaid)
 	return nil
 }
