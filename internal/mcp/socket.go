@@ -738,16 +738,6 @@ func NewListeningSocketClient(listenAddr string) (*SocketClient, error) {
 	}, nil
 }
 
-// NewSocketClientFromConn wraps an existing net.Conn into a SocketClient.
-// Used in the --listen path where Accept() happens asynchronously after the
-// MCP JSONRPC server is already running.
-func NewSocketClientFromConn(conn net.Conn) *SocketClient {
-	return &SocketClient{
-		conn:   conn,
-		reader: bufio.NewReader(conn),
-	}
-}
-
 // SendPermissionRequest sends a permission request and waits for response
 func (c *SocketClient) SendPermissionRequest(req PermissionRequest) (PermissionResponse, error) {
 	return sendSocketRequest(c, req, MessageTypePermission,
