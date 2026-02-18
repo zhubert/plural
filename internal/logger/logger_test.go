@@ -106,8 +106,8 @@ func TestLog_Timestamp(t *testing.T) {
 		t.Fatalf("Failed to read log file: %v", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
 		if strings.Contains(line, uniqueMsg) {
 			// slog TextHandler format includes time=
 			if !strings.Contains(line, "time=") {
@@ -127,10 +127,10 @@ func TestLog_Concurrent(t *testing.T) {
 	// Test that concurrent logging doesn't cause issues
 	done := make(chan bool)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(n int) {
 			log := Get()
-			for j := 0; j < 100; j++ {
+			for j := range 100 {
 				log.Debug("concurrent test", "goroutine", n, "iteration", j)
 			}
 			done <- true
@@ -138,7 +138,7 @@ func TestLog_Concurrent(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -399,7 +399,7 @@ func TestEnsureInit_DefaultPath(t *testing.T) {
 
 func TestConcurrent_InitAndGet(t *testing.T) {
 	// Test that concurrent Init and Get calls don't race
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		Reset()
 
 		tmpDir := t.TempDir()
@@ -408,7 +408,7 @@ func TestConcurrent_InitAndGet(t *testing.T) {
 		done := make(chan bool, 20)
 
 		// Race Init and Get/WithSession/WithComponent
-		for j := 0; j < 5; j++ {
+		for range 5 {
 			go func() {
 				_ = Init(logPath)
 				done <- true
@@ -427,7 +427,7 @@ func TestConcurrent_InitAndGet(t *testing.T) {
 			}()
 		}
 
-		for j := 0; j < 20; j++ {
+		for range 20 {
 			<-done
 		}
 	}

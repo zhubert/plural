@@ -162,10 +162,7 @@ func (s *BroadcastState) renderRepoList() string {
 
 	// Calculate visible range
 	startIdx := s.ScrollOffset
-	endIdx := startIdx + BroadcastMaxVisibleRepos
-	if endIdx > len(s.Repos) {
-		endIdx = len(s.Repos)
-	}
+	endIdx := min(startIdx+BroadcastMaxVisibleRepos, len(s.Repos))
 
 	// Show scroll indicator at top if needed
 	if startIdx > 0 {
@@ -549,10 +546,7 @@ func (s *BroadcastGroupState) renderSessionList() string {
 
 	// Calculate visible range
 	startIdx := s.ScrollOffset
-	endIdx := startIdx + BroadcastMaxVisibleRepos
-	if endIdx > len(s.Sessions) {
-		endIdx = len(s.Sessions)
-	}
+	endIdx := min(startIdx+BroadcastMaxVisibleRepos, len(s.Sessions))
 
 	// Show scroll indicator at top if needed
 	if startIdx > 0 {

@@ -142,10 +142,7 @@ func (s *ImportIssuesState) Render() string {
 
 	// Build issue list with scrolling
 	var issueList string
-	visibleEnd := s.ScrollOffset + s.maxVisible
-	if visibleEnd > len(s.Issues) {
-		visibleEnd = len(s.Issues)
-	}
+	visibleEnd := min(s.ScrollOffset+s.maxVisible, len(s.Issues))
 
 	for i := s.ScrollOffset; i < visibleEnd; i++ {
 		issue := s.Issues[i]

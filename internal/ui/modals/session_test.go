@@ -11,7 +11,7 @@ import (
 
 func makeRepos(n int) []string {
 	repos := make([]string, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		repos[i] = fmt.Sprintf("/path/to/repo%d", i)
 	}
 	return repos
@@ -22,7 +22,7 @@ func TestNewSessionState_ScrollOffsetAdjustsOnNavigateDown(t *testing.T) {
 	state := NewNewSessionState(repos, false, false)
 
 	// Navigate down past visible area
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Down})
 	}
 
@@ -43,12 +43,12 @@ func TestNewSessionState_ScrollOffsetAdjustsOnNavigateUp(t *testing.T) {
 	state := NewNewSessionState(repos, false, false)
 
 	// Navigate down to index 12
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Down})
 	}
 
 	// Now navigate back up past the visible area
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Up})
 	}
 
@@ -91,7 +91,7 @@ func TestNewSessionState_ScrollIndicatorsWhenManyRepos(t *testing.T) {
 	}
 
 	// Navigate to middle
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Down})
 	}
 
@@ -126,7 +126,7 @@ func TestNewSessionState_RenderContainsVisibleReposOnly(t *testing.T) {
 	rendered := state.Render()
 
 	// Visible repos (0-9) should be in rendered output
-	for i := 0; i < NewSessionMaxVisibleRepos; i++ {
+	for i := range NewSessionMaxVisibleRepos {
 		if !strings.Contains(rendered, repos[i]) {
 			t.Errorf("expected visible repo %q in rendered output", repos[i])
 		}
@@ -180,7 +180,7 @@ func TestNewSessionState_NavigateDownDoesNotExceedBounds(t *testing.T) {
 	state := NewNewSessionState(repos, false, false)
 
 	// Navigate down more times than there are items
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Down})
 	}
 
@@ -197,7 +197,7 @@ func TestNewSessionState_NavigateUpDoesNotGoBelowZero(t *testing.T) {
 	state := NewNewSessionState(repos, false, false)
 
 	// Navigate up from index 0
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		state.Update(tea.KeyPressMsg{Code: -1, Text: keys.Up})
 	}
 

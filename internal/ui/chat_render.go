@@ -65,9 +65,9 @@ func HighlightDiff(diff string) string {
 	}
 
 	var result strings.Builder
-	lines := strings.Split(diff, "\n")
+	lines := strings.SplitSeq(diff, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		switch {
 		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
 			// File headers
@@ -272,10 +272,7 @@ func renderTable(rows [][]string, hasHeader bool, width int) string {
 	// Plus 1 for the leftmost border
 	// Formula: 1 + numCols * (TableCellPadding + TableBorderWidth) + sum(colWidths) = total
 	borderOverhead := TableBorderWidth + numCols*(TableCellPadding+TableBorderWidth)
-	availableWidth := width - borderOverhead
-	if availableWidth < numCols*TableMinColumnWidth {
-		availableWidth = numCols * TableMinColumnWidth
-	}
+	availableWidth := max(width-borderOverhead, numCols*TableMinColumnWidth)
 
 	// Calculate final column widths
 	colWidths := calculateTableColumnWidths(naturalWidths, availableWidth)
@@ -326,16 +323,13 @@ func renderTable(rows [][]string, hasHeader bool, width int) string {
 	// Render rows
 	for rowIdx, wrappedCells := range wrappedRows {
 		numLines := len(wrappedCells[0]) // All cells have same number of lines
-		for lineIdx := 0; lineIdx < numLines; lineIdx++ {
+		for lineIdx := range numLines {
 			result.WriteString(borderStyle.Render("│"))
 			for i := 0; i < numCols; i++ {
 				cellLine := wrappedCells[i][lineIdx]
 				// Pad cell line to column width using visual width
 				cellVisualWidth := lipgloss.Width(cellLine)
-				padding := colWidths[i] - cellVisualWidth
-				if padding < 0 {
-					padding = 0
-				}
+				padding := max(colWidths[i]-cellVisualWidth, 0)
 				padded := cellLine + strings.Repeat(" ", padding)
 				// Apply style based on whether it's a header row
 				if rowIdx == 0 && hasHeader {
@@ -399,10 +393,7 @@ func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
 	// 1. Columns that are already small keep their width
 	// 2. Larger columns share the remaining space proportionally
 
-	avgWidth := availableWidth / numCols
-	if avgWidth < TableMinColumnWidth {
-		avgWidth = TableMinColumnWidth
-	}
+	avgWidth := max(availableWidth/numCols, TableMinColumnWidth)
 
 	// First pass: assign width to small columns (those at or below average)
 	remaining := availableWidth
@@ -418,10 +409,7 @@ func calculateTableColumnWidths(naturalWidths []int, availableWidth int) []int {
 
 	// Second pass: distribute remaining width among flexible (wider) columns
 	if flexibleCols > 0 && remaining > 0 {
-		perFlexible := remaining / flexibleCols
-		if perFlexible < TableMinColumnWidth {
-			perFlexible = TableMinColumnWidth
-		}
+		perFlexible := max(remaining/flexibleCols, TableMinColumnWidth)
 		for i, natural := range naturalWidths {
 			if natural > avgWidth {
 				colWidths[i] = perFlexible
@@ -444,17 +432,17 @@ func renderMarkdownLine(line string, width int) string {
 	trimmed := strings.TrimSpace(line)
 
 	// Headers - don't wrap, they should be concise
-	if strings.HasPrefix(trimmed, "#### ") {
-		return MarkdownH4Style.Render(strings.TrimPrefix(trimmed, "#### "))
+	if after, ok := strings.CutPrefix(trimmed, "#### "); ok {
+		return MarkdownH4Style.Render(after)
 	}
-	if strings.HasPrefix(trimmed, "### ") {
-		return MarkdownH3Style.Render(strings.TrimPrefix(trimmed, "### "))
+	if after, ok := strings.CutPrefix(trimmed, "### "); ok {
+		return MarkdownH3Style.Render(after)
 	}
-	if strings.HasPrefix(trimmed, "## ") {
-		return MarkdownH2Style.Render(strings.TrimPrefix(trimmed, "## "))
+	if after, ok := strings.CutPrefix(trimmed, "## "); ok {
+		return MarkdownH2Style.Render(after)
 	}
-	if strings.HasPrefix(trimmed, "# ") {
-		return MarkdownH1Style.Render(strings.TrimPrefix(trimmed, "# "))
+	if after, ok := strings.CutPrefix(trimmed, "# "); ok {
+		return MarkdownH1Style.Render(after)
 	}
 
 	// Horizontal rule
@@ -463,8 +451,8 @@ func renderMarkdownLine(line string, width int) string {
 	}
 
 	// Blockquote
-	if strings.HasPrefix(trimmed, "> ") {
-		content := strings.TrimPrefix(trimmed, "> ")
+	if after, ok := strings.CutPrefix(trimmed, "> "); ok {
+		content := after
 		return MarkdownBlockquoteStyle.Render(wrapText(renderInlineMarkdown(content), width-BlockquotePrefixWidth))
 	}
 
@@ -489,8 +477,8 @@ func renderMarkdownLine(line string, width int) string {
 	// Numbered list items
 	for i := 1; i <= 99; i++ {
 		prefix := fmt.Sprintf("%d. ", i)
-		if strings.HasPrefix(trimmed, prefix) {
-			content := strings.TrimPrefix(trimmed, prefix)
+		if after, ok := strings.CutPrefix(trimmed, prefix); ok {
+			content := after
 			number := MarkdownListBulletStyle.Render(fmt.Sprintf("%d.", i))
 			// Calculate prefix width: "  " + number + ". " (2 + len(number) + 2)
 			// For numbers 1-9: 5 chars, for 10-99: 6 chars
@@ -656,10 +644,7 @@ func renderPermissionPrompt(tool, description string, wrapWidth int) string {
 	var sb strings.Builder
 
 	// Calculate final box width first (capped at max width for readability)
-	boxWidth := wrapWidth
-	if boxWidth > OverlayBoxMaxWidth {
-		boxWidth = OverlayBoxMaxWidth
-	}
+	boxWidth := min(wrapWidth, OverlayBoxMaxWidth)
 
 	// Title with tool name on same line: "⚠ Permission Required: Edit"
 	sb.WriteString(PermissionTitleStyle.Render("⚠ Permission Required: "))
@@ -736,10 +721,7 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 
 		// Wrap long content, accounting for marker width and box padding
 		// Total prefix: marker (2) + box padding (6) = 8 chars
-		maxContentWidth := wrapWidth - TodoMarkerWidth - TodoItemPadding
-		if maxContentWidth < MinWrapWidth {
-			maxContentWidth = MinWrapWidth
-		}
+		maxContentWidth := max(wrapWidth-TodoMarkerWidth-TodoItemPadding, MinWrapWidth)
 		wrappedContent := wrapText(content, maxContentWidth)
 
 		// Handle multi-line wrapped content - indent continuation lines
@@ -759,10 +741,7 @@ func renderTodoList(list *pclaude.TodoList, wrapWidth int) string {
 	}
 
 	// Wrap in a box, capped at max width for readability
-	boxWidth := wrapWidth
-	if boxWidth > OverlayBoxMaxWidth {
-		boxWidth = OverlayBoxMaxWidth
-	}
+	boxWidth := min(wrapWidth, OverlayBoxMaxWidth)
 	return TodoListBoxStyle.Width(boxWidth).Render(sb.String())
 }
 
@@ -814,10 +793,7 @@ func renderTodoListForSidebar(list *pclaude.TodoList, wrapWidth int) string {
 		}
 
 		// Wrap long content, accounting for marker width only (no box padding in sidebar)
-		maxContentWidth := wrapWidth - TodoMarkerWidth - ContentPadding
-		if maxContentWidth < MinWrapWidth {
-			maxContentWidth = MinWrapWidth
-		}
+		maxContentWidth := max(wrapWidth-TodoMarkerWidth-ContentPadding, MinWrapWidth)
 		wrappedContent := wrapText(content, maxContentWidth)
 
 		// Handle multi-line wrapped content - indent continuation lines

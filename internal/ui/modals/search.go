@@ -74,10 +74,7 @@ func (s *SearchMessagesState) Render() string {
 		resultsSection = countStyle.Render(fmt.Sprintf("%d match(es) found", len(s.Results)))
 
 		// Build results list with scrolling
-		visibleEnd := s.ScrollOffset + s.maxVisible
-		if visibleEnd > len(s.Results) {
-			visibleEnd = len(s.Results)
-		}
+		visibleEnd := min(s.ScrollOffset+s.maxVisible, len(s.Results))
 
 		// Scroll indicators
 		if s.ScrollOffset > 0 {
@@ -156,10 +153,7 @@ func (s *SearchMessagesState) extractSnippet(result SearchResult, maxLen int) st
 	}
 	if end > len(content) {
 		end = len(content)
-		start = end - maxLen
-		if start < 0 {
-			start = 0
-		}
+		start = max(end-maxLen, 0)
 	}
 
 	snippet := content[start:end]

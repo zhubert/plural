@@ -76,11 +76,11 @@ func ExtractOwnerRepo(remoteURL string) string {
 			rest := remoteURL[len(prefix):]
 			// rest is like "github.com/owner/repo.git"
 			// Find first "/" to skip host
-			idx := strings.Index(rest, "/")
-			if idx < 0 {
+			_, after, ok := strings.Cut(rest, "/")
+			if !ok {
 				return ""
 			}
-			path := strings.TrimSuffix(rest[idx+1:], ".git")
+			path := strings.TrimSuffix(after, ".git")
 			if strings.Contains(path, "/") {
 				return path
 			}
@@ -254,8 +254,8 @@ Example output format:
 
 	// Parse the output - expect lines like "1. branch-name"
 	result := make(map[int]string)
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(strings.TrimSpace(string(output)), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -270,10 +270,10 @@ Example output format:
 			continue
 		}
 		// Find the first ". " or ") " delimiter and take everything after it
-		if idx := strings.Index(line, ". "); idx >= 0 {
-			name = line[idx+2:]
-		} else if idx := strings.Index(line, ") "); idx >= 0 {
-			name = line[idx+2:]
+		if _, after, ok := strings.Cut(line, ". "); ok {
+			name = after
+		} else if _, after, ok := strings.Cut(line, ") "); ok {
+			name = after
 		} else {
 			continue
 		}

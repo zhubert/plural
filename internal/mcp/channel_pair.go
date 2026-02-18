@@ -53,8 +53,8 @@ func handleChannelMessage[Req, Resp any](
 	respCh <-chan Resp,
 	responseTimeout time.Duration,
 	nilResp Resp,
-	timeoutResp func(interface{}) Resp,
-	getID func(*Req) interface{},
+	timeoutResp func(any) Resp,
+	getID func(*Req) any,
 	msgType MessageType,
 	setResp func(*SocketMessage, *Resp),
 	label string,
@@ -170,7 +170,7 @@ func sendSocketRequest[Req, Resp any](
 // It replaces the 6 identical tool handler channel send/receive/respond patterns.
 func handleToolChannelRequest[Req, Resp any](
 	s *Server,
-	reqID interface{},
+	reqID any,
 	req Req,
 	reqCh chan<- Req,
 	respCh <-chan Resp,
@@ -208,9 +208,7 @@ func ForwardRequests[Req, Resp any](
 	sendFn func(Req) (Resp, error),
 	errRespFn func(Req) Resp,
 ) {
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for req := range reqCh {
 			resp, err := sendFn(req)
 			if err != nil {
@@ -219,5 +217,5 @@ func ForwardRequests[Req, Resp any](
 				respCh <- resp
 			}
 		}
-	}()
+	})
 }

@@ -33,9 +33,9 @@ type repoGroup struct {
 
 // Sidebar represents the left panel with session list
 type Sidebar struct {
-	groups           []repoGroup
-	sessions         []config.Session // flat list for index tracking
-	filteredSessions []config.Session // sessions matching current search filter
+	groups             []repoGroup
+	sessions           []config.Session // flat list for index tracking
+	filteredSessions   []config.Session // sessions matching current search filter
 	selectedIdx        int
 	width              int
 	height             int
@@ -46,8 +46,8 @@ type Sidebar struct {
 	pendingQuestions   map[string]bool // Map of session IDs that have pending questions
 	idleWithResponse   map[string]bool // Map of session IDs that finished streaming (user hasn't responded)
 	uncommittedChanges map[string]bool // Map of session IDs that have uncommitted changes
-	hasNewComments map[string]bool  // Map of session IDs that have new PR review comments
-	spinner        spinner.Model   // Spinner for streaming sessions
+	hasNewComments     map[string]bool // Map of session IDs that have new PR review comments
+	spinner            spinner.Model   // Spinner for streaming sessions
 
 	// Multi-select mode
 	multiSelectMode  bool
@@ -746,7 +746,7 @@ func (s *Sidebar) View() string {
 			}
 			// Render and split into actual lines
 			rendered := itemStyle.Render(displayName)
-			for _, line := range strings.Split(rendered, "\n") {
+			for line := range strings.SplitSeq(rendered, "\n") {
 				allLines = append(allLines, line)
 			}
 		}
@@ -763,10 +763,7 @@ func (s *Sidebar) View() string {
 		if s.scrollOffset < 0 {
 			s.scrollOffset = 0
 		}
-		maxScroll := len(allLines) - visibleHeight
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
+		maxScroll := max(len(allLines)-visibleHeight, 0)
 		if s.scrollOffset > maxScroll {
 			s.scrollOffset = maxScroll
 		}
@@ -815,7 +812,7 @@ func (s *Sidebar) View() string {
 
 				// Render and split into actual lines (handles text wrapping)
 				rendered := itemStyle.Render(displayName)
-				for _, line := range strings.Split(rendered, "\n") {
+				for line := range strings.SplitSeq(rendered, "\n") {
 					allLines = append(allLines, line)
 				}
 				sessionIdx++
@@ -847,10 +844,7 @@ func (s *Sidebar) View() string {
 		if s.scrollOffset < 0 {
 			s.scrollOffset = 0
 		}
-		maxScroll := len(allLines) - visibleHeight
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
+		maxScroll := max(len(allLines)-visibleHeight, 0)
 		if s.scrollOffset > maxScroll {
 			s.scrollOffset = maxScroll
 		}

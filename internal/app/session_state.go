@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
@@ -70,7 +71,7 @@ type SessionState struct {
 
 	// Pending merge child request ID (for supervisor MCP tool correlation).
 	// Uses interface{} because JSON-RPC request IDs can be numbers or strings.
-	PendingMergeChildRequestID interface{}
+	PendingMergeChildRequestID any
 }
 
 // ToolUseRollupState tracks consecutive tool uses for non-active sessions
@@ -450,10 +451,8 @@ func copyPermissionRequest(req *mcp.PermissionRequest) *mcp.PermissionRequest {
 		return nil
 	}
 	// Deep copy the Arguments map
-	args := make(map[string]interface{}, len(req.Arguments))
-	for k, v := range req.Arguments {
-		args[k] = v
-	}
+	args := make(map[string]any, len(req.Arguments))
+	maps.Copy(args, req.Arguments)
 	return &mcp.PermissionRequest{
 		ID:          req.ID,
 		Tool:        req.Tool,
@@ -497,10 +496,8 @@ func copyPlanApprovalRequest(req *mcp.PlanApprovalRequest) *mcp.PlanApprovalRequ
 	prompts := make([]mcp.AllowedPrompt, len(req.AllowedPrompts))
 	copy(prompts, req.AllowedPrompts)
 	// Deep copy the Arguments map
-	args := make(map[string]interface{}, len(req.Arguments))
-	for k, v := range req.Arguments {
-		args[k] = v
-	}
+	args := make(map[string]any, len(req.Arguments))
+	maps.Copy(args, req.Arguments)
 	return &mcp.PlanApprovalRequest{
 		ID:             req.ID,
 		Plan:           req.Plan,
@@ -937,14 +934,14 @@ func (m *SessionStateManager) GetContainerInitStart(sessionID string) (time.Time
 // --- Thread-safe accessors for PendingMergeChildRequestID ---
 
 // GetPendingMergeChildRequestID returns the stored merge child request ID.
-func (s *SessionState) GetPendingMergeChildRequestID() interface{} {
+func (s *SessionState) GetPendingMergeChildRequestID() any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.PendingMergeChildRequestID
 }
 
 // SetPendingMergeChildRequestID stores the merge child request ID for later correlation.
-func (s *SessionState) SetPendingMergeChildRequestID(id interface{}) {
+func (s *SessionState) SetPendingMergeChildRequestID(id any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.PendingMergeChildRequestID = id

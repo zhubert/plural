@@ -57,7 +57,7 @@ func TestGetPendingPermissionReturnsCopy(t *testing.T) {
 		ID:          "req-1",
 		Tool:        "Bash",
 		Description: "Run tests",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"command": "go test",
 		},
 	}
@@ -218,7 +218,7 @@ func TestGetPendingPlanApprovalReturnsCopy(t *testing.T) {
 			{Tool: "Bash", Prompt: "run tests"},
 			{Tool: "Bash", Prompt: "build project"},
 		},
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"key": "value",
 		},
 	}

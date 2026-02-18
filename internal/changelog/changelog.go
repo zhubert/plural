@@ -87,16 +87,16 @@ func parseDate(timestamp string) string {
 // parseBody extracts bullet points from release body markdown
 func parseBody(body string) []string {
 	var changes []string
-	lines := strings.Split(body, "\n")
+	lines := strings.SplitSeq(body, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		// Match lines starting with "- " or "* "
 		var change string
-		if strings.HasPrefix(line, "- ") {
-			change = strings.TrimPrefix(line, "- ")
-		} else if strings.HasPrefix(line, "* ") {
-			change = strings.TrimPrefix(line, "* ")
+		if after, ok := strings.CutPrefix(line, "- "); ok {
+			change = after
+		} else if after, ok := strings.CutPrefix(line, "* "); ok {
+			change = after
 		} else {
 			continue
 		}
@@ -157,7 +157,7 @@ func CompareVersions(a, b string) int {
 	aParts := parseVersion(a)
 	bParts := parseVersion(b)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if aParts[i] < bParts[i] {
 			return -1
 		}

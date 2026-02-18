@@ -144,7 +144,7 @@ func (s *PluginsState) renderMarketplaces() string {
 			Render("No marketplaces configured.\nPress 'a' to add one.")
 	}
 
-	var content string
+	var content strings.Builder
 	for i, m := range s.Marketplaces {
 		style := SidebarItemStyle
 		prefix := "  "
@@ -164,10 +164,10 @@ func (s *PluginsState) renderMarketplaces() string {
 				Foreground(ColorTextMuted).
 				Render(m.Repo)
 		}
-		content += style.Render(prefix+info) + "\n"
+		content.WriteString(style.Render(prefix+info) + "\n")
 	}
 
-	return content
+	return content.String()
 }
 
 func (s *PluginsState) renderInstalledPlugins() string {
@@ -179,7 +179,7 @@ func (s *PluginsState) renderInstalledPlugins() string {
 			Render("No plugins installed.\nGo to 'Available' tab to install plugins.")
 	}
 
-	var content string
+	var content strings.Builder
 	for i, p := range installed {
 		style := SidebarItemStyle
 		prefix := "  "
@@ -199,10 +199,10 @@ func (s *PluginsState) renderInstalledPlugins() string {
 				Foreground(ColorTextMuted).
 				Render("@"+p.Marketplace)
 		}
-		content += style.Render(prefix+info) + "\n"
+		content.WriteString(style.Render(prefix+info) + "\n")
 	}
 
-	return content
+	return content.String()
 }
 
 // MaxVisibleItems is the number of items visible in the scrollable list
@@ -233,18 +233,15 @@ func (s *PluginsState) renderDiscoverPlugins() string {
 
 	// Apply scroll offset to show visible items
 	startIdx := s.ScrollOffset
-	endIdx := startIdx + MaxVisibleItems
-	if endIdx > len(available) {
-		endIdx = len(available)
-	}
+	endIdx := min(startIdx+MaxVisibleItems, len(available))
 
-	var content string
+	var content strings.Builder
 
 	// Show scroll indicator at top if needed
 	if startIdx > 0 {
-		content += lipgloss.NewStyle().
+		content.WriteString(lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
-			Render("  ↑ more above") + "\n"
+			Render("  ↑ more above") + "\n")
 	}
 
 	for i := startIdx; i < endIdx; i++ {
@@ -268,17 +265,17 @@ func (s *PluginsState) renderDiscoverPlugins() string {
 				Italic(true).
 				Render(TruncateString(p.Description, 50))
 		}
-		content += style.Render(prefix+info) + "\n"
+		content.WriteString(style.Render(prefix+info) + "\n")
 	}
 
 	// Show scroll indicator at bottom if needed
 	if endIdx < len(available) {
-		content += lipgloss.NewStyle().
+		content.WriteString(lipgloss.NewStyle().
 			Foreground(ColorTextMuted).
-			Render("  ↓ more below") + "\n"
+			Render("  ↓ more below") + "\n")
 	}
 
-	return searchBox + content
+	return searchBox + content.String()
 }
 
 func (s *PluginsState) getInstalledPlugins() []PluginDisplay {

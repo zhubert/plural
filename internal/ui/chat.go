@@ -197,10 +197,7 @@ func (c *Chat) SetSize(width, height int) {
 	var mainPanelWidth int
 	if c.HasTodoList() {
 		// Todo sidebar gets 1/4 of the total chat panel width
-		c.todoWidth = width / TodoSidebarWidthRatio
-		if c.todoWidth < TodoListMinWrapWidth+BorderSize {
-			c.todoWidth = TodoListMinWrapWidth + BorderSize
-		}
+		c.todoWidth = max(width/TodoSidebarWidthRatio, TodoListMinWrapWidth+BorderSize)
 		mainPanelWidth = width - c.todoWidth
 
 		// Chat panel height (excluding input area which is separate)
@@ -237,11 +234,7 @@ func (c *Chat) SetSize(width, height int) {
 
 	// Calculate inner dimensions for the chat panel (accounting for borders)
 	innerWidth := newInnerWidth
-	viewportHeight := ctx.InnerHeight(chatPanelHeight)
-
-	if viewportHeight < 1 {
-		viewportHeight = 1
-	}
+	viewportHeight := max(ctx.InnerHeight(chatPanelHeight), 1)
 
 	c.viewport.SetWidth(innerWidth)
 	c.viewport.SetHeight(viewportHeight)
@@ -845,10 +838,7 @@ func (c *Chat) updateTodoViewportContent() {
 	}
 
 	// Get inner width for content wrapping
-	width := c.todoViewport.Width()
-	if width < TodoListMinWrapWidth {
-		width = TodoListMinWrapWidth
-	}
+	width := max(c.todoViewport.Width(), TodoListMinWrapWidth)
 
 	// Use renderTodoListForSidebar which renders without the box border
 	// since the sidebar panel already has borders
@@ -966,10 +956,7 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 	sb.WriteString("\n\n")
 
 	// Calculate box width (capped at max width for readability)
-	boxWidth := wrapWidth
-	if boxWidth > OverlayBoxMaxWidth {
-		boxWidth = OverlayBoxMaxWidth
-	}
+	boxWidth := min(wrapWidth, OverlayBoxMaxWidth)
 
 	// Render options
 	for i, opt := range q.Options {
@@ -1029,14 +1016,11 @@ func (c *Chat) renderQuestionPrompt(wrapWidth int) string {
 				indent := strings.Repeat(" ", indentWidth)
 
 				// Calculate wrap width for description (full box width minus padding and indent)
-				descWidth := boxWidth - OverlayBoxPadding - indentWidth
-				if descWidth < MinWrapWidth {
-					descWidth = MinWrapWidth
-				}
+				descWidth := max(boxWidth-OverlayBoxPadding-indentWidth, MinWrapWidth)
 
 				wrapped := wrapText(opt.Description, descWidth)
-				lines := strings.Split(wrapped, "\n")
-				for _, line := range lines {
+				lines := strings.SplitSeq(wrapped, "\n")
+				for line := range lines {
 					sb.WriteString("\n")
 					sb.WriteString(indent)
 					sb.WriteString(descStyle.Render(line))
@@ -1086,10 +1070,7 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	var sb strings.Builder
 
 	// Calculate final box width first (capped at max width for readability)
-	boxWidth := wrapWidth
-	if boxWidth > PlanBoxMaxWidth {
-		boxWidth = PlanBoxMaxWidth
-	}
+	boxWidth := min(wrapWidth, PlanBoxMaxWidth)
 
 	// Title
 	titleStyle := lipgloss.NewStyle().Foreground(ColorInfo).Bold(true)
@@ -1104,15 +1085,9 @@ func (c *Chat) renderPlanApprovalPrompt(wrapWidth int) string {
 	// Calculate visible range
 	startLine := c.planApproval.ScrollOffset
 	if startLine >= len(planLines) {
-		startLine = len(planLines) - 1
-		if startLine < 0 {
-			startLine = 0
-		}
+		startLine = max(len(planLines)-1, 0)
 	}
-	endLine := startLine + maxVisibleLines
-	if endLine > len(planLines) {
-		endLine = len(planLines)
-	}
+	endLine := min(startLine+maxVisibleLines, len(planLines))
 
 	// Show scroll indicators if needed
 	if startLine > 0 {

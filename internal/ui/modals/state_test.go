@@ -187,7 +187,7 @@ func TestHelpState_Render(t *testing.T) {
 
 func TestHelpState_ImplementsModalWithSize(t *testing.T) {
 	state := NewHelpStateFromSections(nil)
-	_, ok := interface{}(state).(ModalWithSize)
+	_, ok := any(state).(ModalWithSize)
 	if !ok {
 		t.Error("HelpState should implement ModalWithSize")
 	}

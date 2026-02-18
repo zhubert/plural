@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -40,31 +41,31 @@ const (
 
 // Server implements an MCP server for handling permission prompts
 type Server struct {
-	reader           *bufio.Reader
-	writer           io.Writer
-	requestChan      chan<- PermissionRequest    // Send permission requests to TUI
-	responseChan     <-chan PermissionResponse   // Receive responses from TUI
-	questionChan     chan<- QuestionRequest      // Send question requests to TUI
-	answerChan       <-chan QuestionResponse     // Receive answers from TUI
-	planApprovalChan chan<- PlanApprovalRequest  // Send plan approval requests to TUI
-	planResponseChan <-chan PlanApprovalResponse // Receive plan approval responses from TUI
-	allowedTools     []string                    // Pre-allowed tools for this session
-	isSupervisor     bool                        // Whether to expose supervisor tools
-	createChildChan  chan<- CreateChildRequest   // Send create child requests to TUI
-	createChildResp  <-chan CreateChildResponse  // Receive create child responses from TUI
-	listChildrenChan chan<- ListChildrenRequest  // Send list children requests to TUI
-	listChildrenResp <-chan ListChildrenResponse // Receive list children responses from TUI
-	mergeChildChan   chan<- MergeChildRequest    // Send merge child requests to TUI
-	mergeChildResp   <-chan MergeChildResponse   // Receive merge child responses from TUI
-	hasHostTools         bool                              // Whether to expose host operation tools (create_pr, push_branch, get_review_comments)
-	createPRChan         chan<- CreatePRRequest            // Send create PR requests to TUI
-	createPRResp         <-chan CreatePRResponse           // Receive create PR responses from TUI
-	pushBranchChan       chan<- PushBranchRequest          // Send push branch requests to TUI
-	pushBranchResp       <-chan PushBranchResponse         // Receive push branch responses from TUI
+	reader                *bufio.Reader
+	writer                io.Writer
+	requestChan           chan<- PermissionRequest         // Send permission requests to TUI
+	responseChan          <-chan PermissionResponse        // Receive responses from TUI
+	questionChan          chan<- QuestionRequest           // Send question requests to TUI
+	answerChan            <-chan QuestionResponse          // Receive answers from TUI
+	planApprovalChan      chan<- PlanApprovalRequest       // Send plan approval requests to TUI
+	planResponseChan      <-chan PlanApprovalResponse      // Receive plan approval responses from TUI
+	allowedTools          []string                         // Pre-allowed tools for this session
+	isSupervisor          bool                             // Whether to expose supervisor tools
+	createChildChan       chan<- CreateChildRequest        // Send create child requests to TUI
+	createChildResp       <-chan CreateChildResponse       // Receive create child responses from TUI
+	listChildrenChan      chan<- ListChildrenRequest       // Send list children requests to TUI
+	listChildrenResp      <-chan ListChildrenResponse      // Receive list children responses from TUI
+	mergeChildChan        chan<- MergeChildRequest         // Send merge child requests to TUI
+	mergeChildResp        <-chan MergeChildResponse        // Receive merge child responses from TUI
+	hasHostTools          bool                             // Whether to expose host operation tools (create_pr, push_branch, get_review_comments)
+	createPRChan          chan<- CreatePRRequest           // Send create PR requests to TUI
+	createPRResp          <-chan CreatePRResponse          // Receive create PR responses from TUI
+	pushBranchChan        chan<- PushBranchRequest         // Send push branch requests to TUI
+	pushBranchResp        <-chan PushBranchResponse        // Receive push branch responses from TUI
 	getReviewCommentsChan chan<- GetReviewCommentsRequest  // Send get review comments requests to TUI
 	getReviewCommentsResp <-chan GetReviewCommentsResponse // Receive get review comments responses from TUI
-	mu                   sync.Mutex
-	log                  *slog.Logger // Logger with session context
+	mu                    sync.Mutex
+	log                   *slog.Logger // Logger with session context
 }
 
 // ServerOption is a functional option for configuring Server
@@ -339,7 +340,7 @@ func (s *Server) handlePermissionToolCall(req *JSONRPCRequest, params ToolCallPa
 
 	// Extract permission request details from Claude Code's format
 	var tool, description string
-	var arguments map[string]interface{}
+	var arguments map[string]any
 
 	// Claude Code sends: tool_name, input, tool_use_id
 	if toolName, ok := params.Arguments["tool_name"].(string); ok {
@@ -347,7 +348,7 @@ func (s *Server) handlePermissionToolCall(req *JSONRPCRequest, params ToolCallPa
 	}
 
 	// Get the input object for building description
-	if input, ok := params.Arguments["input"].(map[string]interface{}); ok {
+	if input, ok := params.Arguments["input"].(map[string]any); ok {
 		arguments = input
 		description = buildToolDescription(tool, input)
 	}
@@ -427,7 +428,7 @@ func (s *Server) handlePermissionToolCall(req *JSONRPCRequest, params ToolCallPa
 }
 
 // handleAskUserQuestion handles the AskUserQuestion tool specially
-func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]interface{}) {
+func (s *Server) handleAskUserQuestion(reqID any, arguments map[string]any) {
 	s.log.Debug("handling AskUserQuestion")
 
 	// Parse questions from arguments
@@ -438,7 +439,7 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 		return
 	}
 
-	questionsSlice, ok := questionsRaw.([]interface{})
+	questionsSlice, ok := questionsRaw.([]any)
 	if !ok {
 		s.log.Warn("AskUserQuestion 'questions' is not an array")
 		s.sendPermissionResult(reqID, false, arguments, "Invalid questions format")
@@ -447,7 +448,7 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 
 	var questions []Question
 	for _, q := range questionsSlice {
-		qMap, ok := q.(map[string]interface{})
+		qMap, ok := q.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -464,9 +465,9 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 		}
 
 		// Parse options
-		if optionsRaw, ok := qMap["options"].([]interface{}); ok {
+		if optionsRaw, ok := qMap["options"].([]any); ok {
 			for _, opt := range optionsRaw {
-				optMap, ok := opt.(map[string]interface{})
+				optMap, ok := opt.(map[string]any)
 				if !ok {
 					continue
 				}
@@ -520,7 +521,7 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 	}
 
 	// Build the response with answers in updatedInput
-	updatedInput := map[string]interface{}{
+	updatedInput := map[string]any{
 		"questions": arguments["questions"],
 		"answers":   answer.Answers,
 	}
@@ -529,7 +530,7 @@ func (s *Server) handleAskUserQuestion(reqID interface{}, arguments map[string]i
 }
 
 // handleExitPlanMode handles the ExitPlanMode tool specially to show a plan approval UI
-func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]interface{}) {
+func (s *Server) handleExitPlanMode(reqID any, arguments map[string]any) {
 	s.log.Debug("handling ExitPlanMode", "arguments", arguments)
 
 	// Extract plan content - try multiple sources
@@ -547,9 +548,9 @@ func (s *Server) handleExitPlanMode(reqID interface{}, arguments map[string]inte
 
 	// Parse allowedPrompts if present
 	var allowedPrompts []AllowedPrompt
-	if promptsRaw, ok := arguments["allowedPrompts"].([]interface{}); ok {
+	if promptsRaw, ok := arguments["allowedPrompts"].([]any); ok {
 		for _, p := range promptsRaw {
-			pMap, ok := p.(map[string]interface{})
+			pMap, ok := p.(map[string]any)
 			if !ok {
 				continue
 			}
@@ -706,7 +707,7 @@ func (s *Server) handleGetReviewComments(req *JSONRPCRequest, params ToolCallPar
 
 // sendToolResult sends a tool call result with text content.
 // Supervisor/host tools return regular tool results (not PermissionResult format).
-func (s *Server) sendToolResult(id interface{}, isError bool, text string) {
+func (s *Server) sendToolResult(id any, isError bool, text string) {
 	toolResult := ToolCallResult{
 		Content: []ContentItem{
 			{
@@ -763,17 +764,13 @@ var hostMCPTools = []string{
 // and host tools are approved when hasHostTools is true.
 func (s *Server) isOwnMCPTool(tool string) bool {
 	if s.isSupervisor {
-		for _, t := range supervisorMCPTools {
-			if t == tool {
-				return true
-			}
+		if slices.Contains(supervisorMCPTools, tool) {
+			return true
 		}
 	}
 	if s.hasHostTools {
-		for _, t := range hostMCPTools {
-			if t == tool {
-				return true
-			}
+		if slices.Contains(hostMCPTools, tool) {
+			return true
 		}
 	}
 	return false
@@ -785,15 +782,13 @@ func (s *Server) addAllowedTool(tool string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, t := range s.allowedTools {
-		if t == tool {
-			return
-		}
+	if slices.Contains(s.allowedTools, tool) {
+		return
 	}
 	s.allowedTools = append(s.allowedTools, tool)
 }
 
-func (s *Server) sendPermissionResult(id interface{}, allowed bool, args map[string]interface{}, message string) {
+func (s *Server) sendPermissionResult(id any, allowed bool, args map[string]any, message string) {
 	var result PermissionResult
 	if allowed {
 		result = PermissionResult{
@@ -835,7 +830,7 @@ func (s *Server) sendPermissionResult(id interface{}, allowed bool, args map[str
 	s.sendResult(id, toolResult)
 }
 
-func (s *Server) sendResult(id interface{}, result interface{}) {
+func (s *Server) sendResult(id any, result any) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -845,7 +840,7 @@ func (s *Server) sendResult(id interface{}, result interface{}) {
 	s.send(resp)
 }
 
-func (s *Server) sendError(id interface{}, code int, message string, data interface{}) {
+func (s *Server) sendError(id any, code int, message string, data any) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -930,7 +925,7 @@ func validatePlanPath(planPath string) error {
 }
 
 // buildToolDescription creates a human-readable description for known tools
-func buildToolDescription(tool string, input map[string]interface{}) string {
+func buildToolDescription(tool string, input map[string]any) string {
 	switch tool {
 	case "Edit":
 		if filePath, ok := input["file_path"].(string); ok {
@@ -1002,7 +997,7 @@ func buildToolDescription(tool string, input map[string]interface{}) string {
 }
 
 // formatInputForDisplay converts tool arguments to a human-readable format (horizontal layout)
-func formatInputForDisplay(args map[string]interface{}) string {
+func formatInputForDisplay(args map[string]any) string {
 	if len(args) == 0 {
 		return "(no details available)"
 	}
@@ -1038,7 +1033,7 @@ func formatInputForDisplay(args map[string]interface{}) string {
 }
 
 // formatValue formats a single key-value pair for display
-func formatValue(key string, value interface{}) string {
+func formatValue(key string, value any) string {
 	// Make key more readable
 	displayKey := humanizeKey(key)
 
@@ -1055,13 +1050,13 @@ func formatValue(key string, value interface{}) string {
 		return displayKey + ": no"
 	case float64:
 		return fmt.Sprintf("%s: %v", displayKey, v)
-	case map[string]interface{}:
+	case map[string]any:
 		// For nested objects, show a summary
 		if len(v) == 0 {
 			return ""
 		}
 		return displayKey + ": " + formatNestedObject(v)
-	case []interface{}:
+	case []any:
 		if len(v) == 0 {
 			return ""
 		}
@@ -1109,7 +1104,7 @@ func humanizeKey(key string) string {
 }
 
 // formatNestedObject formats a nested map for display
-func formatNestedObject(obj map[string]interface{}) string {
+func formatNestedObject(obj map[string]any) string {
 	if len(obj) == 0 {
 		return "(empty)"
 	}
@@ -1145,7 +1140,7 @@ func formatNestedObject(obj map[string]interface{}) string {
 }
 
 // formatArray formats an array for display
-func formatArray(arr []interface{}) string {
+func formatArray(arr []any) string {
 	if len(arr) == 0 {
 		return "(empty)"
 	}

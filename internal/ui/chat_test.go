@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -869,15 +870,9 @@ func TestRenderSpinner(t *testing.T) {
 
 func TestRandomThinkingVerb(t *testing.T) {
 	// Call multiple times and verify we get valid verbs
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		verb := randomThinkingVerb()
-		found := false
-		for _, v := range thinkingVerbs {
-			if v == verb {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(thinkingVerbs, verb)
 		if !found {
 			t.Errorf("randomThinkingVerb returned invalid verb: %q", verb)
 		}
@@ -3662,7 +3657,7 @@ func TestChat_TodoSidebar_ScrollableViewport(t *testing.T) {
 
 	// Create a todo list with many items to force scrolling
 	items := make([]claude.TodoItem, 15)
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		items[i] = claude.TodoItem{
 			Content:    fmt.Sprintf("Task %d with some longer description to fill space", i+1),
 			Status:     claude.TodoStatusPending,
@@ -3704,7 +3699,7 @@ func TestChat_TodoSidebar_MouseWheelRouting(t *testing.T) {
 
 	// Create a todo list with many items
 	items := make([]claude.TodoItem, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		items[i] = claude.TodoItem{
 			Content:    fmt.Sprintf("Task %d", i+1),
 			Status:     claude.TodoStatusPending,
@@ -3927,7 +3922,7 @@ func TestListItemWrapping(t *testing.T) {
 }
 
 // errorf is a helper that returns an error with formatting
-func errorf(format string, args ...interface{}) error {
+func errorf(format string, args ...any) error {
 	return &testError{msg: sprintf(format, args...)}
 }
 
@@ -3935,7 +3930,7 @@ type testError struct{ msg string }
 
 func (e *testError) Error() string { return e.msg }
 
-func sprintf(format string, args ...interface{}) string {
+func sprintf(format string, args ...any) string {
 	// Simple sprintf implementation for test errors
 	result := format
 	for _, arg := range args {

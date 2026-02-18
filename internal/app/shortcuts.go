@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -617,11 +618,8 @@ func shortcutAddRepo(m *Model) (tea.Model, tea.Cmd) {
 	currentRepo := m.sessionService.GetCurrentDirGitRoot(ctx)
 	if currentRepo != "" {
 		// Check if already added
-		for _, repo := range m.config.GetRepos() {
-			if repo == currentRepo {
-				currentRepo = "" // Already added, don't suggest
-				break
-			}
+		if slices.Contains(m.config.GetRepos(), currentRepo) {
+			currentRepo = ""
 		}
 	}
 	m.modal.Show(ui.NewAddRepoState(currentRepo))
@@ -997,13 +995,7 @@ func openTerminalInContainer(sess *config.Session) tea.Cmd {
 		}
 
 		// Check if our container is in the list (exact match)
-		found := false
-		for _, name := range names {
-			if name == containerName {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(names, containerName)
 		if !found {
 			errMsg := fmt.Sprintf("Container not running. Session must be active (send a message first).")
 			log.Debug("container not found in running containers", "container", containerName)

@@ -195,7 +195,7 @@ func TestToolsListResult_Marshal(t *testing.T) {
 func TestToolCallParams_Marshal(t *testing.T) {
 	params := ToolCallParams{
 		Name: "permission",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"tool_name":   "Edit",
 			"description": "Edit file.go",
 		},
@@ -271,7 +271,7 @@ func TestPermissionRequest_Marshal(t *testing.T) {
 		ID:          123,
 		Tool:        "Bash",
 		Description: "Run: git status",
-		Arguments: map[string]interface{}{
+		Arguments: map[string]any{
 			"command": "git status",
 		},
 	}
@@ -356,7 +356,7 @@ func TestPermissionResult_Marshal(t *testing.T) {
 			name: "allow",
 			result: PermissionResult{
 				Behavior:     "allow",
-				UpdatedInput: map[string]interface{}{"command": "git status"},
+				UpdatedInput: map[string]any{"command": "git status"},
 			},
 		},
 		{

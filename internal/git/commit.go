@@ -53,16 +53,17 @@ func (s *GitService) GenerateCommitMessage(ctx context.Context, worktreePath str
 	}
 
 	// Create a simple but descriptive message
-	message := fmt.Sprintf("Plural session changes\n\n%s\n\nFiles:\n", status.Summary)
+	var message strings.Builder
+	message.WriteString(fmt.Sprintf("Plural session changes\n\n%s\n\nFiles:\n", status.Summary))
 	for _, file := range status.Files {
-		message += fmt.Sprintf("- %s\n", file)
+		message.WriteString(fmt.Sprintf("- %s\n", file))
 	}
 
 	if len(statOutput) > 0 {
-		message += fmt.Sprintf("\nStats:\n%s", string(statOutput))
+		message.WriteString(fmt.Sprintf("\nStats:\n%s", string(statOutput)))
 	}
 
-	return message, nil
+	return message.String(), nil
 }
 
 // GenerateCommitMessageWithClaude uses Claude to generate a commit message from the diff

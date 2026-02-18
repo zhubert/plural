@@ -13,13 +13,13 @@ func TestBuildToolDescription(t *testing.T) {
 	tests := []struct {
 		name     string
 		tool     string
-		input    map[string]interface{}
+		input    map[string]any
 		expected string
 	}{
 		{
 			name: "Edit with file path",
 			tool: "Edit",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"file_path": "/path/to/file.go",
 			},
 			expected: "Edit file: /path/to/file.go",
@@ -27,7 +27,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Write with file path",
 			tool: "Write",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"file_path": "/path/to/new.txt",
 			},
 			expected: "Write file: /path/to/new.txt",
@@ -35,7 +35,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Read with file path",
 			tool: "Read",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"file_path": "/path/to/read.go",
 			},
 			expected: "Read file: /path/to/read.go",
@@ -43,7 +43,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Bash with short command",
 			tool: "Bash",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"command": "ls -la",
 			},
 			expected: "Run: ls -la",
@@ -51,7 +51,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Bash with long command not truncated",
 			tool: "Bash",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"command": strings.Repeat("a", 150),
 			},
 			expected: "Run: " + strings.Repeat("a", 150),
@@ -59,7 +59,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Glob with pattern only",
 			tool: "Glob",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"pattern": "**/*.go",
 			},
 			expected: "Search for files: **/*.go",
@@ -67,7 +67,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Glob with pattern and path",
 			tool: "Glob",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"pattern": "*.ts",
 				"path":    "/src",
 			},
@@ -76,7 +76,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Grep with pattern only",
 			tool: "Grep",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"pattern": "func main",
 			},
 			expected: "Search for: func main",
@@ -84,7 +84,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Grep with pattern and path",
 			tool: "Grep",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"pattern": "TODO",
 				"path":    "/internal",
 			},
@@ -93,7 +93,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Task with description",
 			tool: "Task",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"description": "Explore codebase",
 			},
 			expected: "Delegate task: Explore codebase",
@@ -101,7 +101,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Task with prompt",
 			tool: "Task",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"prompt": "Find all API endpoints",
 			},
 			expected: "Delegate task: Find all API endpoints",
@@ -109,7 +109,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "WebFetch with URL",
 			tool: "WebFetch",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"url": "https://example.com",
 			},
 			expected: "Fetch URL: https://example.com",
@@ -117,7 +117,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "WebSearch with query",
 			tool: "WebSearch",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"query": "golang testing",
 			},
 			expected: "Web search: golang testing",
@@ -125,7 +125,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "NotebookEdit with path",
 			tool: "NotebookEdit",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"notebook_path": "/notebooks/analysis.ipynb",
 			},
 			expected: "Edit notebook: /notebooks/analysis.ipynb",
@@ -133,7 +133,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Unknown tool with file_path",
 			tool: "CustomTool",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"file_path": "/some/file.txt",
 			},
 			expected: "CustomTool: /some/file.txt",
@@ -141,7 +141,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name: "Unknown tool with command",
 			tool: "CustomTool",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"command": "some command",
 			},
 			expected: "CustomTool: some command",
@@ -149,7 +149,7 @@ func TestBuildToolDescription(t *testing.T) {
 		{
 			name:     "Empty input returns empty string",
 			tool:     "Edit",
-			input:    map[string]interface{}{},
+			input:    map[string]any{},
 			expected: "",
 		},
 	}
@@ -167,31 +167,31 @@ func TestBuildToolDescription(t *testing.T) {
 func TestFormatInputForDisplay(t *testing.T) {
 	tests := []struct {
 		name     string
-		args     map[string]interface{}
+		args     map[string]any
 		contains []string
 	}{
 		{
 			name:     "Empty args",
-			args:     map[string]interface{}{},
+			args:     map[string]any{},
 			contains: []string{"(no details available)"},
 		},
 		{
 			name: "Simple string value",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"file_path": "/path/to/file.go",
 			},
 			contains: []string{"File: /path/to/file.go"},
 		},
 		{
 			name: "Boolean values",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"replace_all": true,
 			},
 			contains: []string{"Replace all: yes"},
 		},
 		{
 			name: "Skips tool_use_id",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"file_path":   "/path/to/file.go",
 				"tool_use_id": "abc123",
 			},
@@ -199,7 +199,7 @@ func TestFormatInputForDisplay(t *testing.T) {
 		},
 		{
 			name: "Multiple values joined with bullet separator",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"path":    "/dir",
 				"command": "ls",
 			},
@@ -290,24 +290,24 @@ func TestTruncateString(t *testing.T) {
 func TestFormatNestedObject(t *testing.T) {
 	tests := []struct {
 		name     string
-		obj      map[string]interface{}
+		obj      map[string]any
 		expected string
 	}{
 		{
 			name:     "Empty object",
-			obj:      map[string]interface{}{},
+			obj:      map[string]any{},
 			expected: "(empty)",
 		},
 		{
 			name: "Small object inline",
-			obj: map[string]interface{}{
+			obj: map[string]any{
 				"file_path": "/test.go",
 			},
 			expected: "File: /test.go",
 		},
 		{
 			name: "Large object shows count",
-			obj: map[string]interface{}{
+			obj: map[string]any{
 				"a": "1",
 				"b": "2",
 				"c": "3",
@@ -330,22 +330,22 @@ func TestFormatNestedObject(t *testing.T) {
 func TestFormatArray(t *testing.T) {
 	tests := []struct {
 		name     string
-		arr      []interface{}
+		arr      []any
 		expected string
 	}{
 		{
 			name:     "Empty array",
-			arr:      []interface{}{},
+			arr:      []any{},
 			expected: "(empty)",
 		},
 		{
 			name:     "Single string item",
-			arr:      []interface{}{"hello"},
+			arr:      []any{"hello"},
 			expected: "hello",
 		},
 		{
 			name:     "Multiple items shows count",
-			arr:      []interface{}{"a", "b", "c"},
+			arr:      []any{"a", "b", "c"},
 			expected: "(3 items)",
 		},
 	}
@@ -364,7 +364,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name     string
 		tool     string
-		input    map[string]interface{}
+		input    map[string]any
 		expected string
 	}{
 		{
@@ -376,7 +376,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 		{
 			name: "Task with both description and prompt prefers description",
 			tool: "Task",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"description": "Short desc",
 				"prompt":      "Long prompt text",
 			},
@@ -385,7 +385,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 		{
 			name: "Unknown tool with url",
 			tool: "CustomTool",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"url": "https://example.com",
 			},
 			expected: "CustomTool: https://example.com",
@@ -393,7 +393,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 		{
 			name: "Unknown tool with path",
 			tool: "CustomTool",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"path": "/some/path",
 			},
 			expected: "CustomTool: /some/path",
@@ -401,7 +401,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 		{
 			name: "Unknown tool with no recognized fields",
 			tool: "CustomTool",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"foo": "bar",
 			},
 			expected: "",
@@ -409,7 +409,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 		{
 			name: "Wrong type for file_path",
 			tool: "Edit",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"file_path": 123,
 			},
 			expected: "",
@@ -417,7 +417,7 @@ func TestBuildToolDescription_EdgeCases(t *testing.T) {
 		{
 			name: "Task with long prompt not truncated",
 			tool: "Task",
-			input: map[string]interface{}{
+			input: map[string]any{
 				"prompt": strings.Repeat("x", 100),
 			},
 			expected: "Delegate task: " + strings.Repeat("x", 100),
@@ -438,7 +438,7 @@ func TestFormatValue(t *testing.T) {
 	tests := []struct {
 		name     string
 		key      string
-		value    interface{}
+		value    any
 		contains string
 	}{
 		{
@@ -480,25 +480,25 @@ func TestFormatValue(t *testing.T) {
 		{
 			name:     "Nested object",
 			key:      "options",
-			value:    map[string]interface{}{"key": "val"},
+			value:    map[string]any{"key": "val"},
 			contains: "Options:",
 		},
 		{
 			name:     "Empty nested object",
 			key:      "options",
-			value:    map[string]interface{}{},
+			value:    map[string]any{},
 			contains: "",
 		},
 		{
 			name:     "Array",
 			key:      "items",
-			value:    []interface{}{"a", "b"},
+			value:    []any{"a", "b"},
 			contains: "(2 items)",
 		},
 		{
 			name:     "Empty array",
 			key:      "items",
-			value:    []interface{}{},
+			value:    []any{},
 			contains: "",
 		},
 	}
@@ -519,7 +519,7 @@ func TestFormatValue(t *testing.T) {
 
 func TestFormatNestedObject_MultipleFields(t *testing.T) {
 	// Test with exactly 3 fields (boundary for inline display)
-	obj := map[string]interface{}{
+	obj := map[string]any{
 		"file_path": "/test.go",
 		"command":   "test",
 		"pattern":   "*.go",
@@ -533,7 +533,7 @@ func TestFormatNestedObject_MultipleFields(t *testing.T) {
 }
 
 func TestFormatNestedObject_BooleanField(t *testing.T) {
-	obj := map[string]interface{}{
+	obj := map[string]any{
 		"enabled": true,
 	}
 	got := formatNestedObject(obj)
@@ -549,7 +549,7 @@ func TestFormatNestedObject_BooleanField(t *testing.T) {
 }
 
 func TestFormatArray_NonStringItem(t *testing.T) {
-	arr := []interface{}{42}
+	arr := []any{42}
 	got := formatArray(arr)
 	if got != "42" {
 		t.Errorf("Expected '42' for single non-string item, got %q", got)
@@ -854,7 +854,7 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 			planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: false}
 		}()
 
-		s.handleExitPlanMode("test-id", map[string]interface{}{"plan": "# My Plan\n\n1. Do something"})
+		s.handleExitPlanMode("test-id", map[string]any{"plan": "# My Plan\n\n1. Do something"})
 	})
 
 	t.Run("missing plan and filePath shows placeholder", func(t *testing.T) {
@@ -879,7 +879,7 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 		}()
 
 		// Missing both plan and filePath should show placeholder
-		s.handleExitPlanMode("test-id", map[string]interface{}{})
+		s.handleExitPlanMode("test-id", map[string]any{})
 	})
 
 	t.Run("filePath argument reads from specified file", func(t *testing.T) {
@@ -920,7 +920,7 @@ func TestHandleExitPlanMode_EmptyPlanShowsUI(t *testing.T) {
 		}()
 
 		// filePath argument should be used to read the plan
-		s.handleExitPlanMode("test-id", map[string]interface{}{
+		s.handleExitPlanMode("test-id", map[string]any{
 			"filePath": planPath,
 		})
 	})
@@ -1078,14 +1078,14 @@ func TestWildcard_AskUserQuestion_StillRoutesToTUI(t *testing.T) {
 		answerChan <- QuestionResponse{ID: req.ID, Answers: map[string]string{"0": "Option A"}}
 	}()
 
-	s.handleAskUserQuestion("test-id", map[string]interface{}{
-		"questions": []interface{}{
-			map[string]interface{}{
+	s.handleAskUserQuestion("test-id", map[string]any{
+		"questions": []any{
+			map[string]any{
 				"question": "Which approach?",
 				"header":   "Approach",
-				"options": []interface{}{
-					map[string]interface{}{"label": "Option A", "description": "First"},
-					map[string]interface{}{"label": "Option B", "description": "Second"},
+				"options": []any{
+					map[string]any{"label": "Option A", "description": "First"},
+					map[string]any{"label": "Option B", "description": "Second"},
 				},
 			},
 		},
@@ -1120,7 +1120,7 @@ func TestWildcard_ExitPlanMode_StillRoutesToTUI(t *testing.T) {
 		planResponseChan <- PlanApprovalResponse{ID: req.ID, Approved: true}
 	}()
 
-	s.handleExitPlanMode("test-id", map[string]interface{}{"plan": "# My Plan"})
+	s.handleExitPlanMode("test-id", map[string]any{"plan": "# My Plan"})
 
 	if buf.Len() == 0 {
 		t.Error("Expected response to be written")
@@ -1139,14 +1139,14 @@ func TestHandleExitPlanMode_ParsesAllowedPrompts(t *testing.T) {
 		log:              logger.WithSession("test"),
 	}
 
-	arguments := map[string]interface{}{
+	arguments := map[string]any{
 		"plan": "Test plan",
-		"allowedPrompts": []interface{}{
-			map[string]interface{}{
+		"allowedPrompts": []any{
+			map[string]any{
 				"tool":   "Bash",
 				"prompt": "run tests",
 			},
-			map[string]interface{}{
+			map[string]any{
 				"tool":   "Bash",
 				"prompt": "build project",
 			},
@@ -1250,7 +1250,7 @@ func TestServer_handleCreateChildSession(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "create_child_session",
-			Arguments: map[string]interface{}{"task": "test task"},
+			Arguments: map[string]any{"task": "test task"},
 		}
 		s.handleCreateChildSession(req, params)
 
@@ -1274,7 +1274,7 @@ func TestServer_handleCreateChildSession(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "create_child_session",
-			Arguments: map[string]interface{}{},
+			Arguments: map[string]any{},
 		}
 		s.handleCreateChildSession(req, params)
 
@@ -1309,7 +1309,7 @@ func TestServer_handleCreateChildSession(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "create_child_session",
-			Arguments: map[string]interface{}{"task": "implement feature X"},
+			Arguments: map[string]any{"task": "implement feature X"},
 		}
 		s.handleCreateChildSession(req, params)
 
@@ -1351,7 +1351,7 @@ func TestServer_handleListChildSessions(t *testing.T) {
 		}()
 
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "2"}
-		params := ToolCallParams{Name: "list_child_sessions", Arguments: map[string]interface{}{}}
+		params := ToolCallParams{Name: "list_child_sessions", Arguments: map[string]any{}}
 		s.handleListChildSessions(req, params)
 
 		output := buf.String()
@@ -1378,7 +1378,7 @@ func TestServer_handleMergeChildToParent(t *testing.T) {
 			WithSupervisor(createChildChan, createChildResp, listChildrenChan, listChildrenResp, mergeChildChan, mergeChildResp))
 
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "3"}
-		params := ToolCallParams{Name: "merge_child_to_parent", Arguments: map[string]interface{}{}}
+		params := ToolCallParams{Name: "merge_child_to_parent", Arguments: map[string]any{}}
 		s.handleMergeChildToParent(req, params)
 
 		if !strings.Contains(buf.String(), "child_session_id is required") {
@@ -1410,7 +1410,7 @@ func TestServer_handleMergeChildToParent(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "3"}
 		params := ToolCallParams{
 			Name:      "merge_child_to_parent",
-			Arguments: map[string]interface{}{"child_session_id": "child-abc"},
+			Arguments: map[string]any{"child_session_id": "child-abc"},
 		}
 		s.handleMergeChildToParent(req, params)
 
@@ -1431,7 +1431,7 @@ func TestServer_handleCreatePR(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "create_pr",
-			Arguments: map[string]interface{}{"title": "Test PR"},
+			Arguments: map[string]any{"title": "Test PR"},
 		}
 		s.handleCreatePR(req, params)
 
@@ -1464,7 +1464,7 @@ func TestServer_handleCreatePR(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "create_pr",
-			Arguments: map[string]interface{}{"title": "Test PR"},
+			Arguments: map[string]any{"title": "Test PR"},
 		}
 		s.handleCreatePR(req, params)
 
@@ -1486,7 +1486,7 @@ func TestServer_handlePushBranch(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "push_branch",
-			Arguments: map[string]interface{}{},
+			Arguments: map[string]any{},
 		}
 		s.handlePushBranch(req, params)
 
@@ -1518,7 +1518,7 @@ func TestServer_handlePushBranch(t *testing.T) {
 		req := &JSONRPCRequest{JSONRPC: "2.0", ID: "1"}
 		params := ToolCallParams{
 			Name:      "push_branch",
-			Arguments: map[string]interface{}{"commit_message": "test commit"},
+			Arguments: map[string]any{"commit_message": "test commit"},
 		}
 		s.handlePushBranch(req, params)
 

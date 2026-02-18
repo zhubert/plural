@@ -2,6 +2,7 @@ package modals
 
 import (
 	"path/filepath"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -57,7 +58,7 @@ func (s *SelectIssueSourceState) Render() string {
 		Render("Select where to import issues/tasks from:")
 
 	// Build source list
-	var sourceList string
+	var sourceList strings.Builder
 	for i, source := range s.Sources {
 		style := SidebarItemStyle
 		prefix := "  "
@@ -67,12 +68,12 @@ func (s *SelectIssueSourceState) Render() string {
 			prefix = "> "
 		}
 
-		sourceList += style.Render(prefix+source.Name) + "\n"
+		sourceList.WriteString(style.Render(prefix+source.Name) + "\n")
 	}
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoName, description, sourceList, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, repoLabel, repoName, description, sourceList.String(), help)
 }
 
 func (s *SelectIssueSourceState) Update(msg tea.Msg) (ModalState, tea.Cmd) {

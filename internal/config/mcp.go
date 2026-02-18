@@ -1,5 +1,7 @@
 package config
 
+import "slices"
+
 // MCPServer represents an MCP server configuration
 type MCPServer struct {
 	Name    string   `json:"name"`    // Unique identifier for the server
@@ -142,10 +144,8 @@ func (c *Config) AddRepoAllowedTool(repoPath, tool string) bool {
 		c.RepoAllowedTools = make(map[string][]string)
 	}
 
-	for _, t := range c.RepoAllowedTools[repoPath] {
-		if t == tool {
-			return false
-		}
+	if slices.Contains(c.RepoAllowedTools[repoPath], tool) {
+		return false
 	}
 	c.RepoAllowedTools[repoPath] = append(c.RepoAllowedTools[repoPath], tool)
 	return true

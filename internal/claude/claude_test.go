@@ -1138,11 +1138,11 @@ func TestTruncateForLog(t *testing.T) {
 		t.Error("Short message should not be truncated")
 	}
 
-	long := ""
-	for i := 0; i < 300; i++ {
-		long += "x"
+	var long strings.Builder
+	for range 300 {
+		long.WriteString("x")
 	}
-	result := truncateForLog(long)
+	result := truncateForLog(long.String())
 	if len(result) > 203 { // 200 + "..."
 		t.Errorf("Long message should be truncated, got len=%d", len(result))
 	}
@@ -2088,7 +2088,7 @@ func TestStreamInputMessage(t *testing.T) {
 	}
 
 	// Verify the JSON structure
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
@@ -2097,7 +2097,7 @@ func TestStreamInputMessage(t *testing.T) {
 		t.Errorf("type = %v, want 'user'", parsed["type"])
 	}
 
-	message, ok := parsed["message"].(map[string]interface{})
+	message, ok := parsed["message"].(map[string]any)
 	if !ok {
 		t.Fatal("message field missing or wrong type")
 	}
@@ -3133,7 +3133,7 @@ func TestTokenTracking_NoRaceCondition(t *testing.T) {
 	// Another goroutine reads them (simulating another concurrent operation)
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			// Simulate writing token stats (like in processStreamMessage)
 			runner.mu.Lock()
 			runner.tokens.CacheCreation = i
@@ -3145,7 +3145,7 @@ func TestTokenTracking_NoRaceCondition(t *testing.T) {
 	}()
 
 	// This test will fail with -race if token fields are read outside the lock
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		runner.mu.RLock()
 		_ = runner.tokens.CacheCreation
 		_ = runner.tokens.CacheRead

@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -200,13 +201,7 @@ func TestPermission_FullFlow_Always(t *testing.T) {
 	// Verify tool was added to allowed list for the repo
 	repoPath := m.activeSession.RepoPath
 	allowedTools := m.config.GetAllowedToolsForRepo(repoPath)
-	found := false
-	for _, tool := range allowedTools {
-		if tool == toolName {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(allowedTools, toolName)
 	if !found {
 		t.Errorf("Tool %s should be added to allowed list, got: %v", toolName, allowedTools)
 	}
@@ -683,13 +678,7 @@ func TestMockRunner_AllowedTools(t *testing.T) {
 
 	// Verify it's in the list
 	tools := mock.GetAllowedTools()
-	found := false
-	for _, tool := range tools {
-		if tool == "TestTool" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(tools, "TestTool")
 	if !found {
 		t.Error("Expected TestTool in allowed tools")
 	}

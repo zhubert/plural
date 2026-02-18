@@ -26,18 +26,18 @@ func TestCreateContainerMCPConfigLocked(t *testing.T) {
 		t.Fatalf("failed to read config file: %v", err)
 	}
 
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("failed to parse config JSON: %v", err)
 	}
 
 	// Verify mcpServers structure
-	mcpServers, ok := config["mcpServers"].(map[string]interface{})
+	mcpServers, ok := config["mcpServers"].(map[string]any)
 	if !ok {
 		t.Fatal("expected mcpServers key in config")
 	}
 
-	plural, ok := mcpServers["plural"].(map[string]interface{})
+	plural, ok := mcpServers["plural"].(map[string]any)
 	if !ok {
 		t.Fatal("expected 'plural' server in mcpServers")
 	}
@@ -52,7 +52,7 @@ func TestCreateContainerMCPConfigLocked(t *testing.T) {
 	}
 
 	// Verify args include --auto-approve and --listen (not --socket or --tcp)
-	argsRaw, ok := plural["args"].([]interface{})
+	argsRaw, ok := plural["args"].([]any)
 	if !ok {
 		t.Fatal("expected 'args' field to be array")
 	}
@@ -107,17 +107,17 @@ func TestCreateMCPConfigLocked_HostSession(t *testing.T) {
 		t.Fatalf("failed to read config file: %v", err)
 	}
 
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("failed to parse config JSON: %v", err)
 	}
 
-	mcpServers, ok := config["mcpServers"].(map[string]interface{})
+	mcpServers, ok := config["mcpServers"].(map[string]any)
 	if !ok {
 		t.Fatal("expected mcpServers key in config")
 	}
 
-	plural, ok := mcpServers["plural"].(map[string]interface{})
+	plural, ok := mcpServers["plural"].(map[string]any)
 	if !ok {
 		t.Fatal("expected 'plural' server in mcpServers")
 	}
@@ -132,7 +132,7 @@ func TestCreateMCPConfigLocked_HostSession(t *testing.T) {
 	}
 
 	// Host config should NOT include --auto-approve
-	argsRaw, ok := plural["args"].([]interface{})
+	argsRaw, ok := plural["args"].([]any)
 	if !ok {
 		t.Fatal("expected 'args' field to be array")
 	}
@@ -167,12 +167,12 @@ func TestCreateContainerMCPConfig_NoExternalServers(t *testing.T) {
 		t.Fatalf("failed to read config file: %v", err)
 	}
 
-	var config map[string]interface{}
+	var config map[string]any
 	if err := json.Unmarshal(data, &config); err != nil {
 		t.Fatalf("failed to parse config JSON: %v", err)
 	}
 
-	mcpServers := config["mcpServers"].(map[string]interface{})
+	mcpServers := config["mcpServers"].(map[string]any)
 	if _, exists := mcpServers["external"]; exists {
 		t.Error("container MCP config should not include external MCP servers")
 	}

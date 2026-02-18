@@ -102,10 +102,7 @@ func (s *AddRepoState) renderCompletionOptions(completions []string) string {
 	if s.completionIndex >= maxDisplay {
 		start = s.completionIndex - maxDisplay + 1
 	}
-	end := start + maxDisplay
-	if end > len(completions) {
-		end = len(completions)
-	}
+	end := min(start+maxDisplay, len(completions))
 
 	var lines []string
 	for i := start; i < end; i++ {

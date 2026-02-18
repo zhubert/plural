@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -380,13 +381,7 @@ func TestSessionManager_AddAllowedTool(t *testing.T) {
 
 	// Tool should be saved to config
 	repoTools := cfg.GetAllowedToolsForRepo("/test/repo")
-	found := false
-	for _, tool := range repoTools {
-		if tool == "Bash(git:*)" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(repoTools, "Bash(git:*)")
 	if !found {
 		t.Error("Tool should be saved to config")
 	}

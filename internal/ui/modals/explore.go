@@ -2,6 +2,7 @@ package modals
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -46,14 +47,14 @@ func (s *ExploreOptionsState) Render() string {
 		MarginBottom(1).
 		Render("Select options to explore in parallel forks:")
 
-	var optionList string
+	var optionList strings.Builder
 	lastGroupIndex := -1
 	for i, opt := range s.Options {
 		// Add separator between groups
 		if lastGroupIndex != -1 && opt.GroupIndex != lastGroupIndex {
 			separatorStyle := lipgloss.NewStyle().
 				Foreground(ColorTextMuted)
-			optionList += separatorStyle.Render("    ───────────────────────────────────────") + "\n"
+			optionList.WriteString(separatorStyle.Render("    ───────────────────────────────────────") + "\n")
 		}
 		lastGroupIndex = opt.GroupIndex
 
@@ -84,7 +85,7 @@ func (s *ExploreOptionsState) Render() string {
 			label = fmt.Sprintf("%d", opt.Number)
 		}
 		optionLine := fmt.Sprintf("%s %s. %s", checkbox, label, text)
-		optionList += style.Render(prefix+optionLine) + "\n"
+		optionList.WriteString(style.Render(prefix+optionLine) + "\n")
 	}
 
 	// Show count of selected options
@@ -106,7 +107,7 @@ func (s *ExploreOptionsState) Render() string {
 
 	help := ModalHelpStyle.Render(s.Help())
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, parentLabel, parentName, description, optionList, countSection, help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, parentLabel, parentName, description, optionList.String(), countSection, help)
 }
 
 func (s *ExploreOptionsState) Update(msg tea.Msg) (ModalState, tea.Cmd) {

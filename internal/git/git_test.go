@@ -923,7 +923,7 @@ func TestGenerateCommitMessage_MultipleFiles(t *testing.T) {
 	// Mock untracked file diffs for parseFileDiffs
 	for _, name := range []string{"file1.txt", "file2.txt", "file3.txt"} {
 		mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--no-index", "/dev/null", name}, pexec.MockResponse{
-			Stdout: []byte(fmt.Sprintf("diff --git a/dev/null b/%s\n+content\n", name)),
+			Stdout: fmt.Appendf(nil, "diff --git a/dev/null b/%s\n+content\n", name),
 		})
 	}
 	mock.AddExactMatch("git", []string{"diff", "--no-ext-diff", "--stat", "HEAD"}, pexec.MockResponse{
@@ -2195,7 +2195,7 @@ func TestSquashMergeToMain(t *testing.T) {
 	// Make multiple commits on the feature branch
 	for i := 1; i <= 3; i++ {
 		testFile := filepath.Join(repoPath, fmt.Sprintf("feature%d.txt", i))
-		if err := os.WriteFile(testFile, []byte(fmt.Sprintf("feature %d content", i)), 0644); err != nil {
+		if err := os.WriteFile(testFile, fmt.Appendf(nil, "feature %d content", i), 0644); err != nil {
 			t.Fatalf("Failed to create feature file: %v", err)
 		}
 

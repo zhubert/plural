@@ -173,10 +173,7 @@ func (s *NewSessionState) renderRepoList() string {
 
 	// Calculate visible range
 	startIdx := s.ScrollOffset
-	endIdx := startIdx + NewSessionMaxVisibleRepos
-	if endIdx > len(s.RepoOptions) {
-		endIdx = len(s.RepoOptions)
-	}
+	endIdx := min(startIdx+NewSessionMaxVisibleRepos, len(s.RepoOptions))
 
 	// Show scroll indicator at top if needed
 	if startIdx > 0 {
@@ -236,7 +233,7 @@ func (s *NewSessionState) isSkippedFocus(idx int) bool {
 // advanceFocus moves focus forward, skipping disabled fields.
 func (s *NewSessionState) advanceFocus(delta int) {
 	n := s.numFields()
-	for i := 0; i < n; i++ {
+	for range n {
 		s.Focus = (s.Focus + delta + n) % n
 		if !s.isSkippedFocus(s.Focus) {
 			return
@@ -373,11 +370,11 @@ type ForkSessionState struct {
 	ParentSessionName      string
 	ParentSessionID        string
 	RepoPath               string
-	CopyMessages           bool   // Whether to copy conversation history
-	UseContainers          bool   // Whether to run this session in a container
-	ContainersSupported    bool   // Whether Docker is available for container mode
-	ContainerAuthAvailable bool   // Whether API key credentials are available for container mode
-	branchName             string // Bound form value
+	CopyMessages           bool     // Whether to copy conversation history
+	UseContainers          bool     // Whether to run this session in a container
+	ContainersSupported    bool     // Whether Docker is available for container mode
+	ContainerAuthAvailable bool     // Whether API key credentials are available for container mode
+	branchName             string   // Bound form value
 	enabledOptions         []string // MultiSelect binding
 
 	form *huh.Form
@@ -503,10 +500,7 @@ func NewForkSessionState(parentSessionName, parentSessionID, repoPath string, pa
 	}
 
 	// MultiSelect needs height >= 2 to render options (huh library limitation)
-	multiSelectHeight := len(options)
-	if multiSelectHeight < 2 {
-		multiSelectHeight = 2
-	}
+	multiSelectHeight := max(len(options), 2)
 
 	s.form = huh.NewForm(
 		huh.NewGroup(

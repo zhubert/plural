@@ -148,7 +148,7 @@ func TestForwardRequests(t *testing.T) {
 	wg.Wait()
 
 	// All responses should be "ok"
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		resp := <-respCh
 		if resp != "ok" {
 			t.Errorf("expected ok, got %s", resp)

@@ -20,6 +20,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -318,13 +319,7 @@ func (r *Runner) SetAllowedTools(tools []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, tool := range tools {
-		found := false
-		for _, existing := range r.allowedTools {
-			if existing == tool {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(r.allowedTools, tool)
 		if !found {
 			r.allowedTools = append(r.allowedTools, tool)
 		}
@@ -335,10 +330,8 @@ func (r *Runner) SetAllowedTools(tools []string) {
 func (r *Runner) AddAllowedTool(tool string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for _, t := range r.allowedTools {
-		if t == tool {
-			return
-		}
+	if slices.Contains(r.allowedTools, tool) {
+		return
 	}
 	r.allowedTools = append(r.allowedTools, tool)
 }
@@ -1760,4 +1753,3 @@ func (r *Runner) Stop() {
 		r.log.Info("runner stopped")
 	})
 }
-

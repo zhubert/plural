@@ -132,8 +132,8 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 	if r.hostTools {
 		mcpArgs = append(mcpArgs, "--host-tools")
 	}
-	mcpServers := map[string]interface{}{
-		"plural": map[string]interface{}{
+	mcpServers := map[string]any{
+		"plural": map[string]any{
 			"command": execPath,
 			"args":    mcpArgs,
 		},
@@ -141,13 +141,13 @@ func (r *Runner) createMCPConfigLocked(socketPath string) (string, error) {
 
 	// Add external MCP servers
 	for _, server := range r.mcpServers {
-		mcpServers[server.Name] = map[string]interface{}{
+		mcpServers[server.Name] = map[string]any{
 			"command": server.Command,
 			"args":    server.Args,
 		}
 	}
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"mcpServers": mcpServers,
 	}
 
@@ -179,14 +179,14 @@ func (r *Runner) createContainerMCPConfigLocked(containerPort int) (string, erro
 	if r.hostTools {
 		args = append(args, "--host-tools")
 	}
-	mcpServers := map[string]interface{}{
-		"plural": map[string]interface{}{
+	mcpServers := map[string]any{
+		"plural": map[string]any{
 			"command": "/usr/local/bin/plural",
 			"args":    args,
 		},
 	}
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"mcpServers": mcpServers,
 	}
 

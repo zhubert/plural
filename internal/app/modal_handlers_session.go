@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -230,11 +231,8 @@ func (m *Model) handleNewSessionModal(key string, msg tea.KeyPressMsg, state *ui
 			ctx := context.Background()
 			currentRepo := m.sessionService.GetCurrentDirGitRoot(ctx)
 			if currentRepo != "" {
-				for _, repo := range m.config.GetRepos() {
-					if repo == currentRepo {
-						currentRepo = ""
-						break
-					}
+				if slices.Contains(m.config.GetRepos(), currentRepo) {
+					currentRepo = ""
 				}
 			}
 			addState := ui.NewAddRepoState(currentRepo)

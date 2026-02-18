@@ -348,7 +348,7 @@ func TestDefaultExecutorConcurrentAccess(t *testing.T) {
 	defer SetDefaultExecutor(original)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()

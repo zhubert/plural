@@ -93,8 +93,8 @@ func (s *SessionService) GetDefaultBranch(ctx context.Context, repoPath string) 
 	if err == nil {
 		// Output is like "refs/remotes/origin/main"
 		ref := strings.TrimSpace(string(output))
-		if strings.HasPrefix(ref, "refs/remotes/origin/") {
-			return strings.TrimPrefix(ref, "refs/remotes/origin/")
+		if after, ok := strings.CutPrefix(ref, "refs/remotes/origin/"); ok {
+			return after
 		}
 	}
 

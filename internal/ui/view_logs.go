@@ -118,9 +118,9 @@ func (c *Chat) updateLogViewerContent() {
 // highlightLogContent applies syntax highlighting to log content.
 func highlightLogContent(content string) string {
 	var sb strings.Builder
-	lines := strings.Split(content, "\n")
+	lines := strings.SplitSeq(content, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		highlighted := highlightLogLine(line)
 		sb.WriteString(highlighted)
 		sb.WriteString("\n")
@@ -292,10 +292,7 @@ func (c *Chat) renderLogNavBar(width int) string {
 
 	// Calculate available width for filename
 	fixedWidth := lipgloss.Width(leftArrow) + lipgloss.Width(counter) + lipgloss.Width(rightArrow) + lipgloss.Width(followIndicator) + lipgloss.Width(refreshHint) + 1 // arrows, counter, follow/refresh indicators, space
-	maxFilenameWidth := width - fixedWidth
-	if maxFilenameWidth < 10 {
-		maxFilenameWidth = 10
-	}
+	maxFilenameWidth := max(width-fixedWidth, 10)
 
 	// Truncate filename if needed
 	filename := currentFile.Name

@@ -56,42 +56,42 @@ const (
 
 // SocketMessage wraps permission, question, plan approval, or supervisor requests/responses
 type SocketMessage struct {
-	Type                  MessageType                  `json:"type"`
-	PermReq               *PermissionRequest           `json:"permReq,omitempty"`
-	PermResp              *PermissionResponse          `json:"permResp,omitempty"`
-	QuestReq              *QuestionRequest             `json:"questReq,omitempty"`
-	QuestResp             *QuestionResponse            `json:"questResp,omitempty"`
-	PlanReq               *PlanApprovalRequest         `json:"planReq,omitempty"`
-	PlanResp              *PlanApprovalResponse        `json:"planResp,omitempty"`
-	CreateChildReq        *CreateChildRequest          `json:"createChildReq,omitempty"`
-	CreateChildResp       *CreateChildResponse         `json:"createChildResp,omitempty"`
-	ListChildrenReq       *ListChildrenRequest         `json:"listChildrenReq,omitempty"`
-	ListChildrenResp      *ListChildrenResponse        `json:"listChildrenResp,omitempty"`
-	MergeChildReq         *MergeChildRequest           `json:"mergeChildReq,omitempty"`
-	MergeChildResp        *MergeChildResponse          `json:"mergeChildResp,omitempty"`
-	CreatePRReq           *CreatePRRequest             `json:"createPRReq,omitempty"`
-	CreatePRResp          *CreatePRResponse            `json:"createPRResp,omitempty"`
-	PushBranchReq         *PushBranchRequest           `json:"pushBranchReq,omitempty"`
-	PushBranchResp        *PushBranchResponse          `json:"pushBranchResp,omitempty"`
-	GetReviewCommentsReq  *GetReviewCommentsRequest    `json:"getReviewCommentsReq,omitempty"`
-	GetReviewCommentsResp *GetReviewCommentsResponse   `json:"getReviewCommentsResp,omitempty"`
+	Type                  MessageType                `json:"type"`
+	PermReq               *PermissionRequest         `json:"permReq,omitempty"`
+	PermResp              *PermissionResponse        `json:"permResp,omitempty"`
+	QuestReq              *QuestionRequest           `json:"questReq,omitempty"`
+	QuestResp             *QuestionResponse          `json:"questResp,omitempty"`
+	PlanReq               *PlanApprovalRequest       `json:"planReq,omitempty"`
+	PlanResp              *PlanApprovalResponse      `json:"planResp,omitempty"`
+	CreateChildReq        *CreateChildRequest        `json:"createChildReq,omitempty"`
+	CreateChildResp       *CreateChildResponse       `json:"createChildResp,omitempty"`
+	ListChildrenReq       *ListChildrenRequest       `json:"listChildrenReq,omitempty"`
+	ListChildrenResp      *ListChildrenResponse      `json:"listChildrenResp,omitempty"`
+	MergeChildReq         *MergeChildRequest         `json:"mergeChildReq,omitempty"`
+	MergeChildResp        *MergeChildResponse        `json:"mergeChildResp,omitempty"`
+	CreatePRReq           *CreatePRRequest           `json:"createPRReq,omitempty"`
+	CreatePRResp          *CreatePRResponse          `json:"createPRResp,omitempty"`
+	PushBranchReq         *PushBranchRequest         `json:"pushBranchReq,omitempty"`
+	PushBranchResp        *PushBranchResponse        `json:"pushBranchResp,omitempty"`
+	GetReviewCommentsReq  *GetReviewCommentsRequest  `json:"getReviewCommentsReq,omitempty"`
+	GetReviewCommentsResp *GetReviewCommentsResponse `json:"getReviewCommentsResp,omitempty"`
 }
 
 // SocketServer listens for permission requests from MCP server subprocesses
 type SocketServer struct {
-	socketPath       string // Unix socket path (empty for TCP servers)
-	listener         net.Listener
-	isTCP            bool // True if listening on TCP instead of Unix socket
-	requestCh        chan<- PermissionRequest
-	responseCh       <-chan PermissionResponse
-	questionCh       chan<- QuestionRequest
-	answerCh         <-chan QuestionResponse
-	planReqCh        chan<- PlanApprovalRequest
-	planRespCh       <-chan PlanApprovalResponse
-	createChildReq   chan<- CreateChildRequest
-	createChildResp  <-chan CreateChildResponse
-	listChildrenReq  chan<- ListChildrenRequest
-	listChildrenResp <-chan ListChildrenResponse
+	socketPath            string // Unix socket path (empty for TCP servers)
+	listener              net.Listener
+	isTCP                 bool // True if listening on TCP instead of Unix socket
+	requestCh             chan<- PermissionRequest
+	responseCh            <-chan PermissionResponse
+	questionCh            chan<- QuestionRequest
+	answerCh              <-chan QuestionResponse
+	planReqCh             chan<- PlanApprovalRequest
+	planRespCh            <-chan PlanApprovalResponse
+	createChildReq        chan<- CreateChildRequest
+	createChildResp       <-chan CreateChildResponse
+	listChildrenReq       chan<- ListChildrenRequest
+	listChildrenResp      <-chan ListChildrenResponse
 	mergeChildReq         chan<- MergeChildRequest
 	mergeChildResp        <-chan MergeChildResponse
 	createPRReq           chan<- CreatePRRequest
@@ -103,7 +103,7 @@ type SocketServer struct {
 	closed                bool           // Set to true when Close() is called
 	closedMu              sync.RWMutex   // Guards closed flag
 	wg                    sync.WaitGroup // Tracks the Run() goroutine for clean shutdown
-	readyCh               chan struct{}   // Closed when the server is ready to accept connections
+	readyCh               chan struct{}  // Closed when the server is ready to accept connections
 	log                   *slog.Logger   // Logger with session context
 	activeConn            net.Conn       // Active connection (for dialing servers that receive a conn via HandleConn)
 	activeConnMu          sync.Mutex     // Guards activeConn
@@ -399,10 +399,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				s.createChildReq, s.createChildResp,
 				PermissionResponseTimeout,
 				CreateChildResponse{Success: false, Error: "Supervisor tools not available"},
-				func(id interface{}) CreateChildResponse {
+				func(id any) CreateChildResponse {
 					return CreateChildResponse{ID: id, Success: false, Error: "Timeout"}
 				},
-				func(r *CreateChildRequest) interface{} { return r.ID },
+				func(r *CreateChildRequest) any { return r.ID },
 				MessageTypeCreateChild,
 				func(m *SocketMessage, r *CreateChildResponse) { m.CreateChildResp = r },
 				"create child")
@@ -411,10 +411,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				s.listChildrenReq, s.listChildrenResp,
 				PermissionResponseTimeout,
 				ListChildrenResponse{Children: []ChildSessionInfo{}},
-				func(id interface{}) ListChildrenResponse {
+				func(id any) ListChildrenResponse {
 					return ListChildrenResponse{ID: id, Children: []ChildSessionInfo{}}
 				},
-				func(r *ListChildrenRequest) interface{} { return r.ID },
+				func(r *ListChildrenRequest) any { return r.ID },
 				MessageTypeListChildren,
 				func(m *SocketMessage, r *ListChildrenResponse) { m.ListChildrenResp = r },
 				"list children")
@@ -423,10 +423,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				s.mergeChildReq, s.mergeChildResp,
 				PermissionResponseTimeout,
 				MergeChildResponse{Success: false, Error: "Supervisor tools not available"},
-				func(id interface{}) MergeChildResponse {
+				func(id any) MergeChildResponse {
 					return MergeChildResponse{ID: id, Success: false, Error: "Timeout"}
 				},
-				func(r *MergeChildRequest) interface{} { return r.ID },
+				func(r *MergeChildRequest) any { return r.ID },
 				MessageTypeMergeChild,
 				func(m *SocketMessage, r *MergeChildResponse) { m.MergeChildResp = r },
 				"merge child")
@@ -435,10 +435,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				s.createPRReq, s.createPRResp,
 				HostToolResponseTimeout,
 				CreatePRResponse{Success: false, Error: "Host tools not available"},
-				func(id interface{}) CreatePRResponse {
+				func(id any) CreatePRResponse {
 					return CreatePRResponse{ID: id, Success: false, Error: "Timeout"}
 				},
-				func(r *CreatePRRequest) interface{} { return r.ID },
+				func(r *CreatePRRequest) any { return r.ID },
 				MessageTypeCreatePR,
 				func(m *SocketMessage, r *CreatePRResponse) { m.CreatePRResp = r },
 				"create PR")
@@ -447,10 +447,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				s.pushBranchReq, s.pushBranchResp,
 				HostToolResponseTimeout,
 				PushBranchResponse{Success: false, Error: "Host tools not available"},
-				func(id interface{}) PushBranchResponse {
+				func(id any) PushBranchResponse {
 					return PushBranchResponse{ID: id, Success: false, Error: "Timeout"}
 				},
-				func(r *PushBranchRequest) interface{} { return r.ID },
+				func(r *PushBranchRequest) any { return r.ID },
 				MessageTypePushBranch,
 				func(m *SocketMessage, r *PushBranchResponse) { m.PushBranchResp = r },
 				"push branch")
@@ -459,10 +459,10 @@ func (s *SocketServer) handleConnection(conn net.Conn) {
 				s.getReviewCommentsReq, s.getReviewCommentsResp,
 				HostToolResponseTimeout,
 				GetReviewCommentsResponse{Success: false, Error: "Host tools not available"},
-				func(id interface{}) GetReviewCommentsResponse {
+				func(id any) GetReviewCommentsResponse {
 					return GetReviewCommentsResponse{ID: id, Success: false, Error: "Timeout"}
 				},
-				func(r *GetReviewCommentsRequest) interface{} { return r.ID },
+				func(r *GetReviewCommentsRequest) any { return r.ID },
 				MessageTypeGetReviewComments,
 				func(m *SocketMessage, r *GetReviewCommentsResponse) { m.GetReviewCommentsResp = r },
 				"get review comments")

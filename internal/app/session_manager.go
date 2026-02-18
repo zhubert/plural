@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,9 +118,7 @@ func (sm *SessionManager) GetRunners() map[string]claude.RunnerInterface {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	copy := make(map[string]claude.RunnerInterface, len(sm.runners))
-	for k, v := range sm.runners {
-		copy[k] = v
-	}
+	maps.Copy(copy, sm.runners)
 	return copy
 }
 
@@ -552,14 +551,14 @@ func createSyntheticClaudeSessionFile(parentSessionID, childWorktree string, mes
 		uuid := fmt.Sprintf("synthetic-%s-%d", parentSessionID, i)
 		timestamp := time.Now().Add(time.Duration(-len(messages)+i) * time.Second).Format(time.RFC3339)
 
-		entry := map[string]interface{}{
+		entry := map[string]any{
 			"type":      msg.Role,
 			"sessionId": parentSessionID,
 			"uuid":      uuid,
 			"timestamp": timestamp,
-			"message": map[string]interface{}{
+			"message": map[string]any{
 				"role": msg.Role,
-				"content": []map[string]interface{}{
+				"content": []map[string]any{
 					{
 						"type": "text",
 						"text": msg.Content,

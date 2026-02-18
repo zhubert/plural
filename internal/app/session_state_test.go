@@ -364,13 +364,13 @@ func TestSessionStateManager_ConcurrentAccess(t *testing.T) {
 	const numGoroutines = 10
 	const numOperations = 100
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			sessionID := "session-1"
 
-			for j := 0; j < numOperations; j++ {
+			for j := range numOperations {
 				switch j % 6 {
 				case 0:
 					m.GetOrCreate(sessionID)
@@ -766,7 +766,7 @@ func TestSessionStateManager_ContainerInitConcurrency(t *testing.T) {
 	stopWg.Add(numGoroutines)
 
 	// Multiple goroutines starting container init
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			m.StartContainerInit("session-1")
 			startWg.Done()
@@ -777,7 +777,7 @@ func TestSessionStateManager_ContainerInitConcurrency(t *testing.T) {
 	startWg.Wait()
 
 	// Multiple goroutines stopping container init
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			m.StopContainerInit("session-1")
 			stopWg.Done()
@@ -806,10 +806,10 @@ func TestSessionState_GetMergeChanConcurrency(t *testing.T) {
 	wg.Add(numGoroutines * 2)
 
 	// Goroutines that repeatedly start and stop merges
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for range numIterations {
 				ch := make(chan git.Result)
 				_, cancel := context.WithCancel(context.Background())
 				m.StartMerge("session-1", ch, cancel, MergeTypeMerge)
@@ -820,10 +820,10 @@ func TestSessionState_GetMergeChanConcurrency(t *testing.T) {
 	}
 
 	// Goroutines that repeatedly read the merge channel (like listenForMergeResult does)
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			defer wg.Done()
-			for j := 0; j < numIterations; j++ {
+			for range numIterations {
 				state := m.GetIfExists("session-1")
 				if state != nil {
 					// This is the pattern from listenForMergeResult - accessing GetMergeChan

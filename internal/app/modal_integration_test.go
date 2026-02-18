@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -884,13 +885,7 @@ func TestMergeModal_ChildSessionShowsParent(t *testing.T) {
 	state := m.modal.State.(*ui.MergeState)
 
 	// Should have "Merge to parent" option - check the Options slice
-	hasParentOption := false
-	for _, opt := range state.Options {
-		if opt == "Merge to parent" {
-			hasParentOption = true
-			break
-		}
-	}
+	hasParentOption := slices.Contains(state.Options, "Merge to parent")
 	if !hasParentOption {
 		t.Error("Child session should have 'Merge to parent' option")
 	}
@@ -922,13 +917,7 @@ func TestMergeModal_PRSessionMergeState(t *testing.T) {
 	}
 
 	// Should always have "Merge to main" option
-	hasMergeOption := false
-	for _, opt := range state.Options {
-		if opt == "Merge to main" {
-			hasMergeOption = true
-			break
-		}
-	}
+	hasMergeOption := slices.Contains(state.Options, "Merge to main")
 	if !hasMergeOption {
 		t.Error("Should have 'Merge to main' option")
 	}
@@ -1550,7 +1539,7 @@ func TestRapidModalOpenClose(t *testing.T) {
 	m.sidebar.SetSessions(cfg.Sessions)
 
 	// Rapidly open and close modals
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		m = sendKey(m, "n")
 		m = sendKey(m, "esc")
 		m = sendKey(m, "t")

@@ -303,7 +303,7 @@ func TestBroadcastState_EmptyRepos(t *testing.T) {
 func TestBroadcastState_ScrollOffset(t *testing.T) {
 	// Create more repos than visible
 	repos := make([]string, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		repos[i] = "/repo" + string(rune('0'+i))
 	}
 	state := NewBroadcastState(repos, false, false)

@@ -99,14 +99,12 @@ func TestBufferedResponseChannelUnblocksGoroutine(t *testing.T) {
 	respChan := make(chan string, 1) // buffered like the fix
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for req := range reqChan {
 			// Simulate: goroutine sends response, but nobody is reading respChan
 			respChan <- req + "-resp"
 		}
-	}()
+	})
 
 	// Send one request, simulating a request in-flight when server exits
 	reqChan <- "req1"

@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	linearAPIBase       = "https://api.linear.app"
-	linearAPIKeyEnvVar  = "LINEAR_API_KEY"
-	linearHTTPTimeout   = 30 * time.Second
+	linearAPIBase      = "https://api.linear.app"
+	linearAPIKeyEnvVar = "LINEAR_API_KEY"
+	linearHTTPTimeout  = 30 * time.Second
 )
 
 // LinearTeam represents a Linear team with its ID and name.
@@ -67,8 +67,8 @@ func (p *LinearProvider) Source() Source {
 
 // linearGraphQLRequest represents a GraphQL request body.
 type linearGraphQLRequest struct {
-	Query     string                 `json:"query"`
-	Variables map[string]interface{} `json:"variables,omitempty"`
+	Query     string         `json:"query"`
+	Variables map[string]any `json:"variables,omitempty"`
 }
 
 // linearIssue represents an issue from the Linear GraphQL API response.
@@ -134,7 +134,7 @@ func (p *LinearProvider) FetchIssues(ctx context.Context, repoPath, projectID st
 
 	gqlReq := linearGraphQLRequest{
 		Query: query,
-		Variables: map[string]interface{}{
+		Variables: map[string]any{
 			"teamId": projectID,
 		},
 	}

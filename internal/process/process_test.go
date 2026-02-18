@@ -374,8 +374,8 @@ func TestImageInspectParsing(t *testing.T) {
 			}
 
 			repoDigest := inspects[0].RepoDigests[0]
-			if idx := strings.Index(repoDigest, "@"); idx != -1 {
-				got := repoDigest[idx+1:]
+			if _, after, ok := strings.Cut(repoDigest, "@"); ok {
+				got := after
 				if got != tt.wantDigest {
 					t.Errorf("Got digest %q, want %q", got, tt.wantDigest)
 				}
@@ -467,7 +467,7 @@ func TestListContainerNamesParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Replicate the parsing logic from ListContainerNames
 			var names []string
-			for _, line := range strings.Split(strings.TrimSpace(tt.output), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(tt.output), "\n") {
 				name := strings.TrimSpace(line)
 				if name != "" {
 					names = append(names, name)

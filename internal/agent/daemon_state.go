@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -17,17 +18,17 @@ import (
 type WorkItemState string
 
 const (
-	WorkItemQueued              WorkItemState = "queued"
-	WorkItemCoding              WorkItemState = "coding"
-	WorkItemPRCreated           WorkItemState = "pr_created"
-	WorkItemAwaitingReview      WorkItemState = "awaiting_review"
-	WorkItemAddressingFeedback  WorkItemState = "addressing_feedback"
-	WorkItemPushing             WorkItemState = "pushing"
-	WorkItemAwaitingCI          WorkItemState = "awaiting_ci"
-	WorkItemMerging             WorkItemState = "merging"
-	WorkItemCompleted           WorkItemState = "completed"
-	WorkItemFailed              WorkItemState = "failed"
-	WorkItemAbandoned           WorkItemState = "abandoned"
+	WorkItemQueued             WorkItemState = "queued"
+	WorkItemCoding             WorkItemState = "coding"
+	WorkItemPRCreated          WorkItemState = "pr_created"
+	WorkItemAwaitingReview     WorkItemState = "awaiting_review"
+	WorkItemAddressingFeedback WorkItemState = "addressing_feedback"
+	WorkItemPushing            WorkItemState = "pushing"
+	WorkItemAwaitingCI         WorkItemState = "awaiting_ci"
+	WorkItemMerging            WorkItemState = "merging"
+	WorkItemCompleted          WorkItemState = "completed"
+	WorkItemFailed             WorkItemState = "failed"
+	WorkItemAbandoned          WorkItemState = "abandoned"
 )
 
 // validTransitions defines the allowed state transitions for work items.
@@ -83,10 +84,8 @@ func ValidateTransition(from, to WorkItemState) error {
 	if !ok {
 		return fmt.Errorf("unknown state: %s", from)
 	}
-	for _, s := range allowed {
-		if s == to {
-			return nil
-		}
+	if slices.Contains(allowed, to) {
+		return nil
 	}
 	return fmt.Errorf("invalid transition: %s -> %s", from, to)
 }

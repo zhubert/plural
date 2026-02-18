@@ -169,7 +169,7 @@ Nice to have:
 	}
 
 	// First 3 should be group 0
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if options[i].GroupIndex != 0 {
 			t.Errorf("Option %d GroupIndex = %d, want 0", i, options[i].GroupIndex)
 		}
@@ -345,4 +345,3 @@ Final option.`
 		t.Errorf("Option 2 letter = %q, want %q", options[2].Letter, "C")
 	}
 }
-

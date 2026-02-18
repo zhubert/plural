@@ -86,7 +86,7 @@ func TestSendResponseNoRaceWithStop(t *testing.T) {
 			iterations := 1000
 			var wg sync.WaitGroup
 
-			for i := 0; i < iterations; i++ {
+			for range iterations {
 				// Reset runner for each iteration
 				r = New("test-session", "/tmp", "/tmp", false, nil)
 
@@ -149,9 +149,7 @@ func TestSendResponseBeforeStop(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Permission response
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		select {
 		case resp := <-r.mcp.Permission.Resp:
 			if !resp.Allowed {
@@ -160,15 +158,13 @@ func TestSendResponseBeforeStop(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Error("timeout waiting for permission response")
 		}
-	}()
+	})
 
 	r.SendPermissionResponse(mcp.PermissionResponse{Allowed: true})
 	wg.Wait()
 
 	// Question response
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		select {
 		case resp := <-r.mcp.Question.Resp:
 			if resp.Answers["q1"] != "a1" {
@@ -177,15 +173,13 @@ func TestSendResponseBeforeStop(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Error("timeout waiting for question response")
 		}
-	}()
+	})
 
 	r.SendQuestionResponse(mcp.QuestionResponse{Answers: map[string]string{"q1": "a1"}})
 	wg.Wait()
 
 	// Plan approval response
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		select {
 		case resp := <-r.mcp.PlanApproval.Resp:
 			if !resp.Approved {
@@ -194,7 +188,7 @@ func TestSendResponseBeforeStop(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Error("timeout waiting for plan approval response")
 		}
-	}()
+	})
 
 	r.SendPlanApprovalResponse(mcp.PlanApprovalResponse{Approved: true})
 	wg.Wait()

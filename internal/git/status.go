@@ -226,8 +226,8 @@ func (s *GitService) GetDiffStats(ctx context.Context, worktreePath string) (*Di
 	// Track untracked files to count their lines separately
 	var untrackedFiles []string
 
-	lines := strings.Split(statusOutput, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(statusOutput, "\n")
+	for line := range lines {
 		if len(line) > 2 {
 			stats.FilesChanged++
 			// Check if this is an untracked file (status "??")
@@ -255,7 +255,7 @@ func (s *GitService) GetDiffStats(ctx context.Context, worktreePath string) (*Di
 
 	// Parse numstat output: each line is "additions<tab>deletions<tab>filename"
 	parseNumstat := func(data []byte) {
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue

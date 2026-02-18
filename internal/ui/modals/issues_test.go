@@ -76,7 +76,7 @@ func TestImportIssuesState_ImplementsModalWithPreferredWidth(t *testing.T) {
 	state := NewImportIssuesState("/repo/path", "test-repo", true, true)
 
 	// Verify it implements the interface
-	_, ok := interface{}(state).(ModalWithPreferredWidth)
+	_, ok := any(state).(ModalWithPreferredWidth)
 	if !ok {
 		t.Error("ImportIssuesState should implement ModalWithPreferredWidth interface")
 	}
@@ -242,14 +242,14 @@ func TestImportIssuesState_Update_Scrolling(t *testing.T) {
 
 	// Create more issues than maxVisible
 	issues := make([]IssueItem, 15)
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		issues[i] = IssueItem{ID: formatInt(i + 1), Title: "Issue " + formatInt(i+1), Source: "github"}
 	}
 	state.SetIssues(issues)
 
 	// Navigate down to the bottom
 	keyDownMsg := tea.KeyPressMsg{Code: 0, Text: keys.Down}
-	for i := 0; i < 14; i++ {
+	for range 14 {
 		state.Update(keyDownMsg)
 	}
 
@@ -265,7 +265,7 @@ func TestImportIssuesState_Update_Scrolling(t *testing.T) {
 
 	// Navigate back up
 	keyUpMsg := tea.KeyPressMsg{Code: 0, Text: keys.Up}
-	for i := 0; i < 14; i++ {
+	for range 14 {
 		state.Update(keyUpMsg)
 	}
 
@@ -449,7 +449,7 @@ func TestImportIssuesState_Render_ScrollIndicators(t *testing.T) {
 
 	// Create more issues than maxVisible
 	issues := make([]IssueItem, 15)
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		issues[i] = IssueItem{ID: formatInt(i + 1), Title: "Issue " + formatInt(i+1), Source: "github"}
 	}
 	state.SetIssues(issues)

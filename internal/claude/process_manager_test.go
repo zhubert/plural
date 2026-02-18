@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -476,7 +477,7 @@ func TestProcessManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent GetRestartAttempts
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			pm.GetRestartAttempts()
 		}
 		done <- true
@@ -484,7 +485,7 @@ func TestProcessManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent ResetRestartAttempts
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			pm.ResetRestartAttempts()
 		}
 		done <- true
@@ -492,7 +493,7 @@ func TestProcessManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent SetInterrupted
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			pm.SetInterrupted(i%2 == 0)
 		}
 		done <- true
@@ -500,14 +501,14 @@ func TestProcessManager_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent IsRunning
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			pm.IsRunning()
 		}
 		done <- true
 	}()
 
 	// Wait for all goroutines
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		<-done
 	}
 }
@@ -545,7 +546,7 @@ func TestProcessManager_MarkSessionStarted_ThreadSafe(t *testing.T) {
 	done := make(chan bool)
 
 	// Multiple goroutines calling MarkSessionStarted
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			pm.MarkSessionStarted()
 			done <- true
@@ -553,7 +554,7 @@ func TestProcessManager_MarkSessionStarted_ThreadSafe(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -568,12 +569,7 @@ func TestProcessManager_MarkSessionStarted_ThreadSafe(t *testing.T) {
 
 // Helper to check if args slice contains a specific flag
 func containsArg(args []string, flag string) bool {
-	for _, arg := range args {
-		if arg == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, flag)
 }
 
 // Helper to get the value following a flag in args slice
@@ -825,7 +821,7 @@ func TestProcessManager_MultipleStartStop_NoLeak(t *testing.T) {
 	}, ProcessCallbacks{}, pmTestLogger())
 
 	// Multiple stops should be safe
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		done := make(chan bool, 1)
 		go func() {
 			pm.Stop()
@@ -925,16 +921,14 @@ func TestProcessManager_GoroutineExitOnContextCancel(t *testing.T) {
 
 	// Track when goroutine exits
 	exitedCh := make(chan bool, 1)
-	pm.wg.Add(1)
-	go func() {
-		defer pm.wg.Done()
+	pm.wg.Go(func() {
 		// Simulate readOutput's context check
 		select {
 		case <-pm.ctx.Done():
 			exitedCh <- true
 			return
 		}
-	}()
+	})
 
 	// Cancel context
 	pm.cancel()
@@ -1194,13 +1188,7 @@ func TestBuildContainerRunArgs(t *testing.T) {
 	}
 
 	// Verify working directory mount
-	foundWorkspaceMount := false
-	for _, arg := range args {
-		if arg == "/path/to/worktree:/workspace" {
-			foundWorkspaceMount = true
-			break
-		}
-	}
+	foundWorkspaceMount := slices.Contains(args, "/path/to/worktree:/workspace")
 	if !foundWorkspaceMount {
 		t.Error("Should mount worktree to /workspace")
 	}
@@ -1576,10 +1564,10 @@ func TestReadKeychainOAuthToken_ValidCredentials(t *testing.T) {
 
 func TestKeychainOAuthCredentials_JSONParsing(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    string
-		wantKey  bool
-		wantVal  string
+		name    string
+		input   string
+		wantKey bool
+		wantVal string
 	}{
 		{
 			name: "valid Pro/Max credentials",
@@ -1615,8 +1603,8 @@ func TestKeychainOAuthCredentials_JSONParsing(t *testing.T) {
 			wantKey: false,
 		},
 		{
-			name: "zero expiresAt (no expiry check)",
-			input: `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-no-expiry","expiresAt":0}}`,
+			name:    "zero expiresAt (no expiry check)",
+			input:   `{"claudeAiOauth":{"accessToken":"sk-ant-oat01-no-expiry","expiresAt":0}}`,
 			wantKey: true,
 			wantVal: "sk-ant-oat01-no-expiry",
 		},
@@ -1732,11 +1720,8 @@ func TestBuildContainerRunArgs_MountsMCPConfig(t *testing.T) {
 	// Verify MCP config is mounted at the short container-side path (read-only)
 	foundConfigMount := false
 	expectedConfig := "/var/folders/xx/long-temp-path/T/plural-mcp-test-mount-session.json:" + containerMCPConfigPath + ":ro"
-	for _, arg := range args {
-		if arg == expectedConfig {
-			foundConfigMount = true
-			break
-		}
+	if slices.Contains(args, expectedConfig) {
+		foundConfigMount = true
 	}
 	if !foundConfigMount {
 		t.Errorf("Should mount MCP config at short container path, looking for %q in %v", expectedConfig, args)
@@ -2113,8 +2098,8 @@ func TestBuildContainerRunArgs_WithoutRepoPath(t *testing.T) {
 			mount := result.Args[i+1]
 			// Should not contain any mount ending with :ro that isn't the MCP config or workspace
 			if strings.HasSuffix(mount, ":ro") &&
-			   !strings.Contains(mount, "/.claude:") &&
-			   !strings.Contains(mount, "/tmp/mcp.json:") {
+				!strings.Contains(mount, "/.claude:") &&
+				!strings.Contains(mount, "/tmp/mcp.json:") {
 				t.Errorf("Unexpected repo mount found when RepoPath is empty: %q", mount)
 			}
 		}
@@ -2466,12 +2451,10 @@ func TestContainerStartupWatchdog_CancelledOnReady(t *testing.T) {
 	pm.mu.Unlock()
 
 	watchdogDone := make(chan struct{})
-	pm.wg.Add(1)
-	go func() {
-		defer pm.wg.Done()
+	pm.wg.Go(func() {
 		pm.containerStartupWatchdog()
 		close(watchdogDone)
-	}()
+	})
 
 	// Signal ready
 	pm.MarkSessionStarted()
@@ -2516,12 +2499,10 @@ func TestContainerStartupWatchdog_CancelledOnStop(t *testing.T) {
 	pm.mu.Unlock()
 
 	watchdogDone := make(chan struct{})
-	pm.wg.Add(1)
-	go func() {
-		defer pm.wg.Done()
+	pm.wg.Go(func() {
 		pm.containerStartupWatchdog()
 		close(watchdogDone)
-	}()
+	})
 
 	// Cancel context (simulates Stop)
 	pm.cancel()
@@ -2568,12 +2549,10 @@ func TestContainerStartupWatchdog_NotStartedForNonContainer(t *testing.T) {
 
 	// Watchdog should exit immediately when containerReady is nil
 	watchdogDone := make(chan struct{})
-	pm.wg.Add(1)
-	go func() {
-		defer pm.wg.Done()
+	pm.wg.Go(func() {
 		pm.containerStartupWatchdog()
 		close(watchdogDone)
-	}()
+	})
 
 	select {
 	case <-watchdogDone:
@@ -2834,12 +2813,10 @@ func TestContainerStartupWatchdog_HeartbeatLogs(t *testing.T) {
 	// it's a const. Instead, run the watchdog and cancel it after we've seen
 	// at least one heartbeat.
 	watchdogDone := make(chan struct{})
-	pm.wg.Add(1)
-	go func() {
-		defer pm.wg.Done()
+	pm.wg.Go(func() {
 		pm.containerStartupWatchdog()
 		close(watchdogDone)
-	}()
+	})
 
 	// Wait long enough for at least one heartbeat (15s) — that's too slow for a unit test.
 	// Instead, cancel the context after a short delay and verify the watchdog structure.

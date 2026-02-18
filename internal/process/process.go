@@ -137,8 +137,8 @@ func getLocalImageDigest(ctx context.Context, image string) (string, error) {
 
 	// RepoDigests format: "ghcr.io/user/image@sha256:abc123..."
 	repoDigest := inspects[0].RepoDigests[0]
-	if idx := strings.Index(repoDigest, "@"); idx != -1 {
-		return repoDigest[idx+1:], nil
+	if _, after, ok := strings.Cut(repoDigest, "@"); ok {
+		return after, nil
 	}
 
 	return "", fmt.Errorf("no digest found in RepoDigests: %s", repoDigest)
@@ -343,13 +343,13 @@ func extractSessionID(cmdLine string) string {
 	// Look for --session-id or --resume followed by the ID
 	patterns := []string{"--session-id", "--resume"}
 	for _, pattern := range patterns {
-		idx := strings.Index(cmdLine, pattern)
-		if idx == -1 {
+		_, after, ok := strings.Cut(cmdLine, pattern)
+		if !ok {
 			continue
 		}
 
 		// Get the part after the flag
-		rest := cmdLine[idx+len(pattern):]
+		rest := after
 		rest = strings.TrimLeft(rest, " =")
 
 		// Extract the session ID (first space-separated token)
@@ -398,7 +398,7 @@ func ListContainerNames() ([]string, error) {
 	}
 
 	var names []string
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
 		name := strings.TrimSpace(line)
 		if name != "" {
 			names = append(names, name)

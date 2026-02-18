@@ -104,10 +104,7 @@ func (s *ReviewCommentsState) Render() string {
 	contentWidth := modalWidth - 4 // Account for modal padding/borders
 
 	var commentList string
-	visibleEnd := s.ScrollOffset + s.maxVisible
-	if visibleEnd > len(s.Comments) {
-		visibleEnd = len(s.Comments)
-	}
+	visibleEnd := min(s.ScrollOffset+s.maxVisible, len(s.Comments))
 
 	for i := s.ScrollOffset; i < visibleEnd; i++ {
 		comment := s.Comments[i]
@@ -145,10 +142,7 @@ func (s *ReviewCommentsState) Render() string {
 		bodyStyle := lipgloss.NewStyle().Foreground(ColorTextMuted)
 		indent := "      " // Align with text after checkbox
 		// Overhead: "  " prefix + "      " indent = 8 chars
-		maxLineLen := contentWidth - 8
-		if maxLineLen < 10 {
-			maxLineLen = 10
-		}
+		maxLineLen := max(contentWidth-8, 10)
 		bodyLines := wrapBodyText(bodyText, maxLineLen, 3)
 		for _, line := range bodyLines {
 			commentList += bodyStyle.Render(prefix+indent+line) + "\n"

@@ -53,7 +53,7 @@ func TestReviewCommentsState_PreferredWidth(t *testing.T) {
 
 func TestReviewCommentsState_ImplementsModalWithPreferredWidth(t *testing.T) {
 	state := NewReviewCommentsState("s1", "branch")
-	_, ok := interface{}(state).(ModalWithPreferredWidth)
+	_, ok := any(state).(ModalWithPreferredWidth)
 	if !ok {
 		t.Error("ReviewCommentsState should implement ModalWithPreferredWidth")
 	}
@@ -61,7 +61,7 @@ func TestReviewCommentsState_ImplementsModalWithPreferredWidth(t *testing.T) {
 
 func TestReviewCommentsState_ImplementsModalWithSize(t *testing.T) {
 	state := NewReviewCommentsState("s1", "branch")
-	_, ok := interface{}(state).(ModalWithSize)
+	_, ok := any(state).(ModalWithSize)
 	if !ok {
 		t.Error("ReviewCommentsState should implement ModalWithSize")
 	}

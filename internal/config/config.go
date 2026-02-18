@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/zhubert/plural/internal/paths"
@@ -20,7 +21,7 @@ type Config struct {
 	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`   // Per-repo allowed tools
 	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
 	RepoAsanaProject  map[string]string      `json:"repo_asana_project,omitempty"`   // Per-repo Asana project GID mapping
-	RepoLinearTeam    map[string]string      `json:"repo_linear_team,omitempty"`    // Per-repo Linear team ID mapping
+	RepoLinearTeam    map[string]string      `json:"repo_linear_team,omitempty"`     // Per-repo Linear team ID mapping
 	ContainerImage    string                 `json:"container_image,omitempty"`      // Container image for containerized sessions
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
@@ -30,13 +31,13 @@ type Config struct {
 	NotificationsEnabled bool   `json:"notifications_enabled,omitempty"` // Desktop notifications when Claude completes
 
 	// Automation settings
-	AutoMaxTurns       int            `json:"auto_max_turns,omitempty"`        // Max autonomous turns before stopping (default 50)
-	AutoMaxDurationMin int            `json:"auto_max_duration_min,omitempty"` // Max autonomous duration in minutes (default 30)
-	AutoCleanupMerged  bool           `json:"auto_cleanup_merged,omitempty"`   // Auto-cleanup sessions when PR merged/closed
-	AutoAddressPRComments bool         `json:"auto_address_pr_comments,omitempty"` // Auto-fetch and address new PR review comments
-	AutoBroadcastPR    bool           `json:"auto_broadcast_pr,omitempty"`     // Auto-create PRs when all broadcast sessions complete
-	AutoMergeMethod    string         `json:"auto_merge_method,omitempty"`     // Merge method: "rebase", "squash", or "merge" (default "rebase")
-	IssueMaxConcurrent int            `json:"issue_max_concurrent,omitempty"`  // Max concurrent auto-sessions from issues (default 3)
+	AutoMaxTurns          int    `json:"auto_max_turns,omitempty"`           // Max autonomous turns before stopping (default 50)
+	AutoMaxDurationMin    int    `json:"auto_max_duration_min,omitempty"`    // Max autonomous duration in minutes (default 30)
+	AutoCleanupMerged     bool   `json:"auto_cleanup_merged,omitempty"`      // Auto-cleanup sessions when PR merged/closed
+	AutoAddressPRComments bool   `json:"auto_address_pr_comments,omitempty"` // Auto-fetch and address new PR review comments
+	AutoBroadcastPR       bool   `json:"auto_broadcast_pr,omitempty"`        // Auto-create PRs when all broadcast sessions complete
+	AutoMergeMethod       string `json:"auto_merge_method,omitempty"`        // Merge method: "rebase", "squash", or "merge" (default "rebase")
+	IssueMaxConcurrent    int    `json:"issue_max_concurrent,omitempty"`     // Max concurrent auto-sessions from issues (default 3)
 
 	// Preview state - tracks when a session's branch is checked out in the main repo
 	PreviewSessionID      string `json:"preview_session_id,omitempty"`      // Session ID currently being previewed (empty if none)
@@ -211,10 +212,8 @@ func (c *Config) AddRepo(path string) bool {
 	}
 
 	// Check if already exists
-	for _, r := range c.Repos {
-		if r == absPath {
-			return false
-		}
+	if slices.Contains(c.Repos, absPath) {
+		return false
 	}
 
 	c.Repos = append(c.Repos, absPath)

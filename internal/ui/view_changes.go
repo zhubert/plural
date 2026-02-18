@@ -139,10 +139,7 @@ func (c *Chat) renderFileNavBar(width int) string {
 	// Calculate available width for filename
 	// Format: "← [M] filename (3 of 7) →"
 	fixedWidth := lipgloss.Width(leftArrow) + 4 + 1 + lipgloss.Width(counter) + lipgloss.Width(rightArrow) + 2 // arrows, status, spaces, counter
-	maxFilenameWidth := width - fixedWidth
-	if maxFilenameWidth < 10 {
-		maxFilenameWidth = 10
-	}
+	maxFilenameWidth := max(width-fixedWidth, 10)
 
 	// Truncate filename if needed
 	filename := currentFile.Filename

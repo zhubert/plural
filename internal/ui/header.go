@@ -132,10 +132,7 @@ func (h *Header) View() string {
 	}
 
 	// Calculate padding using display width (accounts for double-width CJK characters)
-	paddingLen := h.width - lipgloss.Width(titleText) - lipgloss.Width(rightText)
-	if paddingLen < 0 {
-		paddingLen = 0
-	}
+	paddingLen := max(h.width-lipgloss.Width(titleText)-lipgloss.Width(rightText), 0)
 
 	fullContent := titleText + strings.Repeat(" ", paddingLen) + rightText
 

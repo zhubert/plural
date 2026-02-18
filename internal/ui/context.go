@@ -41,7 +41,7 @@ func GetViewContext() *ViewContext {
 
 // Log writes a debug message to the log file using slog structured logging.
 // For new code, prefer using logger.WithComponent("ui").Debug() directly.
-func (v *ViewContext) Log(msg string, args ...interface{}) {
+func (v *ViewContext) Log(msg string, args ...any) {
 	logger.WithComponent("ui").Debug(msg, args...)
 }
 

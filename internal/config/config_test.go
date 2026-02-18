@@ -553,15 +553,15 @@ func TestSaveSessionMessages_MaxLines(t *testing.T) {
 
 	// Create messages that exceed max lines
 	messages := []Message{}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		// Each message is about 10 lines
-		content := ""
-		for j := 0; j < 10; j++ {
-			content += "line content\n"
+		var content strings.Builder
+		for range 10 {
+			content.WriteString("line content\n")
 		}
 		messages = append(messages, Message{
 			Role:    "user",
-			Content: content,
+			Content: content.String(),
 		})
 	}
 
@@ -1615,12 +1615,6 @@ func TestConfig_BroadcastGroupID_Persistence(t *testing.T) {
 	}
 }
 
-
-
-
-
-
-
 func TestConfig_AutoMergeMethod(t *testing.T) {
 	cfg := &Config{
 		Repos:    []string{},
@@ -1694,9 +1688,6 @@ func TestConfig_RemoveSessions(t *testing.T) {
 		t.Errorf("Expected 0 removed for empty list, got %d", removed)
 	}
 }
-
-
-
 
 func TestConfig_ClearOrphanedParentIDs(t *testing.T) {
 	cfg := &Config{
@@ -2030,14 +2021,12 @@ func TestConfig_Save_ConcurrentWrites(t *testing.T) {
 	var wg sync.WaitGroup
 	const goroutines = 20
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range goroutines {
+		wg.Go(func() {
 			if err := cfg.Save(); err != nil {
 				t.Errorf("Save failed: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -2097,7 +2086,7 @@ func TestConfig_UpdateSessionPRCommentCount_ThreadSafe(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		wg.Add(1)
 		go func(count int) {
 			defer wg.Done()
