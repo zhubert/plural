@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -278,6 +279,156 @@ func TestEngine_IsTerminalState(t *testing.T) {
 	}
 	if engine.IsTerminalState("nonexistent") {
 		t.Error("nonexistent should not be terminal")
+	}
+}
+
+func TestEngine_ProcessStep_UnknownState(t *testing.T) {
+	cfg := &Config{
+		Start: "coding",
+		States: map[string]*State{
+			"coding": {Type: StateTypeTask, Action: "ai.code", Next: "done"},
+			"done":   {Type: StateTypeSucceed},
+		},
+	}
+	engine := NewEngine(cfg, NewActionRegistry(), nil, testLogger())
+
+	// Referencing a state that doesn't exist in the config should error
+	view := &WorkItemView{CurrentStep: "nonexistent_step", Phase: "idle"}
+	_, err := engine.ProcessStep(context.Background(), view)
+	if err == nil {
+		t.Fatal("expected error for unknown state")
+	}
+}
+
+func TestEngine_ProcessStep_UnknownAction(t *testing.T) {
+	cfg := &Config{
+		Start: "step1",
+		States: map[string]*State{
+			"step1": {Type: StateTypeTask, Action: "unregistered.action", Next: "done"},
+			"done":  {Type: StateTypeSucceed},
+		},
+	}
+	engine := NewEngine(cfg, NewActionRegistry(), nil, testLogger())
+
+	view := &WorkItemView{CurrentStep: "step1", Phase: "idle"}
+	_, err := engine.ProcessStep(context.Background(), view)
+	if err == nil {
+		t.Fatal("expected error for unregistered action")
+	}
+}
+
+func TestEngine_ProcessStep_UnsupportedStateType(t *testing.T) {
+	cfg := &Config{
+		Start: "bad",
+		States: map[string]*State{
+			"bad": {Type: "bogus_type"},
+		},
+	}
+	engine := NewEngine(cfg, NewActionRegistry(), nil, testLogger())
+
+	view := &WorkItemView{CurrentStep: "bad", Phase: "idle"}
+	_, err := engine.ProcessStep(context.Background(), view)
+	if err == nil {
+		t.Fatal("expected error for unsupported state type")
+	}
+}
+
+func TestEngine_AdvanceAfterAsync_UnknownState(t *testing.T) {
+	cfg := &Config{
+		Start:  "coding",
+		States: map[string]*State{},
+	}
+	engine := NewEngine(cfg, NewActionRegistry(), nil, testLogger())
+
+	view := &WorkItemView{CurrentStep: "nonexistent", Phase: "async_pending"}
+	_, err := engine.AdvanceAfterAsync(view, true)
+	if err == nil {
+		t.Fatal("expected error for unknown state")
+	}
+}
+
+func TestEngine_AdvanceAfterAsync_FailureNoErrorEdge(t *testing.T) {
+	cfg := &Config{
+		Start: "coding",
+		States: map[string]*State{
+			"coding": {Type: StateTypeTask, Action: "ai.code", Next: "done"},
+			"done":   {Type: StateTypeSucceed},
+		},
+	}
+	engine := NewEngine(cfg, NewActionRegistry(), nil, testLogger())
+
+	// Fail with no Error edge configured — should return an error
+	view := &WorkItemView{CurrentStep: "coding", Phase: "async_pending"}
+	_, err := engine.AdvanceAfterAsync(view, false)
+	if err == nil {
+		t.Fatal("expected error when async fails with no error edge")
+	}
+}
+
+func TestEngine_ProcessStep_TaskFailureNoErrorEdge(t *testing.T) {
+	registry := NewActionRegistry()
+	registry.Register("fail.action", &mockAction{
+		result: ActionResult{Success: false, Error: nil},
+	})
+
+	cfg := &Config{
+		Start: "step1",
+		States: map[string]*State{
+			// No Error edge defined
+			"step1": {Type: StateTypeTask, Action: "fail.action", Next: "done"},
+			"done":  {Type: StateTypeSucceed},
+		},
+	}
+	engine := NewEngine(cfg, registry, nil, testLogger())
+
+	view := &WorkItemView{CurrentStep: "step1", Phase: "idle"}
+	_, err := engine.ProcessStep(context.Background(), view)
+	if err == nil {
+		t.Fatal("expected error when task fails with no error edge")
+	}
+}
+
+func TestEngine_ProcessStep_WaitNoEventChecker(t *testing.T) {
+	cfg := &Config{
+		Start: "wait",
+		States: map[string]*State{
+			"wait": {Type: StateTypeWait, Event: "ci.complete", Next: "done"},
+			"done": {Type: StateTypeSucceed},
+		},
+	}
+	// nil event checker
+	engine := NewEngine(cfg, NewActionRegistry(), nil, testLogger())
+
+	view := &WorkItemView{CurrentStep: "wait", Phase: "idle"}
+	_, err := engine.ProcessStep(context.Background(), view)
+	if err == nil {
+		t.Fatal("expected error when no event checker configured")
+	}
+}
+
+func TestEngine_ProcessStep_WaitEventCheckError(t *testing.T) {
+	checker := &mockEventChecker{err: fmt.Errorf("network error")}
+
+	cfg := &Config{
+		Start: "wait",
+		States: map[string]*State{
+			"wait": {Type: StateTypeWait, Event: "ci.complete", Next: "done"},
+			"done": {Type: StateTypeSucceed},
+		},
+	}
+	engine := NewEngine(cfg, NewActionRegistry(), checker, testLogger())
+
+	view := &WorkItemView{CurrentStep: "wait", Phase: "idle"}
+	result, err := engine.ProcessStep(context.Background(), view)
+	if err != nil {
+		t.Fatalf("unexpected error (should be swallowed): %v", err)
+	}
+	// Should stay in current state on event check error
+	if result.NewStep != "wait" {
+		t.Errorf("expected to stay on 'wait', got %q", result.NewStep)
+	}
+	if result.NewPhase != "idle" {
+		t.Errorf("expected phase 'idle', got %q", result.NewPhase)
 	}
 }
 

@@ -883,6 +883,54 @@ func TestDaemon_GetEffectiveMergeMethod(t *testing.T) {
 	}
 }
 
+func TestDaemon_WorkItemView_UsesSessionRepoPath(t *testing.T) {
+	cfg := testConfig()
+	d := testDaemon(cfg)
+	d.repoFilter = "owner/repo" // Pattern, not a path
+
+	sess := testSession("sess-1")
+	sess.RepoPath = "/actual/repo/path"
+	cfg.AddSession(*sess)
+
+	d.state.AddWorkItem(&WorkItem{
+		ID:          "item-1",
+		IssueRef:    config.IssueRef{Source: "github", ID: "1"},
+		SessionID:   "sess-1",
+		Branch:      "feature-1",
+		CurrentStep: "coding",
+	})
+	d.state.AdvanceWorkItem("item-1", "coding", "async_pending")
+
+	item := d.state.GetWorkItem("item-1")
+	view := d.workItemView(item)
+
+	if view.RepoPath != "/actual/repo/path" {
+		t.Errorf("expected session repo path /actual/repo/path, got %s", view.RepoPath)
+	}
+}
+
+func TestDaemon_WorkItemView_FallsBackToRepoFilter(t *testing.T) {
+	cfg := testConfig()
+	d := testDaemon(cfg)
+	d.repoFilter = "/fallback/repo"
+
+	// No session added for this work item
+	d.state.AddWorkItem(&WorkItem{
+		ID:          "item-1",
+		IssueRef:    config.IssueRef{Source: "github", ID: "1"},
+		SessionID:   "nonexistent-session",
+		Branch:      "feature-1",
+		CurrentStep: "coding",
+	})
+
+	item := d.state.GetWorkItem("item-1")
+	view := d.workItemView(item)
+
+	if view.RepoPath != "/fallback/repo" {
+		t.Errorf("expected fallback to repoFilter /fallback/repo, got %s", view.RepoPath)
+	}
+}
+
 // newMockDoneWorker creates a SessionWorker that is already done.
 func newMockDoneWorker() *SessionWorker {
 	w := &SessionWorker{

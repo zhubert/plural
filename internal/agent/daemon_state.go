@@ -138,56 +138,7 @@ func LoadDaemonState(repoPath string) (*DaemonState, error) {
 		return nil, fmt.Errorf("daemon state repo mismatch: expected %s, got %s", repoPath, state.RepoPath)
 	}
 
-	// Migrate from v1 to v2: populate CurrentStep/Phase from old State field
-	if state.Version < 2 {
-		for _, item := range state.WorkItems {
-			if item.CurrentStep == "" {
-				migrateWorkItemV1toV2(item)
-			}
-		}
-		state.Version = daemonStateVersion
-	}
-
 	return &state, nil
-}
-
-// migrateWorkItemV1toV2 populates CurrentStep and Phase from the old State field.
-func migrateWorkItemV1toV2(item *WorkItem) {
-	switch item.State {
-	case WorkItemQueued:
-		// Will be initialized at start state by engine
-	case WorkItemCoding:
-		item.CurrentStep = "coding"
-		item.Phase = "async_pending"
-	case WorkItemPRCreated:
-		item.CurrentStep = "open_pr"
-		item.Phase = "idle"
-	case WorkItemAwaitingReview:
-		item.CurrentStep = "await_review"
-		item.Phase = "idle"
-	case WorkItemAddressingFeedback:
-		item.CurrentStep = "await_review"
-		item.Phase = "addressing_feedback"
-	case WorkItemPushing:
-		item.CurrentStep = "await_review"
-		item.Phase = "pushing"
-	case WorkItemAwaitingCI:
-		item.CurrentStep = "await_ci"
-		item.Phase = "idle"
-	case WorkItemMerging:
-		item.CurrentStep = "merge"
-		item.Phase = "idle"
-	case WorkItemCompleted:
-		item.CurrentStep = "done"
-		item.Phase = "idle"
-	case WorkItemFailed:
-		item.CurrentStep = "failed"
-		item.Phase = "idle"
-	case WorkItemAbandoned:
-		item.CurrentStep = "failed"
-		item.Phase = "idle"
-		item.State = WorkItemFailed // Normalize
-	}
 }
 
 // Save persists the daemon state to disk atomically (write temp file, then rename).
