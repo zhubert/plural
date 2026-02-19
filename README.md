@@ -15,8 +15,6 @@ brew tap zhubert/tap
 brew install plural
 ```
 
-Or [build from source](CONTRIBUTING.md).
-
 ## Requirements
 
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
@@ -42,7 +40,7 @@ Every session runs in its own git worktree with a dedicated branch. Claude edits
 
 ## Try Multiple Approaches
 
-*Can't decide between JWT and session-based auth? Try both.*
+_Can't decide between JWT and session-based auth? Try both._
 
 When Claude proposes competing approaches, press `Ctrl+O` to auto-detect the options and fork into parallel sessions — each gets its own branch. Or press `f` at any point to manually fork a session and take it in a different direction.
 
@@ -50,21 +48,21 @@ Compare results with `v` (git diff), preview a branch in your main repo with `p`
 
 ## Work Your Backlog
 
-*You have a pile of issues. Let Claude chew through them in parallel.*
+_You have a pile of issues. Let Claude chew through them in parallel._
 
 Press `i` to import issues from your tracker. Select several at once and Plural creates a session per issue — Claude starts working all of them simultaneously. PRs are automatically linked (`Fixes #N` / `Fixes ENG-123`).
 
-| Provider | Auth | Setup |
-|----------|------|-------|
-| **GitHub Issues** | `gh` CLI | Always available |
-| **Asana Tasks** | `ASANA_PAT` env var | Map repo to project in settings (`,`) |
-| **Linear Issues** | `LINEAR_API_KEY` env var | Map repo to team in settings (`,`) |
+| Provider          | Auth                     | Setup                                 |
+| ----------------- | ------------------------ | ------------------------------------- |
+| **GitHub Issues** | `gh` CLI                 | Always available                      |
+| **Asana Tasks**   | `ASANA_PAT` env var      | Map repo to project in settings (`,`) |
+| **Linear Issues** | `LINEAR_API_KEY` env var | Map repo to team in settings (`,`)    |
 
 After a PR is created, the sidebar shows when new review comments arrive. Press `Ctrl+R` to import them so Claude can address the feedback directly.
 
 ## Change Everything at Once
 
-*Bump a dependency, update a config pattern, or apply a migration across a fleet of repos.*
+_Bump a dependency, update a config pattern, or apply a migration across a fleet of repos._
 
 Press `Ctrl+B` to broadcast a prompt to every registered repository. Plural creates a session per repo and sends your message in parallel. Follow up with `Ctrl+Shift+B` to send additional prompts or create PRs for the entire group.
 
@@ -107,20 +105,22 @@ plural clean -y           # Clean without confirmation
 
 All data lives in `~/.plural/` by default. If [XDG environment variables](https://specifications.freedesktop.org/basedir-spec/latest/) are set and `~/.plural/` doesn't exist, Plural follows the XDG Base Directory Specification.
 
-| Purpose | Default | XDG |
-|---------|---------|-----|
-| Config | `~/.plural/config.json` | `$XDG_CONFIG_HOME/plural/` |
-| Sessions | `~/.plural/sessions/` | `$XDG_DATA_HOME/plural/` |
-| Logs | `~/.plural/logs/` | `$XDG_STATE_HOME/plural/` |
+| Purpose  | Default                 | XDG                        |
+| -------- | ----------------------- | -------------------------- |
+| Config   | `~/.plural/config.json` | `$XDG_CONFIG_HOME/plural/` |
+| Sessions | `~/.plural/sessions/`   | `$XDG_DATA_HOME/plural/`   |
+| Logs     | `~/.plural/logs/`       | `$XDG_STATE_HOME/plural/`  |
 
 ## Container Image
 
 Pre-built:
+
 ```bash
 docker pull ghcr.io/zhubert/plural-claude
 ```
 
 Build your own:
+
 ```bash
 ./scripts/build-container.sh ghcr.io/zhubert/plural-claude         # latest
 ./scripts/build-container.sh ghcr.io/zhubert/plural-claude v0.1.0  # pinned
