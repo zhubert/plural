@@ -101,6 +101,11 @@ func validateState(name string, state *State, allStates map[string]*State) []Val
 			errs = append(errs, validateMergeParams(prefix, state.Params)...)
 		}
 
+		// Validate params for github.comment_issue action
+		if state.Action == "github.comment_issue" {
+			errs = append(errs, validateCommentIssueParams(prefix, state.Params)...)
+		}
+
 	case StateTypeWait:
 		// Wait states require event
 		if state.Event == "" {
@@ -194,6 +199,41 @@ func validateMergeParams(prefix string, params map[string]any) []ValidationError
 					Message: fmt.Sprintf("unknown merge method %q (must be rebase, squash, or merge)", s),
 				})
 			}
+		}
+	}
+
+	return errs
+}
+
+// validateCommentIssueParams validates params for github.comment_issue actions.
+func validateCommentIssueParams(prefix string, params map[string]any) []ValidationError {
+	var errs []ValidationError
+
+	if params == nil {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".params.body",
+			Message: "body is required for github.comment_issue action",
+		})
+		return errs
+	}
+
+	body, ok := params["body"]
+	if !ok || body == nil {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".params.body",
+			Message: "body is required for github.comment_issue action",
+		})
+		return errs
+	}
+
+	if s, ok := body.(string); ok {
+		if s == "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".params.body",
+				Message: "body must not be empty",
+			})
+		} else {
+			errs = append(errs, validatePromptPath(prefix+".params.body", s)...)
 		}
 	}
 

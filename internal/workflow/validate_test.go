@@ -291,6 +291,90 @@ func TestValidate(t *testing.T) {
 			},
 			wantFields: []string{"states.x.type"},
 		},
+		{
+			name: "github.comment_issue missing params",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: []string{"states.c.params.body"},
+		},
+		{
+			name: "github.comment_issue missing body param",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Params: map[string]any{"other": "value"}, Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: []string{"states.c.params.body"},
+		},
+		{
+			name: "github.comment_issue empty body",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Params: map[string]any{"body": ""}, Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: []string{"states.c.params.body"},
+		},
+		{
+			name: "github.comment_issue valid body",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Params: map[string]any{"body": "Starting work on this issue!"}, Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: nil,
+		},
+		{
+			name: "github.comment_issue valid file body path",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Params: map[string]any{"body": "file:templates/comment.md"}, Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: nil,
+		},
+		{
+			name: "github.comment_issue body absolute path",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Params: map[string]any{"body": "file:/etc/passwd"}, Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: []string{"states.c.params.body"},
+		},
+		{
+			name: "github.comment_issue body path traversal",
+			cfg: &Config{
+				Start:  "c",
+				Source: SourceConfig{Provider: "github", Filter: FilterConfig{Label: "q"}},
+				States: map[string]*State{
+					"c":    {Type: StateTypeTask, Action: "github.comment_issue", Params: map[string]any{"body": "file:../../etc/passwd"}, Next: "done"},
+					"done": {Type: StateTypeSucceed},
+				},
+			},
+			wantFields: []string{"states.c.params.body"},
+		},
 	}
 
 	for _, tt := range tests {

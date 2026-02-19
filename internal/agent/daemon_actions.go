@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/zhubert/plural/internal/claude"
@@ -94,6 +95,27 @@ func (a *MergeAction) Execute(ctx context.Context, ac *workflow.ActionContext) w
 
 	if err := d.mergePR(ctx, item); err != nil {
 		return workflow.ActionResult{Error: fmt.Errorf("merge failed: %v", err)}
+	}
+
+	return workflow.ActionResult{Success: true}
+}
+
+// CommentIssueAction implements the github.comment_issue action.
+type CommentIssueAction struct {
+	daemon *Daemon
+}
+
+// Execute posts a comment on the GitHub issue for the work item.
+// This is a synchronous action. It is a no-op for non-GitHub issues.
+func (a *CommentIssueAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
+	d := a.daemon
+	item := d.state.GetWorkItem(ac.WorkItemID)
+	if item == nil {
+		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
+	}
+
+	if err := d.commentOnIssue(ctx, item, ac.Params); err != nil {
+		return workflow.ActionResult{Error: fmt.Errorf("issue comment failed: %v", err)}
 	}
 
 	return workflow.ActionResult{Success: true}
@@ -332,6 +354,49 @@ func (d *Daemon) mergePR(ctx context.Context, item *WorkItem) error {
 	}
 
 	return nil
+}
+
+// commentOnIssue posts a comment on the GitHub issue for a work item.
+// For non-GitHub issues, this is a no-op (logged as a warning).
+func (d *Daemon) commentOnIssue(ctx context.Context, item *WorkItem, params *workflow.ParamHelper) error {
+	if item.IssueRef.Source != "github" {
+		d.logger.Warn("github.comment_issue skipped: not a github issue",
+			"workItem", item.ID, "source", item.IssueRef.Source)
+		return nil
+	}
+
+	issueNum, err := strconv.Atoi(item.IssueRef.ID)
+	if err != nil {
+		return fmt.Errorf("invalid github issue number %q: %w", item.IssueRef.ID, err)
+	}
+
+	// Resolve repo path: prefer session's path, fall back to daemon's repo filter.
+	repoPath := ""
+	if item.SessionID != "" {
+		if sess := d.config.GetSession(item.SessionID); sess != nil {
+			repoPath = sess.RepoPath
+		}
+	}
+	if repoPath == "" {
+		repoPath = d.findRepoPath(ctx)
+	}
+	if repoPath == "" {
+		return fmt.Errorf("no repo path found for work item %s", item.ID)
+	}
+
+	bodyTemplate := params.String("body", "")
+	body, err := workflow.ResolveSystemPrompt(bodyTemplate, repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve comment body: %w", err)
+	}
+	if body == "" {
+		return fmt.Errorf("comment body is empty")
+	}
+
+	commentCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	return d.gitService.CommentOnIssue(commentCtx, repoPath, issueNum, body)
 }
 
 // startWorker creates and starts a session worker for a work item.

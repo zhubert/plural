@@ -82,10 +82,11 @@ func (d Duration) MarshalYAML() (any, error) {
 
 // ValidActions is the set of recognized action names for task states.
 var ValidActions = map[string]bool{
-	"ai.code":          true,
-	"github.create_pr": true,
-	"github.push":      true,
-	"github.merge":     true,
+	"ai.code":               true,
+	"github.create_pr":      true,
+	"github.push":           true,
+	"github.merge":          true,
+	"github.comment_issue":  true,
 }
 
 // ValidEvents is the set of recognized event names for wait states.
