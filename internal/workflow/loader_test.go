@@ -125,6 +125,37 @@ workflow:
 	}
 }
 
+func TestLoad_SourceOnlyNotOldFormat(t *testing.T) {
+	dir := t.TempDir()
+	pluralDir := filepath.Join(dir, ".plural")
+	if err := os.MkdirAll(pluralDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// A config with only "source" (no "states" key, no "workflow" map)
+	// should NOT be detected as old format — it's incomplete new format.
+	sourceOnlyYAML := `
+source:
+  provider: github
+  filter:
+    label: "queued"
+`
+	if err := os.WriteFile(filepath.Join(pluralDir, "workflow.yaml"), []byte(sourceOnlyYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("source-only config should not error as old format: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if cfg.Source.Provider != "github" {
+		t.Errorf("provider: got %q, want github", cfg.Source.Provider)
+	}
+}
+
 func TestLoadAndMerge_NoFile(t *testing.T) {
 	dir := t.TempDir()
 	cfg, err := LoadAndMerge(dir)

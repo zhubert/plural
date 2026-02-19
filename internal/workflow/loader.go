@@ -51,7 +51,9 @@ func isOldFormat(data []byte) bool {
 		return false
 	}
 
-	// If there's a "states" key, it's the new format
+	// The "states" key is the definitive marker for the new format.
+	// A config with only "source" (no "states" and no "workflow" map) is
+	// incomplete new-format, not old-format — it will fail validation later.
 	if _, hasStates := raw["states"]; hasStates {
 		return false
 	}

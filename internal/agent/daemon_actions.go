@@ -162,7 +162,10 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) error {
 		log.Error("failed to save config", "error", err)
 	}
 
-	// Update work item with session info (engine handles step/phase)
+	// Update work item with session info.
+	// Engine handles CurrentStep/Phase; State is set here because it's still
+	// used by GetWorkItemsByState, GetActiveWorkItems, and IsTerminal for
+	// concurrency tracking and polling filters.
 	item.SessionID = sess.ID
 	item.Branch = sess.Branch
 	item.State = WorkItemCoding
