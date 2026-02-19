@@ -17,17 +17,19 @@ type CodingAction struct {
 	daemon *Daemon
 }
 
-// Execute is a no-op marker that signals the engine this step is async.
-// The actual session creation and Claude worker spawning is handled by
-// startQueuedItems → startCoding, which runs outside the engine because it
-// requires session setup, branch creation, and worker lifecycle management
-// that the engine doesn't own. Returning Async: true tells the engine to
-// set the phase to "async_pending" and wait for AdvanceAfterAsync.
+// Execute creates a session and starts a Claude worker for the work item.
+// Returns Async: true because the Claude worker runs in the background;
+// the engine will set the phase to "async_pending" and wait for
+// AdvanceAfterAsync when the worker completes.
 func (a *CodingAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
 	d := a.daemon
 	item := d.state.GetWorkItem(ac.WorkItemID)
 	if item == nil {
 		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
+	}
+
+	if err := d.startCoding(ctx, item); err != nil {
+		return workflow.ActionResult{Error: err}
 	}
 
 	return workflow.ActionResult{Success: true, Async: true}
@@ -97,17 +99,16 @@ func (a *MergeAction) Execute(ctx context.Context, ac *workflow.ActionContext) w
 	return workflow.ActionResult{Success: true}
 }
 
-// startCoding creates a session and starts a Claude worker for a queued work item.
-func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
+// startCoding creates a session and starts a Claude worker for a work item.
+// It returns an error if session setup fails. On success, the worker is running
+// in the background and the caller (engine) is responsible for setting step/phase.
+func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) error {
 	log := d.logger.With("workItem", item.ID, "issue", item.IssueRef.ID)
 
 	// Find the matching repo path
 	repoPath := d.findRepoPath(ctx)
 	if repoPath == "" {
-		log.Error("no matching repo found")
-		d.state.SetErrorMessage(item.ID, "no matching repo found")
-		d.state.MarkWorkItemTerminal(item.ID, false)
-		return
+		return fmt.Errorf("no matching repo found")
 	}
 
 	branchPrefix := d.config.GetDefaultBranchPrefix()
@@ -129,19 +130,13 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 
 	// Check if branch already exists
 	if d.sessionService.BranchExists(ctx, repoPath, fullBranchName) {
-		log.Debug("branch already exists, skipping", "branch", fullBranchName)
-		d.state.SetErrorMessage(item.ID, "branch already exists")
-		d.state.MarkWorkItemTerminal(item.ID, false)
-		return
+		return fmt.Errorf("branch %s already exists", fullBranchName)
 	}
 
 	// Create new session
 	sess, err := d.sessionService.Create(ctx, repoPath, branchName, branchPrefix, session.BasePointOrigin)
 	if err != nil {
-		log.Error("failed to create session", "error", err)
-		d.state.SetErrorMessage(item.ID, fmt.Sprintf("session creation failed: %v", err))
-		d.state.MarkWorkItemTerminal(item.ID, false)
-		return
+		return fmt.Errorf("session creation failed: %w", err)
 	}
 
 	// Configure session from workflow config params
@@ -167,11 +162,9 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 		log.Error("failed to save config", "error", err)
 	}
 
-	// Update work item with session info
+	// Update work item with session info (engine handles step/phase)
 	item.SessionID = sess.ID
 	item.Branch = sess.Branch
-	item.CurrentStep = "coding"
-	item.Phase = "async_pending"
 	item.State = WorkItemCoding
 	item.UpdatedAt = time.Now()
 
@@ -189,6 +182,7 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 	d.startWorkerWithPrompt(ctx, item, sess, initialMsg, codingPrompt)
 
 	log.Info("started coding", "sessionID", sess.ID, "branch", sess.Branch)
+	return nil
 }
 
 // addressFeedback resumes the Claude session to address review comments.
