@@ -36,21 +36,23 @@ When Claude requests tool permissions: `y` (allow), `n` (deny), or `a` (always a
 
 ---
 
-## TUI Features
+## One Session
 
-### Parallel Sessions
+Every session runs in its own git worktree with a dedicated branch. Claude edits files freely without touching your main branch. Press `n` to create one, start chatting, and press `m` when you're ready to merge or open a PR.
 
-Each session runs in its own git worktree with a dedicated branch. Claude can edit files freely without touching your main branch. Multiple sessions can work on the same repo simultaneously.
+## Try Multiple Approaches
 
-### Option Forking
+*Can't decide between JWT and session-based auth? Try both.*
 
-When Claude proposes competing approaches, press `Ctrl+O` to detect options and fork into parallel sessions automatically. Each approach gets its own branch. Compare results and merge the winner.
+When Claude proposes competing approaches, press `Ctrl+O` to auto-detect the options and fork into parallel sessions — each gets its own branch. Or press `f` at any point to manually fork a session and take it in a different direction.
 
-Fork manually with `f` to branch off any session at any point.
+Compare results with `v` (git diff), preview a branch in your main repo with `p` (so dev servers pick up the changes), and merge the winner with `m`.
 
-### Issue Import
+## Work Your Backlog
 
-Press `i` to import issues or tasks. Select multiple and Plural creates a session for each—Claude starts working on all of them in parallel.
+*You have a pile of issues. Let Claude chew through them in parallel.*
+
+Press `i` to import issues from your tracker. Select several at once and Plural creates a session per issue — Claude starts working all of them simultaneously. PRs are automatically linked (`Fixes #N` / `Fixes ENG-123`).
 
 | Provider | Auth | Setup |
 |----------|------|-------|
@@ -58,89 +60,34 @@ Press `i` to import issues or tasks. Select multiple and Plural creates a sessio
 | **Asana Tasks** | `ASANA_PAT` env var | Map repo to project in settings (`,`) |
 | **Linear Issues** | `LINEAR_API_KEY` env var | Map repo to team in settings (`,`) |
 
-PRs created from issue sessions automatically include closing references (`Fixes #N` or `Fixes ENG-123`).
-
-### Broadcasting
-
-Send the same prompt to multiple repositories at once with `Ctrl+B`. Plural creates a session per repo and sends your prompt in parallel—useful for applying the same change across a fleet of services.
-
-Follow up with `Ctrl+Shift+B` to send additional prompts or create PRs for all sessions in the group.
-
-### PR Workflow
-
-Press `m` to merge or create a PR. Options include merge to main, merge to parent session, create PR, or push updates to an existing PR. Uncommitted changes are auto-committed.
-
 After a PR is created, the sidebar shows when new review comments arrive. Press `Ctrl+R` to import them so Claude can address the feedback directly.
 
-Merge conflicts can be resolved by Claude, manually in a terminal, or aborted.
+## Change Everything at Once
 
-### Branch Preview
+*Bump a dependency, update a config pattern, or apply a migration across a fleet of repos.*
 
-Press `p` to preview a session's branch in your main repo so dev servers pick up the changes without merging. The header shows `[PREVIEW]` while active. Press `p` again to restore.
+Press `Ctrl+B` to broadcast a prompt to every registered repository. Plural creates a session per repo and sends your message in parallel. Follow up with `Ctrl+Shift+B` to send additional prompts or create PRs for the entire group.
 
-### Container Mode
+## Sandboxed Execution
 
-Run Claude inside a Docker container for sandboxed execution. The container IS the sandbox—Claude can use tools freely without permission prompts.
-
-- Check "Run in container" when creating a session
-- Press `Ctrl+E` to open a terminal inside the container
-- Sessions show a `[CONTAINER]` indicator
+Run Claude inside a Docker container — the container IS the sandbox, so Claude can use tools freely without permission prompts. Check "Run in container" when creating a session, and press `Ctrl+E` to open a terminal inside it.
 
 Auth: `ANTHROPIC_API_KEY` env var, macOS keychain (`anthropic_api_key`), OAuth token from `claude setup-token`, or `~/.claude/.credentials.json` from `claude login`.
 
-### Chat
+## More
 
 - **Image pasting** (`Ctrl+V`) — share screenshots directly with Claude
 - **Message search** (`Ctrl+/`) — search conversation history
 - **Text selection** — click+drag, double-click for word, triple-click for paragraph
-- **Tool use rollup** (`Ctrl+T`) — toggle collapsed/expanded view of tool operations
-- **Log viewer** (`Ctrl+L`) — debug, MCP, and stream logs in an overlay
-- **Cost tracking** (`/cost`) — token usage and estimated cost for the session
+- **Tool use rollup** (`Ctrl+T`) — toggle collapsed/expanded tool operations
+- **Log viewer** (`Ctrl+L`) — debug, MCP, and stream logs
+- **Cost tracking** (`/cost`) — token usage and estimated cost
+- **8 themes** — press `t` to switch (tokyo-night, dracula, nord, gruvbox, catppuccin, and more)
+- **MCP servers and plugins** (`/mcp`, `/plugins`)
+- **Per-repo settings** for allowed tools, squash-on-merge, and issue provider mapping
+- **Settings** — global with `Alt+,`, per-session with `,`
 
-### Customization
-
-- 8 built-in themes — press `t` to switch (tokyo-night, dracula, nord, gruvbox, catppuccin, and more)
-- Branch naming prefixes
-- Desktop notifications
-- MCP servers and plugins (`/mcp`, `/plugins`)
-- Per-repo settings for allowed tools, squash-on-merge, and issue provider mapping
-- Global settings with `Alt+,`, session settings with `,`
-
----
-
-## Keyboard Shortcuts
-
-Press `?` for the full list. Key shortcuts:
-
-| Key | Action |
-|-----|--------|
-| `Tab` | Switch focus between sidebar and chat |
-| `n` | New session |
-| `f` | Fork session |
-| `i` | Import issues |
-| `d` | Delete session |
-| `r` | Rename session |
-| `m` | Merge / Create PR |
-| `p` | Preview branch |
-| `v` | View git diff |
-| `s` | Multi-select sessions |
-| `/` | Filter sessions in sidebar |
-| `a` | Add repository |
-| `,` | Session settings |
-| `Alt+,` | Global settings |
-| `t` | Switch theme |
-| `Ctrl+O` | Fork detected options |
-| `Ctrl+B` | Broadcast prompt |
-| `Ctrl+Shift+B` | Broadcast group actions |
-| `Ctrl+R` | Import PR review comments |
-| `Ctrl+E` | Open terminal in worktree |
-| `Ctrl+/` | Search messages |
-| `Ctrl+T` | Toggle tool use expansion |
-| `Ctrl+L` | Log viewer |
-| `Ctrl+V` | Paste image |
-| `W` | What's New |
-| `?` | Help |
-| `q` | Quit |
+Press `?` at any time for the full keyboard shortcut list.
 
 ---
 
