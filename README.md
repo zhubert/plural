@@ -140,57 +140,108 @@ plural agent --repo owner/repo --auto-address-pr-comments
 
 ### Workflow Configuration
 
-Create `.plural/workflow.yaml` in your repo to customize the agent's behavior per-repository. If no file exists, the agent uses sensible defaults.
+Create `.plural/workflow.yaml` in your repo to customize the agent's behavior per-repository. The workflow is defined as a **state machine**—a directed graph of states connected by `next` (success) and `error` (failure) edges. If no file exists, the agent uses sensible defaults.
 
 ```yaml
+workflow: issue-to-merge
+start: coding
+
 source:
   provider: github          # github | asana | linear
   filter:
-    label: "queued"         # github: issue label to poll
-    # project: ""           # asana: project GID
-    # team: ""              # linear: team ID
+    label: queued            # github: issue label to poll
+    # project: ""            # asana: project GID
+    # team: ""               # linear: team ID
 
-workflow:
+states:
   coding:
-    max_turns: 50
-    max_duration: 30m
-    containerized: true
-    supervisor: true
-    system_prompt: |
-      Custom instructions for the coding phase...
-    after:
-      - run: "./scripts/post-code.sh"
+    type: task
+    action: ai.code
+    params:
+      max_turns: 50
+      max_duration: 30m
+      containerized: true
+      supervisor: true
+      # system_prompt: "file:./prompts/coding.md"
+    # after:
+    #   - run: "make lint"
+    next: open_pr
+    error: failed
 
-  pr:
-    draft: false
-    link_issue: true
-    template: "file:./pr-template.md"
-    after:
-      - run: "./scripts/notify-slack.sh"
+  open_pr:
+    type: task
+    action: github.create_pr
+    params:
+      link_issue: true
+      # template: "file:./pr-template.md"
+    next: await_review
+    error: failed
 
-  review:
-    auto_address: true
-    max_feedback_rounds: 3
-    system_prompt: "file:./prompts/review.md"
-    after:
-      - run: "./scripts/post-review.sh"
+  await_review:
+    type: wait
+    event: pr.reviewed
+    params:
+      auto_address: true
+      max_feedback_rounds: 3
+      # system_prompt: "file:./prompts/review.md"
+    next: await_ci
+    error: failed
 
-  ci:
+  await_ci:
+    type: wait
+    event: ci.complete
     timeout: 2h
-    on_failure: retry       # retry | abandon | notify
+    params:
+      on_failure: retry      # retry | abandon | notify
+    next: merge
+    error: failed
 
   merge:
-    method: rebase          # rebase | squash | merge
-    cleanup: true
-    after:
-      - run: "./scripts/post-merge.sh"
+    type: task
+    action: github.merge
+    params:
+      method: rebase         # rebase | squash | merge
+      cleanup: true
+    # after:
+    #   - run: "./scripts/post-merge.sh"
+    next: done
+
+  done:
+    type: succeed
+
+  failed:
+    type: fail
 ```
+
+#### State types
+
+| Type | Purpose | Required fields |
+|------|---------|-----------------|
+| `task` | Executes an action | `action`, `next` |
+| `wait` | Polls for an external event | `event`, `next` |
+| `succeed` | Terminal success state | — |
+| `fail` | Terminal failure state | — |
+
+#### Actions and events
+
+| Actions | Events |
+|---------|--------|
+| `ai.code` — run a Claude coding session | `pr.reviewed` — PR has been reviewed |
+| `github.create_pr` — open a pull request | `ci.complete` — CI checks have finished |
+| `github.push` — push to remote | |
+| `github.merge` — merge the PR | |
+
+#### Customizing the graph
+
+You can add, remove, or reorder states to match your workflow. For example, to skip PR review and merge immediately after CI passes, set `open_pr.next` to `await_ci` and remove the `await_review` state. To add a push step before opening a PR, insert a new `push` state with `action: github.push` between `coding` and `open_pr`.
+
+States from the default config that aren't overridden in your file are preserved—you only need to define the states you want to change or add. Top-level fields (`workflow`, `start`, `source`) fall back to defaults when omitted.
 
 **Override precedence**: CLI flag > `.plural/workflow.yaml` > `~/.plural/config.json` > defaults.
 
 **System prompts** can be inline strings or `file:./path` references (relative to repo root).
 
-**Hooks** run on the host after each workflow step with environment variables: `PLURAL_REPO_PATH`, `PLURAL_BRANCH`, `PLURAL_SESSION_ID`, `PLURAL_ISSUE_ID`, `PLURAL_ISSUE_TITLE`, `PLURAL_ISSUE_URL`, `PLURAL_PR_URL`, `PLURAL_WORKTREE`, `PLURAL_PROVIDER`. Hook failures are logged but don't block the workflow.
+**Hooks** run on the host after each workflow step via the `after` field. Environment variables available: `PLURAL_REPO_PATH`, `PLURAL_BRANCH`, `PLURAL_SESSION_ID`, `PLURAL_ISSUE_ID`, `PLURAL_ISSUE_TITLE`, `PLURAL_ISSUE_URL`, `PLURAL_PR_URL`, `PLURAL_WORKTREE`, `PLURAL_PROVIDER`. Hook failures are logged but don't block the workflow.
 
 **Provider support**: The agent can poll GitHub issues (by label), Asana tasks (by project), or Linear issues (by team).
 
