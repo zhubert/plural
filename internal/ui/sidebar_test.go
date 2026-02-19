@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/spinner"
-	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural-core/config"
 )
 
 func TestNewSidebar(t *testing.T) {

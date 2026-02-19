@@ -3,7 +3,7 @@ package ui
 import (
 	"sync"
 
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 )
 
 // ViewContext holds centralized layout calculations and provides debug logging.

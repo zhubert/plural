@@ -48,7 +48,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rivo/uniseg"
 	"github.com/zhubert/plural/internal/clipboard"
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 )
 
 // SelectionCopyMsg is sent after a delay to handle copying selected text

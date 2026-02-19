@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/exec"
-	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/exec"
+	"github.com/zhubert/plural-core/git"
 )
 
 // TestCreatePRsForSessions_WithUncommittedChanges verifies that sessions with

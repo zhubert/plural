@@ -11,8 +11,8 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural-core/claude"
+	"github.com/zhubert/plural-core/mcp"
 )
 
 // =============================================================================

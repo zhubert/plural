@@ -157,7 +157,7 @@ import (
 	"image/png"
 	"unsafe"
 
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 )
 
 // readNativeImage reads image data from the macOS pasteboard using native APIs.

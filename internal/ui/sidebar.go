@@ -11,9 +11,9 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural/internal/keys"
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 )
 
 // sessionNode represents a session with its children (forks)

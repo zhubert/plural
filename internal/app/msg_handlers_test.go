@@ -7,11 +7,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/changelog"
-	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/git"
-	"github.com/zhubert/plural/internal/issues"
-	"github.com/zhubert/plural/internal/mcp"
-	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural-core/claude"
+	"github.com/zhubert/plural-core/git"
+	"github.com/zhubert/plural-core/issues"
+	"github.com/zhubert/plural-core/mcp"
+	"github.com/zhubert/plural-core/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 

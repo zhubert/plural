@@ -4,11 +4,11 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural-core/claude"
+	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/git"
 	"github.com/zhubert/plural/internal/keys"
-	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural-core/mcp"
 )
 
 // testConfig creates a minimal config for testing.

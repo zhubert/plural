@@ -10,7 +10,7 @@ import (
 
 	"golang.design/x/clipboard"
 
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 )
 
 // initialized tracks whether the clipboard has been initialized

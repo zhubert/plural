@@ -10,11 +10,11 @@ import (
 	"sync"
 
 	"github.com/spf13/cobra"
-	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/paths"
-	"github.com/zhubert/plural/internal/process"
-	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/paths"
+	"github.com/zhubert/plural-core/process"
+	"github.com/zhubert/plural-core/session"
 )
 
 var skipConfirm bool

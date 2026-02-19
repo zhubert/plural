@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	"github.com/zhubert/plural/internal/config"
-	pexec "github.com/zhubert/plural/internal/exec"
-	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural-core/config"
+	pexec "github.com/zhubert/plural-core/exec"
+	"github.com/zhubert/plural-core/git"
 )
 
 func TestGetEligibleSessions(t *testing.T) {

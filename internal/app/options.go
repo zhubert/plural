@@ -3,15 +3,12 @@ package app
 import (
 	"regexp"
 	"strings"
+
+	"github.com/zhubert/plural-core/manager"
 )
 
-// DetectedOption represents a numbered or lettered option found in Claude's response
-type DetectedOption struct {
-	Number     int    // The option number (1, 2, 3, etc.) or letter index (A=1, B=2, etc.)
-	Letter     string // The option letter if letter-based (A, B, C, etc.), empty if numeric
-	Text       string // The option text
-	GroupIndex int    // Which group this option belongs to (0-indexed)
-}
+// DetectedOption is an alias for manager.DetectedOption.
+type DetectedOption = manager.DetectedOption
 
 // numericOptionPatterns are regexes that match numbered lists in Claude responses.
 // These are used as fallback when <options> tags are not present.
