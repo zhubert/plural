@@ -24,7 +24,7 @@ const (
 // Agent is the headless autonomous agent that polls for issues
 // and manages worker goroutines to process them.
 type Agent struct {
-	config         *config.Config
+	config         AgentConfig
 	gitService     *git.GitService
 	sessionService *session.SessionService
 	sessionMgr     *app.SessionManager
@@ -96,7 +96,7 @@ func WithPollInterval(d time.Duration) Option {
 }
 
 // New creates a new headless agent.
-func New(cfg *config.Config, gitSvc *git.GitService, sessSvc *session.SessionService, registry *issues.ProviderRegistry, logger *slog.Logger, opts ...Option) *Agent {
+func New(cfg AgentConfig, gitSvc *git.GitService, sessSvc *session.SessionService, registry *issues.ProviderRegistry, logger *slog.Logger, opts ...Option) *Agent {
 	a := &Agent{
 		config:         cfg,
 		gitService:     gitSvc,

@@ -17,7 +17,7 @@ import (
 
 // Daemon is the persistent orchestrator that manages the full lifecycle of work items.
 type Daemon struct {
-	config         *config.Config
+	config         AgentConfig
 	gitService     *git.GitService
 	sessionService *session.SessionService
 	sessionMgr     *app.SessionManager
@@ -104,7 +104,7 @@ func WithDaemonReviewPollInterval(d time.Duration) DaemonOption {
 }
 
 // NewDaemon creates a new daemon.
-func NewDaemon(cfg *config.Config, gitSvc *git.GitService, sessSvc *session.SessionService, registry *issues.ProviderRegistry, logger *slog.Logger, opts ...DaemonOption) *Daemon {
+func NewDaemon(cfg AgentConfig, gitSvc *git.GitService, sessSvc *session.SessionService, registry *issues.ProviderRegistry, logger *slog.Logger, opts ...DaemonOption) *Daemon {
 	d := &Daemon{
 		config:             cfg,
 		gitService:         gitSvc,

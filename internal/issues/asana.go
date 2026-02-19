@@ -9,8 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/zhubert/plural/internal/config"
 )
 
 const (
@@ -27,13 +25,13 @@ type AsanaProject struct {
 
 // AsanaProvider implements Provider for Asana Tasks using the Asana REST API.
 type AsanaProvider struct {
-	config     *config.Config
+	config     AsanaConfigProvider
 	httpClient *http.Client
 	apiBase    string // Override for testing; defaults to asanaAPIBase
 }
 
 // NewAsanaProvider creates a new Asana task provider.
-func NewAsanaProvider(cfg *config.Config) *AsanaProvider {
+func NewAsanaProvider(cfg AsanaConfigProvider) *AsanaProvider {
 	return &AsanaProvider{
 		config: cfg,
 		httpClient: &http.Client{
@@ -44,7 +42,7 @@ func NewAsanaProvider(cfg *config.Config) *AsanaProvider {
 }
 
 // NewAsanaProviderWithClient creates a new Asana task provider with a custom HTTP client and API base URL (for testing).
-func NewAsanaProviderWithClient(cfg *config.Config, client *http.Client, apiBase string) *AsanaProvider {
+func NewAsanaProviderWithClient(cfg AsanaConfigProvider, client *http.Client, apiBase string) *AsanaProvider {
 	if apiBase == "" {
 		apiBase = asanaAPIBase
 	}

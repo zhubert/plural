@@ -19,6 +19,9 @@ import (
 	"github.com/zhubert/plural/internal/mcp"
 )
 
+// Compile-time interface satisfaction check.
+var _ SessionManagerConfig = (*config.Config)(nil)
+
 // DiffStats holds file change statistics for the header display
 type DiffStats struct {
 	FilesChanged int
@@ -58,11 +61,25 @@ func defaultRunnerFactory(sessionID, workingDir, repoPath string, sessionStarted
 	return claude.New(sessionID, workingDir, repoPath, sessionStarted, initialMessages)
 }
 
+// SessionManagerConfig defines the configuration interface required by SessionManager.
+// This decouples SessionManager from the concrete config.Config struct.
+//
+// *config.Config satisfies this interface implicitly.
+type SessionManagerConfig interface {
+	GetSession(id string) *config.Session
+	GetSessions() []config.Session
+	GetAllowedToolsForRepo(repoPath string) []string
+	GetMCPServersForRepo(repoPath string) []config.MCPServer
+	GetContainerImage() string
+	AddRepoAllowedTool(repoPath, tool string) bool
+	Save() error
+}
+
 // SessionManager handles session lifecycle operations including runner management,
 // state coordination, and message persistence. It encapsulates the relationship
 // between sessions, runners, and per-session state.
 type SessionManager struct {
-	config          *config.Config
+	config          SessionManagerConfig
 	stateManager    *SessionStateManager
 	runners         map[string]claude.RunnerInterface
 	runnerFactory   RunnerFactory
@@ -72,7 +89,7 @@ type SessionManager struct {
 }
 
 // NewSessionManager creates a new session manager.
-func NewSessionManager(cfg *config.Config, gitSvc *git.GitService) *SessionManager {
+func NewSessionManager(cfg SessionManagerConfig, gitSvc *git.GitService) *SessionManager {
 	return &SessionManager{
 		config:        cfg,
 		stateManager:  NewSessionStateManager(),

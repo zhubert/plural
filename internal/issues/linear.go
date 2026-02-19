@@ -9,8 +9,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	"github.com/zhubert/plural/internal/config"
 )
 
 const (
@@ -27,13 +25,13 @@ type LinearTeam struct {
 
 // LinearProvider implements Provider for Linear Issues using the Linear GraphQL API.
 type LinearProvider struct {
-	config     *config.Config
+	config     LinearConfigProvider
 	httpClient *http.Client
 	apiBase    string // Override for testing; defaults to linearAPIBase
 }
 
 // NewLinearProvider creates a new Linear issue provider.
-func NewLinearProvider(cfg *config.Config) *LinearProvider {
+func NewLinearProvider(cfg LinearConfigProvider) *LinearProvider {
 	return &LinearProvider{
 		config: cfg,
 		httpClient: &http.Client{
@@ -44,7 +42,7 @@ func NewLinearProvider(cfg *config.Config) *LinearProvider {
 }
 
 // NewLinearProviderWithClient creates a new Linear issue provider with a custom HTTP client and API base URL (for testing).
-func NewLinearProviderWithClient(cfg *config.Config, client *http.Client, apiBase string) *LinearProvider {
+func NewLinearProviderWithClient(cfg LinearConfigProvider, client *http.Client, apiBase string) *LinearProvider {
 	if apiBase == "" {
 		apiBase = linearAPIBase
 	}
