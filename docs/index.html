@@ -1,695 +1,758 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>plural - parallel claude code sessions</title>
-    <meta name="description" content="Run multiple Claude Code sessions in parallel, each in its own git branch. Compare approaches side by side and ship faster.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta
+      name="description"
+      content="Run multiple Claude Code sessions in parallel, each in its own git branch. Compare approaches side by side and ship faster."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
-        :root {
-            --primary: #7C3AED;
-            --primary-dim: #6D28D9;
-            --primary-glow: rgba(124, 58, 237, 0.15);
-            --secondary: #10B981;
-            --secondary-dim: #059669;
-            --accent: #06B6D4;
-            --bg: #0B1120;
-            --bg-elevated: #111827;
-            --bg-panel: #1F2937;
-            --border: #1E293B;
-            --border-light: #334155;
-            --text: #F1F5F9;
-            --text-muted: #94A3B8;
-            --text-dim: #64748B;
-        }
+      :root {
+        --primary: #7c3aed;
+        --primary-dim: #6d28d9;
+        --primary-glow: rgba(124, 58, 237, 0.15);
+        --secondary: #10b981;
+        --secondary-dim: #059669;
+        --accent: #06b6d4;
+        --bg: #0b1120;
+        --bg-elevated: #111827;
+        --bg-panel: #1f2937;
+        --border: #1e293b;
+        --border-light: #334155;
+        --text: #f1f5f9;
+        --text-muted: #94a3b8;
+        --text-dim: #64748b;
+      }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
+      html {
+        font-size: 15px;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        font-family: "JetBrains Mono", monospace;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      ::selection {
+        background: var(--primary);
+        color: var(--text);
+      }
+
+      /* ── Layout ── */
+
+      .container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+      }
+
+      section {
+        padding: 4rem 0;
+      }
+
+      /* ── Hero ── */
+
+      .hero {
+        text-align: center;
+        padding: 3rem 0 2rem;
+      }
+
+      .logo-svg {
+        width: 100%;
+        max-width: 420px;
+        height: auto;
+      }
+
+      .hero-tagline {
+        margin-top: 1.5rem;
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .hero-sub {
+        margin-top: 0.5rem;
+        font-size: 0.95rem;
+        color: var(--text-muted);
+        max-width: 520px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .hero-cta {
+        display: inline-flex;
+        gap: 1rem;
+        margin-top: 2rem;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 0.65rem 1.5rem;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 0.85rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: all 0.2s;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: var(--text);
+        border-color: var(--primary);
+      }
+
+      .btn-primary:hover {
+        background: var(--primary-dim);
+        box-shadow: 0 0 20px var(--primary-glow);
+      }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--text-muted);
+        border-color: var(--border-light);
+      }
+
+      .btn-secondary:hover {
+        color: var(--text);
+        border-color: var(--text-muted);
+      }
+
+      /* ── Demo ── */
+
+      .demo {
+        padding: 1rem 0 3rem;
+        text-align: center;
+      }
+
+      .demo-gif {
+        max-width: 100%;
+        border-radius: 10px;
+        border: 1px solid var(--border-light);
+        box-shadow:
+          0 4px 24px rgba(0, 0, 0, 0.3),
+          0 0 0 1px rgba(124, 58, 237, 0.1);
+      }
+
+      /* ── Features ── */
+
+      .features {
+        padding: 3rem 0 4rem;
+      }
+
+      .features-heading {
+        text-align: center;
+        margin-bottom: 3rem;
+      }
+
+      .features-heading h2 {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+
+      .features-heading p {
+        margin-top: 0.4rem;
+        font-size: 0.85rem;
+        color: var(--text-dim);
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.25rem;
+      }
+
+      .feature-card {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.5rem;
+        transition:
+          border-color 0.2s,
+          box-shadow 0.2s;
+      }
+
+      .feature-card:hover {
+        border-color: var(--border-light);
+        box-shadow: 0 2px 16px rgba(0, 0, 0, 0.2);
+      }
+
+      .feature-icon {
+        font-size: 1.1rem;
+        margin-bottom: 0.75rem;
+        display: block;
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .feature-card h3 {
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 0.4rem;
+      }
+
+      .feature-card p {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+
+      /* ── How it works ── */
+
+      .how-it-works {
+        padding: 3rem 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .how-heading {
+        text-align: center;
+        margin-bottom: 2.5rem;
+      }
+
+      .how-heading h2 {
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 2rem;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      .step {
+        text-align: center;
+      }
+
+      .step-number {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        background: var(--primary-glow);
+        border: 1px solid var(--primary);
+        color: var(--primary);
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 0.75rem;
+      }
+
+      .step h3 {
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.3rem;
+      }
+
+      .step p {
+        font-size: 0.78rem;
+        color: var(--text-muted);
+        line-height: 1.6;
+      }
+
+      /* ── Headless ── */
+
+      .headless {
+        padding: 3rem 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .headless-heading {
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+
+      .headless-heading h2 {
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      .headless-heading p {
+        margin-top: 0.3rem;
+        font-size: 0.8rem;
+        color: var(--text-dim);
+      }
+
+      .headless-body {
+        max-width: 680px;
+        margin: 0 auto;
+      }
+
+      .headless-desc {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        line-height: 1.7;
+        margin-bottom: 0;
+        text-align: center;
+      }
+
+      /* ── Install ── */
+
+      .install {
+        padding: 3rem 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .install-heading {
+        text-align: center;
+        margin-bottom: 1.5rem;
+      }
+
+      .install-heading h2 {
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      .install-heading p {
+        margin-top: 0.3rem;
+        font-size: 0.8rem;
+        color: var(--text-dim);
+      }
+
+      .command-block {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-light);
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        position: relative;
+        overflow-x: auto;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .command-block code {
+        color: var(--text);
+        font-size: 0.85rem;
+        white-space: nowrap;
+      }
+
+      .command-block .prompt {
+        color: var(--secondary);
+        user-select: none;
+      }
+
+      .copy-btn {
+        position: absolute;
+        top: 0.65rem;
+        right: 0.65rem;
+        background: var(--border-light);
+        border: none;
+        color: var(--text-muted);
+        padding: 0.3rem 0.55rem;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 0.65rem;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+
+      .copy-btn:hover {
+        background: var(--primary);
+        color: var(--text);
+      }
+
+      .copy-btn.copied {
+        background: var(--secondary);
+        color: var(--bg);
+      }
+
+      .install-alt {
+        text-align: center;
+        margin-top: 0.75rem;
+      }
+
+      .install-alt a {
+        color: var(--text-dim);
+        text-decoration: none;
+        font-size: 0.78rem;
+        border-bottom: 1px solid var(--border-light);
+        transition:
+          color 0.15s,
+          border-color 0.15s;
+      }
+
+      .install-alt a:hover {
+        color: var(--text-muted);
+        border-color: var(--text-muted);
+      }
+
+      /* ── Footer ── */
+
+      footer {
+        text-align: center;
+        padding: 2.5rem 0;
+        color: var(--text-dim);
+        font-size: 0.75rem;
+        border-top: 1px solid var(--border);
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 1.5rem;
+        justify-content: center;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+
+      .footer-links a {
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 0.8rem;
+        transition: color 0.15s;
+      }
+
+      .footer-links a:hover {
+        color: var(--primary);
+      }
+
+      footer p a {
+        color: var(--text-muted);
+        text-decoration: none;
+      }
+
+      footer p a:hover {
+        color: var(--primary);
+      }
+
+      /* ── Responsive ── */
+
+      @media (max-width: 768px) {
         html {
-            font-size: 15px;
-            scroll-behavior: smooth;
-        }
-
-        body {
-            font-family: 'JetBrains Mono', monospace;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            min-height: 100vh;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        ::selection {
-            background: var(--primary);
-            color: var(--text);
-        }
-
-        /* ── Layout ── */
-
-        .container {
-            max-width: 960px;
-            margin: 0 auto;
-            padding: 0 1.5rem;
+          font-size: 14px;
         }
 
         section {
-            padding: 4rem 0;
+          padding: 3rem 0;
         }
 
-        /* ── Hero ── */
-
         .hero {
-            text-align: center;
-            padding: 3rem 0 2rem;
+          padding: 2rem 0 1.5rem;
         }
 
         .logo-svg {
-            width: 100%;
-            max-width: 420px;
-            height: auto;
+          max-width: 300px;
         }
 
         .hero-tagline {
-            margin-top: 1.5rem;
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: var(--text);
-        }
-
-        .hero-sub {
-            margin-top: 0.5rem;
-            font-size: 0.95rem;
-            color: var(--text-muted);
-            max-width: 520px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .hero-cta {
-            display: inline-flex;
-            gap: 1rem;
-            margin-top: 2rem;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 0.65rem 1.5rem;
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 0.85rem;
-            font-weight: 500;
-            text-decoration: none;
-            transition: all 0.2s;
-            cursor: pointer;
-            border: 1px solid transparent;
-        }
-
-        .btn-primary {
-            background: var(--primary);
-            color: var(--text);
-            border-color: var(--primary);
-        }
-
-        .btn-primary:hover {
-            background: var(--primary-dim);
-            box-shadow: 0 0 20px var(--primary-glow);
-        }
-
-        .btn-secondary {
-            background: transparent;
-            color: var(--text-muted);
-            border-color: var(--border-light);
-        }
-
-        .btn-secondary:hover {
-            color: var(--text);
-            border-color: var(--text-muted);
-        }
-
-        /* ── Demo ── */
-
-        .demo {
-            padding: 1rem 0 3rem;
-            text-align: center;
-        }
-
-        .demo-gif {
-            max-width: 100%;
-            border-radius: 10px;
-            border: 1px solid var(--border-light);
-            box-shadow:
-                0 4px 24px rgba(0, 0, 0, 0.3),
-                0 0 0 1px rgba(124, 58, 237, 0.1);
-        }
-
-        /* ── Features ── */
-
-        .features {
-            padding: 3rem 0 4rem;
-        }
-
-        .features-heading {
-            text-align: center;
-            margin-bottom: 3rem;
-        }
-
-        .features-heading h2 {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: var(--text);
-        }
-
-        .features-heading p {
-            margin-top: 0.4rem;
-            font-size: 0.85rem;
-            color: var(--text-dim);
+          font-size: 1.15rem;
         }
 
         .features-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.25rem;
+          grid-template-columns: 1fr;
+          gap: 1rem;
         }
 
         .feature-card {
-            background: var(--bg-elevated);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 1.5rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .feature-card:hover {
-            border-color: var(--border-light);
-            box-shadow: 0 2px 16px rgba(0, 0, 0, 0.2);
+          display: grid;
+          grid-template-columns: auto 1fr;
+          grid-template-rows: auto auto;
+          column-gap: 1rem;
+          padding: 1.25rem;
         }
 
         .feature-icon {
-            font-size: 1.1rem;
-            margin-bottom: 0.75rem;
-            display: block;
-            color: var(--primary);
-            font-weight: 700;
+          grid-row: 1 / 3;
+          align-self: center;
+          margin-bottom: 0;
+          font-size: 1.5rem;
         }
 
         .feature-card h3 {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--text);
-            margin-bottom: 0.4rem;
-        }
-
-        .feature-card p {
-            font-size: 0.78rem;
-            color: var(--text-muted);
-            line-height: 1.6;
-        }
-
-        /* ── How it works ── */
-
-        .how-it-works {
-            padding: 3rem 0;
-            border-top: 1px solid var(--border);
-        }
-
-        .how-heading {
-            text-align: center;
-            margin-bottom: 2.5rem;
-        }
-
-        .how-heading h2 {
-            font-size: 1.2rem;
-            font-weight: 600;
+          margin-bottom: 0.15rem;
         }
 
         .steps {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 2rem;
-            max-width: 800px;
-            margin: 0 auto;
+          grid-template-columns: 1fr;
+          gap: 1.5rem;
+          max-width: 400px;
         }
 
         .step {
-            text-align: center;
+          display: grid;
+          grid-template-columns: 2rem 1fr;
+          grid-template-rows: auto auto;
+          column-gap: 1rem;
+          text-align: left;
         }
 
         .step-number {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 2rem;
-            height: 2rem;
-            border-radius: 50%;
-            background: var(--primary-glow);
-            border: 1px solid var(--primary);
-            color: var(--primary);
-            font-size: 0.8rem;
-            font-weight: 700;
-            margin-bottom: 0.75rem;
+          grid-row: 1 / 3;
+          align-self: center;
+          margin-bottom: 0;
         }
 
         .step h3 {
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-bottom: 0.3rem;
+          margin-bottom: 0.1rem;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .container {
+          padding: 0 1rem;
         }
 
-        .step p {
-            font-size: 0.78rem;
-            color: var(--text-muted);
-            line-height: 1.6;
+        .logo-svg {
+          max-width: 240px;
         }
 
-        /* ── Headless ── */
-
-        .headless {
-            padding: 3rem 0;
-            border-top: 1px solid var(--border);
+        .hero-tagline {
+          font-size: 1.05rem;
         }
 
-        .headless-heading {
-            text-align: center;
-            margin-bottom: 2rem;
+        .hero-sub {
+          font-size: 0.85rem;
         }
 
-        .headless-heading h2 {
-            font-size: 1.2rem;
-            font-weight: 600;
+        .hero-cta {
+          flex-direction: column;
+          align-items: center;
         }
 
-        .headless-heading p {
-            margin-top: 0.3rem;
-            font-size: 0.8rem;
-            color: var(--text-dim);
-        }
-
-        .headless-body {
-            max-width: 680px;
-            margin: 0 auto;
-        }
-
-        .headless-desc {
-            font-size: 0.82rem;
-            color: var(--text-muted);
-            line-height: 1.7;
-            margin-bottom: 0;
-            text-align: center;
-        }
-
-        /* ── Install ── */
-
-        .install {
-            padding: 3rem 0;
-            border-top: 1px solid var(--border);
-        }
-
-        .install-heading {
-            text-align: center;
-            margin-bottom: 1.5rem;
-        }
-
-        .install-heading h2 {
-            font-size: 1.2rem;
-            font-weight: 600;
-        }
-
-        .install-heading p {
-            margin-top: 0.3rem;
-            font-size: 0.8rem;
-            color: var(--text-dim);
-        }
-
-        .command-block {
-            background: var(--bg-panel);
-            border: 1px solid var(--border-light);
-            border-radius: 8px;
-            padding: 1rem 1.25rem;
-            position: relative;
-            overflow-x: auto;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
+        .btn {
+          width: 100%;
+          max-width: 280px;
+          text-align: center;
         }
 
         .command-block code {
-            color: var(--text);
-            font-size: 0.85rem;
-            white-space: nowrap;
+          font-size: 0.75rem;
         }
-
-        .command-block .prompt {
-            color: var(--secondary);
-            user-select: none;
-        }
-
-        .copy-btn {
-            position: absolute;
-            top: 0.65rem;
-            right: 0.65rem;
-            background: var(--border-light);
-            border: none;
-            color: var(--text-muted);
-            padding: 0.3rem 0.55rem;
-            border-radius: 4px;
-            font-family: inherit;
-            font-size: 0.65rem;
-            cursor: pointer;
-            transition: all 0.15s;
-        }
-
-        .copy-btn:hover {
-            background: var(--primary);
-            color: var(--text);
-        }
-
-        .copy-btn.copied {
-            background: var(--secondary);
-            color: var(--bg);
-        }
-
-        .install-alt {
-            text-align: center;
-            margin-top: 0.75rem;
-        }
-
-        .install-alt a {
-            color: var(--text-dim);
-            text-decoration: none;
-            font-size: 0.78rem;
-            border-bottom: 1px solid var(--border-light);
-            transition: color 0.15s, border-color 0.15s;
-        }
-
-        .install-alt a:hover {
-            color: var(--text-muted);
-            border-color: var(--text-muted);
-        }
-
-        /* ── Footer ── */
-
-        footer {
-            text-align: center;
-            padding: 2.5rem 0;
-            color: var(--text-dim);
-            font-size: 0.75rem;
-            border-top: 1px solid var(--border);
-        }
-
-        .footer-links {
-            display: flex;
-            gap: 1.5rem;
-            justify-content: center;
-            margin-bottom: 1rem;
-            flex-wrap: wrap;
-        }
-
-        .footer-links a {
-            color: var(--text-muted);
-            text-decoration: none;
-            font-size: 0.8rem;
-            transition: color 0.15s;
-        }
-
-        .footer-links a:hover {
-            color: var(--primary);
-        }
-
-        footer p a {
-            color: var(--text-muted);
-            text-decoration: none;
-        }
-
-        footer p a:hover {
-            color: var(--primary);
-        }
-
-        /* ── Responsive ── */
-
-        @media (max-width: 768px) {
-            html {
-                font-size: 14px;
-            }
-
-            section {
-                padding: 3rem 0;
-            }
-
-            .hero {
-                padding: 2rem 0 1.5rem;
-            }
-
-            .logo-svg {
-                max-width: 300px;
-            }
-
-            .hero-tagline {
-                font-size: 1.15rem;
-            }
-
-            .features-grid {
-                grid-template-columns: 1fr;
-                gap: 1rem;
-            }
-
-            .feature-card {
-                display: grid;
-                grid-template-columns: auto 1fr;
-                grid-template-rows: auto auto;
-                column-gap: 1rem;
-                padding: 1.25rem;
-            }
-
-            .feature-icon {
-                grid-row: 1 / 3;
-                align-self: center;
-                margin-bottom: 0;
-                font-size: 1.5rem;
-            }
-
-            .feature-card h3 {
-                margin-bottom: 0.15rem;
-            }
-
-            .steps {
-                grid-template-columns: 1fr;
-                gap: 1.5rem;
-                max-width: 400px;
-            }
-
-            .step {
-                display: grid;
-                grid-template-columns: 2rem 1fr;
-                grid-template-rows: auto auto;
-                column-gap: 1rem;
-                text-align: left;
-            }
-
-            .step-number {
-                grid-row: 1 / 3;
-                align-self: center;
-                margin-bottom: 0;
-            }
-
-            .step h3 {
-                margin-bottom: 0.1rem;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .container {
-                padding: 0 1rem;
-            }
-
-            .logo-svg {
-                max-width: 240px;
-            }
-
-            .hero-tagline {
-                font-size: 1.05rem;
-            }
-
-            .hero-sub {
-                font-size: 0.85rem;
-            }
-
-            .hero-cta {
-                flex-direction: column;
-                align-items: center;
-            }
-
-            .btn {
-                width: 100%;
-                max-width: 280px;
-                text-align: center;
-            }
-
-            .command-block code {
-                font-size: 0.75rem;
-            }
-        }
+      }
     </style>
-</head>
-<body>
-
+  </head>
+  <body>
     <!-- Hero -->
     <div class="container">
-        <section class="hero">
-            <div>
-                <img src="logo.svg" alt="plural" class="logo-svg">
-            </div>
-            <p class="hero-tagline">explore multiple solutions at once.</p>
-            <p class="hero-sub">run parallel Claude Code sessions, each in its own git branch. compare approaches side by side and ship faster.</p>
-            <div class="hero-cta">
-                <a href="#install" class="btn btn-primary">install</a>
-                <a href="https://github.com/zhubert/plural" class="btn btn-secondary">view on github</a>
-            </div>
-        </section>
+      <section class="hero">
+        <div>
+          <img src="logo.svg" alt="plural" class="logo-svg" />
+        </div>
+        <p class="hero-tagline">explore multiple solutions at once.</p>
+        <p class="hero-sub">
+          run parallel Claude Code sessions, each in its own git branch. compare
+          approaches side by side and ship faster.
+        </p>
+        <div class="hero-cta">
+          <a href="#install" class="btn btn-primary">install</a>
+          <a href="https://github.com/zhubert/plural" class="btn btn-secondary"
+            >view on github</a
+          >
+        </div>
+      </section>
     </div>
 
     <!-- Demo -->
     <div class="container">
-        <div class="demo">
-            <img src="demo.gif" alt="Plural demo showing multiple Claude sessions running in parallel" class="demo-gif">
-        </div>
+      <div class="demo">
+        <img
+          src="demo.gif"
+          alt="Plural demo showing multiple Claude sessions running in parallel"
+          class="demo-gif"
+        />
+      </div>
     </div>
 
     <!-- Features -->
     <div class="container">
-        <section class="features">
-            <div class="features-heading">
-                <h2>built for parallel exploration</h2>
-                <p>everything you need to run Claude at full speed</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">//</span>
-                    <h3>parallel sessions</h3>
-                    <p>run multiple Claude Code instances simultaneously, each working on a different approach in its own git worktree.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">*</span>
-                    <h3>branch isolation</h3>
-                    <p>every session gets its own branch and worktree. experiment freely without conflicts or lost work.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">[ ]</span>
-                    <h3>container sandboxing</h3>
-                    <p>run sessions inside containers with full permissions. the container is the sandbox &mdash; no confirmation prompts.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">#</span>
-                    <h3>issue integration</h3>
-                    <p>connect GitHub Issues or Asana tasks. start a session directly from a ticket, branch named and ready to go.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">&lt;&gt;</span>
-                    <h3>session merging</h3>
-                    <p>merge results between sessions or back to main. compare diffs, pick the best approach, and move on.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">&gt;_</span>
-                    <h3>full TUI</h3>
-                    <p>keyboard-driven terminal interface with sidebar navigation, streaming output, and inline permission prompts.</p>
-                </div>
-                <div class="feature-card">
-                    <span class="feature-icon" aria-hidden="true">~</span>
-                    <h3>headless agent</h3>
-                    <p>looking for fully autonomous issue-to-merge? see <a href="https://github.com/zhubert/plural-agent" style="color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent);">plural-agent</a> — a standalone daemon that picks up issues, writes code, opens PRs, and merges.</p>
-                </div>
-            </div>
-        </section>
+      <section class="features">
+        <div class="features-heading">
+          <h2>built for parallel exploration</h2>
+          <p>everything you need to run Claude at full speed</p>
+        </div>
+        <div class="features-grid">
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">//</span>
+            <h3>parallel sessions</h3>
+            <p>
+              run multiple Claude Code instances simultaneously, each working on
+              a different approach in its own git worktree.
+            </p>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">*</span>
+            <h3>branch isolation</h3>
+            <p>
+              every session gets its own branch and worktree. experiment freely
+              without conflicts or lost work.
+            </p>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">[ ]</span>
+            <h3>container sandboxing</h3>
+            <p>
+              run sessions inside containers with full permissions. the
+              container is the sandbox &mdash; no confirmation prompts.
+            </p>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">#</span>
+            <h3>issue integration</h3>
+            <p>
+              connect GitHub Issues or Asana tasks. start a session directly
+              from a ticket, branch named and ready to go.
+            </p>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">&lt;&gt;</span>
+            <h3>session merging</h3>
+            <p>
+              merge results between sessions or back to main. compare diffs,
+              pick the best approach, and move on.
+            </p>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon" aria-hidden="true">&gt;_</span>
+            <h3>full TUI</h3>
+            <p>
+              keyboard-driven terminal interface with sidebar navigation,
+              streaming output, and inline permission prompts.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- How it works -->
     <div class="container">
-        <section class="how-it-works">
-            <div class="how-heading">
-                <h2>how it works</h2>
-            </div>
-            <div class="steps">
-                <div class="step">
-                    <span class="step-number">1</span>
-                    <h3>register a repo</h3>
-                    <p>point plural at any git repository you're working on.</p>
-                </div>
-                <div class="step">
-                    <span class="step-number">2</span>
-                    <h3>spawn sessions</h3>
-                    <p>create multiple sessions. each gets an isolated worktree and branch.</p>
-                </div>
-                <div class="step">
-                    <span class="step-number">3</span>
-                    <h3>merge the winner</h3>
-                    <p>compare results, merge the best solution back, and clean up the rest.</p>
-                </div>
-            </div>
-        </section>
+      <section class="how-it-works">
+        <div class="how-heading">
+          <h2>how it works</h2>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <span class="step-number">1</span>
+            <h3>register a repo</h3>
+            <p>point plural at any git repository you're working on.</p>
+          </div>
+          <div class="step">
+            <span class="step-number">2</span>
+            <h3>spawn sessions</h3>
+            <p>
+              create multiple sessions. each gets an isolated worktree and
+              branch.
+            </p>
+          </div>
+          <div class="step">
+            <span class="step-number">3</span>
+            <h3>merge the winner</h3>
+            <p>
+              compare results, merge the best solution back, and clean up the
+              rest.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
 
     <!-- plural-agent callout -->
     <div class="container">
-        <section class="headless">
-            <div class="headless-heading">
-                <h2>want fully autonomous?</h2>
-                <p>check out <a href="https://github.com/zhubert/plural-agent" style="color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent);">plural-agent</a></p>
-            </div>
-            <div class="headless-body">
-                <p class="headless-desc">a standalone daemon that polls for issues, writes code, opens PRs, addresses review comments, and auto-merges — no human in the loop. built on plural-core.</p>
-            </div>
-        </section>
+      <section class="headless">
+        <div class="headless-heading">
+          <h2>want fully autonomous?</h2>
+          <p>
+            check out
+            <a
+              href="https://github.com/zhubert/plural-agent"
+              style="
+                color: var(--accent);
+                text-decoration: none;
+                border-bottom: 1px solid var(--accent);
+              "
+              >plural-agent</a
+            >
+          </p>
+        </div>
+        <div class="headless-body">
+          <p class="headless-desc">
+            a standalone daemon that polls for issues, writes code, opens PRs,
+            addresses review comments, and auto-merges — no human in the loop.
+            built on plural-core.
+          </p>
+        </div>
+      </section>
     </div>
 
     <!-- Install -->
     <div class="container">
-        <section class="install" id="install">
-            <div class="install-heading">
-                <h2>get started</h2>
-                <p>install in seconds via homebrew</p>
-            </div>
-            <div class="command-block">
-                <button class="copy-btn" onclick="copyCommand(this, 'brew tap zhubert/tap && brew install plural')">copy</button>
-                <code><span class="prompt">$</span> brew tap zhubert/tap && brew install plural</code>
-            </div>
-            <p class="install-alt">
-                <a href="https://github.com/zhubert/plural#installation">or build from source</a>
-            </p>
-        </section>
+      <section class="install" id="install">
+        <div class="install-heading">
+          <h2>get started</h2>
+          <p>install in seconds via homebrew</p>
+        </div>
+        <div class="command-block">
+          <button
+            class="copy-btn"
+            onclick="
+              copyCommand(this, 'brew tap zhubert/tap && brew install plural')
+            "
+          >
+            copy
+          </button>
+          <code
+            ><span class="prompt">$</span> brew tap zhubert/tap && brew install
+            plural</code
+          >
+        </div>
+        <p class="install-alt">
+          <a href="https://github.com/zhubert/plural#installation"
+            >or build from source</a
+          >
+        </p>
+      </section>
     </div>
 
     <!-- Footer -->
     <footer>
-        <div class="container">
-            <div class="footer-links">
-                <a href="https://github.com/zhubert/plural">github</a>
-                <a href="https://github.com/zhubert/plural/issues">issues</a>
-                <a href="https://github.com/zhubert/plural#usage">docs</a>
-            </div>
-            <p>made by <a href="https://www.zhubert.com">zack</a> · mit license</p>
+      <div class="container">
+        <div class="footer-links">
+          <a href="https://github.com/zhubert/plural">github</a>
+          <a href="https://github.com/zhubert/plural/issues">issues</a>
+          <a href="https://github.com/zhubert/plural#usage">docs</a>
         </div>
+        <p>made by <a href="https://www.zhubert.com">zack</a> · mit license</p>
+      </div>
     </footer>
 
     <script>
-        function copyCommand(btn, command) {
-            navigator.clipboard.writeText(command).then(() => {
-                btn.textContent = 'copied';
-                btn.classList.add('copied');
-                setTimeout(() => {
-                    btn.textContent = 'copy';
-                    btn.classList.remove('copied');
-                }, 2000);
-            });
-        }
-
+      function copyCommand(btn, command) {
+        navigator.clipboard.writeText(command).then(() => {
+          btn.textContent = "copied";
+          btn.classList.add("copied");
+          setTimeout(() => {
+            btn.textContent = "copy";
+            btn.classList.remove("copied");
+          }, 2000);
+        });
+      }
     </script>
-</body>
+  </body>
 </html>
