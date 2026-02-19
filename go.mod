@@ -2,7 +2,7 @@ module github.com/zhubert/plural
 
 go 1.25.4
 
-require github.com/zhubert/plural-core v0.0.0
+require github.com/zhubert/plural-core v0.0.0-20260219161410-2158ee00e008
 
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
@@ -59,5 +59,3 @@ require (
 	golang.org/x/sys v0.40.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/zhubert/plural-core => ../plural-core
