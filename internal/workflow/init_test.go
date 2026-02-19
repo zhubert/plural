@@ -34,30 +34,43 @@ func TestWriteTemplate_CreatesFile(t *testing.T) {
 	if !strings.Contains(content, "provider: github") {
 		t.Error("template should contain provider: github")
 	}
-	if !strings.Contains(content, "workflow:") {
-		t.Error("template should contain workflow section")
+	if !strings.Contains(content, "states:") {
+		t.Error("template should contain states section")
+	}
+	if !strings.Contains(content, "start: coding") {
+		t.Error("template should contain start: coding")
 	}
 
-	// Verify commented optional sections exist
-	for _, commented := range []string{
-		"# project:",
-		"# team:",
-		"# containerized:",
-		"# supervisor:",
-		"# system_prompt:",
-		"# after:",
-		"# draft:",
-		"# link_issue:",
-		"# template:",
-		"# auto_address:",
-		"# max_feedback_rounds:",
-		"# timeout:",
-		"# on_failure:",
-		"# method:",
-		"# cleanup:",
+	// Verify state types are present
+	for _, stateType := range []string{
+		"type: task",
+		"type: wait",
+		"type: succeed",
+		"type: fail",
 	} {
-		if !strings.Contains(content, commented) {
-			t.Errorf("template should contain commented field %q", commented)
+		if !strings.Contains(content, stateType) {
+			t.Errorf("template should contain %q", stateType)
+		}
+	}
+
+	// Verify action names
+	for _, action := range []string{
+		"action: ai.code",
+		"action: github.create_pr",
+		"action: github.merge",
+	} {
+		if !strings.Contains(content, action) {
+			t.Errorf("template should contain %q", action)
+		}
+	}
+
+	// Verify event names
+	for _, event := range []string{
+		"event: pr.reviewed",
+		"event: ci.complete",
+	} {
+		if !strings.Contains(content, event) {
+			t.Errorf("template should contain %q", event)
 		}
 	}
 }
@@ -131,6 +144,9 @@ func TestWriteTemplate_ValidYAML(t *testing.T) {
 	}
 	if cfg.Source.Filter.Label != "queued" {
 		t.Errorf("expected label queued, got %q", cfg.Source.Filter.Label)
+	}
+	if cfg.Start != "coding" {
+		t.Errorf("expected start coding, got %q", cfg.Start)
 	}
 
 	errs := Validate(cfg)

@@ -33,15 +33,21 @@ func TestWorkflowValidateCmd_ValidFile(t *testing.T) {
 	}
 
 	yamlContent := `
+start: coding
 source:
   provider: github
   filter:
     label: "queued"
-workflow:
-  merge:
-    method: squash
-  ci:
-    on_failure: retry
+states:
+  coding:
+    type: task
+    action: ai.code
+    next: done
+    error: failed
+  done:
+    type: succeed
+  failed:
+    type: fail
 `
 	if err := os.WriteFile(filepath.Join(pluralDir, "workflow.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -98,8 +104,8 @@ func TestWorkflowVisualizeCmd(t *testing.T) {
 	if !strings.Contains(output, "stateDiagram-v2") {
 		t.Errorf("output should contain stateDiagram-v2, got: %s", output)
 	}
-	if !strings.Contains(output, "Coding") {
-		t.Errorf("output should contain Coding state, got: %s", output)
+	if !strings.Contains(output, "coding") {
+		t.Errorf("output should contain coding state, got: %s", output)
 	}
 }
 
@@ -111,18 +117,31 @@ func TestWorkflowVisualizeCmd_WithFile(t *testing.T) {
 	}
 
 	yamlContent := `
+start: coding
 source:
-  provider: linear
+  provider: github
   filter:
-    team: "my-team"
-workflow:
-  merge:
-    method: squash
-  ci:
-    on_failure: abandon
+    label: "queued"
+states:
   coding:
+    type: task
+    action: ai.code
+    params:
+      max_turns: 25
+    next: merge
+    error: failed
     after:
       - run: "echo done"
+  merge:
+    type: task
+    action: github.merge
+    params:
+      method: squash
+    next: done
+  done:
+    type: succeed
+  failed:
+    type: fail
 `
 	if err := os.WriteFile(filepath.Join(pluralDir, "workflow.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
@@ -140,16 +159,13 @@ workflow:
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "linear") {
-		t.Errorf("output should contain linear provider, got: %s", output)
+	if !strings.Contains(output, "coding") {
+		t.Errorf("output should contain coding state, got: %s", output)
 	}
-	if !strings.Contains(output, "squash merge") {
-		t.Errorf("output should contain squash merge, got: %s", output)
+	if !strings.Contains(output, "merge") {
+		t.Errorf("output should contain merge state, got: %s", output)
 	}
-	if !strings.Contains(output, "Abandoned") {
-		t.Errorf("output should contain Abandoned for abandon on_failure, got: %s", output)
-	}
-	if !strings.Contains(output, "CodingHooks") {
-		t.Errorf("output should contain CodingHooks, got: %s", output)
+	if !strings.Contains(output, "github.merge") {
+		t.Errorf("output should contain github.merge action, got: %s", output)
 	}
 }

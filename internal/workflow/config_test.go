@@ -57,47 +57,87 @@ func TestDurationMarshalYAML(t *testing.T) {
 
 func TestFullConfigParse(t *testing.T) {
 	yamlStr := `
+workflow: custom-flow
+start: coding
+
 source:
   provider: github
   filter:
     label: "queued"
 
-workflow:
+states:
   coding:
-    max_turns: 100
-    max_duration: 1h
-    containerized: true
-    supervisor: false
-    system_prompt: "Be careful with tests"
+    type: task
+    action: ai.code
+    params:
+      max_turns: 100
+      max_duration: "1h"
+      containerized: true
+      supervisor: false
+      system_prompt: "Be careful with tests"
     after:
       - run: "./scripts/post-code.sh"
+    next: open_pr
+    error: failed
 
-  pr:
-    draft: true
-    link_issue: false
-    template: "file:./pr-template.md"
+  open_pr:
+    type: task
+    action: github.create_pr
+    params:
+      link_issue: false
+      template: "file:./pr-template.md"
+    next: await_review
+    error: failed
 
-  review:
-    auto_address: true
-    max_feedback_rounds: 5
-    system_prompt: "file:./prompts/review.md"
+  await_review:
+    type: wait
+    event: pr.reviewed
+    params:
+      auto_address: true
+      max_feedback_rounds: 5
+      system_prompt: "file:./prompts/review.md"
     after:
       - run: "./scripts/post-review.sh"
+    next: await_ci
+    error: failed
 
-  ci:
+  await_ci:
+    type: wait
+    event: ci.complete
     timeout: 3h
-    on_failure: abandon
+    params:
+      on_failure: abandon
+    next: merge
+    error: failed
 
   merge:
-    method: squash
-    cleanup: false
+    type: task
+    action: github.merge
+    params:
+      method: squash
+      cleanup: false
     after:
       - run: "./scripts/post-merge.sh"
+    next: done
+
+  done:
+    type: succeed
+
+  failed:
+    type: fail
 `
 
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(yamlStr), &cfg); err != nil {
 		t.Fatalf("failed to parse config: %v", err)
+	}
+
+	// Top-level
+	if cfg.Workflow != "custom-flow" {
+		t.Errorf("workflow: got %q, want custom-flow", cfg.Workflow)
+	}
+	if cfg.Start != "coding" {
+		t.Errorf("start: got %q, want coding", cfg.Start)
 	}
 
 	// Source
@@ -108,61 +148,75 @@ workflow:
 		t.Errorf("label: got %q, want queued", cfg.Source.Filter.Label)
 	}
 
-	// Coding
-	if cfg.Workflow.Coding.MaxTurns == nil || *cfg.Workflow.Coding.MaxTurns != 100 {
+	// States count
+	if len(cfg.States) != 7 {
+		t.Errorf("expected 7 states, got %d", len(cfg.States))
+	}
+
+	// Coding state
+	coding := cfg.States["coding"]
+	if coding.Type != StateTypeTask {
+		t.Errorf("coding type: got %q, want task", coding.Type)
+	}
+	if coding.Action != "ai.code" {
+		t.Errorf("coding action: got %q", coding.Action)
+	}
+	p := NewParamHelper(coding.Params)
+	if p.Int("max_turns", 0) != 100 {
 		t.Error("coding max_turns: expected 100")
 	}
-	if cfg.Workflow.Coding.MaxDuration == nil || cfg.Workflow.Coding.MaxDuration.Duration != time.Hour {
-		t.Error("coding max_duration: expected 1h")
-	}
-	if cfg.Workflow.Coding.Containerized == nil || !*cfg.Workflow.Coding.Containerized {
+	if p.Bool("containerized", false) != true {
 		t.Error("coding containerized: expected true")
 	}
-	if cfg.Workflow.Coding.Supervisor == nil || *cfg.Workflow.Coding.Supervisor {
+	if p.Bool("supervisor", true) != false {
 		t.Error("coding supervisor: expected false")
 	}
-	if cfg.Workflow.Coding.SystemPrompt != "Be careful with tests" {
-		t.Errorf("coding system_prompt: got %q", cfg.Workflow.Coding.SystemPrompt)
+	if p.String("system_prompt", "") != "Be careful with tests" {
+		t.Errorf("coding system_prompt: got %q", p.String("system_prompt", ""))
 	}
-	if len(cfg.Workflow.Coding.After) != 1 || cfg.Workflow.Coding.After[0].Run != "./scripts/post-code.sh" {
+	if len(coding.After) != 1 || coding.After[0].Run != "./scripts/post-code.sh" {
 		t.Error("coding after hooks: unexpected value")
 	}
-
-	// PR
-	if cfg.Workflow.PR.Draft == nil || !*cfg.Workflow.PR.Draft {
-		t.Error("pr draft: expected true")
+	if coding.Next != "open_pr" {
+		t.Errorf("coding next: got %q", coding.Next)
 	}
-	if cfg.Workflow.PR.LinkIssue == nil || *cfg.Workflow.PR.LinkIssue {
-		t.Error("pr link_issue: expected false")
-	}
-	if cfg.Workflow.PR.Template != "file:./pr-template.md" {
-		t.Errorf("pr template: got %q", cfg.Workflow.PR.Template)
+	if coding.Error != "failed" {
+		t.Errorf("coding error: got %q", coding.Error)
 	}
 
-	// Review
-	if cfg.Workflow.Review.MaxFeedbackRounds == nil || *cfg.Workflow.Review.MaxFeedbackRounds != 5 {
-		t.Error("review max_feedback_rounds: expected 5")
-	}
-
-	// CI
-	if cfg.Workflow.CI.Timeout == nil || cfg.Workflow.CI.Timeout.Duration != 3*time.Hour {
+	// CI state
+	ci := cfg.States["await_ci"]
+	if ci.Timeout == nil || ci.Timeout.Duration != 3*time.Hour {
 		t.Error("ci timeout: expected 3h")
 	}
-	if cfg.Workflow.CI.OnFailure != "abandon" {
-		t.Errorf("ci on_failure: got %q, want abandon", cfg.Workflow.CI.OnFailure)
+	ciP := NewParamHelper(ci.Params)
+	if ciP.String("on_failure", "") != "abandon" {
+		t.Errorf("ci on_failure: got %q", ciP.String("on_failure", ""))
 	}
 
-	// Merge
-	if cfg.Workflow.Merge.Method != "squash" {
-		t.Errorf("merge method: got %q, want squash", cfg.Workflow.Merge.Method)
+	// Merge state
+	merge := cfg.States["merge"]
+	mP := NewParamHelper(merge.Params)
+	if mP.String("method", "") != "squash" {
+		t.Errorf("merge method: got %q", mP.String("method", ""))
 	}
-	if cfg.Workflow.Merge.Cleanup == nil || *cfg.Workflow.Merge.Cleanup {
+	if mP.Bool("cleanup", true) != false {
 		t.Error("merge cleanup: expected false")
+	}
+
+	// Terminal states
+	done := cfg.States["done"]
+	if done.Type != StateTypeSucceed {
+		t.Errorf("done type: got %q", done.Type)
+	}
+	failed := cfg.States["failed"]
+	if failed.Type != StateTypeFail {
+		t.Errorf("failed type: got %q", failed.Type)
 	}
 }
 
 func TestConfigPartialParse(t *testing.T) {
-	// Only source section, everything else should be zero values
+	// Only source section, no states
 	yamlStr := `
 source:
   provider: asana
@@ -181,11 +235,8 @@ source:
 		t.Errorf("project: got %q, want 12345", cfg.Source.Filter.Project)
 	}
 
-	// Workflow fields should be zero/nil
-	if cfg.Workflow.Coding.MaxTurns != nil {
-		t.Error("coding max_turns should be nil")
-	}
-	if cfg.Workflow.Merge.Method != "" {
-		t.Error("merge method should be empty")
+	// States should be nil
+	if cfg.States != nil {
+		t.Error("states should be nil for partial config")
 	}
 }

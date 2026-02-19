@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 )
 
 // WorkItemState represents the current state of a work item in the daemon lifecycle.
+// Kept for backward compatibility with serialized state; new items use CurrentStep/Phase.
 type WorkItemState string
 
 const (
@@ -31,41 +31,14 @@ const (
 	WorkItemAbandoned          WorkItemState = "abandoned"
 )
 
-// validTransitions defines the allowed state transitions for work items.
-var validTransitions = map[WorkItemState][]WorkItemState{
-	WorkItemQueued:             {WorkItemCoding, WorkItemFailed},
-	WorkItemCoding:             {WorkItemPRCreated, WorkItemFailed},
-	WorkItemPRCreated:          {WorkItemAwaitingReview, WorkItemFailed},
-	WorkItemAwaitingReview:     {WorkItemAddressingFeedback, WorkItemAwaitingCI, WorkItemFailed, WorkItemAbandoned},
-	WorkItemAddressingFeedback: {WorkItemPushing, WorkItemFailed},
-	WorkItemPushing:            {WorkItemAwaitingReview, WorkItemFailed},
-	WorkItemAwaitingCI:         {WorkItemMerging, WorkItemFailed, WorkItemAwaitingReview},
-	WorkItemMerging:            {WorkItemCompleted, WorkItemFailed},
-	WorkItemCompleted:          {},
-	WorkItemFailed:             {},
-	WorkItemAbandoned:          {},
-}
-
-// ConsumesSlot returns true if the state consumes a concurrency slot.
-func (s WorkItemState) ConsumesSlot() bool {
-	return s == WorkItemCoding || s == WorkItemAddressingFeedback
-}
-
-// IsTerminal returns true if the state is a terminal state (no further transitions).
-func (s WorkItemState) IsTerminal() bool {
-	return s == WorkItemCompleted || s == WorkItemFailed || s == WorkItemAbandoned
-}
-
-// IsShelved returns true if the state is shelved (waiting for external event, no slot used).
-func (s WorkItemState) IsShelved() bool {
-	return s == WorkItemAwaitingReview || s == WorkItemAwaitingCI
-}
-
 // WorkItem tracks a single issue through its full lifecycle.
 type WorkItem struct {
 	ID                string          `json:"id"`
 	IssueRef          config.IssueRef `json:"issue_ref"`
 	State             WorkItemState   `json:"state"`
+	CurrentStep       string          `json:"current_step"`
+	Phase             string          `json:"phase"`
+	StepData          map[string]any  `json:"step_data,omitempty"`
 	SessionID         string          `json:"session_id"`
 	Branch            string          `json:"branch"`
 	PRURL             string          `json:"pr_url,omitempty"`
@@ -78,16 +51,16 @@ type WorkItem struct {
 	CompletedAt       *time.Time      `json:"completed_at,omitempty"`
 }
 
-// ValidateTransition checks if a state transition is allowed.
-func ValidateTransition(from, to WorkItemState) error {
-	allowed, ok := validTransitions[from]
-	if !ok {
-		return fmt.Errorf("unknown state: %s", from)
-	}
-	if slices.Contains(allowed, to) {
-		return nil
-	}
-	return fmt.Errorf("invalid transition: %s -> %s", from, to)
+// ConsumesSlot returns true if the work item currently consumes a concurrency slot.
+// This is true when the item has an active async worker (Phase == "async_pending"
+// or Phase == "addressing_feedback").
+func (item *WorkItem) ConsumesSlot() bool {
+	return item.Phase == "async_pending" || item.Phase == "addressing_feedback"
+}
+
+// IsTerminal returns true if the work item is in a terminal state.
+func (item *WorkItem) IsTerminal() bool {
+	return item.State == WorkItemCompleted || item.State == WorkItemFailed || item.State == WorkItemAbandoned
 }
 
 // DaemonState holds the persistent state of the daemon.
@@ -102,7 +75,7 @@ type DaemonState struct {
 	filePath string
 }
 
-const daemonStateVersion = 1
+const daemonStateVersion = 2
 
 // NewDaemonState creates a new empty daemon state for the given repo.
 func NewDaemonState(repoPath string) *DaemonState {
@@ -165,7 +138,56 @@ func LoadDaemonState(repoPath string) (*DaemonState, error) {
 		return nil, fmt.Errorf("daemon state repo mismatch: expected %s, got %s", repoPath, state.RepoPath)
 	}
 
+	// Migrate from v1 to v2: populate CurrentStep/Phase from old State field
+	if state.Version < 2 {
+		for _, item := range state.WorkItems {
+			if item.CurrentStep == "" {
+				migrateWorkItemV1toV2(item)
+			}
+		}
+		state.Version = daemonStateVersion
+	}
+
 	return &state, nil
+}
+
+// migrateWorkItemV1toV2 populates CurrentStep and Phase from the old State field.
+func migrateWorkItemV1toV2(item *WorkItem) {
+	switch item.State {
+	case WorkItemQueued:
+		// Will be initialized at start state by engine
+	case WorkItemCoding:
+		item.CurrentStep = "coding"
+		item.Phase = "async_pending"
+	case WorkItemPRCreated:
+		item.CurrentStep = "open_pr"
+		item.Phase = "idle"
+	case WorkItemAwaitingReview:
+		item.CurrentStep = "await_review"
+		item.Phase = "idle"
+	case WorkItemAddressingFeedback:
+		item.CurrentStep = "await_review"
+		item.Phase = "addressing_feedback"
+	case WorkItemPushing:
+		item.CurrentStep = "await_review"
+		item.Phase = "pushing"
+	case WorkItemAwaitingCI:
+		item.CurrentStep = "await_ci"
+		item.Phase = "idle"
+	case WorkItemMerging:
+		item.CurrentStep = "merge"
+		item.Phase = "idle"
+	case WorkItemCompleted:
+		item.CurrentStep = "done"
+		item.Phase = "idle"
+	case WorkItemFailed:
+		item.CurrentStep = "failed"
+		item.Phase = "idle"
+	case WorkItemAbandoned:
+		item.CurrentStep = "failed"
+		item.Phase = "idle"
+		item.State = WorkItemFailed // Normalize
+	}
 }
 
 // Save persists the daemon state to disk atomically (write temp file, then rename).
@@ -195,7 +217,48 @@ func (s *DaemonState) Save() error {
 	return nil
 }
 
-// TransitionWorkItem transitions a work item to a new state with validation.
+// AdvanceWorkItem moves a work item to a new step and phase.
+func (s *DaemonState) AdvanceWorkItem(id, newStep, newPhase string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, ok := s.WorkItems[id]
+	if !ok {
+		return fmt.Errorf("work item not found: %s", id)
+	}
+
+	item.CurrentStep = newStep
+	item.Phase = newPhase
+	item.UpdatedAt = time.Now()
+
+	return nil
+}
+
+// MarkWorkItemTerminal marks a work item as completed or failed.
+func (s *DaemonState) MarkWorkItemTerminal(id string, success bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	item, ok := s.WorkItems[id]
+	if !ok {
+		return fmt.Errorf("work item not found: %s", id)
+	}
+
+	if success {
+		item.State = WorkItemCompleted
+	} else {
+		item.State = WorkItemFailed
+	}
+
+	now := time.Now()
+	item.CompletedAt = &now
+	item.UpdatedAt = now
+
+	return nil
+}
+
+// TransitionWorkItem transitions a work item to a new state.
+// Kept for backward compatibility during migration.
 func (s *DaemonState) TransitionWorkItem(id string, newState WorkItemState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,14 +268,10 @@ func (s *DaemonState) TransitionWorkItem(id string, newState WorkItemState) erro
 		return fmt.Errorf("work item not found: %s", id)
 	}
 
-	if err := ValidateTransition(item.State, newState); err != nil {
-		return err
-	}
-
 	item.State = newState
 	item.UpdatedAt = time.Now()
 
-	if newState.IsTerminal() {
+	if newState == WorkItemCompleted || newState == WorkItemFailed || newState == WorkItemAbandoned {
 		now := time.Now()
 		item.CompletedAt = &now
 	}
@@ -226,8 +285,12 @@ func (s *DaemonState) AddWorkItem(item *WorkItem) {
 	defer s.mu.Unlock()
 
 	item.State = WorkItemQueued
+	item.Phase = "idle"
 	item.CreatedAt = time.Now()
 	item.UpdatedAt = time.Now()
+	if item.StepData == nil {
+		item.StepData = make(map[string]any)
+	}
 	s.WorkItems[item.ID] = item
 }
 
@@ -252,6 +315,34 @@ func (s *DaemonState) GetWorkItemsByState(state WorkItemState) []*WorkItem {
 	return items
 }
 
+// GetWorkItemsByStep returns all work items at a given step.
+func (s *DaemonState) GetWorkItemsByStep(step string) []*WorkItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var items []*WorkItem
+	for _, item := range s.WorkItems {
+		if item.CurrentStep == step && !item.IsTerminal() {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// GetActiveWorkItems returns all non-terminal, non-queued work items.
+func (s *DaemonState) GetActiveWorkItems() []*WorkItem {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var items []*WorkItem
+	for _, item := range s.WorkItems {
+		if !item.IsTerminal() && item.State != WorkItemQueued {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
 // ActiveSlotCount returns the number of work items consuming concurrency slots.
 func (s *DaemonState) ActiveSlotCount() int {
 	s.mu.RLock()
@@ -259,7 +350,7 @@ func (s *DaemonState) ActiveSlotCount() int {
 
 	count := 0
 	for _, item := range s.WorkItems {
-		if item.State.ConsumesSlot() {
+		if item.ConsumesSlot() {
 			count++
 		}
 	}
@@ -272,7 +363,7 @@ func (s *DaemonState) HasWorkItemForIssue(issueSource, issueID string) bool {
 	defer s.mu.RUnlock()
 
 	for _, item := range s.WorkItems {
-		if item.IssueRef.Source == issueSource && item.IssueRef.ID == issueID && !item.State.IsTerminal() {
+		if item.IssueRef.Source == issueSource && item.IssueRef.ID == issueID && !item.IsTerminal() {
 			return true
 		}
 	}

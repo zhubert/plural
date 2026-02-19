@@ -10,96 +10,62 @@ func GenerateMermaid(cfg *Config) string {
 	var sb strings.Builder
 
 	sb.WriteString("stateDiagram-v2\n")
-	sb.WriteString("    [*] --> Polling\n")
+	sb.WriteString(fmt.Sprintf("    [*] --> %s\n", cfg.Start))
 
-	// Source
-	provider := cfg.Source.Provider
-	if provider == "" {
-		provider = "github"
-	}
-	sb.WriteString(fmt.Sprintf("    Polling --> Queued : %s issue found\n", provider))
+	// Walk each state and emit edges
+	for name, state := range cfg.States {
+		switch state.Type {
+		case StateTypeSucceed, StateTypeFail:
+			// Terminal states transition to [*]
+			sb.WriteString(fmt.Sprintf("    %s --> [*]\n", name))
 
-	// Coding
-	sb.WriteString("    Queued --> Coding\n")
-	codingNote := formatCodingNote(cfg)
-	if codingNote != "" {
-		sb.WriteString(fmt.Sprintf("    note right of Coding\n        %s\n    end note\n", codingNote))
-	}
-	if len(cfg.Workflow.Coding.After) > 0 {
-		sb.WriteString("    Coding --> CodingHooks : after hooks\n")
-		sb.WriteString("    CodingHooks --> PRCreation\n")
-	} else {
-		sb.WriteString("    Coding --> PRCreation\n")
-	}
+		case StateTypeTask:
+			label := state.Action
+			if state.Next != "" {
+				sb.WriteString(fmt.Sprintf("    %s --> %s : %s\n", name, state.Next, label))
+			}
+			if state.Error != "" {
+				sb.WriteString(fmt.Sprintf("    %s --> %s : error\n", name, state.Error))
+			}
 
-	// PR
-	if len(cfg.Workflow.PR.After) > 0 {
-		sb.WriteString("    PRCreation --> PRHooks : after hooks\n")
-		sb.WriteString("    PRHooks --> AwaitingReview\n")
-	} else {
-		sb.WriteString("    PRCreation --> AwaitingReview\n")
-	}
+			// Emit after-hooks
+			if len(state.After) > 0 {
+				hookName := name + "_hooks"
+				sb.WriteString(fmt.Sprintf("    %s --> %s : after hooks\n", name, hookName))
+			}
 
-	// Review
-	maxRounds := 3
-	if cfg.Workflow.Review.MaxFeedbackRounds != nil {
-		maxRounds = *cfg.Workflow.Review.MaxFeedbackRounds
-	}
-	sb.WriteString(fmt.Sprintf("    AwaitingReview --> AddressingFeedback : new comments (max %d rounds)\n", maxRounds))
-	sb.WriteString("    AddressingFeedback --> AwaitingReview : push changes\n")
-	if len(cfg.Workflow.Review.After) > 0 {
-		sb.WriteString("    AddressingFeedback --> ReviewHooks : after hooks\n")
-		sb.WriteString("    ReviewHooks --> AwaitingReview\n")
-	}
-	sb.WriteString("    AwaitingReview --> AwaitingCI : approved\n")
-	sb.WriteString("    AwaitingReview --> Abandoned : PR closed\n")
+		case StateTypeWait:
+			label := state.Event
+			if state.Timeout != nil {
+				label += fmt.Sprintf(" (timeout: %s)", state.Timeout.Duration)
+			}
+			if state.Next != "" {
+				sb.WriteString(fmt.Sprintf("    %s --> %s : %s\n", name, state.Next, label))
+			}
+			if state.Error != "" {
+				sb.WriteString(fmt.Sprintf("    %s --> %s : error\n", name, state.Error))
+			}
+		}
 
-	// CI
-	onFailure := cfg.Workflow.CI.OnFailure
-	if onFailure == "" {
-		onFailure = "retry"
-	}
-	sb.WriteString("    AwaitingCI --> Merging : CI passed\n")
-	switch onFailure {
-	case "retry":
-		sb.WriteString("    AwaitingCI --> AwaitingReview : CI failed (retry)\n")
-	case "abandon":
-		sb.WriteString("    AwaitingCI --> Abandoned : CI failed\n")
-	case "notify":
-		sb.WriteString("    AwaitingCI --> Failed : CI failed (notify)\n")
-	}
-
-	// Merge
-	method := cfg.Workflow.Merge.Method
-	if method == "" {
-		method = "rebase"
-	}
-	sb.WriteString(fmt.Sprintf("    Merging --> Completed : %s merge\n", method))
-	if len(cfg.Workflow.Merge.After) > 0 {
-		sb.WriteString("    Completed --> MergeHooks : after hooks\n")
-		sb.WriteString("    MergeHooks --> [*]\n")
-	} else {
-		sb.WriteString("    Completed --> [*]\n")
+		// Add note for params
+		note := formatStateNote(state)
+		if note != "" {
+			sb.WriteString(fmt.Sprintf("    note right of %s\n        %s\n    end note\n", name, note))
+		}
 	}
 
 	return sb.String()
 }
 
-func formatCodingNote(cfg *Config) string {
+// formatStateNote creates a note string from a state's params.
+func formatStateNote(state *State) string {
+	if len(state.Params) == 0 {
+		return ""
+	}
+
 	var parts []string
-
-	if cfg.Workflow.Coding.MaxTurns != nil {
-		parts = append(parts, fmt.Sprintf("max_turns: %d", *cfg.Workflow.Coding.MaxTurns))
+	for k, v := range state.Params {
+		parts = append(parts, fmt.Sprintf("%s: %v", k, v))
 	}
-	if cfg.Workflow.Coding.MaxDuration != nil {
-		parts = append(parts, fmt.Sprintf("max_duration: %s", cfg.Workflow.Coding.MaxDuration.Duration))
-	}
-	if cfg.Workflow.Coding.Containerized != nil && *cfg.Workflow.Coding.Containerized {
-		parts = append(parts, "containerized")
-	}
-	if cfg.Workflow.Coding.Supervisor != nil && *cfg.Workflow.Coding.Supervisor {
-		parts = append(parts, "supervisor")
-	}
-
 	return strings.Join(parts, ", ")
 }

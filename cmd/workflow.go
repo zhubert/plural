@@ -75,6 +75,8 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 	errs := workflow.Validate(cfg)
 	if len(errs) == 0 {
 		fmt.Println("Workflow configuration is valid.")
+		fmt.Printf("  Workflow: %s\n", cfg.Workflow)
+		fmt.Printf("  Start: %s\n", cfg.Start)
 		fmt.Printf("  Provider: %s\n", cfg.Source.Provider)
 		if cfg.Source.Filter.Label != "" {
 			fmt.Printf("  Label: %s\n", cfg.Source.Filter.Label)
@@ -85,12 +87,7 @@ func runWorkflowValidate(cmd *cobra.Command, args []string) error {
 		if cfg.Source.Filter.Team != "" {
 			fmt.Printf("  Team: %s\n", cfg.Source.Filter.Team)
 		}
-		if cfg.Workflow.Merge.Method != "" {
-			fmt.Printf("  Merge method: %s\n", cfg.Workflow.Merge.Method)
-		}
-		if cfg.Workflow.CI.OnFailure != "" {
-			fmt.Printf("  CI on failure: %s\n", cfg.Workflow.CI.OnFailure)
-		}
+		fmt.Printf("  States: %d\n", len(cfg.States))
 		return nil
 	}
 

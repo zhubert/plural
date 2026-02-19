@@ -2,58 +2,103 @@ package workflow
 
 import "time"
 
-// DefaultConfig returns a Config matching the current hardcoded daemon behavior.
-func DefaultConfig() *Config {
-	maxTurns := 50
-	maxDuration := Duration{30 * time.Minute}
-	containerized := true
-	supervisor := true
-	draft := false
-	linkIssue := true
-	autoAddress := true
-	maxFeedbackRounds := 3
-	ciTimeout := Duration{2 * time.Hour}
-	cleanup := true
-
+// DefaultWorkflowConfig returns a Config with the default state graph
+// (coding → open_pr → await_review → await_ci → merge → done, with a failed terminal state).
+func DefaultWorkflowConfig() *Config {
 	return &Config{
+		Workflow: "issue-to-merge",
+		Start:   "coding",
 		Source: SourceConfig{
 			Provider: "github",
 			Filter: FilterConfig{
 				Label: "queued",
 			},
 		},
-		Workflow: WorkflowConfig{
-			Coding: CodingConfig{
-				MaxTurns:      &maxTurns,
-				MaxDuration:   &maxDuration,
-				Containerized: &containerized,
-				Supervisor:    &supervisor,
+		States: map[string]*State{
+			"coding": {
+				Type:   StateTypeTask,
+				Action: "ai.code",
+				Params: map[string]any{
+					"max_turns":     50,
+					"max_duration":  "30m",
+					"containerized": true,
+					"supervisor":    true,
+				},
+				Next:  "open_pr",
+				Error: "failed",
 			},
-			PR: PRConfig{
-				Draft:     &draft,
-				LinkIssue: &linkIssue,
+			"open_pr": {
+				Type:   StateTypeTask,
+				Action: "github.create_pr",
+				Params: map[string]any{
+					"link_issue": true,
+				},
+				Next:  "await_review",
+				Error: "failed",
 			},
-			Review: ReviewConfig{
-				AutoAddress:       &autoAddress,
-				MaxFeedbackRounds: &maxFeedbackRounds,
+			"await_review": {
+				Type:  StateTypeWait,
+				Event: "pr.reviewed",
+				Params: map[string]any{
+					"auto_address":        true,
+					"max_feedback_rounds": 3,
+				},
+				Next:  "await_ci",
+				Error: "failed",
 			},
-			CI: CIConfig{
-				Timeout:   &ciTimeout,
-				OnFailure: "retry",
+			"await_ci": {
+				Type:    StateTypeWait,
+				Event:   "ci.complete",
+				Timeout: &Duration{2 * time.Hour},
+				Params: map[string]any{
+					"on_failure": "retry",
+				},
+				Next:  "merge",
+				Error: "failed",
 			},
-			Merge: MergeConfig{
-				Method:  "rebase",
-				Cleanup: &cleanup,
+			"merge": {
+				Type:   StateTypeTask,
+				Action: "github.merge",
+				Params: map[string]any{
+					"method":  "rebase",
+					"cleanup": true,
+				},
+				Next: "done",
+			},
+			"done": {
+				Type: StateTypeSucceed,
+			},
+			"failed": {
+				Type: StateTypeFail,
 			},
 		},
 	}
 }
 
-// Merge fills in missing values in partial from defaults.
-// partial takes precedence; defaults fill gaps.
-// Hook slices (After) are not merged — if partial defines hooks, they fully replace defaults.
+// DefaultConfig returns the default config. Alias for DefaultWorkflowConfig.
+func DefaultConfig() *Config {
+	return DefaultWorkflowConfig()
+}
+
+// Merge overlays partial onto defaults. States present in partial replace the
+// corresponding default state entirely. States in defaults but not in partial
+// are preserved. Top-level fields (Workflow, Start) use partial if non-empty.
+// Source fields use partial if non-empty.
 func Merge(partial, defaults *Config) *Config {
-	result := *partial
+	result := &Config{
+		Workflow: partial.Workflow,
+		Start:   partial.Start,
+		Source:  partial.Source,
+		States:  make(map[string]*State),
+	}
+
+	// Fill empty top-level fields from defaults
+	if result.Workflow == "" {
+		result.Workflow = defaults.Workflow
+	}
+	if result.Start == "" {
+		result.Start = defaults.Start
+	}
 
 	// Source
 	if result.Source.Provider == "" {
@@ -69,51 +114,26 @@ func Merge(partial, defaults *Config) *Config {
 		result.Source.Filter.Team = defaults.Source.Filter.Team
 	}
 
-	// Coding
-	if result.Workflow.Coding.MaxTurns == nil {
-		result.Workflow.Coding.MaxTurns = defaults.Workflow.Coding.MaxTurns
-	}
-	if result.Workflow.Coding.MaxDuration == nil {
-		result.Workflow.Coding.MaxDuration = defaults.Workflow.Coding.MaxDuration
-	}
-	if result.Workflow.Coding.Containerized == nil {
-		result.Workflow.Coding.Containerized = defaults.Workflow.Coding.Containerized
-	}
-	if result.Workflow.Coding.Supervisor == nil {
-		result.Workflow.Coding.Supervisor = defaults.Workflow.Coding.Supervisor
-	}
-
-	// PR
-	if result.Workflow.PR.Draft == nil {
-		result.Workflow.PR.Draft = defaults.Workflow.PR.Draft
-	}
-	if result.Workflow.PR.LinkIssue == nil {
-		result.Workflow.PR.LinkIssue = defaults.Workflow.PR.LinkIssue
+	// Copy defaults first
+	for name, state := range defaults.States {
+		s := *state
+		if state.Params != nil {
+			s.Params = make(map[string]any, len(state.Params))
+			for k, v := range state.Params {
+				s.Params[k] = v
+			}
+		}
+		if state.After != nil {
+			s.After = make([]HookConfig, len(state.After))
+			copy(s.After, state.After)
+		}
+		result.States[name] = &s
 	}
 
-	// Review
-	if result.Workflow.Review.AutoAddress == nil {
-		result.Workflow.Review.AutoAddress = defaults.Workflow.Review.AutoAddress
-	}
-	if result.Workflow.Review.MaxFeedbackRounds == nil {
-		result.Workflow.Review.MaxFeedbackRounds = defaults.Workflow.Review.MaxFeedbackRounds
+	// Overlay partial states (full replacement per state)
+	for name, state := range partial.States {
+		result.States[name] = state
 	}
 
-	// CI
-	if result.Workflow.CI.Timeout == nil {
-		result.Workflow.CI.Timeout = defaults.Workflow.CI.Timeout
-	}
-	if result.Workflow.CI.OnFailure == "" {
-		result.Workflow.CI.OnFailure = defaults.Workflow.CI.OnFailure
-	}
-
-	// Merge
-	if result.Workflow.Merge.Method == "" {
-		result.Workflow.Merge.Method = defaults.Workflow.Merge.Method
-	}
-	if result.Workflow.Merge.Cleanup == nil {
-		result.Workflow.Merge.Cleanup = defaults.Workflow.Merge.Cleanup
-	}
-
-	return &result
+	return result
 }

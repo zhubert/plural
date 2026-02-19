@@ -12,6 +12,92 @@ import (
 	"github.com/zhubert/plural/internal/workflow"
 )
 
+// CodingAction implements the ai.code action.
+type CodingAction struct {
+	daemon *Daemon
+}
+
+// Execute starts a coding session. Returns async=true since it spawns a Claude worker.
+func (a *CodingAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
+	d := a.daemon
+	item := d.state.GetWorkItem(ac.WorkItemID)
+	if item == nil {
+		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
+	}
+
+	// The actual coding start is handled by startCoding which sets up sessions etc.
+	// This action is called from the engine but the real start is done via startCoding.
+	// Return async=true to indicate the worker was spawned.
+	return workflow.ActionResult{Success: true, Async: true}
+}
+
+// CreatePRAction implements the github.create_pr action.
+type CreatePRAction struct {
+	daemon *Daemon
+}
+
+// Execute creates a PR. This is a synchronous action.
+func (a *CreatePRAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
+	d := a.daemon
+	item := d.state.GetWorkItem(ac.WorkItemID)
+	if item == nil {
+		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
+	}
+
+	prURL, err := d.createPR(ctx, item)
+	if err != nil {
+		return workflow.ActionResult{Error: fmt.Errorf("PR creation failed: %v", err)}
+	}
+
+	item.PRURL = prURL
+	item.UpdatedAt = time.Now()
+
+	return workflow.ActionResult{
+		Success: true,
+		Data:    map[string]any{"pr_url": prURL},
+	}
+}
+
+// PushAction implements the github.push action.
+type PushAction struct {
+	daemon *Daemon
+}
+
+// Execute pushes changes. This is a synchronous action.
+func (a *PushAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
+	d := a.daemon
+	item := d.state.GetWorkItem(ac.WorkItemID)
+	if item == nil {
+		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
+	}
+
+	if err := d.pushChanges(ctx, item); err != nil {
+		return workflow.ActionResult{Error: fmt.Errorf("push failed: %v", err)}
+	}
+
+	return workflow.ActionResult{Success: true}
+}
+
+// MergeAction implements the github.merge action.
+type MergeAction struct {
+	daemon *Daemon
+}
+
+// Execute merges the PR. This is a synchronous action.
+func (a *MergeAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
+	d := a.daemon
+	item := d.state.GetWorkItem(ac.WorkItemID)
+	if item == nil {
+		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
+	}
+
+	if err := d.mergePR(ctx, item); err != nil {
+		return workflow.ActionResult{Error: fmt.Errorf("merge failed: %v", err)}
+	}
+
+	return workflow.ActionResult{Success: true}
+}
+
 // startCoding creates a session and starts a Claude worker for a queued work item.
 func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 	log := d.logger.With("workItem", item.ID, "issue", item.IssueRef.ID)
@@ -21,7 +107,7 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 	if repoPath == "" {
 		log.Error("no matching repo found")
 		d.state.SetErrorMessage(item.ID, "no matching repo found")
-		d.state.TransitionWorkItem(item.ID, WorkItemFailed)
+		d.state.MarkWorkItemTerminal(item.ID, false)
 		return
 	}
 
@@ -46,7 +132,7 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 	if d.sessionService.BranchExists(ctx, repoPath, fullBranchName) {
 		log.Debug("branch already exists, skipping", "branch", fullBranchName)
 		d.state.SetErrorMessage(item.ID, "branch already exists")
-		d.state.TransitionWorkItem(item.ID, WorkItemFailed)
+		d.state.MarkWorkItemTerminal(item.ID, false)
 		return
 	}
 
@@ -55,15 +141,21 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 	if err != nil {
 		log.Error("failed to create session", "error", err)
 		d.state.SetErrorMessage(item.ID, fmt.Sprintf("session creation failed: %v", err))
-		d.state.TransitionWorkItem(item.ID, WorkItemFailed)
+		d.state.MarkWorkItemTerminal(item.ID, false)
 		return
 	}
 
-	// Configure session from workflow config
+	// Configure session from workflow config params
 	wfCfg := d.getWorkflowConfig(repoPath)
+	codingState := wfCfg.States["coding"]
+	params := workflow.NewParamHelper(nil)
+	if codingState != nil {
+		params = workflow.NewParamHelper(codingState.Params)
+	}
+
 	sess.Autonomous = true
-	sess.Containerized = wfCfg.Workflow.Coding.Containerized == nil || *wfCfg.Workflow.Coding.Containerized
-	sess.IsSupervisor = wfCfg.Workflow.Coding.Supervisor == nil || *wfCfg.Workflow.Coding.Supervisor
+	sess.Containerized = params.Bool("containerized", true)
+	sess.IsSupervisor = params.Bool("supervisor", true)
 	sess.IssueRef = &config.IssueRef{
 		Source: item.IssueRef.Source,
 		ID:     item.IssueRef.ID,
@@ -79,19 +171,17 @@ func (d *Daemon) startCoding(ctx context.Context, item *WorkItem) {
 	// Update work item with session info
 	item.SessionID = sess.ID
 	item.Branch = sess.Branch
+	item.CurrentStep = "coding"
+	item.Phase = "async_pending"
+	item.State = WorkItemCoding
 	item.UpdatedAt = time.Now()
-
-	// Transition to Coding
-	if err := d.state.TransitionWorkItem(item.ID, WorkItemCoding); err != nil {
-		log.Error("failed to transition to coding", "error", err)
-		return
-	}
 
 	// Build initial message using provider-aware formatting
 	initialMsg := formatInitialMessage(item.IssueRef)
 
 	// Resolve coding system prompt from workflow config
-	codingPrompt, err := workflow.ResolveSystemPrompt(wfCfg.Workflow.Coding.SystemPrompt, repoPath)
+	systemPrompt := params.String("system_prompt", "")
+	codingPrompt, err := workflow.ResolveSystemPrompt(systemPrompt, repoPath)
 	if err != nil {
 		log.Warn("failed to resolve coding system prompt", "error", err)
 	}
@@ -129,20 +219,22 @@ func (d *Daemon) addressFeedback(ctx context.Context, item *WorkItem) {
 
 	// Mark comments as addressed
 	item.CommentsAddressed += len(comments)
+	item.Phase = "addressing_feedback"
 	item.UpdatedAt = time.Now()
-
-	// Transition to AddressingFeedback
-	if err := d.state.TransitionWorkItem(item.ID, WorkItemAddressingFeedback); err != nil {
-		log.Error("failed to transition to addressing_feedback", "error", err)
-		return
-	}
 
 	// Format comments as a prompt
 	prompt := formatPRCommentsPrompt(comments)
 
 	// Resolve review system prompt from workflow config
 	wfCfg := d.getWorkflowConfig(sess.RepoPath)
-	reviewPrompt, err := workflow.ResolveSystemPrompt(wfCfg.Workflow.Review.SystemPrompt, sess.RepoPath)
+	reviewState := wfCfg.States["await_review"]
+	systemPrompt := ""
+	if reviewState != nil {
+		p := workflow.NewParamHelper(reviewState.Params)
+		systemPrompt = p.String("system_prompt", "")
+	}
+
+	reviewPrompt, err := workflow.ResolveSystemPrompt(systemPrompt, sess.RepoPath)
 	if err != nil {
 		log.Warn("failed to resolve review system prompt", "error", err)
 	}

@@ -10,105 +10,53 @@ import (
 	"github.com/zhubert/plural/internal/config"
 )
 
-func TestWorkItemStateProperties(t *testing.T) {
+func TestWorkItemProperties(t *testing.T) {
 	t.Run("ConsumesSlot", func(t *testing.T) {
-		slotStates := []WorkItemState{WorkItemCoding, WorkItemAddressingFeedback}
-		for _, s := range slotStates {
-			if !s.ConsumesSlot() {
-				t.Errorf("expected %s to consume slot", s)
+		slotItems := []*WorkItem{
+			{Phase: "async_pending"},
+			{Phase: "addressing_feedback"},
+		}
+		for _, item := range slotItems {
+			if !item.ConsumesSlot() {
+				t.Errorf("expected phase %q to consume slot", item.Phase)
 			}
 		}
 
-		nonSlotStates := []WorkItemState{
-			WorkItemQueued, WorkItemPRCreated, WorkItemAwaitingReview,
-			WorkItemPushing, WorkItemAwaitingCI, WorkItemMerging,
-			WorkItemCompleted, WorkItemFailed, WorkItemAbandoned,
+		nonSlotItems := []*WorkItem{
+			{Phase: "idle"},
+			{Phase: "pushing"},
+			{Phase: ""},
 		}
-		for _, s := range nonSlotStates {
-			if s.ConsumesSlot() {
-				t.Errorf("expected %s to NOT consume slot", s)
+		for _, item := range nonSlotItems {
+			if item.ConsumesSlot() {
+				t.Errorf("expected phase %q to NOT consume slot", item.Phase)
 			}
 		}
 	})
 
 	t.Run("IsTerminal", func(t *testing.T) {
-		terminals := []WorkItemState{WorkItemCompleted, WorkItemFailed, WorkItemAbandoned}
-		for _, s := range terminals {
-			if !s.IsTerminal() {
-				t.Errorf("expected %s to be terminal", s)
+		terminals := []*WorkItem{
+			{State: WorkItemCompleted},
+			{State: WorkItemFailed},
+			{State: WorkItemAbandoned},
+		}
+		for _, item := range terminals {
+			if !item.IsTerminal() {
+				t.Errorf("expected state %q to be terminal", item.State)
 			}
 		}
 
-		nonTerminals := []WorkItemState{
-			WorkItemQueued, WorkItemCoding, WorkItemPRCreated,
-			WorkItemAwaitingReview, WorkItemAddressingFeedback,
-			WorkItemPushing, WorkItemAwaitingCI, WorkItemMerging,
+		nonTerminals := []*WorkItem{
+			{State: WorkItemQueued},
+			{State: WorkItemCoding},
+			{State: ""},
 		}
-		for _, s := range nonTerminals {
-			if s.IsTerminal() {
-				t.Errorf("expected %s to NOT be terminal", s)
-			}
-		}
-	})
-
-	t.Run("IsShelved", func(t *testing.T) {
-		shelved := []WorkItemState{WorkItemAwaitingReview, WorkItemAwaitingCI}
-		for _, s := range shelved {
-			if !s.IsShelved() {
-				t.Errorf("expected %s to be shelved", s)
-			}
-		}
-
-		nonShelved := []WorkItemState{
-			WorkItemQueued, WorkItemCoding, WorkItemPRCreated,
-			WorkItemAddressingFeedback, WorkItemPushing, WorkItemMerging,
-			WorkItemCompleted, WorkItemFailed, WorkItemAbandoned,
-		}
-		for _, s := range nonShelved {
-			if s.IsShelved() {
-				t.Errorf("expected %s to NOT be shelved", s)
+		for _, item := range nonTerminals {
+			if item.IsTerminal() {
+				t.Errorf("expected state %q to NOT be terminal", item.State)
 			}
 		}
 	})
-}
-
-func TestValidateTransition(t *testing.T) {
-	tests := []struct {
-		name    string
-		from    WorkItemState
-		to      WorkItemState
-		wantErr bool
-	}{
-		{"queued to coding", WorkItemQueued, WorkItemCoding, false},
-		{"queued to failed", WorkItemQueued, WorkItemFailed, false},
-		{"queued to completed (invalid)", WorkItemQueued, WorkItemCompleted, true},
-		{"coding to pr_created", WorkItemCoding, WorkItemPRCreated, false},
-		{"coding to failed", WorkItemCoding, WorkItemFailed, false},
-		{"coding to awaiting_review (invalid)", WorkItemCoding, WorkItemAwaitingReview, true},
-		{"pr_created to awaiting_review", WorkItemPRCreated, WorkItemAwaitingReview, false},
-		{"awaiting_review to addressing_feedback", WorkItemAwaitingReview, WorkItemAddressingFeedback, false},
-		{"awaiting_review to awaiting_ci", WorkItemAwaitingReview, WorkItemAwaitingCI, false},
-		{"awaiting_review to abandoned", WorkItemAwaitingReview, WorkItemAbandoned, false},
-		{"addressing_feedback to pushing", WorkItemAddressingFeedback, WorkItemPushing, false},
-		{"pushing to awaiting_review", WorkItemPushing, WorkItemAwaitingReview, false},
-		{"awaiting_ci to merging", WorkItemAwaitingCI, WorkItemMerging, false},
-		{"awaiting_ci to awaiting_review", WorkItemAwaitingCI, WorkItemAwaitingReview, false},
-		{"merging to completed", WorkItemMerging, WorkItemCompleted, false},
-		{"merging to failed", WorkItemMerging, WorkItemFailed, false},
-		{"completed to anything (invalid)", WorkItemCompleted, WorkItemQueued, true},
-		{"failed to anything (invalid)", WorkItemFailed, WorkItemQueued, true},
-		{"abandoned to anything (invalid)", WorkItemAbandoned, WorkItemQueued, true},
-		{"unknown state", WorkItemState("unknown"), WorkItemCoding, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateTransition(tt.from, tt.to)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateTransition(%s, %s) error = %v, wantErr %v", tt.from, tt.to, err, tt.wantErr)
-			}
-		})
-	}
 }
 
 func TestDaemonState_AddAndGetWorkItem(t *testing.T) {
@@ -132,6 +80,9 @@ func TestDaemonState_AddAndGetWorkItem(t *testing.T) {
 	if got.State != WorkItemQueued {
 		t.Errorf("expected state queued, got %s", got.State)
 	}
+	if got.Phase != "idle" {
+		t.Errorf("expected phase idle, got %s", got.Phase)
+	}
 	if got.IssueRef.ID != "42" {
 		t.Errorf("expected issue ID 42, got %s", got.IssueRef.ID)
 	}
@@ -145,38 +96,59 @@ func TestDaemonState_AddAndGetWorkItem(t *testing.T) {
 	}
 }
 
-func TestDaemonState_TransitionWorkItem(t *testing.T) {
+func TestDaemonState_AdvanceWorkItem(t *testing.T) {
 	state := NewDaemonState("/test/repo")
 	state.AddWorkItem(&WorkItem{
 		ID:       "item-1",
 		IssueRef: config.IssueRef{Source: "github", ID: "1"},
 	})
 
-	// Valid transition
-	if err := state.TransitionWorkItem("item-1", WorkItemCoding); err != nil {
+	if err := state.AdvanceWorkItem("item-1", "coding", "async_pending"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if state.GetWorkItem("item-1").State != WorkItemCoding {
-		t.Error("expected state coding")
-	}
 
-	// Invalid transition
-	if err := state.TransitionWorkItem("item-1", WorkItemCompleted); err == nil {
-		t.Error("expected error for invalid transition coding -> completed")
+	item := state.GetWorkItem("item-1")
+	if item.CurrentStep != "coding" {
+		t.Errorf("expected step coding, got %s", item.CurrentStep)
+	}
+	if item.Phase != "async_pending" {
+		t.Errorf("expected phase async_pending, got %s", item.Phase)
 	}
 
 	// Nonexistent item
-	if err := state.TransitionWorkItem("nonexistent", WorkItemCoding); err == nil {
+	if err := state.AdvanceWorkItem("nonexistent", "coding", "idle"); err == nil {
 		t.Error("expected error for nonexistent item")
 	}
+}
 
-	// Terminal state sets CompletedAt
-	if err := state.TransitionWorkItem("item-1", WorkItemFailed); err != nil {
+func TestDaemonState_MarkWorkItemTerminal(t *testing.T) {
+	state := NewDaemonState("/test/repo")
+	state.AddWorkItem(&WorkItem{
+		ID:       "item-1",
+		IssueRef: config.IssueRef{Source: "github", ID: "1"},
+	})
+
+	if err := state.MarkWorkItemTerminal("item-1", true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+
 	item := state.GetWorkItem("item-1")
+	if item.State != WorkItemCompleted {
+		t.Errorf("expected completed, got %s", item.State)
+	}
 	if item.CompletedAt == nil {
-		t.Error("expected CompletedAt to be set for terminal state")
+		t.Error("expected CompletedAt to be set")
+	}
+
+	// Failed
+	state.AddWorkItem(&WorkItem{
+		ID:       "item-2",
+		IssueRef: config.IssueRef{Source: "github", ID: "2"},
+	})
+	state.MarkWorkItemTerminal("item-2", false)
+	item2 := state.GetWorkItem("item-2")
+	if item2.State != WorkItemFailed {
+		t.Errorf("expected failed, got %s", item2.State)
 	}
 }
 
@@ -193,17 +165,35 @@ func TestDaemonState_GetWorkItemsByState(t *testing.T) {
 		t.Errorf("expected 3 queued items, got %d", len(queued))
 	}
 
-	// Transition one to coding
-	state.TransitionWorkItem("q1", WorkItemCoding)
+	// Mark one as completed
+	state.MarkWorkItemTerminal("q1", true)
 
 	queued = state.GetWorkItemsByState(WorkItemQueued)
 	if len(queued) != 2 {
 		t.Errorf("expected 2 queued items, got %d", len(queued))
 	}
+}
 
-	coding := state.GetWorkItemsByState(WorkItemCoding)
-	if len(coding) != 1 {
-		t.Errorf("expected 1 coding item, got %d", len(coding))
+func TestDaemonState_GetWorkItemsByStep(t *testing.T) {
+	state := NewDaemonState("/test/repo")
+
+	state.AddWorkItem(&WorkItem{ID: "i1", IssueRef: config.IssueRef{Source: "github", ID: "1"}})
+	state.AdvanceWorkItem("i1", "coding", "async_pending")
+
+	state.AddWorkItem(&WorkItem{ID: "i2", IssueRef: config.IssueRef{Source: "github", ID: "2"}})
+	state.AdvanceWorkItem("i2", "coding", "async_pending")
+
+	state.AddWorkItem(&WorkItem{ID: "i3", IssueRef: config.IssueRef{Source: "github", ID: "3"}})
+	state.AdvanceWorkItem("i3", "await_review", "idle")
+
+	coding := state.GetWorkItemsByStep("coding")
+	if len(coding) != 2 {
+		t.Errorf("expected 2 coding items, got %d", len(coding))
+	}
+
+	review := state.GetWorkItemsByStep("await_review")
+	if len(review) != 1 {
+		t.Errorf("expected 1 await_review item, got %d", len(review))
 	}
 }
 
@@ -222,20 +212,20 @@ func TestDaemonState_ActiveSlotCount(t *testing.T) {
 		t.Error("expected 0 active slots for queued items")
 	}
 
-	// Coding consumes a slot
-	state.TransitionWorkItem("a", WorkItemCoding)
+	// async_pending consumes a slot
+	state.GetWorkItem("a").Phase = "async_pending"
 	if state.ActiveSlotCount() != 1 {
 		t.Errorf("expected 1 active slot, got %d", state.ActiveSlotCount())
 	}
 
-	// AddressingFeedback also consumes a slot
-	state.TransitionWorkItem("b", WorkItemCoding)
+	// addressing_feedback also consumes a slot
+	state.GetWorkItem("b").Phase = "addressing_feedback"
 	if state.ActiveSlotCount() != 2 {
 		t.Errorf("expected 2 active slots, got %d", state.ActiveSlotCount())
 	}
 
-	// Transition to non-slot state
-	state.TransitionWorkItem("a", WorkItemPRCreated)
+	// idle does not consume a slot
+	state.GetWorkItem("a").Phase = "idle"
 	if state.ActiveSlotCount() != 1 {
 		t.Errorf("expected 1 active slot, got %d", state.ActiveSlotCount())
 	}
@@ -268,8 +258,7 @@ func TestDaemonState_HasWorkItemForIssue(t *testing.T) {
 	}
 
 	// Terminal items should not count
-	state.TransitionWorkItem("item-1", WorkItemCoding)
-	state.TransitionWorkItem("item-1", WorkItemFailed)
+	state.MarkWorkItemTerminal("item-1", false)
 	if state.HasWorkItemForIssue("github", "42") {
 		t.Error("expected false for terminal item")
 	}
@@ -315,7 +304,7 @@ func TestDaemonState_SaveAndLoad(t *testing.T) {
 		ID:       "item-1",
 		IssueRef: config.IssueRef{Source: "github", ID: "42", Title: "Fix bug"},
 	})
-	state.TransitionWorkItem("item-1", WorkItemCoding)
+	state.AdvanceWorkItem("item-1", "coding", "async_pending")
 
 	// Save
 	if err := state.Save(); err != nil {
@@ -327,7 +316,7 @@ func TestDaemonState_SaveAndLoad(t *testing.T) {
 		t.Fatalf("state file not created: %v", err)
 	}
 
-	// Load back - we need to use the file directly since LoadDaemonState uses paths package
+	// Load back
 	data, err := os.ReadFile(state.filePath)
 	if err != nil {
 		t.Fatalf("failed to read state file: %v", err)
@@ -349,8 +338,11 @@ func TestDaemonState_SaveAndLoad(t *testing.T) {
 	}
 
 	item := loaded.WorkItems["item-1"]
-	if item.State != WorkItemCoding {
-		t.Errorf("expected state coding, got %s", item.State)
+	if item.CurrentStep != "coding" {
+		t.Errorf("expected step coding, got %s", item.CurrentStep)
+	}
+	if item.Phase != "async_pending" {
+		t.Errorf("expected phase async_pending, got %s", item.Phase)
 	}
 	if item.IssueRef.Title != "Fix bug" {
 		t.Errorf("expected title 'Fix bug', got %q", item.IssueRef.Title)
@@ -405,7 +397,6 @@ func TestDaemonLock_AcquireAndRelease(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "test.lock")
 
-	// Manually create a lock to test (since lockFilePath uses paths package)
 	lock := &DaemonLock{path: lockPath}
 
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
@@ -414,12 +405,10 @@ func TestDaemonLock_AcquireAndRelease(t *testing.T) {
 	}
 	lock.file = f
 
-	// Release
 	if err := lock.Release(); err != nil {
 		t.Fatalf("Release failed: %v", err)
 	}
 
-	// Lock file should be gone
 	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
 		t.Error("expected lock file to be removed after release")
 	}
@@ -429,7 +418,6 @@ func TestDaemonLock_DoubleAcquireFails(t *testing.T) {
 	tmpDir := t.TempDir()
 	lockPath := filepath.Join(tmpDir, "test.lock")
 
-	// Create lock file manually
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		t.Fatalf("failed to create first lock: %v", err)
@@ -437,7 +425,6 @@ func TestDaemonLock_DoubleAcquireFails(t *testing.T) {
 	f.WriteString("12345")
 	f.Close()
 
-	// Try to create another lock at the same path
 	_, err = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err == nil {
 		t.Error("expected second lock to fail")
@@ -446,7 +433,6 @@ func TestDaemonLock_DoubleAcquireFails(t *testing.T) {
 		t.Errorf("expected IsExist error, got %v", err)
 	}
 
-	// Clean up
 	os.Remove(lockPath)
 }
 
@@ -470,11 +456,42 @@ func TestNewDaemonState(t *testing.T) {
 	}
 }
 
+func TestMigrateWorkItemV1toV2(t *testing.T) {
+	tests := []struct {
+		name         string
+		state        WorkItemState
+		wantStep     string
+		wantPhase    string
+	}{
+		{"coding", WorkItemCoding, "coding", "async_pending"},
+		{"pr_created", WorkItemPRCreated, "open_pr", "idle"},
+		{"awaiting_review", WorkItemAwaitingReview, "await_review", "idle"},
+		{"addressing_feedback", WorkItemAddressingFeedback, "await_review", "addressing_feedback"},
+		{"pushing", WorkItemPushing, "await_review", "pushing"},
+		{"awaiting_ci", WorkItemAwaitingCI, "await_ci", "idle"},
+		{"merging", WorkItemMerging, "merge", "idle"},
+		{"completed", WorkItemCompleted, "done", "idle"},
+		{"failed", WorkItemFailed, "failed", "idle"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := &WorkItem{State: tt.state}
+			migrateWorkItemV1toV2(item)
+			if item.CurrentStep != tt.wantStep {
+				t.Errorf("step: got %q, want %q", item.CurrentStep, tt.wantStep)
+			}
+			if item.Phase != tt.wantPhase {
+				t.Errorf("phase: got %q, want %q", item.Phase, tt.wantPhase)
+			}
+		})
+	}
+}
+
 func TestClearDaemonState(t *testing.T) {
 	tmpDir := t.TempDir()
 	fp := filepath.Join(tmpDir, "daemon-state.json")
 
-	// Create a state file
 	state := &DaemonState{
 		Version:   daemonStateVersion,
 		RepoPath:  "/test/repo",
@@ -486,122 +503,16 @@ func TestClearDaemonState(t *testing.T) {
 		t.Fatalf("Save failed: %v", err)
 	}
 
-	// Verify file exists
 	if _, err := os.Stat(fp); err != nil {
 		t.Fatalf("expected state file to exist: %v", err)
 	}
 
-	// Override daemonStateFilePath via a direct os.Remove since ClearDaemonState
-	// uses the paths package. Test the removal logic directly.
 	if err := os.Remove(fp); err != nil {
 		t.Fatalf("failed to remove state file: %v", err)
 	}
 
-	// Verify file is gone
 	if _, err := os.Stat(fp); !os.IsNotExist(err) {
 		t.Error("expected state file to be removed")
-	}
-
-	// Removing nonexistent file should not error (mirrors ClearDaemonState behavior)
-	err := os.Remove(fp)
-	if err != nil && !os.IsNotExist(err) {
-		t.Errorf("expected no error for nonexistent file, got: %v", err)
-	}
-}
-
-func TestClearDaemonLocks(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create some lock files
-	for _, name := range []string{"daemon-abc123.lock", "daemon-def456.lock"} {
-		f, err := os.Create(filepath.Join(tmpDir, name))
-		if err != nil {
-			t.Fatalf("failed to create lock file: %v", err)
-		}
-		f.Close()
-	}
-
-	// Also create a non-lock file that shouldn't be matched
-	f, err := os.Create(filepath.Join(tmpDir, "other-file.json"))
-	if err != nil {
-		t.Fatalf("failed to create other file: %v", err)
-	}
-	f.Close()
-
-	// Glob and remove lock files (mirrors ClearDaemonLocks logic)
-	matches, err := filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
-	if err != nil {
-		t.Fatalf("glob failed: %v", err)
-	}
-	if len(matches) != 2 {
-		t.Fatalf("expected 2 lock files, got %d", len(matches))
-	}
-
-	for _, match := range matches {
-		if err := os.Remove(match); err != nil {
-			t.Fatalf("failed to remove lock file: %v", err)
-		}
-	}
-
-	// Verify lock files are gone
-	remaining, _ := filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
-	if len(remaining) != 0 {
-		t.Errorf("expected 0 lock files remaining, got %d", len(remaining))
-	}
-
-	// Verify other file still exists
-	if _, err := os.Stat(filepath.Join(tmpDir, "other-file.json")); err != nil {
-		t.Error("expected other-file.json to still exist")
-	}
-}
-
-func TestFindDaemonLocks(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// No lock files
-	matches, err := filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
-	if err != nil {
-		t.Fatalf("glob failed: %v", err)
-	}
-	if len(matches) != 0 {
-		t.Errorf("expected 0 lock files, got %d", len(matches))
-	}
-
-	// Create lock files
-	for _, name := range []string{"daemon-aaa.lock", "daemon-bbb.lock", "daemon-ccc.lock"} {
-		f, err := os.Create(filepath.Join(tmpDir, name))
-		if err != nil {
-			t.Fatalf("failed to create lock file: %v", err)
-		}
-		f.Close()
-	}
-
-	matches, err = filepath.Glob(filepath.Join(tmpDir, "daemon-*.lock"))
-	if err != nil {
-		t.Fatalf("glob failed: %v", err)
-	}
-	if len(matches) != 3 {
-		t.Errorf("expected 3 lock files, got %d", len(matches))
-	}
-}
-
-func TestDaemonStateExists(t *testing.T) {
-	tmpDir := t.TempDir()
-	fp := filepath.Join(tmpDir, "daemon-state.json")
-
-	// File doesn't exist
-	if _, err := os.Stat(fp); !os.IsNotExist(err) {
-		t.Error("expected file to not exist initially")
-	}
-
-	// Create file
-	if err := os.WriteFile(fp, []byte("{}"), 0o644); err != nil {
-		t.Fatalf("failed to create file: %v", err)
-	}
-
-	// File exists
-	if _, err := os.Stat(fp); err != nil {
-		t.Error("expected file to exist after creation")
 	}
 }
 
@@ -610,12 +521,10 @@ func TestLockFilePath(t *testing.T) {
 	path2 := lockFilePath("/repo/b")
 	path3 := lockFilePath("/repo/a")
 
-	// Same repo should produce same path
 	if path1 != path3 {
 		t.Errorf("expected same lock path for same repo, got %s vs %s", path1, path3)
 	}
 
-	// Different repos should produce different paths
 	if path1 == path2 {
 		t.Error("expected different lock paths for different repos")
 	}
