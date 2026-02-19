@@ -1,8 +1,10 @@
 # Plural
 
-**Explore multiple solutions at once.** Parallel Claude Code sessions, or a fully autonomous agent.
+**Explore multiple solutions at once.** Parallel Claude Code sessions in a keyboard-driven TUI.
 
-Plural is a TUI and headless agent for Claude Code. Run parallel sessions across branches and repos, fork when Claude offers competing approaches, import issues from GitHub/Asana/Linear, broadcast prompts across services, and create PRs—all from a keyboard-driven terminal interface. Or skip the TUI entirely and run `plural agent` as an autonomous daemon that picks up GitHub issues, writes code, opens PRs, addresses review comments, and merges.
+Plural is a terminal interface for Claude Code. Run parallel sessions across branches and repos, fork when Claude offers competing approaches, import issues from GitHub/Asana/Linear, broadcast prompts across services, and create PRs—all from a keyboard-driven terminal interface.
+
+> **Looking for the headless agent?** See [plural-agent](https://github.com/zhubert/plural-agent) — an autonomous daemon that picks up issues, writes code, opens PRs, addresses review comments, and merges.
 
 ![Plural demo](docs/demo.gif)
 
@@ -20,7 +22,7 @@ Or [build from source](CONTRIBUTING.md).
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - Git
 - GitHub CLI (`gh`) — optional, for PRs and GitHub issue import
-- Docker — optional, for container mode and headless agent
+- Docker — optional, for container mode
 
 ## Quick Start
 
@@ -106,173 +108,6 @@ Auth: `ANTHROPIC_API_KEY` env var, macOS keychain (`anthropic_api_key`), OAuth t
 
 ---
 
-## Headless Agent Mode
-
-Run Plural as an autonomous daemon—no TUI required. The agent polls a repo for GitHub issues labeled `queued`, creates containerized Claude sessions, and works each issue end-to-end.
-
-```bash
-plural agent --repo owner/repo
-```
-
-### How It Works
-
-1. Agent finds issues labeled `queued` on the target repo
-2. Creates a containerized Claude session on a new branch
-3. Claude works the issue autonomously
-4. A PR is created when coding is complete
-5. Agent polls for review approval and CI, then merges
-
-For complex issues, Claude can delegate subtasks to child sessions via MCP tools (`create_child_session`, `list_child_sessions`, `merge_child_to_parent`). The supervisor waits for all children before creating a PR.
-
-### Agent Flags
-
-```bash
-plural agent --repo owner/repo              # Required: repo to poll
-plural agent --repo owner/repo --once       # Single tick, then exit
-plural agent --repo owner/repo --auto-merge # Auto-merge after review + CI (default)
-plural agent --repo owner/repo --no-auto-merge
-plural agent --repo owner/repo --max-concurrent 5
-plural agent --repo owner/repo --max-turns 80
-plural agent --repo owner/repo --max-duration 45
-plural agent --repo owner/repo --merge-method squash
-plural agent --repo owner/repo --auto-address-pr-comments
-```
-
-### Workflow Configuration
-
-Create `.plural/workflow.yaml` in your repo to customize the agent's behavior per-repository. The workflow is defined as a **state machine**—a directed graph of states connected by `next` (success) and `error` (failure) edges. If no file exists, the agent uses sensible defaults.
-
-```yaml
-workflow: issue-to-merge
-start: coding
-
-source:
-  provider: github          # github | asana | linear
-  filter:
-    label: queued            # github: issue label to poll
-    # project: ""            # asana: project GID
-    # team: ""               # linear: team ID
-
-states:
-  coding:
-    type: task
-    action: ai.code
-    params:
-      max_turns: 50
-      max_duration: 30m
-      containerized: true
-      supervisor: true
-      # system_prompt: "file:./prompts/coding.md"
-    # after:
-    #   - run: "make lint"
-    next: open_pr
-    error: failed
-
-  open_pr:
-    type: task
-    action: github.create_pr
-    params:
-      link_issue: true
-      # template: "file:./pr-template.md"
-    next: await_review
-    error: failed
-
-  await_review:
-    type: wait
-    event: pr.reviewed
-    params:
-      auto_address: true
-      max_feedback_rounds: 3
-      # system_prompt: "file:./prompts/review.md"
-    next: await_ci
-    error: failed
-
-  await_ci:
-    type: wait
-    event: ci.complete
-    timeout: 2h
-    params:
-      on_failure: retry      # retry | abandon | notify
-    next: merge
-    error: failed
-
-  merge:
-    type: task
-    action: github.merge
-    params:
-      method: rebase         # rebase | squash | merge
-      cleanup: true
-    # after:
-    #   - run: "./scripts/post-merge.sh"
-    next: done
-
-  done:
-    type: succeed
-
-  failed:
-    type: fail
-```
-
-#### State types
-
-| Type | Purpose | Required fields |
-|------|---------|-----------------|
-| `task` | Executes an action | `action`, `next` |
-| `wait` | Polls for an external event | `event`, `next` |
-| `succeed` | Terminal success state | — |
-| `fail` | Terminal failure state | — |
-
-#### Actions and events
-
-| Actions | Events |
-|---------|--------|
-| `ai.code` — run a Claude coding session | `pr.reviewed` — PR has been reviewed |
-| `github.create_pr` — open a pull request | `ci.complete` — CI checks have finished |
-| `github.push` — push to remote | |
-| `github.merge` — merge the PR | |
-| `github.comment_issue` — post a comment on the GitHub issue | |
-
-`github.comment_issue` requires a `body` param (required): the comment text to post. Supports inline strings or `file:` references (e.g. `body: "file:./comments/done.md"`). Non-GitHub issues are silently skipped.
-
-#### Customizing the graph
-
-You can add, remove, or reorder states to match your workflow. For example, to skip PR review and merge immediately after CI passes, set `open_pr.next` to `await_ci` and remove the `await_review` state. To add a push step before opening a PR, insert a new `push` state with `action: github.push` between `coding` and `open_pr`.
-
-States from the default config that aren't overridden in your file are preserved—you only need to define the states you want to change or add. Top-level fields (`workflow`, `start`, `source`) fall back to defaults when omitted.
-
-**Override precedence**: CLI flag > `.plural/workflow.yaml` > `~/.plural/config.json` > defaults.
-
-**System prompts** can be inline strings or `file:./path` references (relative to repo root).
-
-**Hooks** run on the host after each workflow step via the `after` field. Environment variables available: `PLURAL_REPO_PATH`, `PLURAL_BRANCH`, `PLURAL_SESSION_ID`, `PLURAL_ISSUE_ID`, `PLURAL_ISSUE_TITLE`, `PLURAL_ISSUE_URL`, `PLURAL_PR_URL`, `PLURAL_WORKTREE`, `PLURAL_PROVIDER`. Hook failures are logged but don't block the workflow.
-
-**Provider support**: The agent can poll GitHub issues (by label), Asana tasks (by project), or Linear issues (by team).
-
-Scaffold, validate, and visualize your workflow:
-
-```bash
-plural workflow init                              # generate .plural/workflow.yaml template
-plural workflow validate --repo /path/to/repo
-plural workflow visualize --repo /path/to/repo   # outputs mermaid diagram
-```
-
-### Agent Configuration
-
-These can also be set via TUI settings or `~/.plural/config.json`:
-
-| Setting | JSON Key | Default |
-|---------|----------|---------|
-| Max concurrent sessions | `issue_max_concurrent` | `3` |
-| Max turns per session | `auto_max_turns` | `50` |
-| Max duration (minutes) | `auto_max_duration_min` | `30` |
-| Merge method | `auto_merge_method` | `rebase` |
-| Auto-cleanup after merge | `auto_cleanup_merged` | `false` |
-| Auto-address PR comments | `auto_address_pr_comments` | `false` |
-
-Graceful shutdown: `SIGINT`/`SIGTERM` once to finish current work, twice to force exit.
-
----
-
 ## Keyboard Shortcuts
 
 Press `?` for the full list. Key shortcuts:
@@ -319,10 +154,6 @@ plural --version          # Show version
 plural help               # Show help
 plural clean              # Remove sessions, logs, worktrees, and containers
 plural clean -y           # Clean without confirmation
-plural agent --repo ...   # Headless agent mode (see above)
-plural workflow init      # Scaffold .plural/workflow.yaml
-plural workflow validate  # Validate .plural/workflow.yaml
-plural workflow visualize # Generate mermaid workflow diagram
 ```
 
 ## Data Storage

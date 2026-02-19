@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>plural - parallel claude code sessions</title>
-    <meta name="description" content="Run multiple Claude Code sessions in parallel, each in its own git branch. Or run fully headless — label a GitHub issue and let plural code, review, and merge autonomously.">
+    <meta name="description" content="Run multiple Claude Code sessions in parallel, each in its own git branch. Compare approaches side by side and ship faster.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -302,53 +302,8 @@
             font-size: 0.82rem;
             color: var(--text-muted);
             line-height: 1.7;
-            margin-bottom: 1.25rem;
+            margin-bottom: 0;
             text-align: center;
-        }
-
-        .headless-desc code {
-            color: var(--secondary);
-            font-family: inherit;
-        }
-
-        .headless-cmd {
-            margin-bottom: 1.5rem;
-        }
-
-        .headless-steps {
-            list-style: none;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.75rem;
-        }
-
-        .headless-steps li {
-            background: var(--bg-elevated);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 0.75rem 1rem;
-            font-size: 0.78rem;
-            color: var(--text-muted);
-            line-height: 1.5;
-        }
-
-        .headless-steps li code {
-            color: var(--secondary);
-            font-family: inherit;
-        }
-
-        .headless-steps .hl {
-            display: block;
-            color: var(--primary);
-            font-weight: 700;
-            font-size: 0.7rem;
-            margin-bottom: 0.25rem;
-        }
-
-        @media (max-width: 600px) {
-            .headless-steps {
-                grid-template-columns: 1fr;
-            }
         }
 
         /* ── Install ── */
@@ -593,7 +548,7 @@
                 <img src="logo.svg" alt="plural" class="logo-svg">
             </div>
             <p class="hero-tagline">explore multiple solutions at once.</p>
-            <p class="hero-sub">run parallel Claude Code sessions, each in its own git branch. compare approaches side by side and ship faster. or run fully headless — label a GitHub issue and let plural code, review, and merge autonomously.</p>
+            <p class="hero-sub">run parallel Claude Code sessions, each in its own git branch. compare approaches side by side and ship faster.</p>
             <div class="hero-cta">
                 <a href="#install" class="btn btn-primary">install</a>
                 <a href="https://github.com/zhubert/plural" class="btn btn-secondary">view on github</a>
@@ -648,8 +603,8 @@
                 </div>
                 <div class="feature-card">
                     <span class="feature-icon" aria-hidden="true">~</span>
-                    <h3>headless agent mode</h3>
-                    <p>run as a fully autonomous daemon. polls GitHub issues, codes, opens PRs, addresses review comments, and auto-merges — no human required.</p>
+                    <h3>headless agent</h3>
+                    <p>looking for fully autonomous issue-to-merge? see <a href="https://github.com/zhubert/plural-agent" style="color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent);">plural-agent</a> — a standalone daemon that picks up issues, writes code, opens PRs, and merges.</p>
                 </div>
             </div>
         </section>
@@ -681,25 +636,15 @@
         </section>
     </div>
 
-    <!-- Headless Agent Mode -->
+    <!-- plural-agent callout -->
     <div class="container">
         <section class="headless">
             <div class="headless-heading">
-                <h2>headless agent mode</h2>
-                <p>fully autonomous end-to-end issue resolution</p>
+                <h2>want fully autonomous?</h2>
+                <p>check out <a href="https://github.com/zhubert/plural-agent" style="color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent);">plural-agent</a></p>
             </div>
             <div class="headless-body">
-                <p class="headless-desc">run plural as a persistent daemon on your server or CI — no TUI, no human in the loop. point it at a GitHub repo, label issues <code>queued</code>, and plural handles everything: picks up the issue, writes the code, opens a PR, addresses review comments, and merges when approved.</p>
-                <div class="command-block headless-cmd">
-                    <button class="copy-btn" onclick="copyCommand(this, 'plural agent --repo owner/repo')">copy</button>
-                    <code><span class="prompt">$</span> plural agent --repo owner/repo</code>
-                </div>
-                <ul class="headless-steps">
-                    <li><span class="hl">01</span> labels issue <code>queued</code> → plural picks it up</li>
-                    <li><span class="hl">02</span> containerized Claude session writes the code on a new branch</li>
-                    <li><span class="hl">03</span> PR opened automatically when work is complete</li>
-                    <li><span class="hl">04</span> review comments auto-addressed, PR merged when CI passes</li>
-                </ul>
+                <p class="headless-desc">a standalone daemon that polls for issues, writes code, opens PRs, addresses review comments, and auto-merges — no human in the loop. built on plural-core.</p>
             </div>
         </section>
     </div>
