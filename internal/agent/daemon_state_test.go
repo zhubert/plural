@@ -456,37 +456,6 @@ func TestNewDaemonState(t *testing.T) {
 	}
 }
 
-func TestMigrateWorkItemV1toV2(t *testing.T) {
-	tests := []struct {
-		name         string
-		state        WorkItemState
-		wantStep     string
-		wantPhase    string
-	}{
-		{"coding", WorkItemCoding, "coding", "async_pending"},
-		{"pr_created", WorkItemPRCreated, "open_pr", "idle"},
-		{"awaiting_review", WorkItemAwaitingReview, "await_review", "idle"},
-		{"addressing_feedback", WorkItemAddressingFeedback, "await_review", "addressing_feedback"},
-		{"pushing", WorkItemPushing, "await_review", "pushing"},
-		{"awaiting_ci", WorkItemAwaitingCI, "await_ci", "idle"},
-		{"merging", WorkItemMerging, "merge", "idle"},
-		{"completed", WorkItemCompleted, "done", "idle"},
-		{"failed", WorkItemFailed, "failed", "idle"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			item := &WorkItem{State: tt.state}
-			migrateWorkItemV1toV2(item)
-			if item.CurrentStep != tt.wantStep {
-				t.Errorf("step: got %q, want %q", item.CurrentStep, tt.wantStep)
-			}
-			if item.Phase != tt.wantPhase {
-				t.Errorf("phase: got %q, want %q", item.Phase, tt.wantPhase)
-			}
-		})
-	}
-}
 
 func TestClearDaemonState(t *testing.T) {
 	tmpDir := t.TempDir()

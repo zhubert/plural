@@ -333,10 +333,14 @@ func (d *Daemon) executeSyncChain(ctx context.Context, item *WorkItem, engine *w
 			}
 		}
 
-		// Merge data
+		// Merge data and apply known fields to the work item
 		if result.Data != nil {
 			for k, v := range result.Data {
 				item.StepData[k] = v
+			}
+			if prURL, ok := result.Data["pr_url"].(string); ok && prURL != "" {
+				item.PRURL = prURL
+				item.UpdatedAt = time.Now()
 			}
 		}
 
@@ -726,17 +730,19 @@ func (d *Daemon) runHooks(ctx context.Context, hooks []workflow.HookConfig, item
 	workflow.RunHooks(ctx, hooks, hookCtx, d.logger)
 }
 
-// runWorkflowHooks is an alias for runHooks for backward compatibility.
-func (d *Daemon) runWorkflowHooks(ctx context.Context, hooks []workflow.HookConfig, item *WorkItem, sess *config.Session) {
-	d.runHooks(ctx, hooks, item, sess)
-}
-
 // workItemView creates a read-only view of a work item for the engine.
 func (d *Daemon) workItemView(item *WorkItem) *workflow.WorkItemView {
+	// Use the session's actual repo path rather than d.repoFilter,
+	// which may be empty or a pattern (e.g., "owner/repo") in multi-repo daemons.
+	repoPath := d.repoFilter
+	if sess := d.config.GetSession(item.SessionID); sess != nil {
+		repoPath = sess.RepoPath
+	}
+
 	return &workflow.WorkItemView{
 		ID:                item.ID,
 		SessionID:         item.SessionID,
-		RepoPath:          d.repoFilter,
+		RepoPath:          repoPath,
 		Branch:            item.Branch,
 		PRURL:             item.PRURL,
 		CurrentStep:       item.CurrentStep,

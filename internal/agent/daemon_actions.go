@@ -17,7 +17,12 @@ type CodingAction struct {
 	daemon *Daemon
 }
 
-// Execute starts a coding session. Returns async=true since it spawns a Claude worker.
+// Execute is a no-op marker that signals the engine this step is async.
+// The actual session creation and Claude worker spawning is handled by
+// startQueuedItems → startCoding, which runs outside the engine because it
+// requires session setup, branch creation, and worker lifecycle management
+// that the engine doesn't own. Returning Async: true tells the engine to
+// set the phase to "async_pending" and wait for AdvanceAfterAsync.
 func (a *CodingAction) Execute(ctx context.Context, ac *workflow.ActionContext) workflow.ActionResult {
 	d := a.daemon
 	item := d.state.GetWorkItem(ac.WorkItemID)
@@ -25,9 +30,6 @@ func (a *CodingAction) Execute(ctx context.Context, ac *workflow.ActionContext) 
 		return workflow.ActionResult{Error: fmt.Errorf("work item not found: %s", ac.WorkItemID)}
 	}
 
-	// The actual coding start is handled by startCoding which sets up sessions etc.
-	// This action is called from the engine but the real start is done via startCoding.
-	// Return async=true to indicate the worker was spawned.
 	return workflow.ActionResult{Success: true, Async: true}
 }
 
@@ -48,9 +50,6 @@ func (a *CreatePRAction) Execute(ctx context.Context, ac *workflow.ActionContext
 	if err != nil {
 		return workflow.ActionResult{Error: fmt.Errorf("PR creation failed: %v", err)}
 	}
-
-	item.PRURL = prURL
-	item.UpdatedAt = time.Now()
 
 	return workflow.ActionResult{
 		Success: true,
