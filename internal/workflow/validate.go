@@ -20,7 +20,214 @@ func (e ValidationError) Error() string {
 func Validate(cfg *Config) []ValidationError {
 	var errs []ValidationError
 
+	// Start state must exist
+	if cfg.Start == "" {
+		errs = append(errs, ValidationError{
+			Field:   "start",
+			Message: "start state is required",
+		})
+	} else if cfg.States != nil {
+		if _, ok := cfg.States[cfg.Start]; !ok {
+			errs = append(errs, ValidationError{
+				Field:   "start",
+				Message: fmt.Sprintf("start state %q does not exist", cfg.Start),
+			})
+		}
+	}
+
+	// States must exist
+	if len(cfg.States) == 0 {
+		errs = append(errs, ValidationError{
+			Field:   "states",
+			Message: "at least one state is required",
+		})
+	}
+
+	// Validate each state
+	for name, state := range cfg.States {
+		errs = append(errs, validateState(name, state, cfg.States)...)
+	}
+
 	// Provider validation
+	errs = append(errs, validateSource(cfg)...)
+
+	return errs
+}
+
+// validateState validates a single state definition.
+func validateState(name string, state *State, allStates map[string]*State) []ValidationError {
+	var errs []ValidationError
+	prefix := fmt.Sprintf("states.%s", name)
+
+	// Type validation
+	if !ValidStateTypes[state.Type] {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".type",
+			Message: fmt.Sprintf("unknown state type %q (must be task, wait, succeed, or fail)", state.Type),
+		})
+		return errs // Can't validate further without valid type
+	}
+
+	switch state.Type {
+	case StateTypeTask:
+		// Task states require action
+		if state.Action == "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".action",
+				Message: "action is required for task states",
+			})
+		} else if !ValidActions[state.Action] {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".action",
+				Message: fmt.Sprintf("unknown action %q", state.Action),
+			})
+		}
+
+		// Non-terminal states must have next
+		if state.Next == "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".next",
+				Message: "next is required for task states",
+			})
+		}
+
+		// Validate params for ai.code action
+		if state.Action == "ai.code" {
+			errs = append(errs, validateCodingParams(prefix, state.Params)...)
+		}
+
+		// Validate params for github.merge action
+		if state.Action == "github.merge" {
+			errs = append(errs, validateMergeParams(prefix, state.Params)...)
+		}
+
+	case StateTypeWait:
+		// Wait states require event
+		if state.Event == "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".event",
+				Message: "event is required for wait states",
+			})
+		} else if !ValidEvents[state.Event] {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".event",
+				Message: fmt.Sprintf("unknown event %q", state.Event),
+			})
+		}
+
+		// Non-terminal states must have next
+		if state.Next == "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".next",
+				Message: "next is required for wait states",
+			})
+		}
+
+		// Validate params for ci.complete event
+		if state.Event == "ci.complete" {
+			errs = append(errs, validateCIParams(prefix, state.Params)...)
+		}
+
+	case StateTypeSucceed, StateTypeFail:
+		// Terminal states must not have next
+		if state.Next != "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".next",
+				Message: "terminal states must not have next",
+			})
+		}
+	}
+
+	// Validate next/error references exist
+	if state.Next != "" {
+		if _, ok := allStates[state.Next]; !ok {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".next",
+				Message: fmt.Sprintf("references non-existent state %q", state.Next),
+			})
+		}
+	}
+	if state.Error != "" {
+		if _, ok := allStates[state.Error]; !ok {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".error",
+				Message: fmt.Sprintf("references non-existent state %q", state.Error),
+			})
+		}
+	}
+
+	return errs
+}
+
+// validateCodingParams validates params for ai.code actions.
+func validateCodingParams(prefix string, params map[string]any) []ValidationError {
+	var errs []ValidationError
+	if params == nil {
+		return errs
+	}
+
+	// Validate system_prompt path if present
+	if sp, ok := params["system_prompt"]; ok {
+		if s, ok := sp.(string); ok {
+			errs = append(errs, validatePromptPath(prefix+".params.system_prompt", s)...)
+		}
+	}
+
+	return errs
+}
+
+// validateMergeParams validates params for github.merge actions.
+func validateMergeParams(prefix string, params map[string]any) []ValidationError {
+	var errs []ValidationError
+	if params == nil {
+		return errs
+	}
+
+	if method, ok := params["method"]; ok {
+		if s, ok := method.(string); ok {
+			switch s {
+			case "rebase", "squash", "merge":
+				// valid
+			default:
+				errs = append(errs, ValidationError{
+					Field:   prefix + ".params.method",
+					Message: fmt.Sprintf("unknown merge method %q (must be rebase, squash, or merge)", s),
+				})
+			}
+		}
+	}
+
+	return errs
+}
+
+// validateCIParams validates params for ci.complete events.
+func validateCIParams(prefix string, params map[string]any) []ValidationError {
+	var errs []ValidationError
+	if params == nil {
+		return errs
+	}
+
+	if onFailure, ok := params["on_failure"]; ok {
+		if s, ok := onFailure.(string); ok {
+			switch s {
+			case "abandon", "retry", "notify":
+				// valid
+			default:
+				errs = append(errs, ValidationError{
+					Field:   prefix + ".params.on_failure",
+					Message: fmt.Sprintf("unknown on_failure policy %q (must be abandon, retry, or notify)", s),
+				})
+			}
+		}
+	}
+
+	return errs
+}
+
+// validateSource validates the source configuration.
+func validateSource(cfg *Config) []ValidationError {
+	var errs []ValidationError
+
 	switch cfg.Source.Provider {
 	case "github", "asana", "linear":
 		// valid
@@ -60,37 +267,6 @@ func Validate(cfg *Config) []ValidationError {
 			})
 		}
 	}
-
-	// CI on_failure
-	if cfg.Workflow.CI.OnFailure != "" {
-		switch cfg.Workflow.CI.OnFailure {
-		case "abandon", "retry", "notify":
-			// valid
-		default:
-			errs = append(errs, ValidationError{
-				Field:   "workflow.ci.on_failure",
-				Message: fmt.Sprintf("unknown on_failure policy %q (must be abandon, retry, or notify)", cfg.Workflow.CI.OnFailure),
-			})
-		}
-	}
-
-	// Merge method
-	if cfg.Workflow.Merge.Method != "" {
-		switch cfg.Workflow.Merge.Method {
-		case "rebase", "squash", "merge":
-			// valid
-		default:
-			errs = append(errs, ValidationError{
-				Field:   "workflow.merge.method",
-				Message: fmt.Sprintf("unknown merge method %q (must be rebase, squash, or merge)", cfg.Workflow.Merge.Method),
-			})
-		}
-	}
-
-	// System prompt file paths must not escape repo root
-	errs = append(errs, validatePromptPath("workflow.coding.system_prompt", cfg.Workflow.Coding.SystemPrompt)...)
-	errs = append(errs, validatePromptPath("workflow.review.system_prompt", cfg.Workflow.Review.SystemPrompt)...)
-	errs = append(errs, validatePromptPath("workflow.pr.template", cfg.Workflow.PR.Template)...)
 
 	return errs
 }

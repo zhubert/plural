@@ -26,6 +26,7 @@ type Daemon struct {
 	lock           *DaemonLock
 	workers         map[string]*SessionWorker
 	workflowConfigs map[string]*workflow.Config // keyed by repo path
+	engines         map[string]*workflow.Engine // keyed by repo path
 	mu              sync.Mutex
 	logger          *slog.Logger
 
@@ -186,13 +187,13 @@ func (d *Daemon) Run(ctx context.Context) error {
 // tick performs one iteration of the daemon event loop.
 func (d *Daemon) tick(ctx context.Context) {
 	d.collectCompletedWorkers(ctx) // Detect finished Claude sessions
-	d.processWorkItems(ctx)        // Check shelved items for events
+	d.processWorkItems(ctx)        // Process active items via engine
 	d.pollForNewIssues(ctx)        // Find new issues (if slots available)
 	d.startQueuedItems(ctx)        // Start coding on queued items
 	d.saveState()                  // Persist
 }
 
-// collectCompletedWorkers checks for finished Claude sessions and transitions work items.
+// collectCompletedWorkers checks for finished Claude sessions and advances work items.
 func (d *Daemon) collectCompletedWorkers(ctx context.Context) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -208,15 +209,15 @@ func (d *Daemon) collectCompletedWorkers(ctx context.Context) {
 			continue
 		}
 
-		d.logger.Info("worker completed", "workItem", workItemID, "state", item.State)
+		d.logger.Info("worker completed", "workItem", workItemID, "step", item.CurrentStep, "phase", item.Phase)
 
-		switch item.State {
-		case WorkItemCoding:
-			// Claude finished coding — create PR
-			d.handleCodingComplete(ctx, item)
+		switch item.Phase {
+		case "async_pending":
+			// Main async action completed (e.g., coding)
+			d.handleAsyncComplete(ctx, item)
 
-		case WorkItemAddressingFeedback:
-			// Claude finished addressing feedback — push changes
+		case "addressing_feedback":
+			// Feedback addressing completed — push changes
 			d.handleFeedbackComplete(ctx, item)
 		}
 
@@ -224,80 +225,131 @@ func (d *Daemon) collectCompletedWorkers(ctx context.Context) {
 	}
 }
 
-// handleCodingComplete handles the transition after Claude finishes coding.
-func (d *Daemon) handleCodingComplete(ctx context.Context, item *WorkItem) {
-	log := d.logger.With("workItem", item.ID, "branch", item.Branch)
+// handleAsyncComplete handles the completion of an async action.
+func (d *Daemon) handleAsyncComplete(ctx context.Context, item *WorkItem) {
+	log := d.logger.With("workItem", item.ID, "step", item.CurrentStep)
 
 	sess := d.config.GetSession(item.SessionID)
 	repoPath := ""
 	if sess != nil {
 		repoPath = sess.RepoPath
 	}
-	wfCfg := d.getWorkflowConfig(repoPath)
 
-	// Run coding after-hooks
-	if sess != nil {
-		d.runWorkflowHooks(ctx, wfCfg.Workflow.Coding.After, item, sess)
+	engine := d.getEngine(repoPath)
+	if engine == nil {
+		log.Error("no engine for repo", "repo", repoPath)
+		return
 	}
+
+	// Get state definition for after-hooks
+	state := engine.GetState(item.CurrentStep)
 
 	// Check if the worker already created and merged a PR via MCP tools
 	if sess != nil && sess.PRMerged {
 		log.Info("PR already created and merged by worker, fast-pathing to completed")
-		d.state.TransitionWorkItem(item.ID, WorkItemPRCreated)
-		d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview)
-		d.state.TransitionWorkItem(item.ID, WorkItemAwaitingCI)
-		d.state.TransitionWorkItem(item.ID, WorkItemMerging)
-		d.state.TransitionWorkItem(item.ID, WorkItemCompleted)
+		// Run current step's after-hooks
+		if state != nil {
+			d.runHooks(ctx, state.After, item, sess)
+		}
+		d.state.AdvanceWorkItem(item.ID, "done", "idle")
+		d.state.MarkWorkItemTerminal(item.ID, true)
 
-		// Run merge after-hooks
-		d.runWorkflowHooks(ctx, wfCfg.Workflow.Merge.After, item, sess)
+		// Run merge hooks if exists
+		mergeState := engine.GetState("merge")
+		if mergeState != nil {
+			d.runHooks(ctx, mergeState.After, item, sess)
+		}
 		return
 	}
 
-	// Check if the worker already created a PR via MCP tools (but not yet merged)
-	if sess != nil && sess.PRCreated {
-		log.Info("PR already created by worker, skipping createPR")
-		if err := d.state.TransitionWorkItem(item.ID, WorkItemPRCreated); err != nil {
-			log.Error("failed to transition to pr_created", "error", err)
+	// Check if the worker already created a PR via MCP tools (but not merged)
+	if sess != nil && sess.PRCreated && item.CurrentStep == "coding" {
+		log.Info("PR already created by worker, skipping open_pr step")
+		// Run coding after-hooks
+		if state != nil {
+			d.runHooks(ctx, state.After, item, sess)
+		}
+		// Skip open_pr, go directly to await_review
+		prState := engine.GetState("open_pr")
+		if prState != nil {
+			d.runHooks(ctx, prState.After, item, sess)
+		}
+		d.state.AdvanceWorkItem(item.ID, "await_review", "idle")
+		return
+	}
+
+	// Normal async completion — advance via engine
+	view := d.workItemView(item)
+	result, err := engine.AdvanceAfterAsync(view, true)
+	if err != nil {
+		log.Error("failed to advance after async", "error", err)
+		d.state.SetErrorMessage(item.ID, err.Error())
+		d.state.MarkWorkItemTerminal(item.ID, false)
+		return
+	}
+
+	// Run after-hooks
+	if state != nil && sess != nil {
+		d.runHooks(ctx, state.After, item, sess)
+	}
+
+	if result.Terminal {
+		d.state.AdvanceWorkItem(item.ID, result.NewStep, result.NewPhase)
+		d.state.MarkWorkItemTerminal(item.ID, result.TerminalOK)
+		return
+	}
+
+	// For task states with sync next actions, execute them inline
+	d.state.AdvanceWorkItem(item.ID, result.NewStep, result.NewPhase)
+
+	// If the next step is a sync task (like open_pr), execute it now
+	d.executeSyncChain(ctx, item, engine)
+}
+
+// executeSyncChain executes synchronous task states in sequence until
+// hitting an async task, a wait state, or a terminal state.
+func (d *Daemon) executeSyncChain(ctx context.Context, item *WorkItem, engine *workflow.Engine) {
+	for {
+		view := d.workItemView(item)
+		result, err := engine.ProcessStep(ctx, view)
+		if err != nil {
+			d.logger.Error("sync chain error", "workItem", item.ID, "step", item.CurrentStep, "error", err)
+			d.state.SetErrorMessage(item.ID, err.Error())
+			d.state.MarkWorkItemTerminal(item.ID, false)
 			return
 		}
 
-		// Run PR after-hooks
-		d.runWorkflowHooks(ctx, wfCfg.Workflow.PR.After, item, sess)
-
-		// Transition to awaiting review so daemon's review/CI polling takes over
-		if err := d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview); err != nil {
-			log.Error("failed to transition to awaiting_review", "error", err)
+		if result.Terminal {
+			d.state.AdvanceWorkItem(item.ID, result.NewStep, result.NewPhase)
+			d.state.MarkWorkItemTerminal(item.ID, result.TerminalOK)
+			return
 		}
-		return
-	}
 
-	prURL, err := d.createPR(ctx, item)
-	if err != nil {
-		log.Error("failed to create PR", "error", err)
-		d.state.SetErrorMessage(item.ID, fmt.Sprintf("PR creation failed: %v", err))
-		d.state.TransitionWorkItem(item.ID, WorkItemFailed)
-		return
-	}
+		// Run after-hooks
+		if len(result.Hooks) > 0 {
+			sess := d.config.GetSession(item.SessionID)
+			if sess != nil {
+				d.runHooks(ctx, result.Hooks, item, sess)
+			}
+		}
 
-	item.PRURL = prURL
-	item.UpdatedAt = time.Now()
+		// Merge data
+		if result.Data != nil {
+			for k, v := range result.Data {
+				item.StepData[k] = v
+			}
+		}
 
-	if err := d.state.TransitionWorkItem(item.ID, WorkItemPRCreated); err != nil {
-		log.Error("failed to transition to pr_created", "error", err)
-		return
-	}
+		d.state.AdvanceWorkItem(item.ID, result.NewStep, result.NewPhase)
 
-	log.Info("PR created", "url", prURL)
-
-	// Run PR after-hooks
-	if sess != nil {
-		d.runWorkflowHooks(ctx, wfCfg.Workflow.PR.After, item, sess)
-	}
-
-	// Immediately transition to awaiting review
-	if err := d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview); err != nil {
-		log.Error("failed to transition to awaiting_review", "error", err)
+		// Stop if we hit an async pending state or a wait state
+		if result.NewPhase == "async_pending" {
+			return
+		}
+		nextState := engine.GetState(result.NewStep)
+		if nextState != nil && nextState.Type == workflow.StateTypeWait {
+			return
+		}
 	}
 }
 
@@ -309,47 +361,131 @@ func (d *Daemon) handleFeedbackComplete(ctx context.Context, item *WorkItem) {
 	if err := d.pushChanges(ctx, item); err != nil {
 		log.Error("failed to push changes", "error", err)
 		d.state.SetErrorMessage(item.ID, fmt.Sprintf("push failed: %v", err))
-		d.state.TransitionWorkItem(item.ID, WorkItemFailed)
-		return
-	}
-
-	if err := d.state.TransitionWorkItem(item.ID, WorkItemPushing); err != nil {
-		log.Error("failed to transition to pushing", "error", err)
+		d.state.MarkWorkItemTerminal(item.ID, false)
 		return
 	}
 
 	// Run review after-hooks
 	sess := d.config.GetSession(item.SessionID)
 	if sess != nil {
-		wfCfg := d.getWorkflowConfig(sess.RepoPath)
-		d.runWorkflowHooks(ctx, wfCfg.Workflow.Review.After, item, sess)
+		engine := d.getEngine(sess.RepoPath)
+		if engine != nil {
+			state := engine.GetState(item.CurrentStep)
+			if state != nil {
+				d.runHooks(ctx, state.After, item, sess)
+			}
+		}
 	}
 
-	// Immediately transition back to awaiting review
-	if err := d.state.TransitionWorkItem(item.ID, WorkItemAwaitingReview); err != nil {
-		log.Error("failed to transition to awaiting_review", "error", err)
-	}
+	// Back to idle phase for the wait state to continue polling
+	d.state.AdvanceWorkItem(item.ID, item.CurrentStep, "idle")
 
 	item.FeedbackRounds++
 	item.UpdatedAt = time.Now()
 	log.Info("pushed feedback changes", "round", item.FeedbackRounds)
 }
 
-// processWorkItems checks shelved items for external events.
+// processWorkItems checks active items via the engine.
 func (d *Daemon) processWorkItems(ctx context.Context) {
-	// Check AwaitingReview items for new comments or review decisions.
-	// Only poll for reviews at the slower reviewPollInterval since human
-	// reviewers may take hours or days to respond.
+	// Check wait-state items (review, CI) at the review poll interval
 	if time.Since(d.lastReviewPollAt) >= d.reviewPollInterval {
-		for _, item := range d.state.GetWorkItemsByState(WorkItemAwaitingReview) {
-			d.processAwaitingReview(ctx, item)
-		}
+		d.processWaitItems(ctx)
 		d.lastReviewPollAt = time.Now()
 	}
 
-	// Check AwaitingCI items for CI status
-	for _, item := range d.state.GetWorkItemsByState(WorkItemAwaitingCI) {
-		d.processAwaitingCI(ctx, item)
+	// Check CI items on every tick (they don't need the slower interval)
+	d.processCIItems(ctx)
+}
+
+// processWaitItems processes items in wait states for review events.
+func (d *Daemon) processWaitItems(ctx context.Context) {
+	for _, item := range d.state.GetActiveWorkItems() {
+		if item.IsTerminal() || item.Phase == "async_pending" || item.Phase == "addressing_feedback" {
+			continue
+		}
+
+		sess := d.config.GetSession(item.SessionID)
+		if sess == nil {
+			continue
+		}
+
+		engine := d.getEngine(sess.RepoPath)
+		if engine == nil {
+			continue
+		}
+
+		state := engine.GetState(item.CurrentStep)
+		if state == nil || state.Type != workflow.StateTypeWait {
+			continue
+		}
+
+		// Only process pr.reviewed events here
+		if state.Event != "pr.reviewed" {
+			continue
+		}
+
+		view := d.workItemView(item)
+		result, err := engine.ProcessStep(ctx, view)
+		if err != nil {
+			d.logger.Error("wait step error", "workItem", item.ID, "error", err)
+			continue
+		}
+
+		if result.NewStep != item.CurrentStep || result.NewPhase != item.Phase {
+			if len(result.Hooks) > 0 {
+				d.runHooks(ctx, result.Hooks, item, sess)
+			}
+			d.state.AdvanceWorkItem(item.ID, result.NewStep, result.NewPhase)
+			if result.Terminal {
+				d.state.MarkWorkItemTerminal(item.ID, result.TerminalOK)
+			} else {
+				// Continue sync chain if next is a sync task
+				d.executeSyncChain(ctx, item, engine)
+			}
+		}
+	}
+}
+
+// processCIItems processes items waiting for CI events.
+func (d *Daemon) processCIItems(ctx context.Context) {
+	for _, item := range d.state.GetActiveWorkItems() {
+		if item.IsTerminal() || item.Phase == "async_pending" || item.Phase == "addressing_feedback" {
+			continue
+		}
+
+		sess := d.config.GetSession(item.SessionID)
+		if sess == nil {
+			continue
+		}
+
+		engine := d.getEngine(sess.RepoPath)
+		if engine == nil {
+			continue
+		}
+
+		state := engine.GetState(item.CurrentStep)
+		if state == nil || state.Type != workflow.StateTypeWait || state.Event != "ci.complete" {
+			continue
+		}
+
+		view := d.workItemView(item)
+		result, err := engine.ProcessStep(ctx, view)
+		if err != nil {
+			d.logger.Error("ci step error", "workItem", item.ID, "error", err)
+			continue
+		}
+
+		if result.NewStep != item.CurrentStep || result.NewPhase != item.Phase {
+			if len(result.Hooks) > 0 {
+				d.runHooks(ctx, result.Hooks, item, sess)
+			}
+			d.state.AdvanceWorkItem(item.ID, result.NewStep, result.NewPhase)
+			if result.Terminal {
+				d.state.MarkWorkItemTerminal(item.ID, result.TerminalOK)
+			} else {
+				d.executeSyncChain(ctx, item, engine)
+			}
+		}
 	}
 }
 
@@ -467,9 +603,10 @@ func (d *Daemon) getAutoBroadcastPR() bool {
 	return d.autoBroadcastPR || d.config.GetAutoBroadcastPR()
 }
 
-// loadWorkflowConfigs loads workflow configs for all registered repos.
+// loadWorkflowConfigs loads workflow configs and creates engines for all registered repos.
 func (d *Daemon) loadWorkflowConfigs() {
 	d.workflowConfigs = make(map[string]*workflow.Config)
+	d.engines = make(map[string]*workflow.Engine)
 
 	for _, repoPath := range d.config.GetRepos() {
 		cfg, err := workflow.LoadAndMerge(repoPath)
@@ -478,8 +615,25 @@ func (d *Daemon) loadWorkflowConfigs() {
 			continue
 		}
 		d.workflowConfigs[repoPath] = cfg
+
+		// Create engine with action registry and event checker
+		registry := d.buildActionRegistry()
+		checker := NewDaemonEventChecker(d)
+		engine := workflow.NewEngine(cfg, registry, checker, d.logger)
+		d.engines[repoPath] = engine
+
 		d.logger.Debug("loaded workflow config", "repo", repoPath, "provider", cfg.Source.Provider)
 	}
+}
+
+// buildActionRegistry creates the action registry with all daemon actions.
+func (d *Daemon) buildActionRegistry() *workflow.ActionRegistry {
+	registry := workflow.NewActionRegistry()
+	registry.Register("ai.code", &CodingAction{daemon: d})
+	registry.Register("github.create_pr", &CreatePRAction{daemon: d})
+	registry.Register("github.push", &PushAction{daemon: d})
+	registry.Register("github.merge", &MergeAction{daemon: d})
+	return registry
 }
 
 // getWorkflowConfig returns the workflow config for a repo, or defaults.
@@ -490,44 +644,69 @@ func (d *Daemon) getWorkflowConfig(repoPath string) *workflow.Config {
 	return workflow.DefaultConfig()
 }
 
+// getEngine returns the workflow engine for a repo, or creates one with defaults.
+func (d *Daemon) getEngine(repoPath string) *workflow.Engine {
+	if engine, ok := d.engines[repoPath]; ok {
+		return engine
+	}
+	// Create a default engine on the fly
+	cfg := workflow.DefaultConfig()
+	registry := d.buildActionRegistry()
+	checker := NewDaemonEventChecker(d)
+	return workflow.NewEngine(cfg, registry, checker, d.logger)
+}
+
 // getEffectiveMaxTurns returns the effective max turns considering CLI > workflow > config > default.
 func (d *Daemon) getEffectiveMaxTurns(repoPath string) int {
 	if d.maxTurns > 0 {
 		return d.maxTurns
 	}
 	wfCfg := d.getWorkflowConfig(repoPath)
-	if wfCfg.Workflow.Coding.MaxTurns != nil {
-		return *wfCfg.Workflow.Coding.MaxTurns
+	codingState := wfCfg.States["coding"]
+	if codingState != nil {
+		p := workflow.NewParamHelper(codingState.Params)
+		if v := p.Int("max_turns", 0); v > 0 {
+			return v
+		}
 	}
 	return d.config.GetAutoMaxTurns()
 }
 
-// getEffectiveMaxDuration returns the effective max duration in minutes considering CLI > workflow > config > default.
+// getEffectiveMaxDuration returns the effective max duration in minutes.
 func (d *Daemon) getEffectiveMaxDuration(repoPath string) int {
 	if d.maxDuration > 0 {
 		return d.maxDuration
 	}
 	wfCfg := d.getWorkflowConfig(repoPath)
-	if wfCfg.Workflow.Coding.MaxDuration != nil {
-		return int(wfCfg.Workflow.Coding.MaxDuration.Duration.Minutes())
+	codingState := wfCfg.States["coding"]
+	if codingState != nil {
+		p := workflow.NewParamHelper(codingState.Params)
+		dur := p.Duration("max_duration", 0)
+		if dur > 0 {
+			return int(dur.Minutes())
+		}
 	}
 	return d.config.GetAutoMaxDurationMin()
 }
 
-// getEffectiveMergeMethod returns the effective merge method considering CLI > workflow > config > default.
+// getEffectiveMergeMethod returns the effective merge method.
 func (d *Daemon) getEffectiveMergeMethod(repoPath string) string {
 	if d.mergeMethod != "" {
 		return d.mergeMethod
 	}
 	wfCfg := d.getWorkflowConfig(repoPath)
-	if wfCfg.Workflow.Merge.Method != "" {
-		return wfCfg.Workflow.Merge.Method
+	mergeState := wfCfg.States["merge"]
+	if mergeState != nil {
+		p := workflow.NewParamHelper(mergeState.Params)
+		if m := p.String("method", ""); m != "" {
+			return m
+		}
 	}
 	return d.config.GetAutoMergeMethod()
 }
 
-// runWorkflowHooks runs the after-hooks for a given workflow step.
-func (d *Daemon) runWorkflowHooks(ctx context.Context, hooks []workflow.HookConfig, item *WorkItem, sess *config.Session) {
+// runHooks runs the after-hooks for a given workflow step.
+func (d *Daemon) runHooks(ctx context.Context, hooks []workflow.HookConfig, item *WorkItem, sess *config.Session) {
 	if len(hooks) == 0 {
 		return
 	}
@@ -545,6 +724,27 @@ func (d *Daemon) runWorkflowHooks(ctx context.Context, hooks []workflow.HookConf
 	}
 
 	workflow.RunHooks(ctx, hooks, hookCtx, d.logger)
+}
+
+// runWorkflowHooks is an alias for runHooks for backward compatibility.
+func (d *Daemon) runWorkflowHooks(ctx context.Context, hooks []workflow.HookConfig, item *WorkItem, sess *config.Session) {
+	d.runHooks(ctx, hooks, item, sess)
+}
+
+// workItemView creates a read-only view of a work item for the engine.
+func (d *Daemon) workItemView(item *WorkItem) *workflow.WorkItemView {
+	return &workflow.WorkItemView{
+		ID:                item.ID,
+		SessionID:         item.SessionID,
+		RepoPath:          d.repoFilter,
+		Branch:            item.Branch,
+		PRURL:             item.PRURL,
+		CurrentStep:       item.CurrentStep,
+		Phase:             item.Phase,
+		StepData:          item.StepData,
+		FeedbackRounds:    item.FeedbackRounds,
+		CommentsAddressed: item.CommentsAddressed,
+	}
 }
 
 // activeSlotCount returns the number of work items consuming concurrency slots.

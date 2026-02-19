@@ -18,50 +18,46 @@ func (d *Daemon) recoverFromState(ctx context.Context) {
 	log.Info("recovering from previous state", "workItems", len(d.state.WorkItems))
 
 	for _, item := range d.state.WorkItems {
-		if item.State.IsTerminal() {
+		if item.IsTerminal() {
 			continue
 		}
 
-		log := log.With("workItem", item.ID, "state", item.State, "branch", item.Branch)
+		log := log.With("workItem", item.ID, "step", item.CurrentStep, "phase", item.Phase, "branch", item.Branch)
 
-		switch item.State {
-		case WorkItemQueued:
-			// Nothing to do — will be picked up by startQueuedItems
-			log.Info("work item queued, will start on next tick")
+		switch item.Phase {
+		case "async_pending":
+			// Worker was running but daemon restarted — no worker exists
+			d.recoverAsyncPending(ctx, item, log)
 
-		case WorkItemCoding:
-			d.recoverCoding(ctx, item, log)
+		case "addressing_feedback":
+			// Was addressing feedback — reset to idle for re-polling
+			log.Info("was addressing feedback, resetting to idle")
+			d.state.AdvanceWorkItem(item.ID, item.CurrentStep, "idle")
 
-		case WorkItemAddressingFeedback:
-			d.recoverAddressingFeedback(item, log)
+		case "pushing":
+			// Was pushing — reset to idle for re-polling
+			log.Info("was pushing, resetting to idle")
+			d.state.AdvanceWorkItem(item.ID, item.CurrentStep, "idle")
 
-		case WorkItemPRCreated:
-			d.recoverPRCreated(ctx, item, log)
-
-		case WorkItemPushing:
-			d.recoverPushing(item, log)
-
-		case WorkItemAwaitingReview:
-			// Nothing to do — will be polled by processWorkItems
-			log.Info("work item awaiting review, resuming polling")
-
-		case WorkItemAwaitingCI:
-			// Nothing to do — will be polled by processWorkItems
-			log.Info("work item awaiting CI, resuming polling")
-
-		case WorkItemMerging:
-			d.recoverMerging(ctx, item, log)
+		default:
+			// "idle" or empty — normal wait/queue state
+			if item.State == WorkItemQueued {
+				log.Info("work item queued, will start on next tick")
+			} else {
+				log.Info("work item in wait state, resuming polling")
+			}
 		}
 	}
 }
 
-// recoverCoding handles recovery from the Coding state.
-// If a PR exists, transition to AwaitingReview; otherwise, re-queue.
-func (d *Daemon) recoverCoding(ctx context.Context, item *WorkItem, log interface{ Info(string, ...any) }) {
+// recoverAsyncPending handles recovery when a worker was active but daemon restarted.
+func (d *Daemon) recoverAsyncPending(ctx context.Context, item *WorkItem, log interface{ Info(string, ...any) }) {
 	if item.Branch == "" {
 		log.Info("no branch, re-queuing")
 		d.state.mu.Lock()
 		item.State = WorkItemQueued
+		item.CurrentStep = ""
+		item.Phase = "idle"
 		item.UpdatedAt = time.Now()
 		d.state.mu.Unlock()
 		return
@@ -72,6 +68,8 @@ func (d *Daemon) recoverCoding(ctx context.Context, item *WorkItem, log interfac
 		log.Info("session not found, re-queuing")
 		d.state.mu.Lock()
 		item.State = WorkItemQueued
+		item.CurrentStep = ""
+		item.Phase = "idle"
 		item.UpdatedAt = time.Now()
 		d.state.mu.Unlock()
 		return
@@ -83,17 +81,24 @@ func (d *Daemon) recoverCoding(ctx context.Context, item *WorkItem, log interfac
 
 	prState, err := d.gitService.GetPRState(pollCtx, sess.RepoPath, item.Branch)
 	if err == nil && (prState == git.PRStateOpen || prState == git.PRStateMerged) {
-		log.Info("PR exists, transitioning to awaiting_review")
-		d.state.mu.Lock()
 		if prState == git.PRStateMerged {
+			log.Info("PR merged, marking completed")
+			d.state.mu.Lock()
+			item.CurrentStep = "done"
+			item.Phase = "idle"
 			item.State = WorkItemCompleted
 			now := time.Now()
 			item.CompletedAt = &now
+			item.UpdatedAt = now
+			d.state.mu.Unlock()
 		} else {
-			item.State = WorkItemAwaitingReview
+			log.Info("PR exists, advancing to await_review")
+			d.state.mu.Lock()
+			item.CurrentStep = "await_review"
+			item.Phase = "idle"
+			item.UpdatedAt = time.Now()
+			d.state.mu.Unlock()
 		}
-		item.UpdatedAt = time.Now()
-		d.state.mu.Unlock()
 		return
 	}
 
@@ -101,114 +106,8 @@ func (d *Daemon) recoverCoding(ctx context.Context, item *WorkItem, log interfac
 	log.Info("no PR found, re-queuing")
 	d.state.mu.Lock()
 	item.State = WorkItemQueued
-	item.UpdatedAt = time.Now()
-	d.state.mu.Unlock()
-}
-
-// recoverAddressingFeedback transitions back to AwaitingReview.
-// The next processWorkItems tick will detect any new comments and resume.
-func (d *Daemon) recoverAddressingFeedback(item *WorkItem, log interface{ Info(string, ...any) }) {
-	log.Info("was addressing feedback, transitioning to awaiting_review")
-	d.state.mu.Lock()
-	item.State = WorkItemAwaitingReview
-	item.UpdatedAt = time.Now()
-	d.state.mu.Unlock()
-}
-
-// recoverPRCreated checks if the PR exists and transitions accordingly.
-func (d *Daemon) recoverPRCreated(ctx context.Context, item *WorkItem, log interface{ Info(string, ...any) }) {
-	sess := d.config.GetSession(item.SessionID)
-	if sess == nil {
-		log.Info("session not found, marking failed")
-		d.state.mu.Lock()
-		item.State = WorkItemFailed
-		item.ErrorMessage = "session lost during recovery"
-		now := time.Now()
-		item.CompletedAt = &now
-		item.UpdatedAt = now
-		d.state.mu.Unlock()
-		return
-	}
-
-	pollCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	prState, err := d.gitService.GetPRState(pollCtx, sess.RepoPath, item.Branch)
-	if err == nil && (prState == git.PRStateOpen || prState == git.PRStateMerged) {
-		log.Info("PR exists, transitioning to awaiting_review")
-		d.state.mu.Lock()
-		if prState == git.PRStateMerged {
-			item.State = WorkItemCompleted
-			now := time.Now()
-			item.CompletedAt = &now
-		} else {
-			item.State = WorkItemAwaitingReview
-		}
-		item.UpdatedAt = time.Now()
-		d.state.mu.Unlock()
-		return
-	}
-
-	// PR creation was interrupted — retry
-	log.Info("PR not found, will retry creation")
-	d.state.mu.Lock()
-	item.State = WorkItemCoding // Will trigger PR creation in collectCompletedWorkers
-	item.UpdatedAt = time.Now()
-	d.state.mu.Unlock()
-}
-
-// recoverPushing transitions back to AwaitingReview.
-// The push may have succeeded; the next review poll will catch up.
-func (d *Daemon) recoverPushing(item *WorkItem, log interface{ Info(string, ...any) }) {
-	log.Info("was pushing, transitioning to awaiting_review")
-	d.state.mu.Lock()
-	item.State = WorkItemAwaitingReview
-	item.UpdatedAt = time.Now()
-	d.state.mu.Unlock()
-}
-
-// recoverMerging checks if the PR was actually merged and transitions accordingly.
-func (d *Daemon) recoverMerging(ctx context.Context, item *WorkItem, log interface{ Info(string, ...any) }) {
-	sess := d.config.GetSession(item.SessionID)
-	if sess == nil {
-		log.Info("session not found, marking completed (optimistic)")
-		d.state.mu.Lock()
-		item.State = WorkItemCompleted
-		now := time.Now()
-		item.CompletedAt = &now
-		item.UpdatedAt = now
-		d.state.mu.Unlock()
-		return
-	}
-
-	pollCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	prState, err := d.gitService.GetPRState(pollCtx, sess.RepoPath, item.Branch)
-	if err != nil {
-		log.Info("failed to check PR state, transitioning to awaiting_ci")
-		d.state.mu.Lock()
-		item.State = WorkItemAwaitingCI
-		item.UpdatedAt = time.Now()
-		d.state.mu.Unlock()
-		return
-	}
-
-	if prState == git.PRStateMerged {
-		log.Info("PR merged, marking completed")
-		d.state.mu.Lock()
-		item.State = WorkItemCompleted
-		now := time.Now()
-		item.CompletedAt = &now
-		item.UpdatedAt = now
-		d.state.mu.Unlock()
-		return
-	}
-
-	// Merge didn't complete — transition back to AwaitingCI
-	log.Info("PR not merged, transitioning to awaiting_ci")
-	d.state.mu.Lock()
-	item.State = WorkItemAwaitingCI
+	item.CurrentStep = ""
+	item.Phase = "idle"
 	item.UpdatedAt = time.Now()
 	d.state.mu.Unlock()
 }

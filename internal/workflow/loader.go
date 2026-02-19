@@ -24,12 +24,46 @@ func Load(repoPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read workflow config: %w", err)
 	}
 
+	// Detect old format by checking for "workflow:" key with nested struct (coding/pr/review etc.)
+	if isOldFormat(data) {
+		return nil, fmt.Errorf(
+			"workflow config uses the old flat format which is no longer supported. " +
+				"Please migrate to the new step-functions format. " +
+				"Run `plural workflow init` to see the new format, " +
+				"or see https://github.com/zhubert/plural for migration docs",
+		)
+	}
+
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse workflow config: %w", err)
 	}
 
 	return &cfg, nil
+}
+
+// isOldFormat detects the old flat workflow config format.
+// Old format has "workflow:" as a map with keys like "coding", "pr", "review".
+// New format has "states:" as a top-level key and "workflow:" is a string.
+func isOldFormat(data []byte) bool {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return false
+	}
+
+	// If there's a "states" key, it's the new format
+	if _, hasStates := raw["states"]; hasStates {
+		return false
+	}
+
+	// If "workflow" is a map (not a string), it's the old format
+	if wf, ok := raw["workflow"]; ok {
+		if _, isMap := wf.(map[string]any); isMap {
+			return true
+		}
+	}
+
+	return false
 }
 
 // LoadAndMerge loads the workflow config and merges with defaults.
