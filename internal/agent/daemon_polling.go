@@ -142,6 +142,9 @@ func (d *Daemon) fetchIssuesForProvider(ctx context.Context, repoPath string, wf
 }
 
 // startQueuedItems starts coding on queued work items that have available slots.
+// Items are initialized to the engine's start state and processed through
+// executeSyncChain, which invokes the CodingAction to create sessions and
+// spawn Claude workers.
 func (d *Daemon) startQueuedItems(ctx context.Context) {
 	maxConcurrent := d.getMaxConcurrent()
 	queued := d.state.GetWorkItemsByState(WorkItemQueued)
@@ -150,7 +153,28 @@ func (d *Daemon) startQueuedItems(ctx context.Context) {
 		if d.activeSlotCount() >= maxConcurrent {
 			break
 		}
-		d.startCoding(ctx, item)
+
+		sess := d.config.GetSession(item.SessionID)
+		repoPath := ""
+		if sess != nil {
+			repoPath = sess.RepoPath
+		} else if d.repoFilter != "" {
+			repoPath = d.findRepoPath(ctx)
+		}
+
+		engine := d.getEngine(repoPath)
+		if engine == nil {
+			d.logger.Error("no engine for repo", "repo", repoPath, "workItem", item.ID)
+			continue
+		}
+
+		// Initialize to the engine's start state
+		startState := engine.GetStartState()
+		d.state.AdvanceWorkItem(item.ID, startState, "idle")
+
+		// Process through the engine — this will invoke CodingAction.Execute
+		// which calls startCoding to create the session and spawn the worker.
+		d.executeSyncChain(ctx, item, engine)
 	}
 }
 
