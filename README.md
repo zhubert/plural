@@ -230,6 +230,9 @@ states:
 | `github.create_pr` — open a pull request | `ci.complete` — CI checks have finished |
 | `github.push` — push to remote | |
 | `github.merge` — merge the PR | |
+| `github.comment_issue` — post a comment on the GitHub issue | |
+
+`github.comment_issue` requires a `body` param (required): the comment text to post. Supports inline strings or `file:` references (e.g. `body: "file:./comments/done.md"`). Non-GitHub issues are silently skipped.
 
 #### Customizing the graph
 
