@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	pexec "github.com/zhubert/plural/internal/exec"
+	pexec "github.com/zhubert/plural-core/exec"
 
-	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/git"
-	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/git"
+	"github.com/zhubert/plural-core/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 

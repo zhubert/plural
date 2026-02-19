@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	pexec "github.com/zhubert/plural/internal/exec"
-	"github.com/zhubert/plural/internal/git"
+	pexec "github.com/zhubert/plural-core/exec"
+	"github.com/zhubert/plural-core/git"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/ui"
 )

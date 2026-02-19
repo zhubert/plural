@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/zhubert/plural/internal/workflow"
+	"github.com/zhubert/plural-core/workflow"
 )
 
 var workflowRepoPath string

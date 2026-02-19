@@ -2,10 +2,10 @@ package app
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/git"
-	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural-core/claude"
+	"github.com/zhubert/plural-core/git"
+	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/mcp"
 )
 
 // sessionListeners returns all the listener commands for a session.

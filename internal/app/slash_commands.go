@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 )
 
 // SlashCommandAction represents a UI action to perform after handling a slash command.

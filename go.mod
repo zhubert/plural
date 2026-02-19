@@ -2,6 +2,8 @@ module github.com/zhubert/plural
 
 go 1.25.4
 
+require github.com/zhubert/plural-core v0.0.0
+
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2
@@ -16,7 +18,6 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/spf13/cobra v1.10.2
 	golang.design/x/clipboard v0.7.1
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -56,4 +57,7 @@ require (
 	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/zhubert/plural-core => ../plural-core

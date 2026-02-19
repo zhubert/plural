@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural/internal/ui"
 )
 

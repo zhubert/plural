@@ -10,7 +10,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	pclaude "github.com/zhubert/plural/internal/claude"
+	pclaude "github.com/zhubert/plural-core/claude"
 )
 
 // CompletionFlashTickMsg is sent to animate the completion checkmark flash

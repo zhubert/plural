@@ -2,7 +2,7 @@ package app
 
 import (
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
 

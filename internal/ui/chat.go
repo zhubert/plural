@@ -11,10 +11,10 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	pclaude "github.com/zhubert/plural/internal/claude"
+	pclaude "github.com/zhubert/plural-core/claude"
 	"github.com/zhubert/plural/internal/keys"
-	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/mcp"
 )
 
 // ToolUseInProgress is the empty circle marker for tool use in progress

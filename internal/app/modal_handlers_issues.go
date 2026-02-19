@@ -7,13 +7,13 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural/internal/claude"
-	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/issues"
+	"github.com/zhubert/plural-core/claude"
+	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/issues"
 	"github.com/zhubert/plural/internal/keys"
-	"github.com/zhubert/plural/internal/logger"
-	"github.com/zhubert/plural/internal/process"
-	"github.com/zhubert/plural/internal/session"
+	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/process"
+	"github.com/zhubert/plural-core/session"
 	"github.com/zhubert/plural/internal/ui"
 )
 

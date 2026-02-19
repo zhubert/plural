@@ -6,9 +6,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 	"github.com/zhubert/plural/internal/app"
-	"github.com/zhubert/plural/internal/cli"
-	"github.com/zhubert/plural/internal/config"
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/cli"
+	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/logger"
 )
 
 var (

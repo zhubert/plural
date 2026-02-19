@@ -6,8 +6,8 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
-	"github.com/zhubert/plural/internal/git"
-	"github.com/zhubert/plural/internal/mcp"
+	"github.com/zhubert/plural-core/git"
+	"github.com/zhubert/plural-core/mcp"
 )
 
 // PendingPermission tracks an awaited permission response from the user.

@@ -11,7 +11,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	pclaude "github.com/zhubert/plural/internal/claude"
+	pclaude "github.com/zhubert/plural-core/claude"
 )
 
 // Compiled regex patterns for markdown parsing

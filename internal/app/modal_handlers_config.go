@@ -4,11 +4,11 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural-core/claude"
 	"github.com/zhubert/plural/internal/clipboard"
-	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural/internal/keys"
-	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural-core/logger"
 	"github.com/zhubert/plural/internal/ui"
 )
 
