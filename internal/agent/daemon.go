@@ -737,6 +737,9 @@ func (d *Daemon) workItemView(item *WorkItem) *workflow.WorkItemView {
 	repoPath := d.repoFilter
 	if sess := d.config.GetSession(item.SessionID); sess != nil {
 		repoPath = sess.RepoPath
+	} else if item.SessionID != "" {
+		d.logger.Warn("session not found for work item, falling back to repoFilter",
+			"workItem", item.ID, "sessionID", item.SessionID, "repoFilter", d.repoFilter)
 	}
 
 	return &workflow.WorkItemView{
