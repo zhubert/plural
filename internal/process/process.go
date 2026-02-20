@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -144,55 +145,188 @@ func getLocalImageDigest(ctx context.Context, image string) (string, error) {
 	return "", fmt.Errorf("no digest found in RepoDigests: %s", repoDigest)
 }
 
-// manifestEntry represents a single entry in a Docker manifest list.
-type manifestEntry struct {
-	Digest   string `json:"digest"`
-	Platform struct {
-		Architecture string `json:"architecture"`
-		OS           string `json:"os"`
-	} `json:"platform"`
-}
-
-// manifestResponse represents a Docker manifest inspect response, which may be
-// either a manifest list (multi-platform) or a single-platform manifest.
-type manifestResponse struct {
-	// Manifest list fields (multi-platform)
-	Manifests []manifestEntry `json:"manifests"`
-	// Single-platform manifest fields
-	Digest string `json:"digest"`
-}
-
-// getRemoteManifestDigest returns the digest for the current platform from the remote registry.
+// getRemoteManifestDigest queries the container registry API to get the manifest
+// digest for the given image tag. It returns the Docker-Content-Digest header,
+// which for multi-platform images is the manifest list digest — matching what
+// Docker stores in RepoDigests locally.
+//
+// The function follows the OCI distribution spec auth flow: try unauthenticated
+// first, then parse WWW-Authenticate on 401 to obtain a bearer token.
 func getRemoteManifestDigest(ctx context.Context, image string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "manifest", "inspect", image)
-	output, err := cmd.Output()
+	registry, repo, tag := parseImageRef(image)
+	manifestURL := fmt.Sprintf("https://%s/v2/%s/manifests/%s", registry, repo, tag)
+
+	// Accept headers for manifest list and single-platform manifests.
+	acceptHeader := strings.Join([]string{
+		"application/vnd.oci.image.index.v1+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json",
+		"application/vnd.oci.image.manifest.v1+json",
+		"application/vnd.docker.distribution.manifest.v2+json",
+	}, ", ")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, manifestURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("docker manifest inspect failed: %w", err)
+		return "", fmt.Errorf("failed to create request: %w", err)
 	}
+	req.Header.Set("Accept", acceptHeader)
 
-	var mr manifestResponse
-	if err := json.Unmarshal(output, &mr); err != nil {
-		return "", fmt.Errorf("failed to parse manifest: %w", err)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("registry request failed: %w", err)
 	}
+	resp.Body.Close()
 
-	// Multi-platform manifest list: find digest for current platform
-	if len(mr.Manifests) > 0 {
-		// Containers always run linux regardless of host OS.
-		// Go's runtime.GOARCH values match Docker architecture names.
-		for _, m := range mr.Manifests {
-			if m.Platform.OS == "linux" && m.Platform.Architecture == runtime.GOARCH {
-				return m.Digest, nil
-			}
+	// If unauthorized, try to get a bearer token and retry.
+	if resp.StatusCode == http.StatusUnauthorized {
+		token, tokenErr := getRegistryToken(ctx, client, resp.Header.Get("Www-Authenticate"), repo)
+		if tokenErr != nil {
+			return "", fmt.Errorf("failed to get registry token: %w", tokenErr)
 		}
-		return "", fmt.Errorf("no manifest found for linux/%s", runtime.GOARCH)
+
+		req, err = http.NewRequestWithContext(ctx, http.MethodHead, manifestURL, nil)
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Accept", acceptHeader)
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		resp, err = client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("registry request failed: %w", err)
+		}
+		resp.Body.Close()
 	}
 
-	// Single-platform manifest: use the top-level digest
-	if mr.Digest != "" {
-		return mr.Digest, nil
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("registry returned status %d", resp.StatusCode)
 	}
 
-	return "", fmt.Errorf("no digest found in manifest response")
+	digest := resp.Header.Get("Docker-Content-Digest")
+	if digest == "" {
+		return "", fmt.Errorf("no Docker-Content-Digest header in response")
+	}
+
+	return digest, nil
+}
+
+// parseImageRef splits a Docker image reference into registry, repository, and tag.
+// Examples:
+//
+//	"ghcr.io/user/image:v1"   → ("ghcr.io", "user/image", "v1")
+//	"ghcr.io/user/image"      → ("ghcr.io", "user/image", "latest")
+//	"ubuntu:22.04"             → ("registry-1.docker.io", "library/ubuntu", "22.04")
+//	"ubuntu"                   → ("registry-1.docker.io", "library/ubuntu", "latest")
+func parseImageRef(image string) (registry, repo, tag string) {
+	tag = "latest"
+
+	// Split off tag (last colon after last slash)
+	if lastSlash := strings.LastIndex(image, "/"); lastSlash != -1 {
+		if colonIdx := strings.LastIndex(image[lastSlash:], ":"); colonIdx != -1 {
+			tag = image[lastSlash+colonIdx+1:]
+			image = image[:lastSlash+colonIdx]
+		}
+	} else if colonIdx := strings.LastIndex(image, ":"); colonIdx != -1 {
+		tag = image[colonIdx+1:]
+		image = image[:colonIdx]
+	}
+
+	// Determine if the first component is a registry (contains "." or ":")
+	parts := strings.SplitN(image, "/", 2)
+	if len(parts) == 1 {
+		// No slash: Docker Hub library image (e.g., "ubuntu")
+		return "registry-1.docker.io", "library/" + parts[0], tag
+	}
+
+	firstPart := parts[0]
+	if strings.Contains(firstPart, ".") || strings.Contains(firstPart, ":") {
+		// First part looks like a registry hostname
+		return firstPart, parts[1], tag
+	}
+
+	// No registry prefix: Docker Hub user image (e.g., "user/image")
+	return "registry-1.docker.io", image, tag
+}
+
+// tokenResponse represents the JSON response from a registry token endpoint.
+type tokenResponse struct {
+	Token       string `json:"token"`
+	AccessToken string `json:"access_token"`
+}
+
+// getRegistryToken parses a WWW-Authenticate header and fetches a bearer token.
+// The header format is: Bearer realm="<url>",service="<svc>",scope="<scope>"
+func getRegistryToken(ctx context.Context, client *http.Client, wwwAuth, repo string) (string, error) {
+	realm, params := parseWWWAuthenticate(wwwAuth)
+	if realm == "" {
+		return "", fmt.Errorf("no realm in WWW-Authenticate header: %s", wwwAuth)
+	}
+
+	// Build token request URL with query parameters
+	tokenReq, err := http.NewRequestWithContext(ctx, http.MethodGet, realm, nil)
+	if err != nil {
+		return "", err
+	}
+
+	q := tokenReq.URL.Query()
+	if svc, ok := params["service"]; ok {
+		q.Set("service", svc)
+	}
+	if scope, ok := params["scope"]; ok {
+		q.Set("scope", scope)
+	} else {
+		q.Set("scope", "repository:"+repo+":pull")
+	}
+	tokenReq.URL.RawQuery = q.Encode()
+
+	resp, err := client.Do(tokenReq)
+	if err != nil {
+		return "", fmt.Errorf("token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
+	}
+
+	var tr tokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %w", err)
+	}
+
+	if tr.Token != "" {
+		return tr.Token, nil
+	}
+	if tr.AccessToken != "" {
+		return tr.AccessToken, nil
+	}
+	return "", fmt.Errorf("no token in response")
+}
+
+// parseWWWAuthenticate parses a Bearer WWW-Authenticate header into realm and key-value params.
+// Input:  `Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:user/repo:pull"`
+// Output: ("https://ghcr.io/token", {"service":"ghcr.io","scope":"repository:user/repo:pull"})
+func parseWWWAuthenticate(header string) (realm string, params map[string]string) {
+	params = make(map[string]string)
+
+	header = strings.TrimPrefix(header, "Bearer ")
+	header = strings.TrimPrefix(header, "bearer ")
+
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(value, `"`)
+		if key == "realm" {
+			realm = value
+		} else {
+			params[key] = value
+		}
+	}
+	return realm, params
 }
 
 // ContainerPrerequisites holds the results of all container prerequisite checks.
