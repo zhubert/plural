@@ -267,65 +267,140 @@ func TestCheckContainerImageUpdate_NoLocalImage(t *testing.T) {
 	}
 }
 
-func TestManifestResponseParsing_MultiPlatform(t *testing.T) {
-	rawJSON := `{
-		"manifests": [
-			{
-				"digest": "sha256:abc123",
-				"platform": {
-					"architecture": "amd64",
-					"os": "linux"
-				}
-			},
-			{
-				"digest": "sha256:def456",
-				"platform": {
-					"architecture": "arm64",
-					"os": "linux"
-				}
+func TestParseImageRef(t *testing.T) {
+	tests := []struct {
+		name         string
+		image        string
+		wantRegistry string
+		wantRepo     string
+		wantTag      string
+	}{
+		{
+			name:         "GHCR with tag",
+			image:        "ghcr.io/zhubert/plural-claude:latest",
+			wantRegistry: "ghcr.io",
+			wantRepo:     "zhubert/plural-claude",
+			wantTag:      "latest",
+		},
+		{
+			name:         "GHCR without tag",
+			image:        "ghcr.io/zhubert/plural-claude",
+			wantRegistry: "ghcr.io",
+			wantRepo:     "zhubert/plural-claude",
+			wantTag:      "latest",
+		},
+		{
+			name:         "GHCR with version tag",
+			image:        "ghcr.io/user/image:v1.2.3",
+			wantRegistry: "ghcr.io",
+			wantRepo:     "user/image",
+			wantTag:      "v1.2.3",
+		},
+		{
+			name:         "Docker Hub library image with tag",
+			image:        "ubuntu:22.04",
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "library/ubuntu",
+			wantTag:      "22.04",
+		},
+		{
+			name:         "Docker Hub library image without tag",
+			image:        "ubuntu",
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "library/ubuntu",
+			wantTag:      "latest",
+		},
+		{
+			name:         "Docker Hub user image",
+			image:        "myuser/myimage:v1",
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "myuser/myimage",
+			wantTag:      "v1",
+		},
+		{
+			name:         "Docker Hub user image without tag",
+			image:        "myuser/myimage",
+			wantRegistry: "registry-1.docker.io",
+			wantRepo:     "myuser/myimage",
+			wantTag:      "latest",
+		},
+		{
+			name:         "custom registry with port",
+			image:        "myregistry.com:5000/myimage:v2",
+			wantRegistry: "myregistry.com:5000",
+			wantRepo:     "myimage",
+			wantTag:      "v2",
+		},
+		{
+			name:         "nested repo path",
+			image:        "ghcr.io/org/team/image:sha-abc123",
+			wantRegistry: "ghcr.io",
+			wantRepo:     "org/team/image",
+			wantTag:      "sha-abc123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry, repo, tag := parseImageRef(tt.image)
+			if registry != tt.wantRegistry {
+				t.Errorf("registry = %q, want %q", registry, tt.wantRegistry)
 			}
-		]
-	}`
-
-	var mr manifestResponse
-	if err := json.Unmarshal([]byte(rawJSON), &mr); err != nil {
-		t.Fatalf("Failed to parse manifest response: %v", err)
-	}
-
-	if len(mr.Manifests) != 2 {
-		t.Fatalf("Expected 2 manifests, got %d", len(mr.Manifests))
-	}
-
-	if mr.Manifests[0].Digest != "sha256:abc123" {
-		t.Errorf("Expected digest 'sha256:abc123', got %q", mr.Manifests[0].Digest)
-	}
-
-	if mr.Manifests[0].Platform.Architecture != "amd64" {
-		t.Errorf("Expected architecture 'amd64', got %q", mr.Manifests[0].Platform.Architecture)
-	}
-
-	if mr.Manifests[1].Platform.OS != "linux" {
-		t.Errorf("Expected OS 'linux', got %q", mr.Manifests[1].Platform.OS)
+			if repo != tt.wantRepo {
+				t.Errorf("repo = %q, want %q", repo, tt.wantRepo)
+			}
+			if tag != tt.wantTag {
+				t.Errorf("tag = %q, want %q", tag, tt.wantTag)
+			}
+		})
 	}
 }
 
-func TestManifestResponseParsing_SinglePlatform(t *testing.T) {
-	// Single-platform manifest has a top-level digest, no manifests array
-	rawJSON := `{
-		"digest": "sha256:singleplatform789"
-	}`
-
-	var mr manifestResponse
-	if err := json.Unmarshal([]byte(rawJSON), &mr); err != nil {
-		t.Fatalf("Failed to parse manifest response: %v", err)
+func TestParseWWWAuthenticate(t *testing.T) {
+	tests := []struct {
+		name       string
+		header     string
+		wantRealm  string
+		wantParams map[string]string
+	}{
+		{
+			name:      "GHCR style",
+			header:    `Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:zhubert/plural-claude:pull"`,
+			wantRealm: "https://ghcr.io/token",
+			wantParams: map[string]string{
+				"service": "ghcr.io",
+				"scope":   "repository:zhubert/plural-claude:pull",
+			},
+		},
+		{
+			name:      "Docker Hub style",
+			header:    `Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/ubuntu:pull"`,
+			wantRealm: "https://auth.docker.io/token",
+			wantParams: map[string]string{
+				"service": "registry.docker.io",
+				"scope":   "repository:library/ubuntu:pull",
+			},
+		},
+		{
+			name:       "empty header",
+			header:     "",
+			wantRealm:  "",
+			wantParams: map[string]string{},
+		},
 	}
 
-	if len(mr.Manifests) != 0 {
-		t.Errorf("Expected 0 manifests for single-platform, got %d", len(mr.Manifests))
-	}
-
-	if mr.Digest != "sha256:singleplatform789" {
-		t.Errorf("Expected top-level digest 'sha256:singleplatform789', got %q", mr.Digest)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			realm, params := parseWWWAuthenticate(tt.header)
+			if realm != tt.wantRealm {
+				t.Errorf("realm = %q, want %q", realm, tt.wantRealm)
+			}
+			for k, want := range tt.wantParams {
+				if got, ok := params[k]; !ok || got != want {
+					t.Errorf("params[%q] = %q, want %q", k, got, want)
+				}
+			}
+		})
 	}
 }
 
