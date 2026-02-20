@@ -168,7 +168,7 @@ Key implementation details:
 - `internal/workflow/` — standalone package with no daemon dependencies: config types, loader, defaults/merge, validation, prompt resolution, hook execution, mermaid visualization
 - `Daemon.workflowConfigs` map loaded in `Run()`, keyed by repo path. `getWorkflowConfig(repoPath)` returns config or defaults.
 - `daemon_polling.go:fetchIssuesForProvider()` switches on provider (github/asana/linear).
-- `ProcessConfig.CustomSystemPrompt` appended after supervisor prompt in `BuildCommandArgs()`. Set via `Runner.SetCustomSystemPrompt()` before starting a worker.
+- `ProcessConfig.SystemPrompt` passed through via `--append-system-prompt` in `BuildCommandArgs()`. Set via `Runner.SetSystemPrompt()` before starting a worker.
 - Hook execution points: `handleCodingComplete()`, after PR creation, `handleFeedbackComplete()`, and after merge in `processAwaitingCI()`. All best-effort via `workflow.RunHooks()`.
 - Override chain for settings like max_turns: CLI flag > workflow yaml > config.json > default. See `getEffectiveMaxTurns()` etc.
 
