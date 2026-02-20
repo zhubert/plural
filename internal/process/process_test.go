@@ -332,6 +332,13 @@ func TestParseImageRef(t *testing.T) {
 			wantTag:      "v2",
 		},
 		{
+			name:         "custom registry with port no tag",
+			image:        "myregistry.com:5000/myimage",
+			wantRegistry: "myregistry.com:5000",
+			wantRepo:     "myimage",
+			wantTag:      "latest",
+		},
+		{
 			name:         "nested repo path",
 			image:        "ghcr.io/org/team/image:sha-abc123",
 			wantRegistry: "ghcr.io",

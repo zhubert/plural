@@ -164,7 +164,7 @@ func getRemoteManifestDigest(ctx context.Context, image string) (string, error) 
 		"application/vnd.docker.distribution.manifest.v2+json",
 	}, ", ")
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &http.Client{Timeout: imageUpdateCheckTimeout}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, manifestURL, nil)
 	if err != nil {
@@ -176,7 +176,7 @@ func getRemoteManifestDigest(ctx context.Context, image string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("registry request failed: %w", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
 	// If unauthorized, try to get a bearer token and retry.
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -196,7 +196,7 @@ func getRemoteManifestDigest(ctx context.Context, image string) (string, error) 
 		if err != nil {
 			return "", fmt.Errorf("registry request failed: %w", err)
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
 	}
 
 	if resp.StatusCode != http.StatusOK {
