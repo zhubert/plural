@@ -7,6 +7,7 @@ import (
 
 	"github.com/zhubert/plural-core/claude"
 	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural-core/manager"
 	pexec "github.com/zhubert/plural-core/exec"
 	"github.com/zhubert/plural-core/git"
 	"github.com/zhubert/plural-core/paths"
@@ -53,7 +54,7 @@ func TestForkSessionInheritsContext(t *testing.T) {
 	sessionSvc := session.NewSessionServiceWithExecutor(mockExec)
 
 	// Create session manager with mock runner factory
-	sessionMgr := NewSessionManager(cfg, gitSvc)
+	sessionMgr := manager.NewSessionManager(cfg, gitSvc)
 	sessionMgr.SetSkipMessageLoad(true) // We'll manually set up messages
 
 	// Track runners created by the factory

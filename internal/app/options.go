@@ -7,7 +7,8 @@ import (
 	"github.com/zhubert/plural-core/manager"
 )
 
-// DetectedOption is an alias for manager.DetectedOption.
+// DetectedOption is an alias for manager.DetectedOption so the types are
+// assignment-compatible with SessionState.SetDetectedOptions.
 type DetectedOption = manager.DetectedOption
 
 // numericOptionPatterns are regexes that match numbered lists in Claude responses.

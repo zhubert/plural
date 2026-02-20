@@ -1,32 +1,36 @@
 package app
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/zhubert/plural-core/manager"
+)
 
 // Note: TestMergeType_String is in session_state_test.go
 
 func TestMergeType_Push(t *testing.T) {
 	// Test the MergeTypePush constant which isn't covered in session_state_test.go
-	if MergeTypePush.String() != "push" {
-		t.Errorf("MergeTypePush.String() = %q, want 'push'", MergeTypePush.String())
+	if manager.MergeTypePush.String() != "push" {
+		t.Errorf("MergeTypePush.String() = %q, want 'push'", manager.MergeTypePush.String())
 	}
 }
 
 func TestMergeTypeConstants(t *testing.T) {
 	// Verify constants have expected values (iota order)
-	if MergeTypeNone != 0 {
-		t.Errorf("MergeTypeNone = %d, want 0", MergeTypeNone)
+	if manager.MergeTypeNone != 0 {
+		t.Errorf("MergeTypeNone = %d, want 0", manager.MergeTypeNone)
 	}
-	if MergeTypeMerge != 1 {
-		t.Errorf("MergeTypeMerge = %d, want 1", MergeTypeMerge)
+	if manager.MergeTypeMerge != 1 {
+		t.Errorf("MergeTypeMerge = %d, want 1", manager.MergeTypeMerge)
 	}
-	if MergeTypePR != 2 {
-		t.Errorf("MergeTypePR = %d, want 2", MergeTypePR)
+	if manager.MergeTypePR != 2 {
+		t.Errorf("MergeTypePR = %d, want 2", manager.MergeTypePR)
 	}
-	if MergeTypeParent != 3 {
-		t.Errorf("MergeTypeParent = %d, want 3", MergeTypeParent)
+	if manager.MergeTypeParent != 3 {
+		t.Errorf("MergeTypeParent = %d, want 3", manager.MergeTypeParent)
 	}
-	if MergeTypePush != 4 {
-		t.Errorf("MergeTypePush = %d, want 4", MergeTypePush)
+	if manager.MergeTypePush != 4 {
+		t.Errorf("MergeTypePush = %d, want 4", manager.MergeTypePush)
 	}
 }
 

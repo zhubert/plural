@@ -5,6 +5,7 @@ import (
 
 	"github.com/zhubert/plural-core/claude"
 	"github.com/zhubert/plural-core/git"
+	"github.com/zhubert/plural-core/manager"
 	"github.com/zhubert/plural-core/mcp"
 )
 
@@ -930,7 +931,7 @@ func TestListenForMergeResult_NilChannel(t *testing.T) {
 
 	// Create session state without merge channel
 	state := m.sessionState().GetOrCreate("session-1")
-	state.WithLock(func(s *SessionState) {
+	state.WithLock(func(s *manager.SessionState) {
 		s.MergeChan = nil
 	})
 
@@ -947,7 +948,7 @@ func TestListenForMergeResult_ReceiveResult(t *testing.T) {
 	// Create session state with merge channel
 	mergeChan := make(chan git.Result, 1)
 	state := m.sessionState().GetOrCreate("session-1")
-	state.WithLock(func(s *SessionState) {
+	state.WithLock(func(s *manager.SessionState) {
 		s.MergeChan = mergeChan
 	})
 
@@ -987,7 +988,7 @@ func TestListenForMergeResult_ClosedChannel(t *testing.T) {
 	mergeChan := make(chan git.Result)
 	close(mergeChan)
 	state := m.sessionState().GetOrCreate("session-1")
-	state.WithLock(func(s *SessionState) {
+	state.WithLock(func(s *manager.SessionState) {
 		s.MergeChan = mergeChan
 	})
 
@@ -1017,7 +1018,7 @@ func TestListenForMergeResult_ConflictedFiles(t *testing.T) {
 
 	mergeChan := make(chan git.Result, 1)
 	state := m.sessionState().GetOrCreate("session-1")
-	state.WithLock(func(s *SessionState) {
+	state.WithLock(func(s *manager.SessionState) {
 		s.MergeChan = mergeChan
 	})
 
