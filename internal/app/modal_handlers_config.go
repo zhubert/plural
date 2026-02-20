@@ -4,11 +4,11 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural-core/claude"
 	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/plugins"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -109,7 +109,7 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 	case "d":
 		if state.ActiveTab == 0 { // Marketplaces tab
 			if mp := state.GetSelectedMarketplace(); mp != nil {
-				if err := claude.RemoveMarketplace(mp.Name); err != nil {
+				if err := plugins.RemoveMarketplace(mp.Name); err != nil {
 					state.SetError(err.Error())
 				} else {
 					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
@@ -121,7 +121,7 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 	case "u":
 		if state.ActiveTab == 0 { // Marketplaces - update
 			if mp := state.GetSelectedMarketplace(); mp != nil {
-				if err := claude.UpdateMarketplace(mp.Name); err != nil {
+				if err := plugins.UpdateMarketplace(mp.Name); err != nil {
 					state.SetError(err.Error())
 				} else {
 					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
@@ -129,7 +129,7 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 			}
 		} else if state.ActiveTab == 1 { // Installed - uninstall
 			if plugin := state.GetSelectedInstalledPlugin(); plugin != nil {
-				if err := claude.UninstallPlugin(plugin.FullName); err != nil {
+				if err := plugins.UninstallPlugin(plugin.FullName); err != nil {
 					state.SetError(err.Error())
 				} else {
 					m.showPluginsModalOnTab(currentTab) // Refresh and stay on tab
@@ -143,9 +143,9 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 			if plugin := state.GetSelectedInstalledPlugin(); plugin != nil {
 				var err error
 				if plugin.Status == "enabled" {
-					err = claude.DisablePlugin(plugin.FullName)
+					err = plugins.DisablePlugin(plugin.FullName)
 				} else {
-					err = claude.EnablePlugin(plugin.FullName)
+					err = plugins.EnablePlugin(plugin.FullName)
 				}
 				if err != nil {
 					state.SetError(err.Error())
@@ -159,7 +159,7 @@ func (m *Model) handlePluginsModal(key string, msg tea.KeyPressMsg, state *ui.Pl
 	case "i", "enter":
 		if state.ActiveTab == 2 { // Discover - install
 			if plugin := state.GetSelectedAvailablePlugin(); plugin != nil {
-				if err := claude.InstallPlugin(plugin.FullName); err != nil {
+				if err := plugins.InstallPlugin(plugin.FullName); err != nil {
 					state.SetError(err.Error())
 				} else {
 					m.showPluginsModalOnTab(1) // Go to Installed tab after install
@@ -186,7 +186,7 @@ func (m *Model) handleAddMarketplaceModal(key string, msg tea.KeyPressMsg, state
 		if source == "" {
 			return m, nil
 		}
-		if err := claude.AddMarketplace(source); err != nil {
+		if err := plugins.AddMarketplace(source); err != nil {
 			m.modal.SetError(err.Error())
 		} else {
 			m.showPluginsModal() // Return to plugins modal and refresh

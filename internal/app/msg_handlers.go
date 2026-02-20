@@ -10,6 +10,7 @@ import (
 	"github.com/zhubert/plural-core/claude"
 	"github.com/zhubert/plural-core/git"
 	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/manager"
 	"github.com/zhubert/plural/internal/notification"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -333,18 +334,18 @@ func (m *Model) handleMergeDone(sessionID string, isActiveSession bool) (tea.Mod
 	// Mark session as merged or PR created based on operation type
 	log := logger.WithSession(sessionID)
 	state := m.sessionState().GetIfExists(sessionID)
-	mergeType := MergeTypeNone
+	mergeType := manager.MergeTypeNone
 	if state != nil {
 		mergeType = state.GetMergeType()
 	}
 	switch mergeType {
-	case MergeTypePR:
+	case manager.MergeTypePR:
 		m.config.MarkSessionPRCreated(sessionID)
 		log.Info("marked session as PR created")
-	case MergeTypeMerge:
+	case manager.MergeTypeMerge:
 		m.config.MarkSessionMerged(sessionID)
 		log.Info("marked session as merged")
-	case MergeTypeParent:
+	case manager.MergeTypeParent:
 		// Get child session to find parent
 		childSess := m.config.GetSession(sessionID)
 		if childSess != nil && childSess.ParentID != "" {

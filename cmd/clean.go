@@ -13,7 +13,7 @@ import (
 	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural-core/logger"
 	"github.com/zhubert/plural-core/paths"
-	"github.com/zhubert/plural-core/process"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural-core/session"
 )
 

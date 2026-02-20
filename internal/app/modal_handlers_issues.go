@@ -12,7 +12,7 @@ import (
 	"github.com/zhubert/plural-core/issues"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural-core/logger"
-	"github.com/zhubert/plural-core/process"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural-core/session"
 	"github.com/zhubert/plural/internal/ui"
 )

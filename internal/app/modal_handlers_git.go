@@ -10,6 +10,7 @@ import (
 	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/manager"
 	"github.com/zhubert/plural/internal/ui"
 )
 
@@ -51,21 +52,21 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		}
 
 		// Determine merge type
-		var mergeType MergeType
+		var mergeType manager.MergeType
 		switch option {
 		case "Merge to parent":
-			mergeType = MergeTypeParent
+			mergeType = manager.MergeTypeParent
 		case "Create PR":
-			mergeType = MergeTypePR
+			mergeType = manager.MergeTypePR
 		case "Push updates to PR":
-			mergeType = MergeTypePush
+			mergeType = manager.MergeTypePush
 		default:
-			mergeType = MergeTypeMerge
+			mergeType = manager.MergeTypeMerge
 		}
 
 		// For merge-to-parent, validate parent exists
 		var parentSess *config.Session
-		if mergeType == MergeTypeParent {
+		if mergeType == manager.MergeTypeParent {
 			if sess.ParentID == "" {
 				m.chat.AppendStreaming("Error: Session has no parent to merge to\n")
 				return m, nil
@@ -98,28 +99,28 @@ func (m *Model) handleMergeModal(key string, msg tea.KeyPressMsg, state *ui.Merg
 		m.chat.FinishStreaming()
 		mergeCtx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
-		case MergeTypePR:
+		case manager.MergeTypePR:
 			log.Info("creating PR (no uncommitted changes)")
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef(), sess.ID), cancel, MergeTypePR)
-		case MergeTypePush:
+			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef(), sess.ID), cancel, manager.MergeTypePR)
+		case manager.MergeTypePush:
 			log.Info("pushing updates (no uncommitted changes)")
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypePush)
-		case MergeTypeParent:
+			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, manager.MergeTypePush)
+		case manager.MergeTypeParent:
 			log.Info("merging to parent (no uncommitted changes)", "parentBranch", parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, MergeTypeParent)
+			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, ""), cancel, manager.MergeTypeParent)
 		default:
 			// Check if squash-on-merge is enabled for this repo
 			if m.config.GetSquashOnMerge(sess.RepoPath) {
 				log.Info("squash merging to main (no uncommitted changes)")
 				m.chat.AppendStreaming("Squash merging " + sess.Branch + " to main...\n\n")
-				m.sessionState().StartMerge(sess.ID, m.gitService.SquashMergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+				m.sessionState().StartMerge(sess.ID, m.gitService.SquashMergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, manager.MergeTypeMerge)
 			} else {
 				log.Info("merging to main (no uncommitted changes)")
 				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, MergeTypeMerge)
+				m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, ""), cancel, manager.MergeTypeMerge)
 			}
 		}
 		return m, m.listenForMergeResult(sess.ID)
@@ -191,15 +192,15 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 		log := logger.WithSession(sess.ID)
 		mergeCtx, cancel := context.WithCancel(context.Background())
 		switch mergeType {
-		case MergeTypePR:
+		case manager.MergeTypePR:
 			log.Info("creating PR with user-edited commit message")
 			m.chat.AppendStreaming("Creating PR for " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, commitMsg, sess.GetIssueRef(), sess.ID), cancel, MergeTypePR)
-		case MergeTypePush:
+			m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, commitMsg, sess.GetIssueRef(), sess.ID), cancel, manager.MergeTypePR)
+		case manager.MergeTypePush:
 			log.Info("pushing updates with user-edited commit message")
 			m.chat.AppendStreaming("Pushing updates to " + sess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypePush)
-		case MergeTypeParent:
+			m.sessionState().StartMerge(sess.ID, m.gitService.PushUpdates(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, manager.MergeTypePush)
+		case manager.MergeTypeParent:
 			parentSess := m.config.GetSession(parentSessionID)
 			if parentSess == nil {
 				m.chat.AppendStreaming("Error: Parent session not found\n")
@@ -208,17 +209,17 @@ func (m *Model) handleEditCommitModal(key string, msg tea.KeyPressMsg, state *ui
 			}
 			log.Info("merging to parent with user-edited commit message", "parentBranch", parentSess.Branch)
 			m.chat.AppendStreaming("Merging " + sess.Branch + " to parent " + parentSess.Branch + "...\n\n")
-			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, MergeTypeParent)
+			m.sessionState().StartMerge(sess.ID, m.gitService.MergeToParent(mergeCtx, sess.WorkTree, sess.Branch, parentSess.WorkTree, parentSess.Branch, commitMsg), cancel, manager.MergeTypeParent)
 		default:
 			// Check if squash-on-merge is enabled for this repo
 			if m.config.GetSquashOnMerge(sess.RepoPath) {
 				log.Info("squash merging to main with user-edited commit message")
 				m.chat.AppendStreaming("Squash merging " + sess.Branch + " to main...\n\n")
-				m.sessionState().StartMerge(sess.ID, m.gitService.SquashMergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+				m.sessionState().StartMerge(sess.ID, m.gitService.SquashMergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, manager.MergeTypeMerge)
 			} else {
 				log.Info("merging to main with user-edited commit message")
 				m.chat.AppendStreaming("Merging " + sess.Branch + " to main...\n\n")
-				m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, MergeTypeMerge)
+				m.sessionState().StartMerge(sess.ID, m.gitService.MergeToMain(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, commitMsg), cancel, manager.MergeTypeMerge)
 			}
 		}
 		return m, m.listenForMergeResult(sess.ID)

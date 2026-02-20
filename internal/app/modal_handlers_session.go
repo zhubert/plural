@@ -14,7 +14,8 @@ import (
 	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural-core/logger"
-	"github.com/zhubert/plural-core/process"
+	"github.com/zhubert/plural-core/manager"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural-core/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -1029,7 +1030,7 @@ func (m *Model) createPRsForSessions(sessions []config.Session) (tea.Model, tea.
 		sessionLog := logger.WithSession(sess.ID)
 		sessionLog.Info("starting PR creation")
 		mergeCtx, cancel := context.WithCancel(context.Background())
-		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef(), sess.ID), cancel, MergeTypePR)
+		m.sessionState().StartMerge(sess.ID, m.gitService.CreatePR(mergeCtx, sess.RepoPath, sess.WorkTree, sess.Branch, sess.BaseBranch, "", sess.GetIssueRef(), sess.ID), cancel, manager.MergeTypePR)
 
 		// Add listener for merge result
 		cmds = append(cmds, m.listenForMergeResult(sess.ID))

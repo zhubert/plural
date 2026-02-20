@@ -17,8 +17,10 @@ import (
 	"github.com/zhubert/plural-core/issues"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural-core/manager"
 	"github.com/zhubert/plural-core/mcp"
-	"github.com/zhubert/plural-core/process"
+	"github.com/zhubert/plural/internal/plugins"
+	"github.com/zhubert/plural/internal/process"
 	"github.com/zhubert/plural-core/session"
 	"github.com/zhubert/plural/internal/ui"
 )
@@ -71,7 +73,7 @@ type Model struct {
 	claudeRunner  claude.RunnerInterface // Currently active runner (convenience reference)
 
 	// Session lifecycle management
-	sessionMgr *SessionManager
+	sessionMgr *manager.SessionManager
 
 	// Service instances for dependency injection
 	gitService     *git.GitService
@@ -275,7 +277,7 @@ func New(cfg *config.Config, version string) *Model {
 		chat:           ui.NewChat(),
 		modal:          ui.NewModal(),
 		focus:          FocusSidebar,
-		sessionMgr:     NewSessionManager(cfg, gitSvc),
+		sessionMgr:     manager.NewSessionManager(cfg, gitSvc),
 		gitService:     gitSvc,
 		sessionService: sessionSvc,
 		issueRegistry:  issueRegistry,
@@ -339,7 +341,7 @@ func (m *Model) setState(newState AppState) {
 }
 
 // sessionState returns the session state manager (convenience accessor)
-func (m *Model) sessionState() *SessionStateManager {
+func (m *Model) sessionState() *manager.SessionStateManager {
 	return m.sessionMgr.StateManager()
 }
 
@@ -691,7 +693,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Show the edit commit modal with the generated message
-		commitType := MergeTypeNone
+		commitType := manager.MergeTypeNone
 		if m.pendingCommit != nil {
 			commitType = m.pendingCommit.Type
 		}
@@ -920,7 +922,7 @@ func (m *Model) showMCPServersModal() {
 
 func (m *Model) showPluginsModal() {
 	// Fetch marketplaces and plugins from Claude CLI
-	marketplaces, err := claude.ListMarketplaces()
+	marketplaces, err := plugins.ListMarketplaces()
 	if err != nil {
 		state := ui.NewPluginsState()
 		state.SetError(err.Error())
@@ -928,7 +930,7 @@ func (m *Model) showPluginsModal() {
 		return
 	}
 
-	plugins, err := claude.ListPlugins()
+	pluginList, err := plugins.ListPlugins()
 	if err != nil {
 		state := ui.NewPluginsState()
 		state.SetError(err.Error())
@@ -948,7 +950,7 @@ func (m *Model) showPluginsModal() {
 	}
 
 	var pluginDisplays []ui.PluginDisplay
-	for _, p := range plugins {
+	for _, p := range pluginList {
 		status := "available"
 		if p.Enabled {
 			status = "enabled"
@@ -971,7 +973,7 @@ func (m *Model) showPluginsModal() {
 // showPluginsModalOnTab shows the plugins modal and sets it to a specific tab.
 func (m *Model) showPluginsModalOnTab(tab int) {
 	// Fetch marketplaces and plugins from Claude CLI
-	marketplaces, err := claude.ListMarketplaces()
+	marketplaces, err := plugins.ListMarketplaces()
 	if err != nil {
 		state := ui.NewPluginsState()
 		state.ActiveTab = tab
@@ -980,7 +982,7 @@ func (m *Model) showPluginsModalOnTab(tab int) {
 		return
 	}
 
-	plugins, err := claude.ListPlugins()
+	pluginList, err := plugins.ListPlugins()
 	if err != nil {
 		state := ui.NewPluginsState()
 		state.ActiveTab = tab
@@ -1001,7 +1003,7 @@ func (m *Model) showPluginsModalOnTab(tab int) {
 	}
 
 	var pluginDisplays []ui.PluginDisplay
-	for _, p := range plugins {
+	for _, p := range pluginList {
 		status := "available"
 		if p.Enabled {
 			status = "enabled"
@@ -1744,7 +1746,7 @@ func (m *Model) ActiveSession() *config.Session {
 }
 
 // SessionMgr returns the session manager.
-func (m *Model) SessionMgr() *SessionManager {
+func (m *Model) SessionMgr() *manager.SessionManager {
 	return m.sessionMgr
 }
 
