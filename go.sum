@@ -122,6 +122,8 @@ github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavM
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e/go.mod h1:RbqR21r5mrJuqunuUZ/Dhy/avygyECGrLceyNeo4LiM=
 github.com/zhubert/plural-core v0.1.3 h1:9mGUacosXnhtswbnbmgnkeRwGO0MvY6LzoAHMQbg9s0=
 github.com/zhubert/plural-core v0.1.3/go.mod h1:nKmzzKU3perxjzAorsf1U9ttsfOic26j59zDbhFu6Jc=
+github.com/zhubert/plural-core v0.2.0 h1:VBps1BmesnqITXlAmEHEHJFRZJaJPs7HZOt0NNNoMAc=
+github.com/zhubert/plural-core v0.2.0/go.mod h1:nKmzzKU3perxjzAorsf1U9ttsfOic26j59zDbhFu6Jc=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=
 golang.design/x/clipboard v0.7.1 h1:OEG3CmcYRBNnRwpDp7+uWLiZi3hrMRJpE9JkkkYtz2c=
 golang.design/x/clipboard v0.7.1/go.mod h1:i5SiIqj0wLFw9P/1D7vfILFK0KHMk7ydE72HRrUIgkg=
