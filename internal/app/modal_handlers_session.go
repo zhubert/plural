@@ -880,6 +880,7 @@ func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (t
 		go func(sess config.Session) {
 			defer wg.Done()
 			runner := m.sessionMgr.GetOrCreateRunner(&sess)
+			m.sessionMgr.ConfigureRunnerDefaults(runner, &sess)
 			results <- runnerResult{sess: sess, runner: runner}
 		}(sess)
 	}
