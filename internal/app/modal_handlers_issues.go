@@ -296,6 +296,8 @@ func (m *Model) createSessionsFromIssues(repoPath string, selectedIssues []ui.Is
 				continue
 			}
 
+			m.addClaudeCodeMCPApprovals(result.Runner, sess)
+
 			runner := result.Runner
 
 			// Start streaming for this session
@@ -456,6 +458,8 @@ func (m *Model) createParallelSessions(selectedOptions []ui.OptionItem) (tea.Mod
 				logger.WithSession(sess.ID).Error("failed to get runner for parallel session")
 				continue
 			}
+
+			m.addClaudeCodeMCPApprovals(result.Runner, sess)
 
 			runner := result.Runner
 
