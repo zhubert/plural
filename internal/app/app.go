@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/changelog"
 	"github.com/zhubert/plural-core/claude"
+	"github.com/zhubert/plural/internal/claudeconfig"
 	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural-core/config"
 	"github.com/zhubert/plural-core/git"
@@ -1048,6 +1049,18 @@ func (m *Model) showCommitConflictModal() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// addClaudeCodeMCPApprovals discovers MCP servers from the user's Claude Code
+// config and auto-approves their tools so they don't trigger permission prompts.
+func (m *Model) addClaudeCodeMCPApprovals(runner claude.RunnerInterface, sess *config.Session) {
+	if runner == nil || sess == nil || sess.Containerized {
+		return
+	}
+	patterns := claudeconfig.DiscoverMCPToolPatterns(sess.RepoPath)
+	for _, pattern := range patterns {
+		runner.AddAllowedTool(pattern)
+	}
+}
+
 func (m *Model) selectSession(sess *config.Session) {
 	if sess == nil {
 		return
@@ -1066,6 +1079,8 @@ func (m *Model) selectSession(sess *config.Session) {
 	if result == nil {
 		return
 	}
+
+	m.addClaudeCodeMCPApprovals(result.Runner, sess)
 
 	// Update app state
 	m.activeSession = sess

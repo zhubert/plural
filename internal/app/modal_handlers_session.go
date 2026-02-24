@@ -818,6 +818,8 @@ func (m *Model) createBroadcastSessions(repoPaths []string, prompt string, sessi
 			continue
 		}
 
+		m.addClaudeCodeMCPApprovals(result.Runner, sess)
+
 		runner := result.Runner
 		sessionID := sess.ID
 
@@ -881,6 +883,7 @@ func (m *Model) broadcastToSessions(sessions []config.Session, prompt string) (t
 			defer wg.Done()
 			runner := m.sessionMgr.GetOrCreateRunner(&sess)
 			m.sessionMgr.ConfigureRunnerDefaults(runner, &sess)
+			m.addClaudeCodeMCPApprovals(runner, &sess)
 			results <- runnerResult{sess: sess, runner: runner}
 		}(sess)
 	}
