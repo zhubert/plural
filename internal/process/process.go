@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 // ContainersSupported returns true if Docker is installed on the system.

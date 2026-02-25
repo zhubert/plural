@@ -5,9 +5,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural-core/config"
-	"github.com/zhubert/plural-core/git"
-	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 const prPollInterval = 30 * time.Second

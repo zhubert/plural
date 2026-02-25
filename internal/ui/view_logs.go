@@ -7,7 +7,7 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
-	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 // GetLogFiles returns a list of available log files for viewing.

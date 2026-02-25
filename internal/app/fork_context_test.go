@@ -5,13 +5,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/zhubert/plural-core/claude"
-	"github.com/zhubert/plural-core/config"
-	"github.com/zhubert/plural-core/manager"
-	pexec "github.com/zhubert/plural-core/exec"
-	"github.com/zhubert/plural-core/git"
-	"github.com/zhubert/plural-core/paths"
-	"github.com/zhubert/plural-core/session"
+	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/manager"
+	pexec "github.com/zhubert/plural/internal/exec"
+	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/paths"
+	"github.com/zhubert/plural/internal/session"
 )
 
 // TestForkSessionInheritsContext verifies that when a session is forked with copyMessages=true,

@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/zhubert/plural-core/manager"
+	"github.com/zhubert/plural/internal/manager"
 )
 
 // Note: TestMergeType_String is in session_state_test.go

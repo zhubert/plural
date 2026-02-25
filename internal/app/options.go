@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/zhubert/plural-core/manager"
+	"github.com/zhubert/plural/internal/manager"
 )
 
 // DetectedOption is an alias for manager.DetectedOption so the types are

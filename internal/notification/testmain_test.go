@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 func TestMain(m *testing.M) {
