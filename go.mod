@@ -2,8 +2,6 @@ module github.com/zhubert/plural
 
 go 1.25.4
 
-require github.com/zhubert/plural-core v0.2.1
-
 require (
 	charm.land/bubbles/v2 v2.0.0-rc.1
 	charm.land/bubbletea/v2 v2.0.0-rc.2

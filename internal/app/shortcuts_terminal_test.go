@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/zhubert/plural-core/config"
+	"github.com/zhubert/plural/internal/config"
 )
 
 // TestOpenTerminalForSession verifies that the correct terminal command is chosen

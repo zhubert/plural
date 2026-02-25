@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 type claudeJSON struct {

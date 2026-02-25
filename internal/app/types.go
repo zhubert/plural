@@ -1,6 +1,6 @@
 package app
 
-import "github.com/zhubert/plural-core/manager"
+import "github.com/zhubert/plural/internal/manager"
 
 // PendingCommit tracks state for commit message editing.
 // Non-nil when a commit message is being edited.

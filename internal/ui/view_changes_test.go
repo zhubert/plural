@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	"github.com/zhubert/plural-core/git"
+	"github.com/zhubert/plural/internal/git"
 )
 
 func TestRenderFileNavBar_UsesVisualWidth(t *testing.T) {

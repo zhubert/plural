@@ -7,10 +7,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/zhubert/plural-core/claude"
-	"github.com/zhubert/plural-core/git"
-	"github.com/zhubert/plural-core/logger"
-	"github.com/zhubert/plural-core/manager"
+	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/git"
+	"github.com/zhubert/plural/internal/logger"
+	"github.com/zhubert/plural/internal/manager"
 	"github.com/zhubert/plural/internal/notification"
 	"github.com/zhubert/plural/internal/ui"
 )

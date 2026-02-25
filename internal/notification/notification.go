@@ -6,7 +6,7 @@ import (
 	_ "embed"
 
 	"github.com/gen2brain/beeep"
-	"github.com/zhubert/plural-core/logger"
+	"github.com/zhubert/plural/internal/logger"
 )
 
 //go:embed assets/icon.png
