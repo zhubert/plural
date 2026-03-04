@@ -227,10 +227,16 @@ func runCleanWithReader(input io.Reader) error {
 
 // findStaleTempFiles finds stale plural-auth-*, plural-mcp-*.json, and pl-*.sock files.
 func findStaleTempFiles() []string {
+	configDir, _ := paths.ConfigDir()
+	return findStaleTempFilesInDirs(configDir, os.TempDir())
+}
+
+// findStaleTempFilesInDirs searches the given directories for stale plural temp files.
+func findStaleTempFilesInDirs(configDir, tmpDir string) []string {
 	var files []string
 
 	// Stale files in config dir (plural-auth-*, plural-mcp-*.json)
-	if configDir, err := paths.ConfigDir(); err == nil {
+	if configDir != "" {
 		if matches, err := filepath.Glob(filepath.Join(configDir, "plural-auth-*")); err == nil {
 			files = append(files, matches...)
 		}
@@ -240,23 +246,27 @@ func findStaleTempFiles() []string {
 	}
 
 	// Stale files in tmp dir (plural-mcp-*.json, pl-*.sock)
-	tmpDir := os.TempDir()
-	if matches, err := filepath.Glob(filepath.Join(tmpDir, "plural-mcp-*.json")); err == nil {
-		files = append(files, matches...)
-	}
-	if matches, err := filepath.Glob(filepath.Join(tmpDir, "pl-*.sock")); err == nil {
-		files = append(files, matches...)
+	if tmpDir != "" {
+		if matches, err := filepath.Glob(filepath.Join(tmpDir, "plural-mcp-*.json")); err == nil {
+			files = append(files, matches...)
+		}
+		if matches, err := filepath.Glob(filepath.Join(tmpDir, "pl-*.sock")); err == nil {
+			files = append(files, matches...)
+		}
 	}
 
 	return files
 }
 
 // cleanStaleTempFiles removes the given stale temp files and returns the count removed.
+// Silently skips files that no longer exist. Logs warnings for other removal failures.
 func cleanStaleTempFiles(files []string) int {
 	removed := 0
 	for _, f := range files {
 		if err := os.Remove(f); err == nil {
 			removed++
+		} else if !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", f, err)
 		}
 	}
 	return removed
