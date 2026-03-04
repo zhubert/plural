@@ -67,6 +67,9 @@ func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.
 	// Even if we have a stored image, verify it matches what we'd build now
 	// (the Dockerfile generation may have changed across plural versions).
 	repoPath := m.getContainerRepoPath()
+	if repoPath == "" {
+		logger.Get().Warn("container language detection: empty repo path, will use minimal Node-only image")
+	}
 	version := m.version
 
 	// Detect languages synchronously (fast, just file checks)
