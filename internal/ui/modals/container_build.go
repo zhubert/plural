@@ -1,9 +1,12 @@
 package modals
 
 import (
+	"fmt"
 	"regexp"
 	"runtime"
+	"strings"
 
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -132,90 +135,77 @@ func NewContainerSystemNotRunningState() *ContainerCommandState {
 	}
 }
 
-// =============================================================================
-// ContainerBuildState - Container image not found
-// =============================================================================
-
-// ContainerBuildState shows the user how to pull the container image.
-type ContainerBuildState struct {
-	Image  string // Image name (e.g., "ghcr.io/zhubert/plural-claude")
-	Copied bool   // Whether the command was copied to clipboard
-}
-
-func (*ContainerBuildState) modalState() {}
-
-func (s *ContainerBuildState) Title() string { return "Container Image Not Found" }
-
-func (s *ContainerBuildState) Help() string {
-	if s.Copied {
-		return "Copied! Press Esc to dismiss"
-	}
-	return "Enter: copy to clipboard  Esc: dismiss"
-}
-
-func (s *ContainerBuildState) Render() string {
-	title := ModalTitleStyle.Render(s.Title())
-
-	message := lipgloss.NewStyle().
-		Foreground(ColorText).
-		Width(55).
-		MarginBottom(1).
-		Render("The container image '" + s.Image + "' was not found. Pull it with:")
-
-	cmdStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary).
-		Background(lipgloss.Color("#1a1a2e")).
-		Padding(0, 1).
-		MarginBottom(1)
-
-	cmd := cmdStyle.Render("docker pull " + s.Image)
-
-	var statusView string
-	if s.Copied {
-		statusView = lipgloss.NewStyle().
-			Foreground(ColorPrimary).
-			Bold(true).
-			Render("Copied to clipboard!")
-	}
-
-	help := ModalHelpStyle.Render(s.Help())
-
-	parts := []string{title, message, cmd}
-	if statusView != "" {
-		parts = append(parts, statusView)
-	}
-	parts = append(parts, help)
-
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
-}
-
-func (s *ContainerBuildState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
-	return s, nil
-}
-
-// GetPullCommand returns the pull command for clipboard copying.
-// The image name is validated before inclusion to prevent shell injection.
-func (s *ContainerBuildState) GetPullCommand() string {
-	image := s.Image
-	if !validContainerImage.MatchString(image) {
-		image = "ghcr.io/zhubert/plural-claude" // fall back to default for invalid names
-	}
-	return "docker pull " + image
-}
-
 // ValidateContainerImage checks if the given image name is safe.
 func ValidateContainerImage(image string) bool {
 	return validContainerImage.MatchString(image)
 }
 
-// NewContainerBuildState creates a new ContainerBuildState.
-// Invalid image names are replaced with the default to prevent shell injection.
-func NewContainerBuildState(image string) *ContainerBuildState {
-	if !validContainerImage.MatchString(image) {
-		image = "ghcr.io/zhubert/plural-claude"
+// =============================================================================
+// ContainerBuildingState - Shows progress while building a container image
+// =============================================================================
+
+// ContainerBuildingState displays a spinner and detected languages while
+// a container image is being built in the background.
+type ContainerBuildingState struct {
+	Languages []string      // Display names of detected languages
+	Spinner   spinner.Model // Animated spinner
+}
+
+func (*ContainerBuildingState) modalState() {}
+
+func (s *ContainerBuildingState) Title() string { return "Building Container Image" }
+
+func (s *ContainerBuildingState) Help() string {
+	return "Esc: cancel"
+}
+
+func (s *ContainerBuildingState) Render() string {
+	title := ModalTitleStyle.Render(s.Title())
+
+	var langSection string
+	if len(s.Languages) > 0 {
+		langList := strings.Join(s.Languages, ", ")
+		langSection = lipgloss.NewStyle().
+			Foreground(ColorTextMuted).
+			Width(55).
+			MarginBottom(1).
+			Render(fmt.Sprintf("Detected: %s", langList))
 	}
-	return &ContainerBuildState{
-		Image: image,
+
+	spinnerLine := s.Spinner.View() + " " + lipgloss.NewStyle().
+		Foreground(ColorText).
+		Render("Building image (this may take a few minutes)...")
+
+	help := ModalHelpStyle.Render(s.Help())
+
+	parts := []string{title}
+	if langSection != "" {
+		parts = append(parts, langSection)
+	}
+	parts = append(parts, "", spinnerLine, "", help)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (s *ContainerBuildingState) Update(msg tea.Msg) (ModalState, tea.Cmd) {
+	return s, nil
+}
+
+// AdvanceSpinner updates the spinner by forwarding a tick message.
+func (s *ContainerBuildingState) AdvanceSpinner(msg spinner.TickMsg) tea.Cmd {
+	var cmd tea.Cmd
+	s.Spinner, cmd = s.Spinner.Update(msg)
+	return cmd
+}
+
+// NewContainerBuildingState creates a new ContainerBuildingState with the given language names.
+func NewContainerBuildingState(languages []string) *ContainerBuildingState {
+	sp := spinner.New(
+		spinner.WithSpinner(spinner.MiniDot),
+		spinner.WithStyle(lipgloss.NewStyle().Foreground(ColorUser).Bold(true)),
+	)
+	return &ContainerBuildingState{
+		Languages: languages,
+		Spinner:   sp,
 	}
 }

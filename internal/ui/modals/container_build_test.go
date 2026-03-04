@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"charm.land/bubbles/v2/spinner"
 )
 
 // =============================================================================
@@ -98,89 +100,6 @@ func TestContainerCommandState_Render_ShowsCopiedMessage(t *testing.T) {
 }
 
 // =============================================================================
-// ContainerBuildState tests
-// =============================================================================
-
-func TestContainerBuildState_Title(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	if s.Title() != "Container Image Not Found" {
-		t.Errorf("Expected title 'Container Image Not Found', got %q", s.Title())
-	}
-}
-
-func TestContainerBuildState_GetPullCommand(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	expected := "docker pull ghcr.io/zhubert/plural-claude"
-	if cmd := s.GetPullCommand(); cmd != expected {
-		t.Errorf("Expected pull command %q, got %q", expected, cmd)
-	}
-}
-
-func TestContainerBuildState_GetPullCommand_CustomImage(t *testing.T) {
-	s := NewContainerBuildState("my-image")
-	expected := "docker pull my-image"
-	if cmd := s.GetPullCommand(); cmd != expected {
-		t.Errorf("Expected pull command %q, got %q", expected, cmd)
-	}
-}
-
-func TestContainerBuildState_Render_ShowsPullCommand(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "docker pull ghcr.io/zhubert/plural-claude") {
-		t.Error("Rendered output should contain the pull command")
-	}
-}
-
-func TestContainerBuildState_Render_DoesNotShowBrewInstall(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	rendered := s.Render()
-
-	if strings.Contains(rendered, "brew install") {
-		t.Error("Pull modal should not contain brew install command")
-	}
-}
-
-func TestContainerBuildState_Render_DoesNotShowSystemStart(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	rendered := s.Render()
-
-	if strings.Contains(rendered, "systemctl start") {
-		t.Error("Pull modal should not contain systemctl start command")
-	}
-}
-
-func TestContainerBuildState_Help_BeforeCopy(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	help := s.Help()
-
-	if !strings.Contains(help, "copy to clipboard") {
-		t.Errorf("Help before copy should mention clipboard, got %q", help)
-	}
-}
-
-func TestContainerBuildState_Help_AfterCopy(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	s.Copied = true
-	help := s.Help()
-
-	if !strings.Contains(help, "Copied") {
-		t.Errorf("Help after copy should say Copied, got %q", help)
-	}
-}
-
-func TestContainerBuildState_Render_ShowsCopiedMessage(t *testing.T) {
-	s := NewContainerBuildState("ghcr.io/zhubert/plural-claude")
-	s.Copied = true
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "Copied to clipboard") {
-		t.Error("Rendered output should show 'Copied to clipboard' after copy")
-	}
-}
-
-// =============================================================================
 // ValidateContainerImage tests
 // =============================================================================
 
@@ -217,20 +136,96 @@ func TestValidateContainerImage(t *testing.T) {
 	}
 }
 
-func TestNewContainerBuildState_SanitizesInvalidImage(t *testing.T) {
-	s := NewContainerBuildState("; rm -rf /")
-	if s.Image != "ghcr.io/zhubert/plural-claude" {
-		t.Errorf("Invalid image name should be replaced with default, got %q", s.Image)
+// =============================================================================
+// ContainerBuildingState tests
+// =============================================================================
+
+func TestContainerBuildingState_New(t *testing.T) {
+	langs := []string{"go", "python"}
+	state := NewContainerBuildingState(langs)
+
+	if len(state.Languages) != 2 {
+		t.Errorf("expected 2 languages, got %d", len(state.Languages))
+	}
+	if state.Languages[0] != "go" || state.Languages[1] != "python" {
+		t.Errorf("unexpected languages: %v", state.Languages)
+	}
+	// Spinner should be initialized with MiniDot frames
+	if len(state.Spinner.Spinner.Frames) != len(spinner.MiniDot.Frames) {
+		t.Errorf("expected MiniDot spinner, got %d frames", len(state.Spinner.Spinner.Frames))
 	}
 }
 
-func TestGetPullCommand_SanitizesInvalidImage(t *testing.T) {
-	s := &ContainerBuildState{Image: "; rm -rf /"}
-	cmd := s.GetPullCommand()
-	if strings.Contains(cmd, "rm -rf") {
-		t.Error("GetPullCommand should not include shell injection in output")
+func TestContainerBuildingState_Title(t *testing.T) {
+	state := NewContainerBuildingState(nil)
+	if state.Title() != "Building Container Image" {
+		t.Errorf("unexpected title: %q", state.Title())
 	}
-	if !strings.Contains(cmd, "ghcr.io/zhubert/plural-claude") {
-		t.Error("GetPullCommand should fall back to default image for invalid names")
+}
+
+func TestContainerBuildingState_Help(t *testing.T) {
+	state := NewContainerBuildingState(nil)
+	help := state.Help()
+	if !strings.Contains(help, "Esc") {
+		t.Errorf("help should mention Esc key: %q", help)
+	}
+}
+
+func TestContainerBuildingState_Render_WithLanguages(t *testing.T) {
+	state := NewContainerBuildingState([]string{"go", "python"})
+	rendered := state.Render()
+
+	if !strings.Contains(rendered, "Building Container Image") {
+		t.Error("rendered should contain title")
+	}
+	if !strings.Contains(rendered, "go, python") {
+		t.Error("rendered should list detected languages")
+	}
+	if !strings.Contains(rendered, "Building image") {
+		t.Error("rendered should contain building message")
+	}
+}
+
+func TestContainerBuildingState_Render_NoLanguages(t *testing.T) {
+	state := NewContainerBuildingState(nil)
+	rendered := state.Render()
+
+	if !strings.Contains(rendered, "Building image") {
+		t.Error("rendered should contain building message even with no languages")
+	}
+	// Should NOT contain "Detected:" when no languages
+	if strings.Contains(rendered, "Detected:") {
+		t.Error("rendered should not show 'Detected:' when no languages provided")
+	}
+}
+
+func TestContainerBuildingState_Update(t *testing.T) {
+	state := NewContainerBuildingState([]string{"go"})
+	newState, cmd := state.Update(nil)
+	if newState != state {
+		t.Error("update should return same state")
+	}
+	if cmd != nil {
+		t.Error("update should return nil cmd")
+	}
+}
+
+func TestContainerBuildingState_AdvanceSpinner(t *testing.T) {
+	state := NewContainerBuildingState([]string{"go"})
+	initialView := state.Spinner.View()
+	if initialView == "" {
+		t.Error("expected non-empty spinner view")
+	}
+	// AdvanceSpinner should accept a tick and return a command
+	tick := spinner.TickMsg{ID: state.Spinner.ID()}
+	cmd := state.AdvanceSpinner(tick)
+	// The command may be nil (ID mismatch) or non-nil, both are valid
+	_ = cmd
+}
+
+func TestContainerBuildingState_EmptyLanguages(t *testing.T) {
+	state := NewContainerBuildingState([]string{})
+	if len(state.Languages) != 0 {
+		t.Errorf("expected 0 languages, got %d", len(state.Languages))
 	}
 }

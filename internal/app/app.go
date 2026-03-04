@@ -240,12 +240,6 @@ type GetReviewCommentsRequestMsg struct {
 	Request   mcp.GetReviewCommentsRequest
 }
 
-// ContainerImageUpdateMsg is sent when the background container image update check completes
-type ContainerImageUpdateMsg struct {
-	NeedsUpdate bool
-	Image       string
-}
-
 // New creates a new app model
 func New(cfg *config.Config, version string) *Model {
 	// Load saved theme from config, or use default
@@ -387,25 +381,9 @@ func (m *Model) Init() tea.Cmd {
 		},
 		// Start background PR merge detection polling
 		PRPollTick(),
-		// Check for container image updates in the background
-		m.checkContainerImageUpdate(),
 	)
 }
 
-// checkContainerImageUpdate returns a command that checks if the container image
-// has an update available in the remote registry. Silently returns an empty message
-// on any failure (no CLI, no image, network error, etc.).
-func (m *Model) checkContainerImageUpdate() tea.Cmd {
-	image := m.config.GetContainerImage()
-	return func() tea.Msg {
-		needsUpdate, err := process.CheckContainerImageUpdate(image)
-		if err != nil {
-			logger.Get().Debug("container image update check failed", "error", err)
-			return ContainerImageUpdateMsg{}
-		}
-		return ContainerImageUpdateMsg{NeedsUpdate: needsUpdate, Image: image}
-	}
-}
 
 // Update handles messages
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -728,11 +706,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ContainerPrereqCheckMsg:
 		return m.handleContainerPrereqCheckMsg(msg)
 
-	case ContainerImageUpdateMsg:
-		if msg.NeedsUpdate {
-			return m, m.ShowFlashWarning(fmt.Sprintf("Container image update available — run: docker pull %s", msg.Image))
-		}
-		return m, nil
+	case ContainerImageBuiltMsg:
+		return m.handleContainerImageBuiltMsg(msg)
 
 	case PRPollTickMsg:
 		// Re-schedule next tick and check PR statuses for eligible sessions
@@ -776,9 +751,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sidebar, sidebarCmd := m.sidebar.Update(typedMsg)
 		m.sidebar = sidebar
 		cmds = append(cmds, sidebarCmd)
-		// Also update loading commit modal spinner if visible
+		// Also update modal spinners if visible
 		if loadingState, ok := m.modal.State.(*ui.LoadingCommitState); ok {
 			cmd := loadingState.AdvanceSpinner(typedMsg)
+			cmds = append(cmds, cmd)
+		}
+		if buildingState, ok := m.modal.State.(*ui.ContainerBuildingState); ok {
+			cmd := buildingState.AdvanceSpinner(typedMsg)
 			cmds = append(cmds, cmd)
 		}
 		return m, tea.Batch(cmds...)
