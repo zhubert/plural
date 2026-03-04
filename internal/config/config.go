@@ -445,13 +445,11 @@ func (c *Config) HasLinearTeam(repoPath string) bool {
 	return c.GetLinearTeam(repoPath) != ""
 }
 
-// GetContainerImage returns the container image name, defaulting to "ghcr.io/zhubert/plural-claude"
+// GetContainerImage returns the container image name.
+// An empty string means auto-detect (auto-provision a container based on repo languages).
 func (c *Config) GetContainerImage() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.ContainerImage == "" {
-		return "ghcr.io/zhubert/plural-claude"
-	}
 	return c.ContainerImage
 }
 

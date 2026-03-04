@@ -1263,21 +1263,16 @@ func TestBuildContainerRunArgs(t *testing.T) {
 	}
 }
 
-func TestBuildContainerRunArgs_DefaultImage(t *testing.T) {
+func TestBuildContainerRunArgs_EmptyImageErrors(t *testing.T) {
 	config := ProcessConfig{
 		SessionID:      "test-session",
 		WorkingDir:     "/tmp",
-		ContainerImage: "", // Empty should default to "ghcr.io/zhubert/plural-claude"
+		ContainerImage: "", // Empty should error (auto-provisioning should have set the image)
 	}
 
-	result, err := buildContainerRunArgs(config, []string{"--print"})
-	if err != nil {
-		t.Fatalf("buildContainerRunArgs failed: %v", err)
-	}
-
-	// Check that the default image is in the args
-	if !containsArg(result.Args, "ghcr.io/zhubert/plural-claude") {
-		t.Error("Empty ContainerImage should default to 'ghcr.io/zhubert/plural-claude'")
+	_, err := buildContainerRunArgs(config, []string{"--print"})
+	if err == nil {
+		t.Error("buildContainerRunArgs should error when ContainerImage is empty")
 	}
 }
 
