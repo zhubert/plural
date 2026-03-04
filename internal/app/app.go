@@ -379,7 +379,6 @@ func (m *Model) Init() tea.Cmd {
 		func() tea.Msg {
 			return StartupModalMsg{}
 		},
-		// Start background PR merge detection polling
 		PRPollTick(),
 	)
 }
