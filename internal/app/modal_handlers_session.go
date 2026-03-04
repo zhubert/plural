@@ -95,7 +95,11 @@ func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.
 	// Show building modal with detected languages
 	langNames := make([]string, len(langs))
 	for i, l := range langs {
-		langNames[i] = string(l.Language)
+		if l.Version != "" {
+			langNames[i] = string(l.Language) + " " + l.Version
+		} else {
+			langNames[i] = string(l.Language)
+		}
 	}
 	buildingState := ui.NewContainerBuildingState(langNames)
 	m.modal.Show(buildingState)
