@@ -19,6 +19,7 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -82,12 +83,7 @@ func resolveTestFallback() (*resolvedPaths, error) {
 		testFallbackDir, _ = os.MkdirTemp("", "plural-test-paths-*")
 	})
 	if testFallbackDir == "" {
-		// Fall back to normal resolution if temp dir creation failed
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		return resolveNormal(home)
+		return nil, fmt.Errorf("test safety net: failed to create temp directory")
 	}
 	resolved = &resolvedPaths{
 		configDir: filepath.Join(testFallbackDir, "config", "plural"),

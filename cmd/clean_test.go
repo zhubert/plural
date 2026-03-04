@@ -63,35 +63,34 @@ func (e *errorReader) Read(p []byte) (n int, err error) {
 	return 0, io.ErrUnexpectedEOF
 }
 
-func TestFindStaleTempFiles(t *testing.T) {
-	// Create temp files matching our patterns in a temp dir
+func TestFindStaleTempFilesInDirs(t *testing.T) {
+	configDir := t.TempDir()
 	tmpDir := t.TempDir()
 
-	// Create stale files
-	staleFiles := []string{
-		filepath.Join(tmpDir, "plural-mcp-abc123.json"),
-		filepath.Join(tmpDir, "plural-mcp-def456.json"),
-		filepath.Join(tmpDir, "pl-abcd.sock"),
-	}
-	for _, f := range staleFiles {
-		if err := os.WriteFile(f, []byte("test"), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	// Create stale files in config dir
+	os.WriteFile(filepath.Join(configDir, "plural-auth-abc123"), []byte("test"), 0600)
+	os.WriteFile(filepath.Join(configDir, "plural-auth-def456"), []byte("test"), 0600)
+	os.WriteFile(filepath.Join(configDir, "plural-mcp-abc123.json"), []byte("test"), 0600)
+
+	// Create stale files in tmp dir
+	os.WriteFile(filepath.Join(tmpDir, "plural-mcp-ghi789.json"), []byte("test"), 0600)
+	os.WriteFile(filepath.Join(tmpDir, "pl-abcd.sock"), []byte("test"), 0600)
 
 	// Create non-matching files that should be ignored
+	os.WriteFile(filepath.Join(configDir, "config.json"), []byte("test"), 0600)
 	os.WriteFile(filepath.Join(tmpDir, "other-file.json"), []byte("test"), 0600)
-	os.WriteFile(filepath.Join(tmpDir, "config.json"), []byte("test"), 0600)
 
-	// Test glob patterns directly (since findStaleTempFiles uses hardcoded paths)
-	mcpMatches, _ := filepath.Glob(filepath.Join(tmpDir, "plural-mcp-*.json"))
-	sockMatches, _ := filepath.Glob(filepath.Join(tmpDir, "pl-*.sock"))
+	files := findStaleTempFilesInDirs(configDir, tmpDir)
 
-	if len(mcpMatches) != 2 {
-		t.Errorf("expected 2 MCP config matches, got %d", len(mcpMatches))
+	if len(files) != 5 {
+		t.Errorf("expected 5 stale files, got %d: %v", len(files), files)
 	}
-	if len(sockMatches) != 1 {
-		t.Errorf("expected 1 socket match, got %d", len(sockMatches))
+}
+
+func TestFindStaleTempFilesInDirs_EmptyDirs(t *testing.T) {
+	files := findStaleTempFilesInDirs("", "")
+	if len(files) != 0 {
+		t.Errorf("expected 0 stale files for empty dirs, got %d", len(files))
 	}
 }
 
