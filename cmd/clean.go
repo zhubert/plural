@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -76,8 +77,11 @@ func runCleanWithReader(input io.Reader) error {
 		fmt.Fprintf(os.Stderr, "Warning: error finding orphaned containers: %v\n", err)
 	}
 
+	// Find stale temp files (auth credentials, MCP configs, sockets)
+	staleTempFiles := findStaleTempFiles()
+
 	// Check if there's anything to clean
-	if sessionCount == 0 && len(orphanWorktrees) == 0 && len(orphanMessages) == 0 && len(orphanProcesses) == 0 && len(orphanContainers) == 0 {
+	if sessionCount == 0 && len(orphanWorktrees) == 0 && len(orphanMessages) == 0 && len(orphanProcesses) == 0 && len(orphanContainers) == 0 && len(staleTempFiles) == 0 {
 		fmt.Println("Nothing to clean.")
 		return nil
 	}
@@ -107,6 +111,9 @@ func runCleanWithReader(input io.Reader) error {
 		for _, c := range orphanContainers {
 			fmt.Printf("      %s\n", c.Name)
 		}
+	}
+	if len(staleTempFiles) > 0 {
+		fmt.Printf("  - %d stale temp file(s) (auth credentials, MCP configs, sockets)\n", len(staleTempFiles))
 	}
 	if logsDir, err := paths.LogsDir(); err == nil {
 		fmt.Printf("  - All log files in %s\n", logsDir)
@@ -142,11 +149,14 @@ func runCleanWithReader(input io.Reader) error {
 	sessionSvc := session.NewSessionService()
 	ctx := context.Background()
 
-	var prunedWorktrees, prunedMessages, prunedProcesses, prunedContainers int
+	var prunedWorktrees, prunedMessages, prunedProcesses, prunedContainers, prunedTempFiles int
 	var worktreesErr, messagesErr, processesErr, containersErr error
 
 	var wg sync.WaitGroup
 	wg.Add(4)
+
+	// Clean stale temp files (not in goroutine — just file removes, fast)
+	prunedTempFiles = cleanStaleTempFiles(staleTempFiles)
 
 	go func() {
 		defer wg.Done()
@@ -208,8 +218,48 @@ func runCleanWithReader(input io.Reader) error {
 	if prunedContainers > 0 {
 		fmt.Printf("  - %d orphaned container(s) removed\n", prunedContainers)
 	}
+	if prunedTempFiles > 0 {
+		fmt.Printf("  - %d stale temp file(s) removed\n", prunedTempFiles)
+	}
 
 	return nil
+}
+
+// findStaleTempFiles finds stale plural-auth-*, plural-mcp-*.json, and pl-*.sock files.
+func findStaleTempFiles() []string {
+	var files []string
+
+	// Stale files in config dir (plural-auth-*, plural-mcp-*.json)
+	if configDir, err := paths.ConfigDir(); err == nil {
+		if matches, err := filepath.Glob(filepath.Join(configDir, "plural-auth-*")); err == nil {
+			files = append(files, matches...)
+		}
+		if matches, err := filepath.Glob(filepath.Join(configDir, "plural-mcp-*.json")); err == nil {
+			files = append(files, matches...)
+		}
+	}
+
+	// Stale files in tmp dir (plural-mcp-*.json, pl-*.sock)
+	tmpDir := os.TempDir()
+	if matches, err := filepath.Glob(filepath.Join(tmpDir, "plural-mcp-*.json")); err == nil {
+		files = append(files, matches...)
+	}
+	if matches, err := filepath.Glob(filepath.Join(tmpDir, "pl-*.sock")); err == nil {
+		files = append(files, matches...)
+	}
+
+	return files
+}
+
+// cleanStaleTempFiles removes the given stale temp files and returns the count removed.
+func cleanStaleTempFiles(files []string) int {
+	removed := 0
+	for _, f := range files {
+		if err := os.Remove(f); err == nil {
+			removed++
+		}
+	}
+	return removed
 }
 
 // confirm prompts the user for y/n confirmation

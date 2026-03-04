@@ -457,15 +457,6 @@ func TestConfig_ClearSessions(t *testing.T) {
 }
 
 func TestSessionMessages(t *testing.T) {
-	// Create a temporary directory for test
-	tmpDir, err := os.MkdirTemp("", "plural-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Override the sessions directory for testing
-	// This is a bit hacky but necessary for testing without modifying home dir
 	sessionID := "test-session-123"
 
 	messages := []Message{
@@ -474,7 +465,7 @@ func TestSessionMessages(t *testing.T) {
 	}
 
 	// Test saving messages
-	err = SaveSessionMessages(sessionID, messages, 100)
+	err := SaveSessionMessages(sessionID, messages, 100)
 	if err != nil {
 		t.Errorf("SaveSessionMessages failed: %v", err)
 	}
