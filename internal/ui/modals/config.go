@@ -238,8 +238,6 @@ type SettingsState struct {
 	branchPrefix         string
 	NotificationsEnabled bool
 	AutoCleanupMerged    bool // Auto-cleanup sessions when PR merged/closed
-	containerImage       string
-	ContainersSupported  bool // Whether Docker is available for container mode
 
 	// MultiSelect bindings
 	generalOptions []string
@@ -307,11 +305,6 @@ func (s *SettingsState) GetNotificationsEnabled() bool {
 	return s.NotificationsEnabled
 }
 
-// GetContainerImage returns the container image name, or empty string if unchanged/empty.
-func (s *SettingsState) GetContainerImage() string {
-	return strings.TrimSpace(s.containerImage)
-}
-
 // GetSelectedTheme returns the selected theme key.
 func (s *SettingsState) GetSelectedTheme() string {
 	return s.selectedTheme
@@ -348,7 +341,6 @@ func renderSectionHeader(title string) string {
 // NewSettingsState creates a new SettingsState with the current settings values.
 func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme string,
 	currentBranchPrefix string, notificationsEnabled bool,
-	containersSupported bool, containerImage string,
 	autoCleanupMerged bool) *SettingsState {
 
 	s := &SettingsState{
@@ -357,8 +349,6 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		branchPrefix:         currentBranchPrefix,
 		NotificationsEnabled: notificationsEnabled,
 		AutoCleanupMerged:    autoCleanupMerged,
-		containerImage:       containerImage,
-		ContainersSupported:  containersSupported,
 		availableWidth:       ModalWidthWide,
 	}
 
@@ -402,17 +392,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 			Value(&s.generalOptions),
 	)
 
-	// Container settings group (conditionally shown)
-	containerGroup := huh.NewGroup(
-		huh.NewInput().
-			Title("Container image").
-			Description("Image name used for container mode sessions").
-			Placeholder("auto-detect (leave empty)").
-			CharLimit(200).
-			Value(&s.containerImage),
-	).WithHideFunc(func() bool { return !containersSupported })
-
-	s.form = huh.NewForm(generalGroup, containerGroup).
+	s.form = huh.NewForm(generalGroup).
 		WithTheme(ModalTheme()).
 		WithShowHelp(false).
 		WithWidth(s.contentWidth()).

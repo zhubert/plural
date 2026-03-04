@@ -210,15 +210,6 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 		m.config.SetDefaultBranchPrefix(state.GetBranchPrefix())
 		m.config.SetNotificationsEnabled(state.GetNotificationsEnabled())
 		m.config.SetAutoCleanupMerged(state.AutoCleanupMerged)
-		// Save container image if containers are supported.
-		if state.ContainersSupported {
-			containerImage := state.GetContainerImage()
-			if containerImage != "" && !ui.ValidateContainerImage(containerImage) {
-				m.modal.SetError("Invalid container image name")
-				return m, nil
-			}
-			m.config.SetContainerImage(containerImage)
-		}
 		// Apply theme if changed
 		if state.ThemeChanged() {
 			selectedTheme := ui.GetSelectedSettingsTheme(state)

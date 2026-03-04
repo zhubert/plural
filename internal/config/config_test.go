@@ -1773,23 +1773,31 @@ func TestConfig_ContainerImage(t *testing.T) {
 		Repos:    []string{"/path/to/repo"},
 		Sessions: []Session{},
 	}
+	cfg.ensureInitialized()
+
+	repoPath := "/path/to/repo"
 
 	// Default should be empty (auto-detect)
-	if got := cfg.GetContainerImage(); got != "" {
+	if got := cfg.GetContainerImage(repoPath); got != "" {
 		t.Errorf("GetContainerImage default = %q, want empty string", got)
 	}
 
-	// Set custom image
-	cfg.SetContainerImage("my-custom-image")
+	// Set custom image for a repo
+	cfg.SetContainerImage(repoPath, "my-custom-image")
 
-	if got := cfg.GetContainerImage(); got != "my-custom-image" {
+	if got := cfg.GetContainerImage(repoPath); got != "my-custom-image" {
 		t.Errorf("GetContainerImage = %q, want 'my-custom-image'", got)
 	}
 
-	// Set empty string should return empty (auto-detect mode)
-	cfg.SetContainerImage("")
+	// Different repo should return empty
+	if got := cfg.GetContainerImage("/path/to/other-repo"); got != "" {
+		t.Errorf("GetContainerImage for different repo = %q, want empty string", got)
+	}
 
-	if got := cfg.GetContainerImage(); got != "" {
+	// Set empty string should return empty (auto-detect mode)
+	cfg.SetContainerImage(repoPath, "")
+
+	if got := cfg.GetContainerImage(repoPath); got != "" {
 		t.Errorf("GetContainerImage after clearing = %q, want empty string", got)
 	}
 }
@@ -1804,12 +1812,14 @@ func TestConfig_ContainerImage_Persistence(t *testing.T) {
 
 	configPath := filepath.Join(tmpDir, "config.json")
 
-	// Create config with container settings
+	repoPath := "/path/to/repo"
+
+	// Create config with per-repo container settings
 	cfg := &Config{
-		Repos:          []string{"/path/to/repo"},
-		Sessions:       []Session{},
-		ContainerImage: "my-image",
-		filePath:       configPath,
+		Repos:              []string{repoPath},
+		Sessions:           []Session{},
+		RepoContainerImage: map[string]string{repoPath: "my-image"},
+		filePath:           configPath,
 	}
 
 	// Save the config
@@ -1828,8 +1838,52 @@ func TestConfig_ContainerImage_Persistence(t *testing.T) {
 		t.Fatalf("Failed to unmarshal config: %v", err)
 	}
 
-	if loaded.ContainerImage != "my-image" {
-		t.Errorf("ContainerImage = %q, want 'my-image'", loaded.ContainerImage)
+	if loaded.RepoContainerImage[repoPath] != "my-image" {
+		t.Errorf("RepoContainerImage[%q] = %q, want 'my-image'", repoPath, loaded.RepoContainerImage[repoPath])
+	}
+}
+
+func TestConfig_ContainerImage_MigrationFromGlobal(t *testing.T) {
+	// Simulate loading a config with the old global container_image field.
+	// The old field should be silently ignored (not cause errors).
+	tmpDir, err := os.MkdirTemp("", "plural-container-migration-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Override HOME so Load() finds our config
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	paths.Reset()
+	defer func() {
+		os.Setenv("HOME", origHome)
+		paths.Reset()
+	}()
+
+	// Write a config with the old global container_image field
+	pluralDir := filepath.Join(tmpDir, ".plural")
+	if err := os.MkdirAll(pluralDir, 0755); err != nil {
+		t.Fatalf("Failed to create plural dir: %v", err)
+	}
+	configJSON := `{
+		"repos": ["/path/to/repo"],
+		"sessions": [],
+		"container_image": "old-global-image"
+	}`
+	configPath := filepath.Join(pluralDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(configJSON), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load should succeed with old container_image field: %v", err)
+	}
+
+	// The old global image should not be accessible via per-repo API
+	if got := cfg.GetContainerImage("/path/to/repo"); got != "" {
+		t.Errorf("GetContainerImage should return empty for migrated config, got %q", got)
 	}
 }
 
