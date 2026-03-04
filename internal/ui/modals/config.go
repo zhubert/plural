@@ -407,7 +407,7 @@ func NewSettingsState(themes []string, themeDisplayNames []string, currentTheme 
 		huh.NewInput().
 			Title("Container image").
 			Description("Image name used for container mode sessions").
-			Placeholder("ghcr.io/zhubert/plural-claude").
+			Placeholder("auto-detect (leave empty)").
 			CharLimit(200).
 			Value(&s.containerImage),
 	).WithHideFunc(func() bool { return !containersSupported })

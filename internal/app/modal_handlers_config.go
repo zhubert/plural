@@ -240,11 +240,6 @@ func (m *Model) handleSettingsModal(key string, msg tea.KeyPressMsg, state *ui.S
 	return m, cmd
 }
 
-// handleContainerBuildModal handles key events for the Container Build modal.
-func (m *Model) handleContainerBuildModal(key string, _ tea.KeyPressMsg, state *ui.ContainerBuildState) (tea.Model, tea.Cmd) {
-	return m.handleCopyCommandModal(key, state.GetPullCommand, func() { state.Copied = true })
-}
-
 // handleContainerCommandModal handles key events for container command modals
 // (CLI not installed, system not running).
 func (m *Model) handleContainerCommandModal(key string, state *ui.ContainerCommandState) (tea.Model, tea.Cmd) {
