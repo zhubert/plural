@@ -699,8 +699,6 @@ func shortcutGlobalSettings(m *Model) (tea.Model, tea.Cmd) {
 	settingsState := ui.NewSettingsState(
 		m.config.GetDefaultBranchPrefix(),
 		m.config.GetNotificationsEnabled(),
-		process.ContainersSupported(),
-		m.config.GetContainerImage(),
 		m.config.GetAutoCleanupMerged(),
 	)
 	m.modal.Show(settingsState)

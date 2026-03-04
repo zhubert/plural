@@ -20,8 +20,8 @@ type Config struct {
 	RepoAllowedTools  map[string][]string    `json:"repo_allowed_tools,omitempty"`   // Per-repo allowed tools
 	RepoSquashOnMerge map[string]bool        `json:"repo_squash_on_merge,omitempty"` // Per-repo squash-on-merge setting
 	RepoAsanaProject  map[string]string      `json:"repo_asana_project,omitempty"`   // Per-repo Asana project GID mapping
-	RepoLinearTeam    map[string]string      `json:"repo_linear_team,omitempty"`     // Per-repo Linear team ID mapping
-	ContainerImage    string                 `json:"container_image,omitempty"`      // Container image for containerized sessions
+	RepoLinearTeam      map[string]string `json:"repo_linear_team,omitempty"`       // Per-repo Linear team ID mapping
+	RepoContainerImage map[string]string `json:"repo_container_image,omitempty"`   // Per-repo container image mapping
 
 	WelcomeShown         bool   `json:"welcome_shown,omitempty"`         // Whether welcome modal has been shown
 	LastSeenVersion      string `json:"last_seen_version,omitempty"`     // Last version user has seen changelog for
@@ -123,6 +123,9 @@ func (c *Config) ensureInitialized() {
 	}
 	if c.RepoLinearTeam == nil {
 		c.RepoLinearTeam = make(map[string]string)
+	}
+	if c.RepoContainerImage == nil {
+		c.RepoContainerImage = make(map[string]string)
 	}
 }
 
@@ -445,19 +448,31 @@ func (c *Config) HasLinearTeam(repoPath string) bool {
 	return c.GetLinearTeam(repoPath) != ""
 }
 
-// GetContainerImage returns the container image name.
+// GetContainerImage returns the container image name for a repo.
 // An empty string means auto-detect (auto-provision a container based on repo languages).
-func (c *Config) GetContainerImage() string {
+func (c *Config) GetContainerImage(repoPath string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.ContainerImage
+	if c.RepoContainerImage == nil {
+		return ""
+	}
+	resolved := resolveRepoPath(c.Repos, repoPath)
+	return c.RepoContainerImage[resolved]
 }
 
-// SetContainerImage sets the container image name
-func (c *Config) SetContainerImage(image string) {
+// SetContainerImage sets the container image name for a repo
+func (c *Config) SetContainerImage(repoPath, image string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ContainerImage = image
+	if c.RepoContainerImage == nil {
+		c.RepoContainerImage = make(map[string]string)
+	}
+	resolved := resolveRepoPath(c.Repos, repoPath)
+	if image == "" {
+		delete(c.RepoContainerImage, resolved)
+	} else {
+		c.RepoContainerImage[resolved] = image
+	}
 }
 
 // GetAutoMaxTurns returns the max autonomous turns, defaulting to 50

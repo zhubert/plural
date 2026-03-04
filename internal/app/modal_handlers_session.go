@@ -23,8 +23,9 @@ import (
 
 // ContainerImageBuiltMsg is sent when the async container image build completes.
 type ContainerImageBuiltMsg struct {
-	Tag string // The image tag that was built (or empty on error)
-	Err error  // Non-nil if the build failed
+	Tag      string // The image tag that was built (or empty on error)
+	Err      error  // Non-nil if the build failed
+	RepoPath string // The repo this image was built for
 }
 
 // checkContainerPrerequisitesAsync launches an async check of container prerequisites,
@@ -78,7 +79,7 @@ func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.
 	expectedTag := container.ImageTag(container.GenerateDockerfile(langs, version))
 
 	// If the stored image matches the expected tag, use it directly
-	storedImage := m.config.GetContainerImage()
+	storedImage := m.config.GetContainerImage(repoPath)
 	if storedImage == expectedTag {
 		if m.pendingContainerAction != nil {
 			action := m.pendingContainerAction
@@ -92,7 +93,7 @@ func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.
 	// Clear stale image so we don't keep trying to use it.
 	if storedImage != "" {
 		logger.Get().Info("stored container image is stale, rebuilding", "stored", storedImage, "expected", expectedTag)
-		m.config.SetContainerImage("")
+		m.config.SetContainerImage(repoPath, "")
 	}
 
 	// Show building modal with detected languages
@@ -110,7 +111,7 @@ func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.
 	// Build image async (EnsureImage checks docker cache internally)
 	return m, tea.Batch(buildingState.Spinner.Tick, func() tea.Msg {
 		tag, err := container.EnsureImage(ctx, langs, version)
-		return ContainerImageBuiltMsg{Tag: tag, Err: err}
+		return ContainerImageBuiltMsg{Tag: tag, Err: err, RepoPath: repoPath}
 	})
 }
 
@@ -128,8 +129,8 @@ func (m *Model) handleContainerImageBuiltMsg(msg ContainerImageBuiltMsg) (tea.Mo
 		return m, nil
 	}
 
-	// Store the auto-built image tag
-	m.config.SetContainerImage(msg.Tag)
+	// Store the auto-built image tag for this repo
+	m.config.SetContainerImage(msg.RepoPath, msg.Tag)
 
 	// Execute the pending action
 	if m.pendingContainerAction != nil {

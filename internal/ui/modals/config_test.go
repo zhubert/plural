@@ -17,42 +17,25 @@ var (
 // newTestSettingsState is a helper that prepends theme data to NewSettingsState calls.
 func newTestSettingsState(branchPrefix string, notifs bool) *SettingsState {
 	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, false, "", false)
-}
-
-// newTestSettingsStateWithContainers is like newTestSettingsState but with container support.
-func newTestSettingsStateWithContainers(branchPrefix string, notifs bool,
-	containersSupported bool, containerImage string) *SettingsState {
-	return NewSettingsState(testThemes, testThemeNames, testCurrentTheme,
-		branchPrefix, notifs, containersSupported, containerImage, false)
+		branchPrefix, notifs, false)
 }
 
 // =============================================================================
 // SettingsState (global settings) tests
 // =============================================================================
 
-func TestSettingsState_Render_NoContainerSection_WhenUnsupported(t *testing.T) {
+func TestSettingsState_Render_GeneralSettings(t *testing.T) {
 	s := newTestSettingsState("", false)
 
-	if s.ContainersSupported {
-		t.Error("ContainersSupported should be false")
-	}
-
-	// General settings should render correctly even without container support
 	rendered := s.Render()
 	for _, expected := range []string{"Settings", "Theme", "Default branch prefix", "Options"} {
 		if !strings.Contains(rendered, expected) {
 			t.Errorf("should contain %q in rendered output", expected)
 		}
 	}
-}
-
-func TestSettingsState_Render_ContainerSection_WhenSupported(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "plural-claude")
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "Container image") {
-		t.Error("Container image field should appear when containers supported")
+	// Container image should not appear (moved to per-repo)
+	if strings.Contains(rendered, "Container image") {
+		t.Error("Container image field should not appear in global settings")
 	}
 }
 
@@ -89,28 +72,6 @@ func TestSettingsState_Render_ContainsThemeSection(t *testing.T) {
 	}
 }
 
-func TestSettingsState_GetContainerImage(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "my-image")
-	if img := s.GetContainerImage(); img != "my-image" {
-		t.Errorf("Expected container image 'my-image', got %q", img)
-	}
-}
-
-func TestSettingsState_GetContainerImage_Default(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "")
-	if img := s.GetContainerImage(); img != "" {
-		t.Errorf("Expected empty container image, got %q", img)
-	}
-}
-
-func TestSettingsState_Render_ContainerImageValue(t *testing.T) {
-	s := newTestSettingsStateWithContainers("", false, true, "custom-image")
-	rendered := s.Render()
-
-	if !strings.Contains(rendered, "Container image") {
-		t.Error("Should show container image label")
-	}
-}
 
 func TestSettingsState_GetBranchPrefix(t *testing.T) {
 	s := newTestSettingsState("my-prefix/", false)
@@ -160,17 +121,6 @@ func TestSettingsState_Title(t *testing.T) {
 	}
 }
 
-func TestSettingsState_ContainersSupported(t *testing.T) {
-	s := newTestSettingsState("", false)
-	if s.ContainersSupported {
-		t.Error("ContainersSupported should be false without containers")
-	}
-
-	s2 := newTestSettingsStateWithContainers("", false, true, "")
-	if !s2.ContainersSupported {
-		t.Error("ContainersSupported should be true with containers")
-	}
-}
 
 // =============================================================================
 // NewSessionState tests (unchanged)

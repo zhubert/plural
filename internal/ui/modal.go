@@ -141,13 +141,11 @@ func themeKeysAndNames() ([]string, []string) {
 
 // NewSettingsState creates a new SettingsState with theme data injected automatically.
 func NewSettingsState(currentBranchPrefix string, notificationsEnabled bool,
-	containersSupported bool, containerImage string,
 	autoCleanupMerged bool) *SettingsState {
 	themeKeys, themeDisplayNames := themeKeysAndNames()
 	currentTheme := string(CurrentThemeName())
 	return modals.NewSettingsState(themeKeys, themeDisplayNames, currentTheme,
 		currentBranchPrefix, notificationsEnabled,
-		containersSupported, containerImage,
 		autoCleanupMerged)
 }
 

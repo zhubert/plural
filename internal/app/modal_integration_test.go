@@ -551,7 +551,6 @@ func TestSettingsModal_Open(t *testing.T) {
 	m.modal.Show(ui.NewSettingsState(
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
-		false, "",
 		false,
 	))
 	if !m.modal.IsVisible() {
@@ -572,7 +571,6 @@ func TestSettingsModal_CancelWithEscape(t *testing.T) {
 	m.modal.Show(ui.NewSettingsState(
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
-		false, "",
 		false,
 	))
 	state := m.modal.State.(*ui.SettingsState)
@@ -601,7 +599,6 @@ func TestSettingsModal_ToggleNotifications(t *testing.T) {
 	m.modal.Show(ui.NewSettingsState(
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
-		false, "",
 		false,
 	))
 	state := m.modal.State.(*ui.SettingsState)
@@ -727,7 +724,6 @@ func TestSettingsModal_UpdatesBranchPrefix(t *testing.T) {
 	m.modal.Show(ui.NewSettingsState(
 		cfg.GetDefaultBranchPrefix(),
 		cfg.GetNotificationsEnabled(),
-		false, "",
 		false,
 	))
 	state := m.modal.State.(*ui.SettingsState)

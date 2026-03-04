@@ -70,7 +70,7 @@ type SessionManagerConfig interface {
 	GetSessions() []config.Session
 	GetAllowedToolsForRepo(repoPath string) []string
 	GetMCPServersForRepo(repoPath string) []config.MCPServer
-	GetContainerImage() string
+	GetContainerImage(repoPath string) string
 	AddRepoAllowedTool(repoPath, tool string) bool
 	Save() error
 }
@@ -402,7 +402,7 @@ func (sm *SessionManager) ConfigureRunnerDefaults(runner claude.RunnerInterface,
 
 	// Configure container mode if enabled for this session
 	if sess.Containerized {
-		runner.SetContainerized(true, sm.config.GetContainerImage())
+		runner.SetContainerized(true, sm.config.GetContainerImage(sess.RepoPath))
 		// Set callback to clear container init state when container is ready
 		sessionID := sess.ID
 		runner.SetOnContainerReady(func() {
