@@ -58,8 +58,8 @@ type (
 	BulkActionState          = modals.BulkActionState
 	BulkAction               = modals.BulkAction
 	ReviewCommentsState      = modals.ReviewCommentsState
-	ContainerBuildState      = modals.ContainerBuildState
 	ContainerCommandState    = modals.ContainerCommandState
+	ContainerBuildingState   = modals.ContainerBuildingState
 	AsanaProjectOption       = modals.AsanaProjectOption
 	LinearTeamOption         = modals.LinearTeamOption
 	SessionSettingsState = modals.SessionSettingsState
@@ -113,9 +113,9 @@ var (
 	NewBroadcastState                 = modals.NewBroadcastState
 	NewBroadcastGroupState            = modals.NewBroadcastGroupState
 	NewReviewCommentsState            = modals.NewReviewCommentsState
-	NewContainerBuildState            = modals.NewContainerBuildState
 	NewContainerCLINotInstalledState  = modals.NewContainerCLINotInstalledState
 	NewContainerSystemNotRunningState = modals.NewContainerSystemNotRunningState
+	NewContainerBuildingState         = modals.NewContainerBuildingState
 	ValidateContainerImage            = modals.ValidateContainerImage
 	NewBulkActionState                = modals.NewBulkActionState
 	SessionDisplayName                = modals.SessionDisplayName

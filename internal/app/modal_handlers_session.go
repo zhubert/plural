@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/zhubert/plural/internal/claude"
 	"github.com/zhubert/plural/internal/config"
+	"github.com/zhubert/plural/internal/container"
 	"github.com/zhubert/plural/internal/keys"
 	"github.com/zhubert/plural/internal/logger"
 	"github.com/zhubert/plural/internal/manager"
@@ -20,23 +21,29 @@ import (
 	"github.com/zhubert/plural/internal/ui"
 )
 
-// checkContainerPrerequisitesAsync launches an async check of container prerequisites.
-// The onSuccess closure is stored and called if all checks pass.
-// This avoids blocking the UI thread on slow shell-outs (container system info, image inspect).
+// ContainerImageBuiltMsg is sent when the async container image build completes.
+type ContainerImageBuiltMsg struct {
+	Tag string // The image tag that was built (or empty on error)
+	Err error  // Non-nil if the build failed
+}
+
+// checkContainerPrerequisitesAsync launches an async check of container prerequisites,
+// then auto-detects languages and builds the container image if no custom image is set.
+// The onSuccess closure is stored and called if all checks pass and the image is ready.
+// This avoids blocking the UI thread on slow shell-outs (container system info, image build).
 func (m *Model) checkContainerPrerequisitesAsync(onSuccess func() (tea.Model, tea.Cmd)) (tea.Model, tea.Cmd) {
 	m.pendingContainerAction = onSuccess
-	image := m.config.GetContainerImage()
 	authChecker := claude.ContainerAuthAvailable
 	return m, func() tea.Msg {
 		return ContainerPrereqCheckMsg{
-			Result: process.CheckContainerPrerequisites(image, authChecker),
+			Result: process.CheckContainerPrerequisites(authChecker),
 		}
 	}
 }
 
 // handleContainerPrereqCheckMsg processes the result of async container prerequisite checks.
-// Shows the appropriate error modal for the first failing check, or executes the
-// pending action if all checks pass.
+// Shows the appropriate error modal for the first failing check, or triggers auto-build
+// if no custom image is configured.
 func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.Model, tea.Cmd) {
 	prereqs := msg.Result
 
@@ -50,26 +57,110 @@ func (m *Model) handleContainerPrereqCheckMsg(msg ContainerPrereqCheckMsg) (tea.
 		m.modal.Show(ui.NewContainerSystemNotRunningState())
 		return m, nil
 	}
-	if !prereqs.ImageExists {
-		m.pendingContainerAction = nil
-		m.modal.Show(ui.NewContainerBuildState(m.config.GetContainerImage()))
-		return m, nil
-	}
 	if !prereqs.AuthAvailable {
 		m.pendingContainerAction = nil
-		// Note: This sets an error on whatever modal is currently showing (e.g. the new session modal).
-		// A dedicated auth error modal could improve UX but is not implemented yet.
 		m.modal.SetError("Container mode requires authentication: " + ui.ContainerAuthHelp)
 		return m, nil
 	}
 
-	// All checks passed — execute the pending action
+	// Auto-provision: detect languages and determine the expected image tag.
+	// Even if we have a stored image, verify it matches what we'd build now
+	// (the Dockerfile generation may have changed across plural versions).
+	repoPath := m.getContainerRepoPath()
+	version := m.version
+
+	// Detect languages synchronously (fast, just file checks)
+	ctx := context.Background()
+	langs := container.Detect(ctx, repoPath)
+	expectedTag := container.ImageTag(container.GenerateDockerfile(langs, version))
+
+	// If the stored image matches the expected tag, use it directly
+	storedImage := m.config.GetContainerImage()
+	if storedImage == expectedTag {
+		if m.pendingContainerAction != nil {
+			action := m.pendingContainerAction
+			m.pendingContainerAction = nil
+			return action()
+		}
+		return m, nil
+	}
+
+	// Stored image is stale or missing — rebuild.
+	// Clear stale image so we don't keep trying to use it.
+	if storedImage != "" {
+		logger.Get().Info("stored container image is stale, rebuilding", "stored", storedImage, "expected", expectedTag)
+		m.config.SetContainerImage("")
+	}
+
+	// Show building modal with detected languages
+	langNames := make([]string, len(langs))
+	for i, l := range langs {
+		langNames[i] = string(l.Language)
+	}
+	buildingState := ui.NewContainerBuildingState(langNames)
+	m.modal.Show(buildingState)
+
+	// Build image async (EnsureImage checks docker cache internally)
+	return m, tea.Batch(buildingState.Spinner.Tick, func() tea.Msg {
+		tag, err := container.EnsureImage(ctx, langs, version)
+		return ContainerImageBuiltMsg{Tag: tag, Err: err}
+	})
+}
+
+// handleContainerImageBuiltMsg processes the result of an async container image build.
+func (m *Model) handleContainerImageBuiltMsg(msg ContainerImageBuiltMsg) (tea.Model, tea.Cmd) {
+	if msg.Err != nil {
+		m.pendingContainerAction = nil
+		// Truncate long docker build output to keep the modal readable
+		errMsg := msg.Err.Error()
+		const maxErrLen = 200
+		if len(errMsg) > maxErrLen {
+			errMsg = errMsg[:maxErrLen] + "... (check logs for full output)"
+		}
+		m.modal.SetError("Failed to build container image: " + errMsg)
+		return m, nil
+	}
+
+	// Store the auto-built image tag
+	m.config.SetContainerImage(msg.Tag)
+
+	// Execute the pending action
 	if m.pendingContainerAction != nil {
 		action := m.pendingContainerAction
 		m.pendingContainerAction = nil
 		return action()
 	}
 	return m, nil
+}
+
+// handleContainerBuildingModal handles key events for the container building modal.
+// Only Esc is supported to cancel/dismiss.
+func (m *Model) handleContainerBuildingModal(key string, _ *ui.ContainerBuildingState) (tea.Model, tea.Cmd) {
+	switch key {
+	case keys.Escape:
+		m.pendingContainerAction = nil
+		m.modal.Hide()
+		return m, nil
+	}
+	return m, nil
+}
+
+// getContainerRepoPath returns the repo path to use for container language detection.
+// It checks the current modal state for a new session repo selection, falling back
+// to the active session's repo path.
+func (m *Model) getContainerRepoPath() string {
+	// Try to get from modal state (new session, broadcast, etc.)
+	if m.modal.State != nil {
+		switch s := m.modal.State.(type) {
+		case *ui.NewSessionState:
+			return s.GetSelectedRepo()
+		}
+	}
+	// Fall back to active session
+	if m.activeSession != nil {
+		return m.activeSession.RepoPath
+	}
+	return ""
 }
 
 // handleAddRepoModal handles key events for the Add Repository modal.
