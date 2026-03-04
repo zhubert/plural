@@ -93,6 +93,10 @@ func (m *Model) handleClaudeDone(sessionID string, runner claude.RunnerInterface
 		if !sess.Started {
 			m.config.MarkSessionStarted(sess.ID)
 			sess.Started = true
+			// Also update activeSession so subsequent sends don't re-trigger container init
+			if isActiveSession && m.activeSession != nil {
+				m.activeSession.Started = true
+			}
 			// Clear container init state now that session has started
 			// The callback in SessionManager already cleared SessionStateManager state
 			if isActiveSession {
