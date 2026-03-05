@@ -606,12 +606,11 @@ func (m *Model) createForkSession(repoPath, parentSessionID, branchName, branchP
 	m.sidebar.SetSessions(m.getFilteredSessions())
 	m.sidebar.SelectSession(sess.ID)
 	m.selectSession(sess)
+	m.modal.Hide()
 
 	if messageCopyFailed {
-		m.modal.Hide()
 		return m, m.ShowFlashWarning("Session created but conversation history could not be copied")
 	}
-	m.modal.Hide()
 	return m, nil
 }
 

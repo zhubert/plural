@@ -22,6 +22,11 @@ import (
 // Compile-time interface satisfaction check.
 var _ SessionManagerConfig = (*config.Config)(nil)
 
+// containerSystemPrompt is appended to the system prompt for containerized sessions.
+// It guides Claude to focus on code changes and skip test execution since the container
+// environment lacks databases, credentials, and services needed to run tests.
+const containerSystemPrompt = `You are running inside a container with language tools (via mise) for editing code, but WITHOUT databases, external services, credentials, or other infrastructure needed to run tests or start the application. Do NOT attempt to run tests, start servers, or execute the application. Focus on writing and editing code. Tests will be run by CI after you push your changes.`
+
 // DiffStats holds file change statistics for the header display
 type DiffStats struct {
 	FilesChanged int
@@ -403,6 +408,7 @@ func (sm *SessionManager) ConfigureRunnerDefaults(runner claude.RunnerInterface,
 	// Configure container mode if enabled for this session
 	if sess.Containerized {
 		runner.SetContainerized(true, sm.config.GetContainerImage(sess.RepoPath))
+		runner.SetSystemPrompt(containerSystemPrompt)
 		// Set callback to clear container init state when container is ready
 		sessionID := sess.ID
 		runner.SetOnContainerReady(func() {

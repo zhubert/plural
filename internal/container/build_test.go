@@ -53,11 +53,16 @@ func TestGenerateDockerfile_PythonOnly(t *testing.T) {
 	langs := []DetectedLang{{Language: LangPython, Version: "3.12"}}
 	df := GenerateDockerfile(langs, "v1.0.0")
 
-	if !strings.Contains(df, "python3") {
-		t.Error("expected python3 package")
+	// Python installed via mise, not apk
+	if !strings.Contains(df, "mise use --global python@3.12") {
+		t.Error("expected mise install of python@3.12")
 	}
-	if !strings.Contains(df, "py3-pip") {
-		t.Error("expected py3-pip package")
+	if !strings.Contains(df, "mise.run") {
+		t.Error("expected mise installation")
+	}
+	// Build deps still via apk
+	if !strings.Contains(df, "build-base") {
+		t.Error("expected build-base for Python compilation")
 	}
 }
 
@@ -65,12 +70,14 @@ func TestGenerateDockerfile_RubyOnly(t *testing.T) {
 	langs := []DetectedLang{{Language: LangRuby, Version: "3.2"}}
 	df := GenerateDockerfile(langs, "v1.0.0")
 
-	if !strings.Contains(df, "ruby") {
-		t.Error("expected ruby package")
+	// Ruby installed via mise, not apk
+	if !strings.Contains(df, "mise use --global ruby@3.2") {
+		t.Error("expected mise install of ruby@3.2")
 	}
-	if !strings.Contains(df, "ruby-dev") {
-		t.Error("expected ruby-dev package")
+	if !strings.Contains(df, "mise.run") {
+		t.Error("expected mise installation")
 	}
+	// Build deps still via apk
 	if !strings.Contains(df, "build-base") {
 		t.Error("expected build-base for native extensions")
 	}
@@ -110,8 +117,8 @@ func TestGenerateDockerfile_MultiLanguage(t *testing.T) {
 	if !strings.Contains(df, "golang:1.22-alpine") {
 		t.Error("expected Go builder stage")
 	}
-	if !strings.Contains(df, "python3") {
-		t.Error("expected Python packages")
+	if !strings.Contains(df, "mise use --global python@3.12") {
+		t.Error("expected mise install of Python")
 	}
 	if !strings.Contains(df, "gopls") {
 		t.Error("expected gopls")
@@ -361,8 +368,8 @@ func TestLanguageInstallBlock(t *testing.T) {
 		want    string
 		notWant string
 	}{
-		{LangPython, "python3", ""},
-		{LangRuby, "ruby-dev", ""},
+		{LangPython, "build-base", "python3"},
+		{LangRuby, "build-base", "ruby-dev"},
 		{LangRust, "cargo", ""},
 		{LangJava, "openjdk17", ""},
 		{LangNode, "", "nodejs"}, // Node is base image, no extra packages
@@ -409,4 +416,71 @@ func TestPluralDownloadBlock(t *testing.T) {
 			t.Error("release version should not use /latest/download/")
 		}
 	})
+}
+
+func TestMiseInstallBlock_RubyAndPython(t *testing.T) {
+	langs := []DetectedLang{
+		{Language: LangRuby, Version: "3.3"},
+		{Language: LangPython, Version: "3.12"},
+	}
+	block := miseInstallBlock(langs)
+
+	if !strings.Contains(block, "mise.run") {
+		t.Error("expected mise installation via mise.run")
+	}
+	if !strings.Contains(block, "mise use --global ruby@3.3") {
+		t.Error("expected mise use ruby@3.3")
+	}
+	if !strings.Contains(block, "mise use --global python@3.12") {
+		t.Error("expected mise use python@3.12")
+	}
+	if !strings.Contains(block, "mise/shims") {
+		t.Error("expected mise shims on PATH")
+	}
+	// mise installed and run as claude user via su-exec (legacy builder compat)
+	if !strings.Contains(block, "su-exec claude sh -c 'curl -fsSL https://mise.run") {
+		t.Error("expected mise installed as claude user via su-exec")
+	}
+	if !strings.Contains(block, "su-exec claude /home/claude/.local/bin/mise use") {
+		t.Error("expected mise invoked with full path as claude user")
+	}
+}
+
+func TestMiseInstallBlock_NoMiseLanguages(t *testing.T) {
+	langs := []DetectedLang{
+		{Language: LangGo, Version: "1.22"},
+		{Language: LangNode, Version: "20"},
+	}
+	block := miseInstallBlock(langs)
+
+	if block != "" {
+		t.Errorf("expected empty block for non-mise languages, got %q", block)
+	}
+}
+
+func TestMiseInstallBlock_DefaultVersion(t *testing.T) {
+	langs := []DetectedLang{
+		{Language: LangRuby}, // No version detected
+	}
+	block := miseInstallBlock(langs)
+
+	if !strings.Contains(block, "mise use --global ruby@3.2") {
+		t.Error("expected default ruby version 3.2")
+	}
+}
+
+func TestMiseInstallBlock_Empty(t *testing.T) {
+	block := miseInstallBlock(nil)
+	if block != "" {
+		t.Error("expected empty block for nil langs")
+	}
+}
+
+func TestGenerateDockerfile_MiseShimsInPath(t *testing.T) {
+	langs := []DetectedLang{{Language: LangRuby, Version: "3.3"}}
+	df := GenerateDockerfile(langs, "v1.0.0")
+
+	if !strings.Contains(df, "mise/shims") {
+		t.Error("expected mise shims directory in PATH")
+	}
 }
