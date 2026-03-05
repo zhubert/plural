@@ -156,7 +156,7 @@ states:
     choices:
       - variable: review_approved
         equals: true
-        next: merge
+        next: done
       - variable: changes_requested
         equals: true
         next: address_review
@@ -186,15 +186,6 @@ states:
       body: "PR has been awaiting review for 48 hours. Manual intervention required."
     next: notify_failed
     error: notify_failed
-
-  merge:
-    type: task
-    action: github.merge
-    params:
-      method: squash
-      cleanup: true
-    next: done
-    error: rebase
 
   notify_failed:
     type: task
