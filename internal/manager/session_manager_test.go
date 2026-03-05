@@ -1186,3 +1186,57 @@ func TestConfigureRunnerDefaults_NonDaemonManaged_GetsHostTools(t *testing.T) {
 		t.Error("non-daemon-managed autonomous supervisor session SHOULD have host tools enabled")
 	}
 }
+
+func TestConfigureRunnerDefaults_ContainerSystemPrompt(t *testing.T) {
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:            "container-session",
+				RepoPath:      "/test/repo",
+				WorkTree:      "/test/worktree",
+				Containerized: true,
+			},
+		},
+		AllowedTools:     []string{},
+		RepoAllowedTools: make(map[string][]string),
+	}
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	runner := claude.NewMockRunner("container-session", false, nil)
+	sess := sm.GetSession("container-session")
+	sm.ConfigureRunnerDefaults(runner, sess)
+
+	prompt := runner.GetSystemPrompt()
+	if prompt == "" {
+		t.Fatal("containerized session should have a system prompt set")
+	}
+	if !strings.Contains(prompt, "Do NOT attempt to run tests") {
+		t.Error("container system prompt should instruct Claude not to run tests")
+	}
+}
+
+func TestConfigureRunnerDefaults_NonContainerNoSystemPrompt(t *testing.T) {
+	cfg := &config.Config{
+		Repos: []string{"/test/repo"},
+		Sessions: []config.Session{
+			{
+				ID:       "host-session",
+				RepoPath: "/test/repo",
+				WorkTree: "/test/worktree",
+			},
+		},
+		AllowedTools:     []string{},
+		RepoAllowedTools: make(map[string][]string),
+	}
+	sm := NewSessionManager(cfg, git.NewGitService())
+
+	runner := claude.NewMockRunner("host-session", false, nil)
+	sess := sm.GetSession("host-session")
+	sm.ConfigureRunnerDefaults(runner, sess)
+
+	prompt := runner.GetSystemPrompt()
+	if prompt != "" {
+		t.Errorf("non-containerized session should not have a system prompt, got %q", prompt)
+	}
+}

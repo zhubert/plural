@@ -71,7 +71,6 @@ func (m *Model) handleModalKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleContainerCommandModal(key, s)
 	case *ui.ContainerBuildingState:
 		return m.handleContainerBuildingModal(key, s)
-
 	// Navigation modals (modal_handlers_navigation.go)
 	case *ui.WelcomeState:
 		return m.handleWelcomeModal(key, msg, s)

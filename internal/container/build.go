@@ -125,9 +125,15 @@ func GenerateDockerfile(langs []DetectedLang, version string) string {
 		b.WriteString("\n\n")
 	}
 
+	// Install mise and languages if needed
+	miseBlock := miseInstallBlock(langs)
+	if miseBlock != "" {
+		b.WriteString(miseBlock)
+	}
+
 	// Entrypoint script (embedded inline)
 	// Runs as root: updates Claude CLI, copies host config selectively, fixes permissions,
-	// then switches to claude user and execs `claude` with the passed arguments.
+	// activates mise if installed, then switches to claude user and execs `claude`.
 	b.WriteString("RUN printf '#!/bin/bash\\nset -e\\n")
 	b.WriteString("# Update Claude CLI if possible\\n")
 	b.WriteString("if [ -z \"$PLURAL_SKIP_UPDATE\" ]; then\\n")
@@ -157,12 +163,15 @@ func GenerateDockerfile(langs []DetectedLang, version string) string {
 
 // languageInstallBlock returns the apk add fragment for a given language.
 // Returns empty string for languages that don't need extra packages (e.g., Node is the base image).
+// Ruby and Python are installed via mise (see miseInstallBlock), not apk.
 func languageInstallBlock(lang Language) string {
 	switch lang {
-	case LangPython:
-		return " \\\n    python3 \\\n    py3-pip"
 	case LangRuby:
-		return " \\\n    ruby \\\n    ruby-dev \\\n    build-base"
+		// build-base needed for native gem extensions; Ruby itself installed via mise
+		return " \\\n    build-base \\\n    linux-headers \\\n    yaml-dev \\\n    zlib-dev \\\n    openssl-dev \\\n    readline-dev"
+	case LangPython:
+		// Build deps for Python; Python itself installed via mise
+		return " \\\n    build-base \\\n    zlib-dev \\\n    bzip2-dev \\\n    xz-dev \\\n    readline-dev \\\n    sqlite-dev \\\n    openssl-dev \\\n    libffi-dev"
 	case LangRust:
 		return " \\\n    cargo \\\n    rust"
 	case LangJava:
@@ -170,6 +179,48 @@ func languageInstallBlock(lang Language) string {
 	default:
 		return ""
 	}
+}
+
+// miseLanguages are languages that should be installed via mise instead of apk.
+var miseLanguages = map[Language]bool{
+	LangRuby:   true,
+	LangPython: true,
+}
+
+// miseInstallBlock generates Dockerfile commands to install mise and use it to
+// install the correct versions of Ruby, Python, etc. as the claude user.
+// Returns empty string if no mise-managed languages are detected.
+func miseInstallBlock(langs []DetectedLang) string {
+	var installs []string
+	for _, l := range langs {
+		if !miseLanguages[l.Language] {
+			continue
+		}
+		version := l.Version
+		if version == "" {
+			version = defaultVersions[l.Language]
+		}
+		installs = append(installs, fmt.Sprintf("%s@%s", l.Language, version))
+	}
+	if len(installs) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+
+	// Install mise and languages as the claude user via su-exec.
+	// su-exec avoids USER directive for legacy docker build compatibility.
+	// HOME must be set explicitly since su-exec doesn't set it.
+	b.WriteString("RUN HOME=/home/claude su-exec claude sh -c 'curl -fsSL https://mise.run | sh'\n\n")
+
+	// Install languages via mise as claude user
+	for _, install := range installs {
+		fmt.Fprintf(&b, "RUN HOME=/home/claude su-exec claude /home/claude/.local/bin/mise use --global %s\n", install)
+	}
+	// Add mise shims to PATH for all subsequent commands and the entrypoint
+	b.WriteString("ENV PATH=\"/home/claude/.local/share/mise/shims:$PATH\"\n\n")
+
+	return b.String()
 }
 
 // pluralDownloadBlock generates the RUN command to download the plural binary.
