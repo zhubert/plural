@@ -4,7 +4,7 @@
 
 Plural is a terminal interface for Claude Code. Run parallel sessions across branches and repos, fork when Claude offers competing approaches, import issues from GitHub/Asana/Linear, broadcast prompts across services, and create PRs—all from a keyboard-driven terminal interface.
 
-> **Looking for the headless agent?** See [plural-agent](https://github.com/zhubert/plural-agent) — an autonomous daemon that picks up issues, writes code, opens PRs, addresses review comments, and merges.
+> **Looking for the headless agent?** See [erg](https://zhubert.com/erg/) — an autonomous daemon that picks up issues, writes code, opens PRs, addresses review comments, and merges.
 
 ![Plural demo](docs/demo.gif)
 
