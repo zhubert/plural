@@ -52,16 +52,24 @@ tail -f ~/.plural/logs/stream-*.log    # Raw Claude stream messages (per-session
 main.go                    Entry point, calls cmd.Execute()
 cmd/                       CLI commands (Cobra)
 internal/
-├── app/                   Main Bubble Tea model (app.go, shortcuts.go, session_manager.go, modal_handlers*.go)
+├── app/                   Main Bubble Tea model (app.go, shortcuts.go, modal_handlers*.go)
+├── changelog/             Changelog management for GitHub releases
 ├── claude/                Claude CLI wrapper (runner in claude.go, process in process_manager.go)
+├── claudeconfig/          Claude CLI configuration helpers
+├── cli/                   CLI prerequisites checking
+├── clipboard/             Cross-platform clipboard operations
 ├── config/                Config and session structs, persists to ~/.plural/ or XDG dirs
-├── demo/                  Demo recording infrastructure (scenarios in demo/scenarios/)
+├── container/             Container build and detection
 ├── exec/                  CommandExecutor interface (RealExecutor, MockExecutor)
 ├── git/                   GitService - all git operations with context propagation
-├── issues/                Issue providers (GitHub via gh CLI, Asana via REST API)
+├── issues/                Issue providers (GitHub via gh CLI, Asana via REST API, Linear via GraphQL)
 ├── keys/                  Key string constants for Bubble Tea v2 key events
+├── logger/                Structured logging framework
+├── manager/               SessionManager - runner lifecycle and session state
 ├── mcp/                   MCP server for permission prompts via Unix socket IPC
+├── notification/          Notification handling
 ├── paths/                 XDG Base Directory path resolution
+├── plugins/               Plugin system support
 ├── process/               Find/kill orphaned Claude processes and Docker containers
 ├── session/               SessionService - worktree creation/management
 ├── ui/                    Bubble Tea UI components (chat, sidebar, header, footer, modals/)
@@ -79,7 +87,7 @@ Default: `~/.plural/`. Supports XDG Base Directory Specification (see `internal/
 - **Bubble Tea Model-Update-View** with `tea.Msg` for events
 - **Focus system**: Tab switches between sidebar and chat
 - **Streaming**: Claude responses stream via channel as `ClaudeResponseMsg`
-- **Runner caching**: Claude runners cached by session ID in `claudeRunners` map
+- **Runner caching**: Claude runners cached by session ID in `runners` map (in `SessionManager`)
 - **Thread-safe config**: Uses `sync.RWMutex`
 - **State machine**: `AppState` enum (StateIdle, StateStreamingClaude)
 - **Service pattern**: `GitService` and `SessionService` use explicit dependency injection with `CommandExecutor` interface for testability. All I/O methods take `context.Context` as first param. Use `NewXxxServiceWithExecutor()` for mocking in tests.
@@ -115,7 +123,7 @@ To add a new shortcut:
 ### Permission System
 
 1. Claude CLI started with `--permission-prompt-tool mcp__plural__permission`
-2. MCP server communicates with TUI via Unix socket (`/tmp/plural-<session-id>.sock`)
+2. MCP server communicates with TUI via Unix socket (`/tmp/pl-<shortID>.sock`, first 12 chars of session ID)
 3. Permission prompts appear inline in chat (y/n/a responses)
 4. Allowed tools: defaults + global (`allowed_tools`) + per-repo (`repo_allowed_tools`)
 
