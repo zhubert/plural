@@ -99,10 +99,6 @@ plural --version          # Show version
 plural help               # Show help
 plural clean              # Remove sessions, logs, worktrees, and containers
 plural clean -y           # Clean without confirmation
-
-plural workflow init      # Scaffold .plural/workflow.yaml for current repo
-plural workflow validate  # Validate .plural/workflow.yaml
-plural workflow visualize # Generate mermaid workflow diagram
 ```
 
 ## Data Storage
