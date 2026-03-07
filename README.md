@@ -80,7 +80,7 @@ Auth: `ANTHROPIC_API_KEY` env var, macOS keychain (`anthropic_api_key`), OAuth t
 - **Tool use rollup** (`Ctrl+T`) — toggle collapsed/expanded tool operations
 - **Log viewer** (`Ctrl+L`) — debug, MCP, and stream logs
 - **Cost tracking** (`/cost`) — token usage and estimated cost
-- **8 themes** — press `t` to switch (tokyo-night, dracula, nord, gruvbox, catppuccin, and more)
+- **8 themes** — switch via settings (tokyo-night, dracula, nord, gruvbox, catppuccin, and more)
 - **MCP servers and plugins** (`/mcp`, `/plugins`)
 - **Per-repo settings** for allowed tools, squash-on-merge, and issue provider mapping
 - **Settings** — global with `Alt+,`, per-session with `,`
