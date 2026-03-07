@@ -1,5 +1,5 @@
 workflow: plan-then-code
-start: planning
+start: plan
 
 source:
   provider: github
@@ -7,185 +7,40 @@ source:
     label: plan
 
 states:
-  planning:
-    type: task
-    action: ai.plan
-    params:
-      max_turns: 30
-      max_duration: 15m
-      containerized: true
-    next: await_plan_feedback
-    error: notify_failed
+  plan:
+    type: template
+    use: builtin:plan
+    exits:
+      success: code
+      failure: notify_failed
 
-  await_plan_feedback:
-    type: wait
-    event: plan.user_replied
-    timeout: 72h
-    timeout_next: plan_expired
-    params:
-      approval_pattern: '(?i)(LGTM|looks good|approved?|proceed|go ahead|ship it)'
-    next: check_plan_feedback
-    error: notify_failed
+  code:
+    type: template
+    use: builtin:code
+    exits:
+      success: pr
+      failure: notify_failed
 
-  check_plan_feedback:
-    type: choice
-    choices:
-      - variable: plan_approved
-        equals: true
-        next: coding
-      - variable: plan_approved
-        equals: false
-        next: planning
-    default: notify_failed
+  pr:
+    type: template
+    use: builtin:pr
+    exits:
+      success: ci
+      failure: notify_failed
 
-  plan_expired:
-    type: task
-    action: github.comment_issue
-    params:
-      body: "Plan has been awaiting feedback for 72 hours. Moving to failed."
-    next: notify_failed
-    error: notify_failed
+  ci:
+    type: template
+    use: builtin:ci
+    exits:
+      success: review
+      failure: notify_failed
 
-  coding:
-    type: task
-    action: ai.code
-    params:
-      max_turns: 50
-      max_duration: 30m
-      containerized: true
-    next: open_pr
-    error: notify_failed
-
-  open_pr:
-    type: task
-    action: github.create_pr
-    params:
-      link_issue: true
-    next: await_ci
-    error: notify_failed
-
-  await_ci:
-    type: wait
-    event: ci.complete
-    timeout: 2h
-    timeout_next: ci_timed_out
-    params:
-      on_failure: fix
-    next: check_ci
-    error: notify_failed
-
-  check_ci:
-    type: choice
-    choices:
-      - variable: conflicting
-        equals: true
-        next: rebase
-      - variable: ci_passed
-        equals: true
-        next: await_review
-      - variable: ci_failed
-        equals: true
-        next: fix_ci
-    default: notify_failed
-
-  rebase:
-    type: task
-    action: git.rebase
-    params:
-      max_rebase_rounds: 3
-    next: await_ci
-    error: resolve_conflicts
-
-  resolve_conflicts:
-    type: task
-    action: ai.resolve_conflicts
-    params:
-      max_conflict_rounds: 3
-    next: push_conflict_fix
-    error: notify_failed
-
-  push_conflict_fix:
-    type: task
-    action: github.push
-    next: await_ci
-    error: notify_failed
-
-  fix_ci:
-    type: task
-    action: ai.fix_ci
-    params:
-      max_ci_fix_rounds: 3
-    next: push_ci_fix
-    error: ci_unfixable
-
-  push_ci_fix:
-    type: task
-    action: github.push
-    next: await_ci
-    error: notify_failed
-
-  ci_unfixable:
-    type: task
-    action: github.comment_pr
-    params:
-      body: "CI fix exhausted after 3 rounds. Manual intervention required."
-    next: notify_failed
-    error: notify_failed
-
-  ci_timed_out:
-    type: task
-    action: github.comment_pr
-    params:
-      body: "CI has been running for over 2 hours. Manual intervention required."
-    next: notify_failed
-    error: notify_failed
-
-  await_review:
-    type: wait
-    event: pr.reviewed
-    timeout: 48h
-    timeout_next: review_overdue
-    params:
-      auto_address: true
-      max_feedback_rounds: 3
-    next: check_review_result
-    error: notify_failed
-
-  check_review_result:
-    type: choice
-    choices:
-      - variable: review_approved
-        equals: true
-        next: done
-      - variable: changes_requested
-        equals: true
-        next: address_review
-      - variable: pr_merged_externally
-        equals: true
-        next: done
-    default: notify_failed
-
-  address_review:
-    type: task
-    action: ai.address_review
-    params:
-      max_feedback_rounds: 3
-    next: push_review_fix
-    error: notify_failed
-
-  push_review_fix:
-    type: task
-    action: github.push
-    next: await_review
-    error: notify_failed
-
-  review_overdue:
-    type: task
-    action: github.comment_pr
-    params:
-      body: "PR has been awaiting review for 48 hours. Manual intervention required."
-    next: notify_failed
-    error: notify_failed
+  review:
+    type: template
+    use: builtin:review
+    exits:
+      success: done
+      failure: notify_failed
 
   notify_failed:
     type: task
