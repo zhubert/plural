@@ -1,11 +1,14 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/zhubert/plural/internal/logger"
 )
@@ -52,6 +55,10 @@ func getSlashCommands() []slashCommandDef {
 			name:        "plugins",
 			description: "Manage plugin directories",
 		},
+		{
+			name:        "status",
+			description: "Show session and Claude CLI status",
+		},
 	}
 }
 
@@ -82,6 +89,8 @@ func (m *Model) handleSlashCommand(input string) SlashCommandResult {
 		return handleMCPCommand(m, args)
 	case "plugin", "plugins":
 		return handlePluginsCommand(m, args)
+	case "status":
+		return handleStatusCommand(m, args)
 	default:
 		// Unknown slash command - let Claude handle it (might be a custom command)
 		logger.Get().Debug("unknown slash command, passing to Claude", "command", cmdName)
@@ -309,6 +318,118 @@ func getSessionUsageStats(sessionID string, workingDir string) (*UsageStats, err
 	stats.EstimatedCostUSD = inputCost + outputCost + cacheWriteCost + cacheReadCost
 
 	return stats, nil
+}
+
+// claudeAuthStatus represents the JSON output of `claude auth status`.
+type claudeAuthStatus struct {
+	LoggedIn         bool    `json:"loggedIn"`
+	AuthMethod       string  `json:"authMethod"`
+	APIProvider      string  `json:"apiProvider"`
+	Email            string  `json:"email"`
+	OrgID            string  `json:"orgId"`
+	OrgName          *string `json:"orgName"`
+	SubscriptionType string  `json:"subscriptionType"`
+}
+
+// loginMethodDisplay returns a human-readable login method string.
+func (a *claudeAuthStatus) loginMethodDisplay() string {
+	switch a.SubscriptionType {
+	case "max":
+		return "Claude Max Account"
+	case "pro":
+		return "Claude Pro Account"
+	case "team":
+		return "Claude Team Account"
+	case "enterprise":
+		return "Claude Enterprise Account"
+	default:
+		if a.AuthMethod == "api-key" || a.AuthMethod == "apiKey" {
+			return "API Key"
+		}
+		if a.AuthMethod != "" {
+			return a.AuthMethod
+		}
+		return "Unknown"
+	}
+}
+
+// runClaudeAuthStatus executes `claude auth status` and parses the JSON output.
+// Extracted as a variable for testability.
+var runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "claude", "auth", "status")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run claude auth status: %w", err)
+	}
+
+	var status claudeAuthStatus
+	if err := json.Unmarshal(output, &status); err != nil {
+		return nil, fmt.Errorf("failed to parse auth status: %w", err)
+	}
+	return &status, nil
+}
+
+// runClaudeVersion executes `claude --version` and returns the version string.
+// Extracted as a variable for testability.
+var runClaudeVersion = func() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "claude", "--version")
+	output, err := cmd.Output()
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// handleStatusCommand shows session and Claude CLI status information.
+func handleStatusCommand(m *Model, _ string) SlashCommandResult {
+	var sb strings.Builder
+	sb.WriteString("**Status**\n\n")
+
+	// Claude CLI version
+	version := runClaudeVersion()
+	fmt.Fprintf(&sb, "  Version: %s\n", version)
+
+	// Session info
+	if m.activeSession != nil {
+		sess := m.activeSession
+		name := sess.Name
+		if name == "" {
+			name = "(unnamed)"
+		}
+		fmt.Fprintf(&sb, "  Session name: %s\n", name)
+		fmt.Fprintf(&sb, "  Session ID: %s\n", sess.ID)
+		fmt.Fprintf(&sb, "  cwd: %s\n", sess.WorkTree)
+	} else {
+		sb.WriteString("  Session: none\n")
+	}
+
+	// Auth status
+	authStatus, err := runClaudeAuthStatus()
+	if err != nil {
+		logger.Get().Debug("failed to get claude auth status", "error", err)
+		sb.WriteString("  Login: could not determine\n")
+	} else if !authStatus.LoggedIn {
+		sb.WriteString("  Login: not logged in\n")
+	} else {
+		fmt.Fprintf(&sb, "  Login method: %s\n", authStatus.loginMethodDisplay())
+		if authStatus.OrgName != nil && *authStatus.OrgName != "" {
+			fmt.Fprintf(&sb, "  Organization: %s\n", *authStatus.OrgName)
+		}
+		if authStatus.Email != "" {
+			fmt.Fprintf(&sb, "  Email: %s\n", authStatus.Email)
+		}
+	}
+
+	return SlashCommandResult{
+		Handled:  true,
+		Response: sb.String(),
+	}
 }
 
 // formatNumber formats a number with thousand separators.

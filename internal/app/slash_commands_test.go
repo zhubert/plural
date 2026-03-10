@@ -2,8 +2,11 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/zhubert/plural/internal/config"
 )
 
 func TestFormatNumber(t *testing.T) {
@@ -44,7 +47,7 @@ func TestHandleHelpCommand(t *testing.T) {
 	}
 
 	// Check that the response contains expected commands
-	expected := []string{"/cost", "/help", "/mcp", "Plural Slash Commands"}
+	expected := []string{"/cost", "/help", "/mcp", "/status", "Plural Slash Commands"}
 	for _, exp := range expected {
 		if !strings.Contains(result.Response, exp) {
 			t.Errorf("handleHelpCommand response should contain %q", exp)
@@ -84,7 +87,7 @@ func TestGetSlashCommands(t *testing.T) {
 	}
 
 	// Check that required commands exist
-	expectedCommands := []string{"cost", "help", "mcp", "plugins"}
+	expectedCommands := []string{"cost", "help", "mcp", "plugins", "status"}
 	for _, expected := range expectedCommands {
 		found := false
 		for _, cmd := range commands {
@@ -262,6 +265,202 @@ func TestSessionJSONLEntry_WithCache(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// /status Command Tests
+// =============================================================================
+
+func TestHandleStatusCommand_NoSession(t *testing.T) {
+	// Override the CLI calls for testing
+	origVersion := runClaudeVersion
+	origAuth := runClaudeAuthStatus
+	defer func() {
+		runClaudeVersion = origVersion
+		runClaudeAuthStatus = origAuth
+	}()
+
+	runClaudeVersion = func() string { return "2.1.72 (Claude Code)" }
+	runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+		orgName := "My Org"
+		return &claudeAuthStatus{
+			LoggedIn:         true,
+			AuthMethod:       "claude.ai",
+			Email:            "test@example.com",
+			OrgName:          &orgName,
+			SubscriptionType: "max",
+		}, nil
+	}
+
+	m := &Model{activeSession: nil}
+	result := handleStatusCommand(m, "")
+
+	if !result.Handled {
+		t.Error("handleStatusCommand should return Handled=true")
+	}
+
+	// Should show version
+	if !strings.Contains(result.Response, "2.1.72") {
+		t.Error("Response should contain version")
+	}
+
+	// Should show no session
+	if !strings.Contains(result.Response, "Session: none") {
+		t.Error("Response should indicate no active session")
+	}
+
+	// Should show auth info
+	if !strings.Contains(result.Response, "Claude Max Account") {
+		t.Errorf("Response should contain login method, got: %s", result.Response)
+	}
+	if !strings.Contains(result.Response, "test@example.com") {
+		t.Error("Response should contain email")
+	}
+	if !strings.Contains(result.Response, "My Org") {
+		t.Error("Response should contain organization")
+	}
+}
+
+func TestHandleStatusCommand_WithSession(t *testing.T) {
+	origVersion := runClaudeVersion
+	origAuth := runClaudeAuthStatus
+	defer func() {
+		runClaudeVersion = origVersion
+		runClaudeAuthStatus = origAuth
+	}()
+
+	runClaudeVersion = func() string { return "2.1.72" }
+	runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+		return &claudeAuthStatus{
+			LoggedIn:         true,
+			AuthMethod:       "claude.ai",
+			Email:            "user@test.com",
+			SubscriptionType: "pro",
+		}, nil
+	}
+
+	m := &Model{
+		activeSession: &config.Session{
+			ID:       "abc-123-def",
+			Name:     "my-feature",
+			WorkTree: "/home/user/project",
+		},
+	}
+	result := handleStatusCommand(m, "")
+
+	if !result.Handled {
+		t.Error("handleStatusCommand should return Handled=true")
+	}
+	if !strings.Contains(result.Response, "my-feature") {
+		t.Error("Response should contain session name")
+	}
+	if !strings.Contains(result.Response, "abc-123-def") {
+		t.Error("Response should contain session ID")
+	}
+	if !strings.Contains(result.Response, "/home/user/project") {
+		t.Error("Response should contain cwd")
+	}
+	if !strings.Contains(result.Response, "Claude Pro Account") {
+		t.Errorf("Response should contain login method, got: %s", result.Response)
+	}
+}
+
+func TestHandleStatusCommand_AuthError(t *testing.T) {
+	origVersion := runClaudeVersion
+	origAuth := runClaudeAuthStatus
+	defer func() {
+		runClaudeVersion = origVersion
+		runClaudeAuthStatus = origAuth
+	}()
+
+	runClaudeVersion = func() string { return "2.1.72" }
+	runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+		return nil, fmt.Errorf("command not found")
+	}
+
+	m := &Model{activeSession: nil}
+	result := handleStatusCommand(m, "")
+
+	if !result.Handled {
+		t.Error("handleStatusCommand should return Handled=true")
+	}
+	if !strings.Contains(result.Response, "could not determine") {
+		t.Error("Response should indicate auth failure")
+	}
+}
+
+func TestHandleStatusCommand_NotLoggedIn(t *testing.T) {
+	origVersion := runClaudeVersion
+	origAuth := runClaudeAuthStatus
+	defer func() {
+		runClaudeVersion = origVersion
+		runClaudeAuthStatus = origAuth
+	}()
+
+	runClaudeVersion = func() string { return "2.1.72" }
+	runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+		return &claudeAuthStatus{LoggedIn: false}, nil
+	}
+
+	m := &Model{activeSession: nil}
+	result := handleStatusCommand(m, "")
+
+	if !strings.Contains(result.Response, "not logged in") {
+		t.Error("Response should indicate not logged in")
+	}
+}
+
+func TestHandleStatusCommand_UnnamedSession(t *testing.T) {
+	origVersion := runClaudeVersion
+	origAuth := runClaudeAuthStatus
+	defer func() {
+		runClaudeVersion = origVersion
+		runClaudeAuthStatus = origAuth
+	}()
+
+	runClaudeVersion = func() string { return "2.1.72" }
+	runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+		return &claudeAuthStatus{LoggedIn: true, SubscriptionType: "max"}, nil
+	}
+
+	m := &Model{
+		activeSession: &config.Session{
+			ID:       "test-id",
+			Name:     "",
+			WorkTree: "/tmp/work",
+		},
+	}
+	result := handleStatusCommand(m, "")
+
+	if !strings.Contains(result.Response, "(unnamed)") {
+		t.Error("Response should show (unnamed) for sessions without a name")
+	}
+}
+
+func TestClaudeAuthStatus_LoginMethodDisplay(t *testing.T) {
+	tests := []struct {
+		name     string
+		status   claudeAuthStatus
+		expected string
+	}{
+		{"max subscription", claudeAuthStatus{SubscriptionType: "max"}, "Claude Max Account"},
+		{"pro subscription", claudeAuthStatus{SubscriptionType: "pro"}, "Claude Pro Account"},
+		{"team subscription", claudeAuthStatus{SubscriptionType: "team"}, "Claude Team Account"},
+		{"enterprise subscription", claudeAuthStatus{SubscriptionType: "enterprise"}, "Claude Enterprise Account"},
+		{"api key auth", claudeAuthStatus{AuthMethod: "api-key"}, "API Key"},
+		{"apiKey auth", claudeAuthStatus{AuthMethod: "apiKey"}, "API Key"},
+		{"other auth method", claudeAuthStatus{AuthMethod: "oauth"}, "oauth"},
+		{"unknown", claudeAuthStatus{}, "Unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.status.loginMethodDisplay()
+			if result != tt.expected {
+				t.Errorf("loginMethodDisplay() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestSlashCommandDef(t *testing.T) {
 	cmd := slashCommandDef{
 		name:        "test",
@@ -282,6 +481,18 @@ func TestSlashCommandDef(t *testing.T) {
 // =============================================================================
 
 func TestHandleSlashCommand_Dispatcher(t *testing.T) {
+	// Mock CLI calls for /status command
+	origVersion := runClaudeVersion
+	origAuth := runClaudeAuthStatus
+	defer func() {
+		runClaudeVersion = origVersion
+		runClaudeAuthStatus = origAuth
+	}()
+	runClaudeVersion = func() string { return "2.1.72" }
+	runClaudeAuthStatus = func() (*claudeAuthStatus, error) {
+		return &claudeAuthStatus{LoggedIn: true, SubscriptionType: "max"}, nil
+	}
+
 	cfg := testConfigWithSessions()
 	m := testModelWithSize(cfg, 120, 40)
 	m.sidebar.SetSessions(cfg.Sessions)
@@ -327,6 +538,12 @@ func TestHandleSlashCommand_Dispatcher(t *testing.T) {
 			input:       "/plugin",
 			wantHandled: true,
 			wantAction:  ActionOpenPlugins,
+		},
+		{
+			name:         "status returns info",
+			input:        "/status",
+			wantHandled:  true,
+			wantResponse: "Status",
 		},
 		{
 			name:        "unknown command is not handled",
