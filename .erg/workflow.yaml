@@ -17,6 +17,8 @@ states:
   code:
     type: template
     use: builtin:code
+    params:
+      simplify: true
     exits:
       success: pr
       failure: notify_failed
@@ -31,6 +33,8 @@ states:
   ci:
     type: template
     use: builtin:ci
+    params:
+      simplify: true
     exits:
       success: review
       failure: notify_failed
@@ -38,6 +42,8 @@ states:
   review:
     type: template
     use: builtin:review
+    params:
+      simplify: true
     exits:
       success: done
       failure: notify_failed
