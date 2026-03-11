@@ -235,8 +235,12 @@ func pluralDownloadBlock(version, arch string) string {
 		b.WriteString("    mv /tmp/plural /usr/local/bin/plural && \\\n")
 		b.WriteString("    chmod +x /usr/local/bin/plural\n\n")
 	} else {
-		// Exact version download
-		fmt.Fprintf(&b, "RUN curl -sfL \"https://github.com/zhubert/plural/releases/download/%s/plural_Linux_%s.tar.gz\" | tar -xz -C /tmp plural && \\\n", version, arch)
+		// Exact version download — ensure "v" prefix for GitHub release tag
+		tag := version
+		if !strings.HasPrefix(tag, "v") {
+			tag = "v" + tag
+		}
+		fmt.Fprintf(&b, "RUN curl -sfL \"https://github.com/zhubert/plural/releases/download/%s/plural_Linux_%s.tar.gz\" | tar -xz -C /tmp plural && \\\n", tag, arch)
 		b.WriteString("    mv /tmp/plural /usr/local/bin/plural && \\\n")
 		b.WriteString("    chmod +x /usr/local/bin/plural\n\n")
 	}

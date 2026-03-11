@@ -416,6 +416,13 @@ func TestPluralDownloadBlock(t *testing.T) {
 			t.Error("release version should not use /latest/download/")
 		}
 	})
+
+	t.Run("version without v prefix gets v added", func(t *testing.T) {
+		block := pluralDownloadBlock("1.2.0", "arm64")
+		if !strings.Contains(block, "/download/v1.2.0/") {
+			t.Errorf("version without v prefix should get v added, got: %s", block)
+		}
+	})
 }
 
 func TestMiseInstallBlock_RubyAndPython(t *testing.T) {
