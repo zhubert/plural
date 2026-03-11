@@ -356,7 +356,10 @@ func TestFooter_View_UserInfo_WidthTooNarrow(t *testing.T) {
 	footer.SetUserInfo("user@example.com")
 
 	// Should not panic; user info is silently dropped when there is no room
-	_ = footer.View()
+	view := footer.View()
+	if strings.Contains(view, "user@example.com") {
+		t.Error("User info should be suppressed when width is too narrow")
+	}
 }
 
 func TestFooter_NewlineShortcutDisplay(t *testing.T) {

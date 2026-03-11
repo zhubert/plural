@@ -28,8 +28,8 @@ func TestAuthStatus_DisplayString(t *testing.T) {
 		},
 		{
 			name:     "logged in with email and org",
-			status:   &AuthStatus{LoggedIn: true, Email: "zack@planningcenter.com", OrgName: "Planning Center"},
-			expected: "zack@planningcenter.com @ Planning Center",
+			status:   &AuthStatus{LoggedIn: true, Email: "user2@example.com", OrgName: "Example Org"},
+			expected: "user2@example.com @ Example Org",
 		},
 		{
 			name:     "logged in with auth method only",
@@ -70,10 +70,10 @@ func TestAuthStatus_JSONParsing(t *testing.T) {
 	}{
 		{
 			name:       "full valid JSON",
-			jsonInput:  `{"loggedIn":true,"authMethod":"claude.ai","email":"zack@planningcenter.com","orgName":"Planning Center"}`,
+			jsonInput:  `{"loggedIn":true,"authMethod":"claude.ai","email":"user2@example.com","orgName":"Example Org"}`,
 			wantLogin:  true,
-			wantEmail:  "zack@planningcenter.com",
-			wantOrg:    "Planning Center",
+			wantEmail:  "user2@example.com",
+			wantOrg:    "Example Org",
 			wantMethod: "claude.ai",
 		},
 		{
