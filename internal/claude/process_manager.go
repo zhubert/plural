@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zhubert/plural/internal/claudeconfig"
 	"github.com/zhubert/plural/internal/paths"
 )
 
@@ -998,9 +999,9 @@ type containerRunResult struct {
 // buildContainerRunArgs constructs the arguments for `docker run` that wraps
 // the Claude CLI process inside a Docker container.
 func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (containerRunResult, error) {
-	homeDir, err := os.UserHomeDir()
+	claudeDir, err := claudeconfig.GetClaudeConfigDir()
 	if err != nil {
-		return containerRunResult{}, fmt.Errorf("failed to determine home directory: %w", err)
+		return containerRunResult{}, fmt.Errorf("failed to determine claude config directory: %w", err)
 	}
 
 	containerName := "plural-" + config.SessionID
@@ -1013,7 +1014,7 @@ func buildContainerRunArgs(config ProcessConfig, claudeArgs []string) (container
 		"run", "-i", "--rm",
 		"--name", containerName,
 		"-v", config.WorkingDir + ":/workspace",
-		"-v", homeDir + "/.claude:/home/claude/.claude-host:ro",
+		"-v", claudeDir + ":/home/claude/.claude-host:ro",
 		"-w", "/workspace",
 	}
 
@@ -1172,15 +1173,15 @@ func readKeychainOAuthToken() string {
 	return creds.ClaudeAiOauth.AccessToken
 }
 
-// credentialsFileExists checks whether ~/.claude/.credentials.json exists.
+// credentialsFileExists checks whether .credentials.json exists in the Claude config dir.
 // This file is created by "claude login" (interactive OAuth) and contains
 // refresh tokens that Claude CLI can use to obtain access tokens.
 func credentialsFileExists() bool {
-	home, err := os.UserHomeDir()
+	dir, err := claudeconfig.GetClaudeConfigDir()
 	if err != nil {
 		return false
 	}
-	_, err = os.Stat(filepath.Join(home, ".claude", ".credentials.json"))
+	_, err = os.Stat(filepath.Join(dir, ".credentials.json"))
 	return err == nil
 }
 

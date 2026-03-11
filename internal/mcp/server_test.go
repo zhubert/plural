@@ -986,6 +986,45 @@ func TestReadPlanFromPath(t *testing.T) {
 	})
 }
 
+func TestValidatePlanPath_ClaudeConfigDir(t *testing.T) {
+	// When CLAUDE_CONFIG_DIR is set, plans must be under that directory.
+	customDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	plansDir := filepath.Join(customDir, "plans")
+
+	tests := []struct {
+		name    string
+		path    string
+		wantErr bool
+	}{
+		{
+			name:    "valid path in custom plans directory",
+			path:    filepath.Join(plansDir, "my-plan.md"),
+			wantErr: false,
+		},
+		{
+			name:    "path in default ~/.claude/plans is rejected when CLAUDE_CONFIG_DIR is set",
+			path:    filepath.Join(os.Getenv("HOME"), ".claude", "plans", "plan.md"),
+			wantErr: true,
+		},
+		{
+			name:    "path traversal still rejected",
+			path:    filepath.Join(plansDir, "..", "..", "etc", "passwd"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validatePlanPath(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validatePlanPath(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidatePlanPath(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {

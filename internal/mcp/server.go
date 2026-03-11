@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/zhubert/plural/internal/claudeconfig"
 	"github.com/zhubert/plural/internal/logger"
 )
 
@@ -896,16 +897,16 @@ func (s *Server) readPlanFromPath(planPath string) string {
 	return string(content)
 }
 
-// validatePlanPath ensures the given path resolves to within ~/.claude/plans/.
+// validatePlanPath ensures the given path resolves to within the Claude plans directory.
 // This prevents path traversal attacks where a malicious filePath argument
 // could read arbitrary files from the filesystem.
 func validatePlanPath(planPath string) error {
-	homeDir, err := os.UserHomeDir()
+	claudeDir, err := claudeconfig.GetClaudeConfigDir()
 	if err != nil {
-		return fmt.Errorf("cannot determine home directory: %w", err)
+		return fmt.Errorf("cannot determine claude config directory: %w", err)
 	}
 
-	allowedDir := filepath.Join(homeDir, ".claude", "plans")
+	allowedDir := filepath.Join(claudeDir, "plans")
 
 	// Clean and resolve the path to eliminate ../ traversal
 	absPath, err := filepath.Abs(planPath)
