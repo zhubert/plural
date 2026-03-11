@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zhubert/plural/internal/claudeconfig"
 	"github.com/zhubert/plural/internal/logger"
 )
 
@@ -33,11 +34,11 @@ type Plugin struct {
 
 // getClaudeDir returns the Claude config directory path
 func getClaudeDir() string {
-	home, err := os.UserHomeDir()
+	dir, err := claudeconfig.GetClaudeConfigDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".claude")
+	return dir
 }
 
 // knownMarketplacesFile is the structure of ~/.claude/plugins/known_marketplaces.json

@@ -2273,6 +2273,45 @@ func TestBuildCommandArgs_DisableStreamingChunks(t *testing.T) {
 	})
 }
 
+func TestCredentialsFileExists_WithClaudeConfigDir(t *testing.T) {
+	// Create a custom directory pointed to by CLAUDE_CONFIG_DIR
+	customDir := t.TempDir()
+	credFile := filepath.Join(customDir, ".credentials.json")
+	if err := os.WriteFile(credFile, []byte(`{"refreshToken":"test"}`), 0600); err != nil {
+		t.Fatalf("failed to create credentials file: %v", err)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+	// Point HOME at an empty dir to ensure we're not falling back
+	t.Setenv("HOME", t.TempDir())
+
+	if !credentialsFileExists() {
+		t.Error("credentialsFileExists should return true when CLAUDE_CONFIG_DIR is set and .credentials.json exists there")
+	}
+}
+
+func TestBuildContainerRunArgs_ClaudeConfigDir(t *testing.T) {
+	// When CLAUDE_CONFIG_DIR is set, the volume mount should use that directory
+	customDir := "/custom/claude/config"
+	t.Setenv("CLAUDE_CONFIG_DIR", customDir)
+
+	config := ProcessConfig{
+		SessionID:      "test-configdir",
+		WorkingDir:     "/tmp",
+		ContainerImage: "plural-claude",
+	}
+
+	result, err := buildContainerRunArgs(config, []string{"--print"})
+	if err != nil {
+		t.Fatalf("buildContainerRunArgs failed: %v", err)
+	}
+
+	expectedMount := customDir + ":/home/claude/.claude-host:ro"
+	if !containsArg(result.Args, expectedMount) {
+		t.Errorf("args should contain volume mount %q, got: %v", expectedMount, result.Args)
+	}
+}
+
 func TestCredentialsFileExists_WithFile(t *testing.T) {
 	// Create a temp directory to act as home
 	tmpHome := t.TempDir()
