@@ -282,6 +282,83 @@ func TestFooter_MultiSelectMode_FlashTakesPriority(t *testing.T) {
 	}
 }
 
+func TestFooter_SetUserInfo(t *testing.T) {
+	footer := NewFooter()
+
+	if footer.userInfo != "" {
+		t.Error("Expected empty userInfo initially")
+	}
+
+	footer.SetUserInfo("user@example.com")
+	if footer.userInfo != "user@example.com" {
+		t.Errorf("Expected userInfo to be 'user@example.com', got %q", footer.userInfo)
+	}
+
+	footer.SetUserInfo("")
+	if footer.userInfo != "" {
+		t.Error("Expected userInfo to be cleared")
+	}
+}
+
+func TestFooter_View_UserInfo(t *testing.T) {
+	footer := NewFooter()
+	footer.SetWidth(120)
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{
+			{Key: "n", Desc: "new session"},
+			{Key: "q", Desc: "quit"},
+		}
+	})
+	footer.SetContext(true, true, false, false, false, false, false, false, false, false)
+
+	// Without user info, should not contain any email
+	viewWithout := footer.View()
+	if strings.Contains(viewWithout, "user@example.com") {
+		t.Error("Should not contain user info when not set")
+	}
+
+	// With user info, should contain the email
+	footer.SetUserInfo("user@example.com")
+	viewWith := footer.View()
+	if !strings.Contains(viewWith, "user@example.com") {
+		t.Error("Should contain user info when set")
+	}
+}
+
+func TestFooter_View_UserInfo_FlashTakesPriority(t *testing.T) {
+	footer := NewFooter()
+	footer.SetWidth(120)
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{{Key: "q", Desc: "quit"}}
+	})
+	footer.SetContext(true, true, false, false, false, false, false, false, false, false)
+	footer.SetUserInfo("user@example.com")
+	footer.SetFlash("Something went wrong", FlashError)
+
+	view := footer.View()
+	// Flash takes priority: user info should not appear
+	if strings.Contains(view, "user@example.com") {
+		t.Error("Flash should take priority over user info")
+	}
+	if !strings.Contains(view, "Something went wrong") {
+		t.Error("Flash message should be visible")
+	}
+}
+
+func TestFooter_View_UserInfo_WidthTooNarrow(t *testing.T) {
+	footer := NewFooter()
+	// Very narrow width — user info should be suppressed rather than overlap keybindings
+	footer.SetWidth(10)
+	footer.SetBindingsGenerator(func() []KeyBinding {
+		return []KeyBinding{{Key: "n", Desc: "new session"}}
+	})
+	footer.SetContext(true, true, false, false, false, false, false, false, false, false)
+	footer.SetUserInfo("user@example.com")
+
+	// Should not panic; user info is silently dropped when there is no room
+	_ = footer.View()
+}
+
 func TestFooter_NewlineShortcutDisplay(t *testing.T) {
 	footer := NewFooter()
 	footer.SetWidth(120)

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/zhubert/plural/internal/changelog"
 	"github.com/zhubert/plural/internal/claude"
+	"github.com/zhubert/plural/internal/claudeauth"
 	"github.com/zhubert/plural/internal/claudeconfig"
 	"github.com/zhubert/plural/internal/clipboard"
 	"github.com/zhubert/plural/internal/config"
@@ -201,6 +202,12 @@ type CreateChildRequestMsg struct {
 	Request   mcp.CreateChildRequest
 }
 
+// AuthStatusFetchedMsg is sent when the Claude auth status has been fetched at startup
+type AuthStatusFetchedMsg struct {
+	Status *claudeauth.AuthStatus
+	Error  error
+}
+
 // ListChildrenRequestMsg is sent when the supervisor's MCP tool list_child_sessions is called
 type ListChildrenRequestMsg struct {
 	SessionID string
@@ -380,6 +387,10 @@ func (m *Model) Init() tea.Cmd {
 			return StartupModalMsg{}
 		},
 		PRPollTick(),
+		func() tea.Msg {
+			status, err := claudeauth.GetAuthStatus()
+			return AuthStatusFetchedMsg{Status: status, Error: err}
+		},
 	)
 }
 
@@ -721,6 +732,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StartupModalMsg:
 		return m.handleStartupModals()
+
+	case AuthStatusFetchedMsg:
+		if msg.Error == nil && msg.Status != nil {
+			if display := msg.Status.DisplayString(); display != "" {
+				m.footer.SetUserInfo(display)
+			}
+		}
+		return m, tea.Batch(cmds...)
 
 	case ui.HelpShortcutTriggeredMsg:
 		// Handle shortcut triggered from help modal

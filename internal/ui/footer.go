@@ -64,6 +64,7 @@ type Footer struct {
 	hasDetectedOptions bool          // Whether chat has detected options for parallel exploration
 	kittyKeyboard      bool          // Terminal supports Kitty keyboard protocol
 	flashMessage       *FlashMessage // Current flash message, if any
+	userInfo           string        // Logged-in user info (e.g. email or email @ org)
 
 	// Dynamic bindings generator (injected from app)
 	getApplicableBindings func() []KeyBinding
@@ -96,6 +97,12 @@ func (f *Footer) SetWidth(width int) {
 // SetBindingsGenerator injects the function to generate applicable bindings dynamically
 func (f *Footer) SetBindingsGenerator(fn func() []KeyBinding) {
 	f.getApplicableBindings = fn
+}
+
+// SetUserInfo sets the logged-in user info string to display in the footer.
+// An empty string hides the user info.
+func (f *Footer) SetUserInfo(info string) {
+	f.userInfo = info
 }
 
 // GetApplicableBindings returns the current bindings (for testing)
@@ -338,6 +345,17 @@ func (f *Footer) View() string {
 	}
 
 	content := strings.Join(parts, footerSeparator())
+
+	// Append right-aligned user info when available
+	if f.userInfo != "" {
+		userInfoStyled := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(f.userInfo)
+		contentWidth := lipgloss.Width(content)
+		userInfoWidth := lipgloss.Width(userInfoStyled)
+		padding := f.width - contentWidth - userInfoWidth
+		if padding > 0 {
+			content = content + strings.Repeat(" ", padding) + userInfoStyled
+		}
+	}
 
 	// Use MaxHeight(1) to ensure footer never wraps to multiple lines
 	return FooterStyle.Width(f.width).MaxHeight(1).Render(content)
