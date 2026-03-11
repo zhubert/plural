@@ -15,8 +15,8 @@ type AuthStatus struct {
 }
 
 // GetAuthStatus runs `claude auth status --output-format json` and returns the parsed result.
-// It returns nil without an error when the output cannot be parsed, so callers can fail
-// silently when the command is unavailable or outputs an unexpected format.
+// It returns a non-nil error if the command is unavailable, fails to run, or if the output
+// cannot be parsed as valid JSON.
 func GetAuthStatus() (*AuthStatus, error) {
 	cmd := exec.Command("claude", "auth", "status", "--output-format", "json")
 	output, err := cmd.Output()

@@ -346,12 +346,15 @@ func (f *Footer) View() string {
 
 	content := strings.Join(parts, footerSeparator())
 
-	// Append right-aligned user info when available
+	// Append right-aligned user info when available.
+	// Account for horizontal padding applied by FooterStyle (currently Padding(0, 1)).
 	if f.userInfo != "" {
 		userInfoStyled := lipgloss.NewStyle().Foreground(ColorTextMuted).Render(f.userInfo)
 		contentWidth := lipgloss.Width(content)
 		userInfoWidth := lipgloss.Width(userInfoStyled)
-		padding := f.width - contentWidth - userInfoWidth
+		const leftPad, rightPad = 1, 1
+		innerWidth := f.width - leftPad - rightPad
+		padding := innerWidth - contentWidth - userInfoWidth
 		if padding > 0 {
 			content = content + strings.Repeat(" ", padding) + userInfoStyled
 		}
