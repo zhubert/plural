@@ -423,6 +423,16 @@ func TestPluralDownloadBlock(t *testing.T) {
 			t.Errorf("version without v prefix should get v added, got: %s", block)
 		}
 	})
+
+	t.Run("downloads to file before extracting", func(t *testing.T) {
+		block := pluralDownloadBlock("v1.0.0", "arm64")
+		if !strings.Contains(block, "-o /tmp/plural.tar.gz") {
+			t.Error("should download to file first")
+		}
+		if !strings.Contains(block, "-f /tmp/plural.tar.gz") {
+			t.Error("should extract from downloaded file")
+		}
+	})
 }
 
 func TestMiseInstallBlock_RubyAndPython(t *testing.T) {

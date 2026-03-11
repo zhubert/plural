@@ -229,21 +229,26 @@ func miseInstallBlock(langs []DetectedLang) string {
 func pluralDownloadBlock(version, arch string) string {
 	var b strings.Builder
 
+	var url string
 	if version == "" || version == "dev" {
 		// Use latest release URL pattern (no API call needed)
-		fmt.Fprintf(&b, "RUN curl -sfL \"https://github.com/zhubert/plural/releases/latest/download/plural_Linux_%s.tar.gz\" | tar -xz -C /tmp plural && \\\n", arch)
-		b.WriteString("    mv /tmp/plural /usr/local/bin/plural && \\\n")
-		b.WriteString("    chmod +x /usr/local/bin/plural\n\n")
+		url = fmt.Sprintf("https://github.com/zhubert/plural/releases/latest/download/plural_Linux_%s.tar.gz", arch)
 	} else {
 		// Exact version download — ensure "v" prefix for GitHub release tag
 		tag := version
 		if !strings.HasPrefix(tag, "v") {
 			tag = "v" + tag
 		}
-		fmt.Fprintf(&b, "RUN curl -sfL \"https://github.com/zhubert/plural/releases/download/%s/plural_Linux_%s.tar.gz\" | tar -xz -C /tmp plural && \\\n", tag, arch)
-		b.WriteString("    mv /tmp/plural /usr/local/bin/plural && \\\n")
-		b.WriteString("    chmod +x /usr/local/bin/plural\n\n")
+		url = fmt.Sprintf("https://github.com/zhubert/plural/releases/download/%s/plural_Linux_%s.tar.gz", tag, arch)
 	}
+
+	// Download to file first so curl failures surface clearly instead of
+	// producing misleading tar errors (e.g. "invalid magic" on a 404).
+	fmt.Fprintf(&b, "RUN curl -sfL -o /tmp/plural.tar.gz \"%s\" && \\\n", url)
+	b.WriteString("    tar -xz -C /tmp plural -f /tmp/plural.tar.gz && \\\n")
+	b.WriteString("    rm /tmp/plural.tar.gz && \\\n")
+	b.WriteString("    mv /tmp/plural /usr/local/bin/plural && \\\n")
+	b.WriteString("    chmod +x /usr/local/bin/plural\n\n")
 
 	return b.String()
 }
